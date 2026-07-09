@@ -470,13 +470,13 @@ impl StateManager {
         native_object_changed: bool,
         native_object_gas_adjusted: u64,
     ) -> Result<bool> {
-        let mut account = self.load_account_or_default(owner)?;
-        let old_balances = account.token_balances.clone();
-        let native_balance_after_account_changes = account.native_balance();
+        let mut owner_state = self.load_owner_state_or_default(owner)?;
+        let old_balances = owner_state.token_balances.clone();
+        let native_balance_after_account_changes = owner_state.native_balance();
         let mut aggregated = self.compute_owned_token_balances(owner, None)?;
 
         let native_object_balance = aggregated.remove(KANARI_TOKEN_TYPE);
-        account.token_balances = aggregated
+        owner_state.token_balances = aggregated
             .into_iter()
             .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
             .collect();
@@ -494,10 +494,10 @@ impl StateManager {
         } else {
             native_balance_after_account_changes
         };
-        account.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
-        self.save_owner_state(&account)?;
+        owner_state.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
+        self.save_owner_state(&owner_state)?;
 
-        Ok(self.capture_supply_changed(&account, &old_balances))
+        Ok(self.capture_supply_changed(&owner_state, &old_balances))
     }
     /// Get token decimals for a specific token type
     pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {

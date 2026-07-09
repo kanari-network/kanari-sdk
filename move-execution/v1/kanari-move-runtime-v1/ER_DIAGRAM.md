@@ -16,8 +16,8 @@ erDiagram
     
     %% State Management
     StateManager ||--|| PersistentStore : persists_to
-    StateManager ||--o{ Account : manages
-    Account ||--o{ StoredObject : owns
+    StateManager ||--o{ OwnerState : manages
+    OwnerState ||--o{ StoredObject : owns
     StoredObject }o--|| ObjectStorage : stored_in
     
     %% Move VM Integration
@@ -45,8 +45,8 @@ erDiagram
     
     %% Relationships Notes
     CreatedObject }o--|| StoredObject : converts_to
-    AccountChange }o--|| Account : applies_to
-    Event }o--|| Account : emitted_by
+    AccountChange }o--|| OwnerState : applies_to
+    Event }o--|| OwnerState : emitted_by
 ```
 
 ## Detailed Component Relationships
@@ -90,7 +90,7 @@ graph TD
     
     G[MoveVMState] --> B
     H[CreatedObject] --> C
-    I[Account] --> B
+    I[OwnerState] --> B
 ```
 
 ## Types → Source Mapping (with line links)
@@ -108,7 +108,7 @@ graph TD
 ### State Management
 
 - **StateManager**: [src/state.rs#L75](src/state.rs#L75)
-- **Account**: [src/state.rs#L28](src/state.rs#L28)
+- **OwnerState**: [src/state.rs#L42](src/state.rs#L42)
 - **PersistentStore**: [src/storage/persistent_store.rs#L69](src/storage/persistent_store.rs#L69)
 - **ObjectStorage**: [src/storage/object_storage.rs#L106](src/storage/object_storage.rs#L106)
 - **StoredObject**: [src/storage/object_storage.rs#L127](src/storage/object_storage.rs#L127)

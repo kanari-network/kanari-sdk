@@ -208,7 +208,7 @@ fn main() {
     // for (addr, account) in state.accounts.iter() {
     //     if !account.token_balances.is_empty() {
     //         println!(
-    //             "Account {:#x} token balances: {:?}",
+    //             "OwnerState {:#x} token balances: {:?}",
     //             addr, account.token_balances
     //         );
     //     }

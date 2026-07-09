@@ -53,8 +53,8 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
 
     // Verify final balance
     let alice_account = state
-        .get_account(&alice)
-        .invariant("Alice account should exist");
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist");
     let final_balance = alice_account.get_token_balance(token_type);
 
     println!("Final balance for Alice: {}", final_balance);
@@ -139,8 +139,8 @@ fn test_changeset_consolidation_with_treasury() -> Result<()> {
 
     // Verify Bob's balance
     let bob_account = state
-        .get_account(&bob)
-        .invariant("Bob account should exist");
+        .get_owner_state(&bob)
+        .invariant("Bob owner state should exist");
     let bob_balance = bob_account.get_token_balance(token_type);
 
     println!("Bob's final balance: {}", bob_balance);
@@ -183,10 +183,14 @@ fn test_multiple_owners_and_token_types() -> Result<()> {
     state.apply_changeset(&cs4)?;
 
     // Verify all balances
-    let alice_account = state.get_account(&alice).invariant("Alice should exist");
+    let alice_account = state
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist");
     let alice_kanari = alice_account.get_token_balance(token_kanari);
 
-    let bob_account = state.get_account(&bob).invariant("Bob should exist");
+    let bob_account = state
+        .get_owner_state(&bob)
+        .invariant("Bob owner state should exist");
     let bob_thb = bob_account.get_token_balance(token_thb);
 
     println!("Alice KANARI balance: {}", alice_kanari);
@@ -223,8 +227,8 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
     state.apply_changeset(&cs1)?;
 
     let first = state
-        .get_account(&alice)
-        .invariant("Alice account should exist after first mint")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist after first mint")
         .get_token_balance(token_type);
     assert_eq!(first, 100, "first mint should be visible immediately");
 
@@ -248,8 +252,8 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
     state.apply_changeset(&cs2)?;
 
     let second = state
-        .get_account(&alice)
-        .invariant("Alice account should exist after second mint")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist after second mint")
         .get_token_balance(token_type);
     assert_eq!(
         second, 150,
@@ -269,8 +273,8 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let mut state = StateManager::new_in_memory();
 
     // Initialize Alice's account with balance for storing Coins
-    let account = kanari_move_runtime_v1::state::Account::new(alice);
-    state.save_account(&account)?;
+    let owner_state = kanari_move_runtime_v1::state::OwnerState::new(alice);
+    state.save_owner_state(&owner_state)?;
 
     let token_type = "0x2::james::JAMES";
 
@@ -298,8 +302,8 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     state.apply_changeset(&cs1)?;
 
     let balance_after_mint1 = state
-        .get_account(&alice)
-        .invariant("Alice should exist")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist")
         .get_token_balance(token_type);
     println!("After mint 1: {}", balance_after_mint1);
     assert_eq!(balance_after_mint1, 100, "First mint should result in 100");
@@ -327,8 +331,8 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     state.apply_changeset(&cs2)?;
 
     let balance_after_mint2 = state
-        .get_account(&alice)
-        .invariant("Alice should exist")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist")
         .get_token_balance(token_type);
     println!("After mint 2: {}", balance_after_mint2);
     assert_eq!(
@@ -382,8 +386,8 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     state.apply_changeset(&cs_transfer)?;
 
     let balance_after_transfer = state
-        .get_account(&alice)
-        .invariant("Alice should exist")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state should exist")
         .get_token_balance(token_type);
     println!("After self-transfer: {}", balance_after_transfer);
 
@@ -405,8 +409,8 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     let alice = AccountAddress::from_hex_literal("0x01").invariant("valid test address");
     let mut state = StateManager::new_in_memory();
-    let account = kanari_move_runtime_v1::state::Account::new(alice);
-    state.save_account(&account)?;
+    let owner_state = kanari_move_runtime_v1::state::OwnerState::new(alice);
+    state.save_owner_state(&owner_state)?;
 
     let token_type = "0x2::james::JAMES";
 
@@ -431,8 +435,8 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     state.apply_changeset(&cs_mint1)?;
     let bal1 = state
-        .get_account(&alice)
-        .invariant("Alice exists")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state exists")
         .get_token_balance(token_type);
     println!("After mint 1: {}", bal1);
     assert_eq!(bal1, 100);
@@ -458,8 +462,8 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     state.apply_changeset(&cs_mint2)?;
     let bal2 = state
-        .get_account(&alice)
-        .invariant("Alice exists")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state exists")
         .get_token_balance(token_type);
     println!("After mint 2: {}", bal2);
     assert_eq!(bal2, 200);
@@ -488,8 +492,8 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     state.apply_changeset(&cs_split)?;
     let bal3 = state
-        .get_account(&alice)
-        .invariant("Alice exists")
+        .get_owner_state(&alice)
+        .invariant("Alice owner state exists")
         .get_token_balance(token_type);
     println!("After self-transfer: {}", bal3);
 

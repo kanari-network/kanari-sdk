@@ -629,20 +629,20 @@ impl StateManager {
     where
         I: IntoIterator<Item = (AccountAddress, u64)>,
     {
-        let mut account_index_additions = Vec::new();
+        let mut owner_index_additions = Vec::new();
 
         for (address, increment) in sequence_increments {
             if increment == 0 {
                 continue;
             }
 
-            let mut account = self.load_account_or_default(address)?;
-            account.sequence_number = account.sequence_number.saturating_add(increment);
-            self.save_account_record(&account)?;
-            account_index_additions.push(account.address.to_hex_literal());
+            let mut owner_state = self.load_owner_state_or_default(address)?;
+            owner_state.sequence_number = owner_state.sequence_number.saturating_add(increment);
+            self.save_account_record(&owner_state)?;
+            owner_index_additions.push(owner_state.address.to_hex_literal());
         }
 
-        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)
+        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, owner_index_additions)
     }
 
     fn save_account_record(&mut self, account: &OwnerState) -> Result<()> {
@@ -683,27 +683,13 @@ impl StateManager {
             .unwrap_or_else(|| OwnerState::new(address)))
     }
 
-    fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
-        self.load_owner_state_or_default(address)
-    }
-
     pub fn load_owner_state(&self, owner: &AccountAddress) -> Result<Option<OwnerState>> {
         self.load_internal(&Self::owner_state_key(owner))
-    }
-
-    /// Legacy alias for owner-state loading.
-    pub fn load_account(&self, address: &AccountAddress) -> Result<Option<Account>> {
-        self.load_owner_state(address)
     }
 
     pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
         self.save_account_record(owner_state)?;
         self.add_to_index_list(ACCOUNT_INDEX_KEY, owner_state.address.to_hex_literal())
-    }
-
-    /// Legacy alias for owner-state saving.
-    pub fn save_account(&mut self, account: &Account) -> Result<()> {
-        self.save_owner_state(account)
     }
 
     pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {
@@ -720,11 +706,6 @@ impl StateManager {
         }
     }
 
-    /// Legacy alias for owner-state lookup.
-    pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
-        self.get_owner_state(address)
-    }
-
     pub fn get_owner_state_by_hex(&self, owner: &str) -> Option<OwnerState> {
         // Use Address::parse_to_account_address which handles tagged addresses,
         // tagged public keys (hashing), and regular 0x addresses.
@@ -737,10 +718,6 @@ impl StateManager {
             );
             None
         }
-    }
-
-    pub fn get_account_by_hex(&self, hex_address: &str) -> Option<Account> {
-        self.get_owner_state_by_hex(hex_address)
     }
 
     fn balance_token_amount(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
@@ -830,11 +807,6 @@ impl StateManager {
         Ok(())
     }
 
-    /// Legacy alias for owner-sequence validation.
-    pub fn validate_sequence(&self, addr: &AccountAddress, expected_seq: u64) -> Result<()> {
-        self.validate_owner_sequence(addr, expected_seq)
-    }
-
     /// Get the total number of owners with persisted owner state.
     pub fn owner_count(&self) -> usize {
         self.load_index_list(ACCOUNT_INDEX_KEY)
@@ -842,14 +814,7 @@ impl StateManager {
             .unwrap_or(0)
     }
 
-    /// Legacy alias for owner-count queries.
-    pub fn account_count(&self) -> usize {
-        self.owner_count()
-    }
 }
-
-/// Legacy alias kept while internal call sites migrate to owner-centric naming.
-pub type Account = OwnerState;
 
 #[cfg(test)]
 #[path = "../tests/unit/state_tests.rs"]

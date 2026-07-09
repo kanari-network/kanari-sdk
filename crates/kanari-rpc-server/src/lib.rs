@@ -313,7 +313,7 @@ mod tests {
         response::Response,
     };
     use kanari_core::kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-    use kanari_core::kanari_move_runtime_v1::state::{Account, StateManager};
+    use kanari_core::kanari_move_runtime_v1::state::{OwnerState, StateManager};
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_rpc_api::methods;
     use kanari_types::balance::BalanceRecord;
@@ -381,17 +381,17 @@ mod tests {
         state
             .apply_changeset(&cs)
             .invariant("seed runtime state changeset");
-        let mut account = state
-            .get_account(&owner)
-            .unwrap_or_else(|| Account::new(owner));
-        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(500));
+        let mut owner_state = state
+            .get_owner_state(&owner)
+            .unwrap_or_else(|| OwnerState::new(owner));
+        owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(500));
         state
-            .save_account(&account)
-            .invariant("seed runtime state account");
+            .save_owner_state(&owner_state)
+            .invariant("seed runtime state owner state");
         assert_eq!(
             state
-                .get_account(&owner)
-                .invariant("seeded owner account")
+                .get_owner_state(&owner)
+                .invariant("seeded owner state")
                 .get_token_balance(KANARI_TOKEN_TYPE),
             500
         );
@@ -412,15 +412,15 @@ mod tests {
     }
 
     fn fund_test_account(engine: &BlockchainEngine, address: &str, balance: u64) {
-        let owner = AccountAddress::from_hex_literal(address).invariant("valid account address");
-        let mut account = Account::with_native_balance(owner, balance);
-        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+        let owner = AccountAddress::from_hex_literal(address).invariant("valid owner address");
+        let mut owner_state = OwnerState::with_native_balance(owner, balance);
+        owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
         engine
             .state
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .save_account(&account)
-            .invariant("fund test account");
+            .save_owner_state(&owner_state)
+            .invariant("fund test owner state");
     }
 
     async fn rpc_call(

@@ -2,7 +2,7 @@ use anyhow::Result;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_move_runtime_v1::{
     ChangeSet,
-    state::{Account, StateManager},
+    state::{OwnerState, StateManager},
 };
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -56,18 +56,18 @@ fn restart_recovery_preserves_native_supply_invariants() -> Result<()> {
     );
     initial_state.validate_supply_invariants()?;
 
-    initial_state.save_account(&Account::with_native_balance(alice, GENESIS_SUPPLY))?;
+    initial_state.save_owner_state(&OwnerState::with_native_balance(alice, GENESIS_SUPPLY))?;
     initial_state.commit()?;
     initial_state.validate_supply_invariants()?;
     drop(initial_state);
 
     let mut reopened_state = open_state(&db_path)?;
     assert_eq!(reopened_state.total_supply, GENESIS_SUPPLY);
-    assert_eq!(reopened_state.account_count(), 1);
+    assert_eq!(reopened_state.owner_count(), 1);
     assert_eq!(
         reopened_state
-            .load_account(&alice)?
-            .invariant("alice account must persist")
+            .load_owner_state(&alice)?
+            .invariant("alice owner state must persist")
             .native_balance(),
         GENESIS_SUPPLY
     );
@@ -81,15 +81,15 @@ fn restart_recovery_preserves_native_supply_invariants() -> Result<()> {
     assert_eq!(reopened_state.total_supply, GENESIS_SUPPLY);
     assert_eq!(
         reopened_state
-            .load_account(&alice)?
-            .invariant("alice account must remain present")
+            .load_owner_state(&alice)?
+            .invariant("alice owner state must remain present")
             .native_balance(),
         GENESIS_SUPPLY - transfer_amount
     );
     assert_eq!(
         reopened_state
-            .load_account(&bob)?
-            .invariant("bob account must be created by transfer")
+            .load_owner_state(&bob)?
+            .invariant("bob owner state must be created by transfer")
             .native_balance(),
         transfer_amount
     );
@@ -97,15 +97,15 @@ fn restart_recovery_preserves_native_supply_invariants() -> Result<()> {
 
     let final_state = open_state(&db_path)?;
     assert_eq!(final_state.total_supply, GENESIS_SUPPLY);
-    assert_eq!(final_state.account_count(), 2);
+    assert_eq!(final_state.owner_count(), 2);
     assert_eq!(
         final_state
-            .load_account(&alice)?
-            .invariant("alice account must survive restart")
+            .load_owner_state(&alice)?
+            .invariant("alice owner state must survive restart")
             .native_balance()
             + final_state
-                .load_account(&bob)?
-                .invariant("bob account must survive restart")
+                .load_owner_state(&bob)?
+                .invariant("bob owner state must survive restart")
                 .native_balance(),
         GENESIS_SUPPLY
     );

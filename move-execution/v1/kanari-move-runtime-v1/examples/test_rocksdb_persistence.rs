@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use kanari_move_runtime_v1::{
-    state::{Account, StateManager},
+    state::{OwnerState, StateManager},
     storage::persistent_store::PersistentStore,
 };
 use kanari_types::address::Address;
@@ -25,11 +25,11 @@ fn main() -> Result<()> {
     let store1 = Arc::new(PersistentStore::open_with_path(Some(db_path.clone())).unwrap());
     let mut state1 = StateManager::new(store1.clone());
 
-    // Create an account
-    println!("2. Creating account {:?} with balance 1000", addr);
-    let mut account = Account::with_native_balance(acc_addr, 1000);
-    account.increment_sequence();
-    state1.save_account(&account)?;
+    // Create owner state
+    println!("2. Creating owner state {:?} with balance 1000", addr);
+    let mut owner_state = OwnerState::with_native_balance(acc_addr, 1000);
+    owner_state.increment_sequence();
+    state1.save_owner_state(&owner_state)?;
 
     // Commit changes
     println!("3. Committing state to disk...");
@@ -50,23 +50,29 @@ fn main() -> Result<()> {
     let store2 = Arc::new(PersistentStore::open_with_path(Some(db_path.clone())).unwrap());
     let state2 = StateManager::new(store2.clone());
 
-    // Verify account
-    println!("5. Verifying account state...");
-    let account = state2.get_account(&acc_addr).expect("Account should exist");
+    // Verify owner state
+    println!("5. Verifying owner state...");
+    let owner_state = state2
+        .get_owner_state(&acc_addr)
+        .expect("Owner state should exist");
 
     assert_eq!(
-        account.get_token_balance(KANARI_TOKEN_TYPE),
+        owner_state.get_token_balance(KANARI_TOKEN_TYPE),
         1000,
         "Balance should be 1000"
     );
-    assert_eq!(account.sequence_number, 1, "Sequence number should be 1");
+    assert_eq!(
+        owner_state.sequence_number,
+        1,
+        "Sequence number should be 1"
+    );
 
-    println!("   Account verification successful!");
+    println!("   Owner-state verification successful!");
     println!(
         "   Balance: {}",
-        account.get_token_balance(KANARI_TOKEN_TYPE)
+        owner_state.get_token_balance(KANARI_TOKEN_TYPE)
     );
-    println!("   Sequence: {}", account.sequence_number);
+    println!("   Sequence: {}", owner_state.sequence_number);
 
     // Verify state root matches
     let root = state2.compute_state_root();

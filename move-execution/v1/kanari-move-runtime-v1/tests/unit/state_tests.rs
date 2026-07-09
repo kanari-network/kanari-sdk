@@ -31,7 +31,7 @@ fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(alice, 500))?;
+    state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 400)?;
     state.global_token_supplies.insert(
         KANARI_TOKEN_TYPE.to_string(),
@@ -55,7 +55,7 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(alice, 500))?;
+    state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 600)?;
     state.global_token_supplies.insert(
         KANARI_TOKEN_TYPE.to_string(),
@@ -307,7 +307,7 @@ fn compute_state_root_is_stable_across_in_memory_commit() -> Result<()> {
     );
     assert!(
         state
-            .get_account(&publisher)
+            .get_owner_state(&publisher)
             .map(|account| account.modules.contains("example"))
             .unwrap_or(false)
     );
@@ -320,8 +320,8 @@ fn compute_state_root_ignores_runtime_local_store_keys() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
     let mut state = StateManager::new_in_memory();
 
-    let account = Account::with_native_balance(owner, 100);
-    state.save_account(&account)?;
+    let owner_state = OwnerState::with_native_balance(owner, 100);
+    state.save_owner_state(&owner_state)?;
     state.commit()?;
     let root_before = state.compute_state_root();
 
@@ -486,7 +486,7 @@ fn apply_changeset_rejects_insufficient_debit_without_partial_writes() -> Result
     let sender = AccountAddress::from_hex_literal("0x1111")?;
     let recipient = AccountAddress::from_hex_literal("0x2222")?;
     let mut state = StateManager::new_in_memory();
-    state.save_account(&Account::with_native_balance(sender, 5))?;
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 5))?;
     let root_before = state.compute_state_root();
 
     let mut changeset = ChangeSet::new();
@@ -495,10 +495,10 @@ fn apply_changeset_rejects_insufficient_debit_without_partial_writes() -> Result
     let error = state.apply_changeset(&changeset).unwrap_err();
     assert!(error.to_string().contains("Insufficient native balance"));
     assert_eq!(state.compute_state_root(), root_before);
-    assert!(state.get_account(&recipient).is_none());
+    assert!(state.get_owner_state(&recipient).is_none());
     assert_eq!(
         state
-            .get_account(&sender)
+            .get_owner_state(&sender)
             .invariant("sender account should exist")
             .native_balance(),
         5
@@ -513,7 +513,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
     let recipient = AccountAddress::from_hex_literal("0x2222")?;
     let mut state = StateManager::new_in_memory();
 
-    state.save_account(&Account::with_native_balance(sender, 500))?;
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 500))?;
     set_native_supply_for_test(&mut state, 400)?;
     state
         .global_token_supplies
@@ -521,7 +521,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
 
     let root_before = state.compute_state_root();
     let sender_balance_before = state
-        .get_account(&sender)
+        .get_owner_state(&sender)
         .invariant("sender account should exist")
         .native_balance();
 
@@ -531,10 +531,10 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
     let error = state.apply_changeset(&changeset).unwrap_err();
     assert!(error.to_string().contains("native supply overcount"));
     assert_eq!(state.compute_state_root(), root_before);
-    assert!(state.get_account(&recipient).is_none());
+    assert!(state.get_owner_state(&recipient).is_none());
     assert_eq!(
         state
-            .get_account(&sender)
+            .get_owner_state(&sender)
             .invariant("sender account should exist")
             .native_balance(),
         sender_balance_before
@@ -548,7 +548,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     let owner = kanari_types::address::Address::dev_account_address();
     let mut state = StateManager::new_in_memory();
     let before_balance = state
-        .get_account(&owner)
+        .get_owner_state(&owner)
         .invariant("owner account should exist")
         .native_balance();
     let before_visible = state.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
@@ -569,7 +569,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
 
     assert_eq!(
         state
-            .get_account(&owner)
+            .get_owner_state(&owner)
             .invariant("owner account should exist")
             .native_balance(),
         before_balance
@@ -591,7 +591,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(owner, 500))?;
+    state.save_owner_state(&OwnerState::with_native_balance(owner, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 500)?;
     state.global_token_supplies.insert(
         KANARI_TOKEN_TYPE.to_string(),
@@ -599,7 +599,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     );
 
     let before_balance = state
-        .get_account(&owner)
+        .get_owner_state(&owner)
         .invariant("owner account should exist")
         .native_balance();
 
@@ -608,7 +608,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     gas_only.collect_gas(dao, 210);
     state.apply_changeset(&gas_only)?;
     let after_gas_balance = state
-        .get_account(&owner)
+        .get_owner_state(&owner)
         .invariant("owner account should exist")
         .native_balance();
     assert_eq!(after_gas_balance, before_balance - 210);
@@ -631,7 +631,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
 
     assert_eq!(
         state
-            .get_account(&owner)
+            .get_owner_state(&owner)
             .invariant("owner account should exist")
             .native_balance(),
         after_gas_balance
@@ -702,21 +702,21 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
 
     assert_eq!(
         state
-            .get_account(&alice)
+            .get_owner_state(&alice)
             .invariant("alice account should exist")
             .native_balance(),
         890
     );
     assert_eq!(
         state
-            .get_account(&bob)
+            .get_owner_state(&bob)
             .invariant("bob account should exist")
             .native_balance(),
         100
     );
     assert_eq!(
         state
-            .get_account(&gas_collector)
+            .get_owner_state(&gas_collector)
             .invariant("gas collector account should exist")
             .native_balance(),
         10
@@ -739,7 +739,7 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(alice, 1_000))?;
+    state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
     state.global_token_supplies.insert(
         KANARI_TOKEN_TYPE.to_string(),
@@ -755,14 +755,14 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
 
     assert_eq!(
         state
-            .get_account(&alice)
+            .get_owner_state(&alice)
             .invariant("alice account should exist")
             .native_balance(),
         900
     );
     assert_eq!(
         state
-            .get_account(&bob)
+            .get_owner_state(&bob)
             .invariant("bob account should exist")
             .native_balance(),
         100
@@ -783,8 +783,8 @@ fn get_account_returns_none_for_missing_account() -> Result<()> {
     let state = StateManager::new_in_memory();
     let missing = AccountAddress::from_hex_literal("0x4242")?;
 
-    assert!(state.get_account(&missing).is_none());
-    assert!(state.get_account_by_hex("0x4242").is_none());
+    assert!(state.get_owner_state(&missing).is_none());
+    assert!(state.get_owner_state_by_hex("0x4242").is_none());
 
     Ok(())
 }
@@ -837,21 +837,21 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
 
     assert_eq!(
         state
-            .get_account(&alice)
+            .get_owner_state(&alice)
             .map(|account| account.native_balance())
             .unwrap_or(0),
         0
     );
     assert_eq!(
         state
-            .get_account(&bob)
+            .get_owner_state(&bob)
             .invariant("bob account should exist")
             .native_balance(),
         990
     );
     assert_eq!(
         state
-            .get_account(&gas_collector)
+            .get_owner_state(&gas_collector)
             .invariant("gas collector account should exist")
             .native_balance(),
         10
@@ -875,7 +875,7 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(sender, 10_000))?;
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
     state.global_token_supplies.insert(
         KANARI_TOKEN_TYPE.to_string(),
@@ -898,14 +898,14 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     );
     assert_eq!(
         state
-            .get_account(&sender)
+            .get_owner_state(&sender)
             .invariant("sender account should exist")
             .native_balance(),
         9_790
     );
     assert_eq!(
         state
-            .get_account(&gas_collector)
+            .get_owner_state(&gas_collector)
             .invariant("gas collector account should exist")
             .native_balance(),
         210
@@ -982,8 +982,8 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(sender, 10_000))?;
-    state.save_account(&Account::with_native_balance(stale_account, 6_614))?;
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
+    state.save_owner_state(&OwnerState::with_native_balance(stale_account, 6_614))?;
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
 
     let mut mint = ChangeSet::new();
@@ -996,21 +996,21 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
 
     assert_eq!(
         state
-            .get_account(&stale_account)
+            .get_owner_state(&stale_account)
             .invariant("stale account should still exist")
             .native_balance(),
         0
     );
     assert_eq!(
         state
-            .get_account(&sender)
+            .get_owner_state(&sender)
             .invariant("sender account should exist")
             .native_balance(),
         9_790
     );
     assert_eq!(
         state
-            .get_account(&gas_collector)
+            .get_owner_state(&gas_collector)
             .invariant("gas collector account should exist")
             .native_balance(),
         210
@@ -1046,8 +1046,8 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_account(&Account::with_native_balance(sender, 10_000))?;
-    state.save_account(&Account::with_native_balance(stale_account, 6_614))?;
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
+    state.save_owner_state(&OwnerState::with_native_balance(stale_account, 6_614))?;
     state.save_object_locked_coin_records(&[ObjectLockedCoinRecord {
         holder_object_id: "0xlock".to_string(),
         holder_type: "0x2::escrow::Vault".to_string(),
@@ -1061,14 +1061,14 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
 
     assert_eq!(
         state
-            .get_account(&stale_account)
+            .get_owner_state(&stale_account)
             .invariant("stale account should still exist")
             .native_balance(),
         0
     );
     assert_eq!(
         state
-            .get_account(&sender)
+            .get_owner_state(&sender)
             .invariant("sender account should exist")
             .native_balance(),
         10_000

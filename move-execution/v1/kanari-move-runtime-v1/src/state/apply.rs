@@ -447,7 +447,7 @@ impl StateManager {
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
                 .expect("Native debit overflowed u64 account balance");
-            let balance = self.load_account_or_default(*address)?.native_balance();
+            let balance = self.load_owner_state_or_default(*address)?.native_balance();
             ensure!(
                 balance >= debit,
                 "Insufficient native balance for {}: need {}, have {}",
@@ -467,34 +467,34 @@ impl StateManager {
         };
 
         for (address, change) in &changeset.account_changes {
-            let mut account = self.load_account_or_default(*address)?;
-            let old_balances = account.token_balances.clone();
+            let mut owner_state = self.load_owner_state_or_default(*address)?;
+            let old_balances = owner_state.token_balances.clone();
             let native_token = KANARI_TOKEN_TYPE.to_string();
 
             if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
                     .expect("Native credit overflowed u64 account balance");
-                let next = account
+                let next = owner_state
                     .native_balance()
                     .checked_add(amount)
                     .require("Native account balance overflow")?;
-                account.set_token_balance_value(&native_token, next);
+                owner_state.set_token_balance_value(&native_token, next);
             } else if change.balance_delta < 0 {
                 let debit = u64::try_from(change.balance_delta.unsigned_abs())
                     .expect("Native debit overflowed u64 account balance");
-                let next = account.native_balance() - debit;
-                account.set_token_balance_value(&native_token, next);
+                let next = owner_state.native_balance() - debit;
+                owner_state.set_token_balance_value(&native_token, next);
             }
-            account.sequence_number = account
+            owner_state.sequence_number = owner_state
                 .sequence_number
                 .checked_add(change.sequence_increment)
                 .require("Owner sequence number overflow")?;
             for module_name in &change.modules_added {
-                account.add_module(module_name.clone());
+                owner_state.add_module(module_name.clone());
             }
-            self.save_account_record(&account)?;
-            account_index_additions.push(account.address.to_hex_literal());
-            supplies_dirty |= self.capture_supply_changed(&account, &old_balances);
+            self.save_account_record(&owner_state)?;
+            account_index_additions.push(owner_state.address.to_hex_literal());
+            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
         }
 
         self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)?;
@@ -560,14 +560,14 @@ impl StateManager {
                 continue;
             }
 
-            let mut account = self.load_account_or_default(*owner)?;
-            let old_balances = account.token_balances.clone();
-            let current = account.get_token_balance(&normalized_token_type);
+            let mut owner_state = self.load_owner_state_or_default(*owner)?;
+            let old_balances = owner_state.token_balances.clone();
+            let current = owner_state.get_token_balance(&normalized_token_type);
             let next = current.saturating_add(amount.value());
-            account.set_token_balance_value(&normalized_token_type, next);
-            self.save_owner_state(&account)?;
+            owner_state.set_token_balance_value(&normalized_token_type, next);
+            self.save_owner_state(&owner_state)?;
 
-            supplies_dirty |= self.capture_supply_changed(&account, &old_balances);
+            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
         }
 
         for obj_id in &changeset.deleted_objects {
