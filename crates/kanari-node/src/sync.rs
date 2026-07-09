@@ -638,6 +638,7 @@ impl SyncManager {
 
     fn should_buffer_dag_vertex_error(error_text: &str) -> bool {
         error_text.contains("Parent vertex not found")
+            || error_text.contains("Missing parent")
             || error_text.contains("Not enough parents for quorum")
             || error_text.contains("DAG_WAITING")
             || error_text.contains("SYNC_WAITING")
@@ -1238,7 +1239,7 @@ mod tests {
             round,
             author.to_string(),
             "kanari-v2-mysticeti".to_string(),
-            vec![],
+            Vec::<(String, u64, [u8; 32])>::new(),
             vec![],
             round,
         );

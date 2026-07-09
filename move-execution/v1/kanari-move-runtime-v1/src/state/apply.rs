@@ -219,33 +219,6 @@ impl StateManager {
             || !changeset.deleted_objects.is_empty()
     }
 
-    fn should_repair_legacy_native_overcount(changeset: &ChangeSet) -> bool {
-        changeset
-            .treasuries
-            .iter()
-            .any(|(_, token_type, _)| Self::normalize_token_type(token_type) != KANARI_TOKEN_TYPE)
-            || changeset
-                .token_balance_sets
-                .iter()
-                .any(|(_, token_type, _)| {
-                    Self::normalize_token_type(token_type) != KANARI_TOKEN_TYPE
-                })
-            || changeset.created_objects.iter().any(|(_, created)| {
-                Self::balance_token_amount(&created.type_, &created.data)
-                    .is_some_and(|(token_type, _)| token_type != KANARI_TOKEN_TYPE)
-                    || Self::treasury_cap_token_supply(&created.type_, &created.data)
-                        .is_some_and(|(token_type, _)| token_type != KANARI_TOKEN_TYPE)
-                    || (created.type_.contains("::coin::CoinMetadata<")
-                        && created
-                            .type_
-                            .split('<')
-                            .nth(1)
-                            .and_then(|inner| inner.strip_suffix('>'))
-                            .map(Self::normalize_token_type)
-                            .is_some_and(|token_type| token_type != KANARI_TOKEN_TYPE))
-            })
-    }
-
     fn mark_owner_for_object_balance_recompute(
         owners_to_recompute: &mut BTreeSet<AccountAddress>,
         native_object_changed_owners: &mut BTreeSet<AccountAddress>,
@@ -329,9 +302,11 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<bool> {
-        Ok(self.owner_has_object_backed_token_balance(owner, token_type)?
-            || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
-            || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?)
+        Ok(
+            self.owner_has_object_backed_token_balance(owner, token_type)?
+                || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
+                || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?,
+        )
     }
 
     fn persist_treasury_cap_state(
@@ -409,9 +384,7 @@ impl StateManager {
             // Validate on a cloned snapshot so rejected transactions cannot poison live state.
             let mut candidate = self.clone();
             candidate.apply_changeset_with_options(changeset, false)?;
-            if Self::should_repair_legacy_native_overcount(changeset) {
-                candidate.repair_legacy_native_wallet_overcount()?;
-            }
+            candidate.repair_legacy_native_wallet_overcount()?;
             candidate.sync_native_visible_supply_cache()?;
             if let Err(error) = candidate.validate_supply_invariants() {
                 Self::report_supply_invariant_violation("after apply_changeset", &error)?;
@@ -421,15 +394,14 @@ impl StateManager {
             return Ok(());
         }
 
-        let supply_delta =
-            changeset
-                .owner_deltas
-                .values()
-                .try_fold(0i128, |total, change| {
-                    total
-                        .checked_add(change.balance_delta)
-                        .require("Native supply delta overflow")
-                })?;
+        let supply_delta = changeset
+            .owner_deltas
+            .values()
+            .try_fold(0i128, |total, change| {
+                total
+                    .checked_add(change.balance_delta)
+                    .require("Native supply delta overflow")
+            })?;
         let next_total_supply = if supply_delta > 0 {
             let mint_amount = u64::try_from(supply_delta)
                 .expect("Native supply delta overflowed u64 total supply");
@@ -484,12 +456,11 @@ impl StateManager {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
             let old_balances = owner_state.token_balances.clone();
             let native_token = KANARI_TOKEN_TYPE.to_string();
-            let native_object_backed = self
-                .changeset_touches_object_backed_token_for_owner(
-                    changeset,
-                    *address,
-                    KANARI_TOKEN_TYPE,
-                )?;
+            let native_object_backed = self.changeset_touches_object_backed_token_for_owner(
+                changeset,
+                *address,
+                KANARI_TOKEN_TYPE,
+            )?;
 
             if native_object_backed {
                 owners_to_recompute.insert(*address);

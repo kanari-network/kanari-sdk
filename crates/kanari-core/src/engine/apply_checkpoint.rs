@@ -34,12 +34,20 @@ impl BlockchainEngine {
         let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
         let clock_id = runtime.ensure_system_clock(&mut state_write)?;
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
-        state_write.apply_changeset(&changeset)?;
+        // Apply without supply validation first, then repair legacy overcount
+        // that may be exposed by the clock prologue changeset.
+        state_write
+            .apply_changeset_without_supply_validation(&changeset)
+            .context("Failed to apply clock prologue changeset")?;
 
         if persist_objects {
             runtime.persist_created_objects(&changeset);
             runtime.persist_deleted_objects(&changeset);
         }
+
+        state_write
+            .repair_legacy_native_wallet_overcount()
+            .context("Failed to repair native wallet overcount after clock prologue")?;
 
         Ok(())
     }

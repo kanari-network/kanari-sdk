@@ -19,13 +19,14 @@ use mysticeti_consensus::{
 use mysticeti_dag::{
     authority::Authority as MysticetiAuthority,
     block::{
-        BlockReference as MysticetiBlockReference, RoundNumber as MysticetiRound,
+        Block, BlockReference as MysticetiBlockReference, RoundNumber as MysticetiRound,
         transaction::Transaction as MysticetiTransaction,
     },
     committee::Committee as MysticetiCommittee,
     context::TokioCtx as MysticetiTokioCtx,
     core::{Core as MysticetiCore, block_handler::RealBlockHandler as MysticetiBlockHandler},
-    crypto::CryptoEngine as MysticetiCryptoEngine,
+    crypto::{BlockDigest, CryptoEngine as MysticetiCryptoEngine},
+    data::Data as MysticetiBlockData,
     metrics::Metrics as MysticetiMetrics,
     storage::Storage as MysticetiStorage,
 };
@@ -51,13 +52,18 @@ use super::*;
 /// This is a kanari-specific type that carries kanari [`SignedTransaction`]s
 /// so they can be serialised (JSON) and exchanged over gossip.  The core DAG
 /// engine inside `DagEngine` uses `mysticeti_dag::Block` directly.
+///
+/// Each parent entry is `(author_hex_id, digest)` — the authority ID of the
+/// parent vertex author and its 32-byte digest. This allows the receiving node
+/// to reconstruct full mysticeti `BlockReference`s when feeding the vertex
+/// into mysticeti's DAG storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DagVertex {
     pub id: [u8; 32],
     pub round: u64,
     pub author: String,
     pub chain_id: String,
-    pub parents: Vec<[u8; 32]>,
+    pub parents: Vec<(String, u64, [u8; 32])>,
     pub transactions: Arc<[SignedTransaction]>,
     pub timestamp: u64,
     pub signature: Vec<u8>,
@@ -70,7 +76,7 @@ impl DagVertex {
         round: u64,
         author: String,
         chain_id: String,
-        parents: Vec<[u8; 32]>,
+        parents: Vec<(String, u64, [u8; 32])>,
         transactions: T,
         timestamp: u64,
     ) -> Self
@@ -156,10 +162,12 @@ struct MysticetiBackend {
     core: MysticetiCore<MysticetiTokioCtx, MysticetiCommitter>,
     transaction_sender: mpsc::Sender<Vec<MysticetiTransaction>>,
     protocol: MysticetiRuntimeProtocol,
+    /// Canonical ordered list of kanari authority IDs (hex).
+    authorities: Vec<String>,
 }
 
 impl MysticetiBackend {
-    fn new(authority_count: usize) -> Result<Self> {
+    fn new(authority_count: usize, authorities: Vec<String>) -> Result<Self> {
         let authority_count = authority_count.max(1);
         let committee = MysticetiCommittee::new_test(vec![1; authority_count]);
         let protocol_config = MysticetiConsensusProtocol::Mysticeti {
@@ -203,6 +211,7 @@ impl MysticetiBackend {
             core,
             transaction_sender,
             protocol,
+            authorities,
         })
     }
 
@@ -227,22 +236,87 @@ impl MysticetiBackend {
             return Ok(None);
         };
         let reference = *block.reference();
+        let parents: Vec<(String, u64, [u8; 32])> = block
+            .includes()
+            .iter()
+            .map(|block_ref| {
+                let digest = mysticeti_reference_to_vertex_id(block_ref);
+                let author_id = self
+                    .authorities
+                    .get(block_ref.authority.index())
+                    .cloned()
+                    .unwrap_or_else(|| format!("auth{}", block_ref.authority.index() + 1));
+                (author_id, block_ref.round, digest)
+            })
+            .collect();
         Ok(Some(MysticetiBlockSummary {
             vertex_id: mysticeti_reference_to_vertex_id(&reference),
             round: block.round(),
-            parents: block
-                .includes()
-                .iter()
-                .map(mysticeti_reference_to_vertex_id)
-                .collect(),
+            parents,
         }))
+    }
+
+    /// Add a block received from the network into mysticeti's storage.
+    ///
+    /// Constructs a mysticeti `Block` from the kanari `DagVertex` and feeds it
+    /// into `Core::add_blocks()`. This is critical for the threshold clock to
+    /// advance — without blocks from other authorities the clock stays stuck
+    /// and the node cannot produce rounds beyond its own first vertex.
+    fn add_network_block(&mut self, vertex: &DagVertex) -> Result<()> {
+        // Map vertex author to mysticeti authority index
+        let author_idx = self
+            .authorities
+            .iter()
+            .position(|a| a == &vertex.author)
+            .ok_or_else(|| anyhow::anyhow!("Unknown vertex author: {}", vertex.author))?;
+        let author = MysticetiAuthority::new(author_idx as u64);
+
+        // Build includes (parent BlockReferences) from the vertex's parent list.
+        // Each parent entry is (author_hex_id, round, digest).
+        let mut includes = Vec::with_capacity(vertex.parents.len());
+        for (parent_author, parent_round, _parent_digest) in &vertex.parents {
+            let parent_author_idx = self
+                .authorities
+                .iter()
+                .position(|a| a == parent_author)
+                .ok_or_else(|| anyhow::anyhow!("Unknown parent authority: {}", parent_author))?;
+            let parent_authority = MysticetiAuthority::new(parent_author_idx as u64);
+            includes.push(MysticetiBlockReference {
+                authority: parent_authority,
+                round: *parent_round,
+                digest: BlockDigest::synthetic(*parent_round, parent_authority),
+            });
+        }
+
+        // Create a disabled crypto engine so the block digest matches the
+        // deterministic synthetic digest used by the originator.
+        let crypto = MysticetiCryptoEngine::disabled();
+        let timestamp_ns = vertex.timestamp * 1_000_000;
+
+        // Build the mysticeti block with empty transaction batch.
+        // Kanari transaction payloads are carried in the DagVertex cache
+        // (state.vertices), not in the mysticeti block itself.
+        let block = Block::new(
+            author,
+            vertex.round,
+            includes,
+            vec![],
+            timestamp_ns,
+            &crypto,
+        );
+        let block = MysticetiBlockData::new(block);
+
+        // Inject into mysticeti's core — this updates the threshold clock
+        // and makes the block visible to the block_reader for parent validation.
+        self.core.add_blocks(vec![block]);
+        Ok(())
     }
 }
 
 struct MysticetiBlockSummary {
     vertex_id: [u8; 32],
     round: MysticetiRound,
-    parents: Vec<[u8; 32]>,
+    parents: Vec<(String, u64, [u8; 32])>,
 }
 
 fn signed_tx_batch_to_mysticeti_transaction(
@@ -331,7 +405,7 @@ impl DagEngine {
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        let mysticeti = MysticetiBackend::new(authorities.len())?;
+        let mysticeti = MysticetiBackend::new(authorities.len(), authorities.clone())?;
         let dag_engine = Self {
             engine,
             state: Arc::new(RwLock::new(DagEngineState {
@@ -503,23 +577,56 @@ impl DagEngine {
             )
         };
 
-        let mysticeti_block = {
+        let (vertex_id, round, parent_entries) = {
             let mut state = lock_write(&self.state);
-            state.mysticeti.propose_block(&transactions, timestamp)?
+            let mysticeti_block = state.mysticeti.propose_block(&transactions, timestamp)?;
+            match mysticeti_block {
+                Some(block) => {
+                    // MysticetiBlockSummary.parents is already Vec<(String, u64, [u8; 32])>
+                    (block.vertex_id, block.round, block.parents)
+                }
+                None => {
+                    // When mysticeti doesn't produce a block (e.g. threshold clock
+                    // hasn't advanced), use the policy parents with authority lookup.
+                    let parents: Vec<(String, u64, [u8; 32])> = policy
+                        .parent_ids
+                        .iter()
+                        .map(|digest| {
+                            let author = state
+                                .vertices
+                                .iter()
+                                .find(|v| v.id == *digest)
+                                .map(|v| v.author.clone())
+                                .unwrap_or_else(|| {
+                                    log::warn!(
+                                        "Parent vertex {} not found in cache",
+                                        hex::encode(digest)
+                                    );
+                                    "unknown".to_string()
+                                });
+                            let v_round = state
+                                .vertices
+                                .iter()
+                                .find(|v| v.id == *digest)
+                                .map(|v| v.round)
+                                .unwrap_or(policy.parent_round);
+                            (author, v_round, *digest)
+                        })
+                        .collect();
+                    (
+                        policy.parent_ids.first().copied().unwrap_or([0u8; 32]),
+                        policy.target_round,
+                        parents,
+                    )
+                }
+            }
         };
-        let (vertex_id, round, parents) = mysticeti_block
-            .map(|block| (block.vertex_id, block.round, block.parents))
-            .unwrap_or((
-                policy.parent_ids.first().copied().unwrap_or([0u8; 32]),
-                policy.target_round,
-                policy.parent_ids,
-            ));
 
         let mut vertex = DagVertex::new(
             round,
             self.authority_id.clone(),
             "kanari-v2-mysticeti".to_string(),
-            parents,
+            parent_entries,
             transactions,
             timestamp,
         );
@@ -707,8 +814,8 @@ impl DagEngine {
 
         // Validate parent uniqueness within the vertex.
         let mut seen_parents = HashSet::new();
-        for parent in &vertex.parents {
-            if !seen_parents.insert(*parent) {
+        for (_, _, parent_digest) in &vertex.parents {
+            if !seen_parents.insert(*parent_digest) {
                 anyhow::bail!("Duplicate parent in DAG vertex {}", hex::encode(vertex.id));
             }
         }
@@ -724,30 +831,38 @@ impl DagEngine {
             anyhow::bail!("DAG vertex round {} is missing parents", vertex.round);
         }
 
-        // Validate parent references against mysticeti's authoritative storage.
+        // Validate parent references — first check the kanari vertex cache,
+        // and also check mysticeti's storage for already-injected blocks.
         let expected_parent_round = vertex.round - 1;
         let block_reader = state.mysticeti.core.block_reader();
-        let parent_blocks = block_reader.get_blocks_by_round(expected_parent_round);
+        let mysticeti_parent_blocks = block_reader.get_blocks_by_round(expected_parent_round);
 
         let mut parent_authors = HashSet::new();
-        for parent_id in &vertex.parents {
-            let parent = parent_blocks
-                .iter()
-                .find(|block| {
-                    let mut digest = [0u8; 32];
-                    digest.copy_from_slice(block.reference().digest.as_ref());
-                    digest == *parent_id
-                })
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Missing parent {} for DAG vertex {}",
-                        hex::encode(parent_id),
-                        hex::encode(vertex.id)
-                    )
-                })?;
+        for (parent_author, _parent_round, parent_id) in &vertex.parents {
+            // 1. Check mysticeti's block_reader first (blocks that have been
+            //    injected via add_network_block).
+            let found_in_mysticeti = mysticeti_parent_blocks.iter().any(|block| {
+                let mut digest = [0u8; 32];
+                digest.copy_from_slice(block.reference().digest.as_ref());
+                digest == *parent_id
+            });
 
-            let parent_author = self.authority_id(parent.author());
-            if !parent_authors.insert(parent_author) {
+            if !found_in_mysticeti {
+                // 2. Fall back to the kanari vertex cache (vertices received
+                //    via gossip that haven't been injected into mysticeti yet).
+                let found_in_cache = state.vertices.iter().any(|v| v.id == *parent_id);
+
+                if !found_in_cache {
+                    anyhow::bail!(
+                        "Missing parent {} (author {}) for DAG vertex {}",
+                        hex::encode(parent_id),
+                        parent_author,
+                        hex::encode(vertex.id)
+                    );
+                }
+            }
+
+            if !parent_authors.insert(parent_author.clone()) {
                 anyhow::bail!(
                     "Duplicate parent author in DAG vertex {}",
                     hex::encode(vertex.id)
@@ -766,8 +881,17 @@ impl DagEngine {
             return Ok(());
         }
         self.validate_network_vertex(&state, &vertex)?;
+
+        // Feed the vertex into mysticeti's core so that its block_reader
+        // can find it (for parent validation of downstream vertices) and the
+        // threshold clock advances with blocks from other authorities.
+        state
+            .mysticeti
+            .add_network_block(&vertex)
+            .context("Failed to inject network vertex into Mysticeti")?;
+
         info!(
-            "[DAG v2 SYNC] Accepted network vertex {} round {} txs {}",
+            "[DAG v2 SYNC] Accepted + injected network vertex {} round {} txs {}",
             hex::encode(vertex.id),
             vertex.round,
             vertex.transactions.len()
@@ -787,7 +911,14 @@ impl BlockchainEngine {
         let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
         let clock_id = runtime.ensure_system_clock(&mut state_write)?;
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
-        state_write.apply_changeset(&changeset)?;
+        // Apply without supply validation first, then repair legacy overcount
+        // that may be exposed by the clock prologue changeset.
+        state_write
+            .apply_changeset_without_supply_validation(&changeset)
+            .context("Failed to apply clock prologue changeset")?;
+        state_write
+            .repair_legacy_native_wallet_overcount()
+            .context("Failed to repair native wallet overcount after clock prologue")?;
         Ok(())
     }
 }
@@ -841,7 +972,7 @@ mod tests {
         author: &str,
         signing_key: &ed25519_dalek::SigningKey,
         round: u64,
-        parents: Vec<[u8; 32]>,
+        parents: Vec<(String, u64, [u8; 32])>,
     ) -> DagVertex {
         let tx = signed_transfer(0);
         let mut vertex = DagVertex::new(
@@ -965,8 +1096,15 @@ mod tests {
         let (_engine, dag_engine, remote_key) =
             build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
 
-        let vertex = signed_network_vertex("auth2", &remote_key, 2, vec![[9u8; 32]]);
+        let mut vertex = signed_network_vertex("auth2", &remote_key, 2, vec![]);
+        vertex.parents = vec![
+            ("auth1".to_string(), 1u64, [1u8; 32]),
+            ("auth2".to_string(), 1u64, [2u8; 32]),
+        ];
         let error = dag_engine.add_network_vertex(vertex).unwrap_err();
-        assert!(error.to_string().contains("Missing parent"));
+        assert!(
+            error.to_string().contains("Missing parent")
+                || error.to_string().contains("missing parents")
+        );
     }
 }

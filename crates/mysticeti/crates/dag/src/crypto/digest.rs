@@ -80,7 +80,7 @@ impl BlockDigest {
     ///
     /// [`Block::genesis`]: crate::block::Block::genesis
     /// [`CryptoEngine::disabled`]: super::CryptoEngine::disabled
-    pub(crate) fn synthetic(round: RoundNumber, authority: Authority) -> Self {
+    pub fn synthetic(round: RoundNumber, authority: Authority) -> Self {
         let mut bytes = [0u8; BLOCK_DIGEST_SIZE];
         let mixed = round.wrapping_mul(GOLDEN_RATIO_MIXER) ^ authority.as_u64();
         bytes[..8].copy_from_slice(&mixed.to_be_bytes());
