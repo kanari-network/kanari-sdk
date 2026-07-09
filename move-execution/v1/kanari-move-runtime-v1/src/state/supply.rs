@@ -462,16 +462,10 @@ impl StateManager {
             .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
             .collect();
 
-        let native_balance = if let Some(object_balance) = native_object_balance {
-            if native_object_changed {
-                if native_delta == 0 {
-                    object_balance
-                } else {
-                    native_balance_after_owner_deltas
-                }
-            } else {
-                object_balance
-            }
+        let native_balance = if native_delta != 0 {
+            native_balance_after_owner_deltas
+        } else if let Some(object_balance) = native_object_balance {
+            object_balance
         } else if native_object_changed {
             0
         } else {
