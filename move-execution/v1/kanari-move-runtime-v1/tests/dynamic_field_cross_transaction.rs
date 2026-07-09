@@ -74,6 +74,7 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "read_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
+            &[],
         )
         .context("read persisted dynamic field value")?;
     assert_eq!(read_before_update, JsonValue::from(41u64));
@@ -106,6 +107,7 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "read_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
+            &[],
         )
         .context("read updated dynamic field value")?;
     assert_eq!(read_after_update, JsonValue::from(99u64));
@@ -134,6 +136,7 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "has_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
+            &[],
         )
         .context("check dynamic field absence after remove")?;
     assert_eq!(exists_after_remove, JsonValue::from(0u64));

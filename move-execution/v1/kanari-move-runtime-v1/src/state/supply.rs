@@ -436,26 +436,6 @@ impl StateManager {
         changed
     }
 
-    fn apply_native_delta(balance: u64, delta: i128) -> Result<u64> {
-        if delta >= 0 {
-            let amount =
-                u64::try_from(delta).expect("Native object delta overflowed u64 owner balance");
-            return balance
-                .checked_add(amount)
-                .require("Native object balance overflow after account delta");
-        }
-
-        let debit = u64::try_from(delta.unsigned_abs())
-            .expect("Native object delta overflowed u64 owner balance");
-        ensure!(
-            balance >= debit,
-            "Native object balance underflow after account delta: balance={}, debit={}",
-            balance,
-            debit
-        );
-        Ok(balance - debit)
-    }
-
     pub(super) fn capture_supply_changed(
         &mut self,
         account: &OwnerState,
@@ -469,7 +449,7 @@ impl StateManager {
         owner: AccountAddress,
         native_delta: i128,
         native_object_changed: bool,
-        native_object_gas_adjusted: u64,
+        _native_object_gas_adjusted: u64,
     ) -> Result<bool> {
         let mut owner_state = self.load_owner_state_or_default(owner)?;
         let old_balances = owner_state.token_balances.clone();
@@ -482,13 +462,15 @@ impl StateManager {
             .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
             .collect();
 
-        let adjusted_native_delta =
-            native_delta.saturating_add(i128::from(native_object_gas_adjusted));
         let native_balance = if let Some(object_balance) = native_object_balance {
             if native_object_changed {
-                Self::apply_native_delta(object_balance, adjusted_native_delta)?
+                if native_delta == 0 {
+                    object_balance
+                } else {
+                    native_balance_after_owner_deltas
+                }
             } else {
-                Self::apply_native_delta(object_balance, native_delta)?
+                object_balance
             }
         } else if native_object_changed {
             0

@@ -6,7 +6,7 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::gas_and_coin_selection::build_native_gas_payment;
-use crate::command::rpc_helpers::get_owner_info;
+use crate::command::rpc_helpers::{get_owner_info, wait_for_transaction_commit_blocking};
 use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Context, Result};
 use clap::*;
@@ -17,6 +17,7 @@ use kanari_types::transaction::{SignedTransaction, Transaction};
 use kanari_types::{GasEstimate, GasOperation};
 use log::error;
 use move_core_types::{account_address::AccountAddress, parser, runtime_value::MoveValue};
+use std::time::Duration;
 
 /// Call a Move function on the blockchain
 #[derive(Parser)]
@@ -229,6 +230,24 @@ impl Call {
                         >(result.clone())
                         {
                             print_transaction_result("", &tx_result);
+                            if tx_result.previewed && !tx_result.committed {
+                                eprintln!("Waiting for transaction commit...");
+                                let committed = wait_for_transaction_commit_blocking(
+                                    &client,
+                                    &rpc,
+                                    &tx_result.hash,
+                                    Duration::from_secs(20),
+                                    Duration::from_millis(400),
+                                )?;
+                                eprintln!(
+                                    "Final status: {} success={} previewed={} submitted={} committed={}",
+                                    committed.status,
+                                    committed.success,
+                                    committed.previewed,
+                                    committed.submitted,
+                                    committed.committed
+                                );
+                            }
                         }
                         print_json_value("", "RPC result", &result);
                     } else {

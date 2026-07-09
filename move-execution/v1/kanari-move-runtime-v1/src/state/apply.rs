@@ -457,15 +457,8 @@ impl StateManager {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
             let old_balances = owner_state.token_balances.clone();
             let native_token = KANARI_TOKEN_TYPE.to_string();
-            let native_object_backed = self.changeset_touches_object_backed_token_for_owner(
-                changeset,
-                *address,
-                KANARI_TOKEN_TYPE,
-            )?;
 
-            if native_object_backed {
-                owners_to_recompute.insert(*address);
-            } else if change.balance_delta > 0 {
+            if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
                     .expect("Native credit overflowed u64 owner balance");
                 let next = owner_state

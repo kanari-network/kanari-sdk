@@ -6,7 +6,7 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::gas_and_coin_selection::{build_native_gas_payment, object_call_context};
-use crate::command::rpc_helpers::sign_call_function_request;
+use crate::command::rpc_helpers::{sign_call_function_request, wait_for_transaction_commit};
 use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -15,6 +15,7 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::ObjectRef;
 use move_core_types::language_storage::TypeTag;
+use std::time::Duration;
 use std::str::FromStr;
 
 fn normalize_token_type(token: &str) -> String {
@@ -267,6 +268,17 @@ impl TokenTransfer {
             .context("Failed to submit transaction")?;
 
         print_transaction_status("  ", &status);
+        if status.previewed && !status.committed {
+            eprintln!("  Waiting for transaction commit...");
+            let committed = wait_for_transaction_commit(
+                &client,
+                &status.hash,
+                Duration::from_secs(20),
+                Duration::from_millis(400),
+            )
+            .await?;
+            print_transaction_status("  Final: ", &committed);
+        }
 
         Ok(())
     }

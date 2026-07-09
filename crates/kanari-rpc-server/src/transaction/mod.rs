@@ -137,6 +137,7 @@ fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransacti
         sender: module_data.sender,
         module_bytes: module_data.module_bytes,
         module_name: module_data.module_name,
+        gas_payment: module_data.gas_payment,
         gas_limit: module_data.gas_limit,
         gas_price: module_data.gas_price,
         sequence_number: module_data.sequence_number,
@@ -252,6 +253,7 @@ fn map_transaction_to_details(
             module_bytes,
             module_name,
             sequence_number,
+            gas_payment,
             gas_limit,
             gas_price,
             ..
@@ -278,6 +280,7 @@ fn map_transaction_to_details(
             );
             details.module = Some(module_name.clone());
             details.module_functions = module_funcs;
+            details.gas_payment = gas_payment.clone();
             details
         }
         Transaction::ExecuteFunction {
@@ -913,6 +916,11 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
 
     if let Err(response) = parse_hex_address(request.id, &module_data.sender, "sender address") {
         return *response;
+    }
+    if let Err(response) =
+        validate_object_inputs_and_gas(request.id, &[], module_data.gas_payment.as_ref())
+    {
+        return response;
     }
 
     let execute_immediate = module_data.execute_immediate.unwrap_or(false);

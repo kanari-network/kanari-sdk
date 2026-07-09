@@ -900,6 +900,89 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
 }
 
 #[test]
+fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Result<()> {
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
+
+    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+
+    let mut init = ChangeSet::new();
+    init.created_objects.push((
+        "0xaaaa".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: coin_data,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&init)?;
+    assert_eq!(
+        state
+            .get_owner_state(&alice)
+            .invariant("alice owner state should exist")
+            .native_balance(),
+        1_000
+    );
+
+    // Simulate a legacy owner-only gas debit path like module publish.
+    let mut publish_like = ChangeSet::new();
+    publish_like.get_or_create_owner_delta(alice).debit(7);
+    publish_like.collect_gas(gas_collector, 7);
+    state.apply_changeset(&publish_like)?;
+    assert_eq!(
+        state
+            .get_owner_state(&alice)
+            .invariant("alice owner state should exist")
+            .native_balance(),
+        993
+    );
+
+    // Then simulate an object-backed gas path touching the same coin object.
+    let mut touched_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    touched_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let mut object_backed_call = ChangeSet::new();
+    object_backed_call.get_or_create_owner_delta(alice).debit(3);
+    object_backed_call.collect_gas(gas_collector, 3);
+    object_backed_call.created_objects.push((
+        "0xaaaa".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: touched_coin_data,
+            version: 2,
+        },
+    ));
+    state.apply_changeset(&object_backed_call)?;
+
+    assert_eq!(
+        state.resolve_owner_native_balance(alice)?,
+        990,
+        "later object-backed gas must not erase earlier owner-only gas debits"
+    );
+    assert_eq!(
+        state
+            .get_owner_state(&alice)
+            .invariant("alice owner state should exist")
+            .native_balance(),
+        990
+    );
+
+    Ok(())
+}
+
+#[test]
 fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     let sender = AccountAddress::from_hex_literal("0x1111")?;
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;

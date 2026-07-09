@@ -4,11 +4,14 @@
 use anyhow::{Context, Result, bail};
 use kanari_crypto::wallet::Wallet;
 use kanari_rpc_api::{
-    CallFunctionRequest, OwnerInfo, RpcRequest, RpcResponse, TransactionStatus, methods,
+    CallFunctionRequest, OwnerInfo, RpcRequest, RpcResponse, TransactionDetails,
+    TransactionStatus, methods,
 };
 use kanari_rpc_client::RpcClient;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use reqwest::blocking::Client;
+use std::time::Duration;
+use tokio::time::sleep;
 
 use crate::command::tx_output::print_rpc_error;
 
@@ -60,6 +63,109 @@ pub async fn sign_and_call_function(
     }
 
     Ok(status)
+}
+
+fn status_from_details(details: TransactionDetails) -> TransactionStatus {
+    TransactionStatus {
+        hash: details.hash,
+        status: details.status,
+        block_height: details.block_height,
+        gas_used: details.gas_used,
+        success: details.success,
+        previewed: details.previewed,
+        submitted: details.submitted,
+        committed: details.committed,
+    }
+}
+
+pub async fn wait_for_transaction_commit(
+    client: &RpcClient,
+    tx_hash: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<TransactionStatus> {
+    let started = std::time::Instant::now();
+
+    loop {
+        let details = client
+            .get_transaction(tx_hash)
+            .await
+            .with_context(|| format!("Failed to fetch transaction {}", tx_hash))?;
+        let status = status_from_details(details);
+
+        if status.committed || !status.success {
+            return Ok(status);
+        }
+
+        if started.elapsed() >= timeout {
+            bail!(
+                "Timed out waiting for transaction commit. Last status: {} (previewed={}, submitted={}, committed={})",
+                status.status,
+                status.previewed,
+                status.submitted,
+                status.committed
+            );
+        }
+
+        sleep(poll_interval).await;
+    }
+}
+
+pub fn wait_for_transaction_commit_blocking(
+    client: &Client,
+    rpc_endpoint: &str,
+    tx_hash: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<TransactionStatus> {
+    let started = std::time::Instant::now();
+
+    loop {
+        let req = RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: methods::GET_TRANSACTION.to_string(),
+            params: serde_json::json!({ "hash": tx_hash }),
+            id: 1,
+        };
+
+        let resp = client
+            .post(rpc_endpoint)
+            .json(&req)
+            .send()
+            .with_context(|| format!("Failed to query transaction {}", tx_hash))?;
+        let rpc_resp: RpcResponse = resp
+            .json()
+            .context("Failed to parse getTransaction RPC response")?;
+
+        if let Some(error) = rpc_resp.error {
+            print_rpc_error("", &error);
+            bail!("RPC did not return transaction info for {}", tx_hash);
+        }
+
+        let details: TransactionDetails = serde_json::from_value(
+            rpc_resp
+                .result
+                .context("RPC did not return transaction info for hash")?,
+        )
+        .context("Failed to decode transaction details from RPC")?;
+        let status = status_from_details(details);
+
+        if status.committed || !status.success {
+            return Ok(status);
+        }
+
+        if started.elapsed() >= timeout {
+            bail!(
+                "Timed out waiting for transaction commit. Last status: {} (previewed={}, submitted={}, committed={})",
+                status.status,
+                status.previewed,
+                status.submitted,
+                status.committed
+            );
+        }
+
+        std::thread::sleep(poll_interval);
+    }
 }
 
 pub fn get_owner_info(

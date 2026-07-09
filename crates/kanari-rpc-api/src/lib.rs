@@ -336,6 +336,8 @@ pub struct PublishModuleRequest {
     pub gas_limit: u64,
     pub gas_price: u64,
     pub sequence_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,

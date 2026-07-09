@@ -127,6 +127,16 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse block height")
     }
 
+    /// Get transaction details by hash.
+    pub async fn get_transaction(&self, hash: &str) -> Result<TransactionDetails> {
+        let response = self
+            .request(methods::GET_TRANSACTION, serde_json::json!({ "hash": hash }))
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse transaction details")
+    }
+
     /// Get blockchain statistics
     pub async fn get_stats(&self) -> Result<BlockchainStats> {
         let response = self

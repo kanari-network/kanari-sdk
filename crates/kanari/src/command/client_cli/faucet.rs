@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::common::get_rpc_endpoint;
+use crate::command::rpc_helpers::wait_for_transaction_commit;
 use anyhow::{Context, Result};
 use clap::Parser;
+use kanari_rpc_client::RpcClient;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 pub struct Faucet {
@@ -51,6 +54,27 @@ impl Faucet {
             status.submitted,
             status.committed
         );
+
+        if status.previewed && !status.committed {
+            eprintln!("Waiting for faucet transaction commit...");
+            let client = RpcClient::new(&rpc);
+            let committed = wait_for_transaction_commit(
+                &client,
+                &status.hash,
+                Duration::from_secs(20),
+                Duration::from_millis(400),
+            )
+            .await?;
+            eprintln!(
+                "Faucet final: hash={} status={} success={} previewed={} submitted={} committed={}",
+                committed.hash,
+                committed.status,
+                committed.success,
+                committed.previewed,
+                committed.submitted,
+                committed.committed
+            );
+        }
 
         Ok(())
     }

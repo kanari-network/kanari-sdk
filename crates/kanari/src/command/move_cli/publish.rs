@@ -6,16 +6,19 @@ use crate::command::common::{
     build_blocking_client, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
     resolve_sender, resolve_transaction_gas,
 };
-use crate::command::rpc_helpers::get_owner_sequence;
+use crate::command::gas_and_coin_selection::build_native_gas_payment;
+use crate::command::rpc_helpers::{get_owner_info, wait_for_transaction_commit_blocking};
 use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Result, bail};
 use clap::*;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use kanari_types::{GasEstimate, GasOperation};
 use log::error;
 use move_package::BuildConfig;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Publish the Move module to the blockchain
 #[derive(Parser, Clone)]
@@ -118,8 +121,8 @@ impl Publish {
         let mut published_count = 0;
         let mut skipped_count = 0;
 
-        // === Fetch base sequence number once to avoid race conditions ===
-        let base_seq: u64 = get_owner_sequence(&client, &rpc, &sender_for_tx)?;
+        // === Fetch owner info once to avoid race conditions ===
+        let base_seq: u64 = get_owner_info(&client, &rpc, &sender_for_tx)?.sequence_number;
 
         // Next sequence to use for publishing modules (increment only when a module is actually published)
         let mut next_seq = base_seq;
@@ -162,6 +165,26 @@ impl Publish {
                 estimate.total_cost_mist, estimate.total_cost_kanari
             );
 
+            let owner_info = get_owner_info(&client, &rpc, &sender_for_tx)?;
+            let owned_objects = owner_info.owned_objects.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Sender owner state has no owned object list from RPC")
+            })?;
+            let (selected_gas_coin, gas_payment) =
+                build_native_gas_payment(owned_objects, &sender_for_tx, gas_limit, gas_price, &[])
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "No spendable Coin<{}> object found for gas payment for {}: {}",
+                            KANARI_TOKEN_TYPE,
+                            sender_normalized,
+                            e
+                        )
+                    })?;
+            eprintln!("   Gas payment object: {}", selected_gas_coin.coin_object_id);
+            eprintln!(
+                "   Gas coin balance: {} Mist",
+                selected_gas_coin.selected_balance
+            );
+
             // Create PublishModuleRequest and submit to RPC endpoint
             use kanari_rpc_api::{PublishModuleRequest, RpcRequest, RpcResponse, methods};
 
@@ -174,6 +197,7 @@ impl Publish {
                     sender: sender_for_tx.clone(),
                     module_bytes: module_bytecode.clone(),
                     module_name: module_name.clone(),
+                    gas_payment: Some(gas_payment.clone()),
                     gas_limit,
                     gas_price,
                     sequence_number: seq_num,
@@ -192,6 +216,7 @@ impl Publish {
                 gas_limit,
                 gas_price,
                 sequence_number: seq_num,
+                gas_payment: Some(gas_payment),
                 signature: Some(signed_tx.signature.clone()),
                 execute_immediate: Some(true),
             };
@@ -220,6 +245,24 @@ impl Publish {
                                     )
                                 {
                                     print_transaction_result("     ", &tx_result);
+                                    if tx_result.previewed && !tx_result.committed {
+                                        eprintln!("     Waiting for transaction commit...");
+                                        let committed = wait_for_transaction_commit_blocking(
+                                            &client,
+                                            &rpc,
+                                            &tx_result.hash,
+                                            Duration::from_secs(20),
+                                            Duration::from_millis(400),
+                                        )?;
+                                        eprintln!(
+                                            "     Final status: {} success={} previewed={} submitted={} committed={}",
+                                            committed.status,
+                                            committed.success,
+                                            committed.previewed,
+                                            committed.submitted,
+                                            committed.committed
+                                        );
+                                    }
                                 }
 
                                 // Always print the RPC result to show any side effects (like created objects)

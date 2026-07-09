@@ -9,13 +9,14 @@ use crate::command::gas_and_coin_selection::{
     build_native_gas_payment, consolidate_coin_objects, object_call_context,
     select_native_coin_object, spendable_coin_objects,
 };
-use crate::command::rpc_helpers::sign_and_call_function;
+use crate::command::rpc_helpers::{sign_and_call_function, wait_for_transaction_commit};
 use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 pub struct Transfer {
@@ -169,8 +170,18 @@ impl Transfer {
         eprintln!("  Submitting transaction to node...");
 
         let status = sign_and_call_function(&client, &wallet, call_req).await?;
-
         print_transaction_status("  ", &status);
+        if status.previewed && !status.committed {
+            eprintln!("  Waiting for transaction commit...");
+            let committed = wait_for_transaction_commit(
+                &client,
+                &status.hash,
+                Duration::from_secs(20),
+                Duration::from_millis(400),
+            )
+            .await?;
+            print_transaction_status("  Final: ", &committed);
+        }
 
         Ok(())
     }

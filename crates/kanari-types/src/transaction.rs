@@ -312,6 +312,7 @@ pub enum Transaction {
         sender: String,
         module_bytes: Vec<u8>,
         module_name: String,
+        gas_payment: Option<GasPayment>,
         gas_limit: u64,
         gas_price: u64,
         sequence_number: u64,
@@ -458,22 +459,12 @@ impl Transaction {
     pub fn gas_payment(&self) -> Option<GasPayment> {
         match self {
             Transaction::ExecuteFunction { gas_payment, .. } => gas_payment.clone(),
-            Transaction::PublishModule {
-                sender,
-                gas_limit,
-                gas_price,
-                ..
-            } => Some(GasPayment {
-                payment_objects: Vec::new(),
-                owner: sender.clone(),
-                budget: *gas_limit,
-                price: *gas_price,
-            }),
+            Transaction::PublishModule { gas_payment, .. } => gas_payment.clone(),
         }
     }
 
     pub fn requires_strict_object_metadata(&self) -> bool {
-        matches!(self, Transaction::ExecuteFunction { .. })
+        matches!(self, Transaction::ExecuteFunction { .. } | Transaction::PublishModule { .. })
     }
 
     pub fn object_access_keys(&self) -> Vec<String> {

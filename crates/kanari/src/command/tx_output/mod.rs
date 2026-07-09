@@ -36,6 +36,10 @@ pub fn print_transaction_result(prefix: &str, result: &TransactionResult) {
     eprintln!("{}Transaction: {}", prefix, result.hash);
     eprintln!("{}Status: {}", prefix, result.status);
     eprintln!("{}Gas used: {} Mist", prefix, result.gas_used);
+    eprintln!(
+        "{}Outcome: success={} previewed={} submitted={} committed={}",
+        prefix, result.success, result.previewed, result.submitted, result.committed
+    );
 
     if let Some(ref error_message) = result.error_message {
         error!("{}Transaction failed: {}", prefix, error_message);
