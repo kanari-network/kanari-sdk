@@ -163,21 +163,27 @@ impl VerifiedSignedTransaction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeCall {
-    TransferAmount { recipient: String, amount: u64 },
-    BurnAmount { amount: u64 },
+    Transfer {
+        coin_object_id: String,
+        recipient: String,
+        amount: u64,
+    },
+    BurnAmount {
+        amount: u64,
+    },
 }
 
 impl NativeCall {
     pub fn tx_type_label(&self) -> &'static str {
         match self {
-            Self::TransferAmount { .. } => "transfer",
+            Self::Transfer { .. } => "transfer",
             Self::BurnAmount { .. } => "burn",
         }
     }
 
     pub fn required_native_amount(&self) -> u64 {
         match self {
-            Self::TransferAmount { amount, .. } | Self::BurnAmount { amount } => *amount,
+            Self::Transfer { amount, .. } | Self::BurnAmount { amount } => *amount,
         }
     }
 }
@@ -330,10 +336,18 @@ impl Transaction {
         }
 
         match function.as_str() {
-            Self::TRANSFER_AMOUNT_FUNCTION if args.len() >= 2 => {
-                let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
-                let recipient = bcs::from_bytes::<String>(&args[1]).ok()?;
-                Some(NativeCall::TransferAmount { recipient, amount })
+            Self::TRANSFER_AMOUNT_FUNCTION if args.len() >= 3 => {
+                let coin_object_id = AccountAddress::from_bytes(&args[0]).ok()?.to_hex_literal();
+                let amount = bcs::from_bytes::<u64>(&args[1]).ok()?;
+                let recipient = AccountAddress::from_bytes(&args[2])
+                    .ok()
+                    .map(|addr| addr.to_hex_literal())
+                    .or_else(|| bcs::from_bytes::<String>(&args[2]).ok())?;
+                Some(NativeCall::Transfer {
+                    coin_object_id,
+                    recipient,
+                    amount,
+                })
             }
             Self::BURN_AMOUNT_FUNCTION if !args.is_empty() => {
                 let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
@@ -358,27 +372,47 @@ impl Transaction {
         }
     }
 
-    /// Create a transfer transaction with default gas settings
-    pub fn new_transfer(from: String, to: String, amount: u64, sequence_number: u64) -> Self {
-        Self::new_transfer_with_gas(from, to, amount, sequence_number, 100_000, 1000)
+    /// Create an object-input native transfer transaction with default gas settings.
+    pub fn new_transfer(
+        from: String,
+        coin_object_id: String,
+        to: String,
+        amount: u64,
+        sequence_number: u64,
+    ) -> Self {
+        Self::new_transfer_with_gas(
+            from,
+            coin_object_id,
+            to,
+            amount,
+            sequence_number,
+            100_000,
+            1000,
+        )
     }
 
     pub fn new_transfer_with_gas(
         from: String,
+        coin_object_id: String,
         to: String,
         amount: u64,
         sequence_number: u64,
         gas_limit: u64,
         gas_price: u64,
     ) -> Self {
+        let coin_object_addr =
+            AccountAddress::from_hex_literal(&coin_object_id).unwrap_or(AccountAddress::ZERO);
+        let recipient_addr = AccountAddress::from_hex_literal(&to).unwrap_or(AccountAddress::ZERO);
+
         Self::ExecuteFunction {
             sender: from,
             module: Self::KANARI_MODULE.to_string(),
             function: Self::TRANSFER_AMOUNT_FUNCTION.to_string(),
             type_args: vec![],
             args: vec![
+                coin_object_addr.to_vec(),
                 bcs::to_bytes(&amount).unwrap_or_default(),
-                bcs::to_bytes(&to).unwrap_or_default(),
+                recipient_addr.to_vec(),
             ],
             gas_limit,
             gas_price,
@@ -417,7 +451,13 @@ mod tests {
 
     #[test]
     fn transfer_helper_builds_native_execute_function() {
-        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 42, 7);
+        let tx = Transaction::new_transfer(
+            "0x1".to_string(),
+            "0xaaaa".to_string(),
+            "0x2".to_string(),
+            42,
+            7,
+        );
 
         match &tx {
             Transaction::ExecuteFunction {
@@ -435,12 +475,49 @@ mod tests {
 
         assert_eq!(
             tx.native_call(),
-            Some(NativeCall::TransferAmount {
+            Some(NativeCall::Transfer {
+                coin_object_id: "0xaaaa".to_string(),
                 recipient: "0x2".to_string(),
                 amount: 42,
             })
         );
         assert_eq!(tx.tx_type_label(), "transfer");
+    }
+
+    #[test]
+    fn transfer_helper_builds_execute_function_with_coin_input() {
+        let tx = Transaction::new_transfer(
+            "0x1".to_string(),
+            "0xaaaa".to_string(),
+            "0x2".to_string(),
+            42,
+            7,
+        );
+
+        match &tx {
+            Transaction::ExecuteFunction {
+                module,
+                function,
+                sequence_number,
+                args,
+                ..
+            } => {
+                assert_eq!(module, Transaction::KANARI_MODULE);
+                assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
+                assert_eq!(*sequence_number, 7);
+                assert_eq!(args.len(), 3);
+            }
+            Transaction::PublishModule { .. } => panic!("object transfer helper must build a call"),
+        }
+
+        assert_eq!(
+            tx.native_call(),
+            Some(NativeCall::Transfer {
+                coin_object_id: "0xaaaa".to_string(),
+                recipient: "0x2".to_string(),
+                amount: 42,
+            })
+        );
     }
 
     #[test]

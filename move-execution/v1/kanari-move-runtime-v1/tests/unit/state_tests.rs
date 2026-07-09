@@ -79,11 +79,25 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
 fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
     let token_type = "0x2::test::TEST";
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
+
+    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    coin_data[UID_SIZE..].copy_from_slice(&250u64.to_le_bytes());
 
     let mut cs = ChangeSet::new();
     cs.add_treasury(owner, token_type.to_string(), 1_000);
-    cs.add_token_balance_set(owner, token_type.to_string(), 250);
+    cs.created_objects.push((
+        "0xaaaa".to_string(),
+        CreatedObject {
+            owner,
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: coin_data,
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs)?;
 
     let summary = state.token_supply_summary(token_type)?;
@@ -95,12 +109,10 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
 }
 
 #[test]
-fn resolve_owner_token_balances_supports_object_state_and_compat_cache() -> Result<()> {
+fn resolve_owner_token_balances_requires_object_backed_non_native_assets() -> Result<()> {
     let object_owner = AccountAddress::from_hex_literal("0x1111")?;
-    let compat_owner = AccountAddress::from_hex_literal("0x2222")?;
     let token_type = "0x2::test::TEST";
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
-    let compat_only_token = "0x2::legacy::LEGACY";
     let mut state = StateManager::new_in_memory();
 
     let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
@@ -118,14 +130,10 @@ fn resolve_owner_token_balances_supports_object_state_and_compat_cache() -> Resu
             version: 1,
         },
     ));
-    changeset.add_token_balance_set(compat_owner, compat_only_token.to_string(), 75);
     state.apply_changeset(&changeset)?;
 
     let object_balances = state.resolve_owner_token_balances(object_owner)?;
     assert_eq!(object_balances.get(token_type).copied(), Some(250));
-
-    let compat_balances = state.resolve_owner_token_balances(compat_owner)?;
-    assert_eq!(compat_balances.get(compat_only_token).copied(), Some(75));
 
     Ok(())
 }
@@ -604,7 +612,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
         .native_balance();
 
     let mut gas_only = ChangeSet::new();
-    gas_only.get_or_create_change(owner).debit(210);
+    gas_only.get_or_create_owner_delta(owner).debit(210);
     gas_only.collect_gas(dao, 210);
     state.apply_changeset(&gas_only)?;
     let after_gas_balance = state
@@ -673,7 +681,7 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
     bob_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
 
     let mut transfer = ChangeSet::new();
-    transfer.get_or_create_change(alice).debit(10);
+    transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
     transfer.created_objects.push((
         "0xaaaa".to_string(),
@@ -819,7 +827,7 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     moved_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
 
     let mut transfer = ChangeSet::new();
-    transfer.get_or_create_change(alice).debit(10);
+    transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
     transfer.created_objects.push((
         "0xaaaa".to_string(),
@@ -872,6 +880,7 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     let sender = AccountAddress::from_hex_literal("0x1111")?;
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
     let custom_token = "0x2::usdc::USDC";
+    let custom_coin_type = format!("0x2::coin::Coin<{}>", custom_token);
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
@@ -883,10 +892,22 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     );
 
     let mut mint = ChangeSet::new();
-    mint.get_or_create_change(sender).debit(210);
+    mint.get_or_create_owner_delta(sender).debit(210);
     mint.collect_gas(gas_collector, 210);
     mint.add_treasury(sender, custom_token.to_string(), 1_000_000);
-    mint.add_token_balance_set(sender, custom_token.to_string(), 1_000);
+    let mut custom_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    custom_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    mint.created_objects.push((
+        "0xc001".to_string(),
+        CreatedObject {
+            owner: sender,
+            uid: None,
+            id: None,
+            type_: custom_coin_type,
+            data: custom_coin_data,
+            version: 1,
+        },
+    ));
 
     state.apply_changeset(&mint)?;
 
@@ -926,6 +947,7 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
     let token_type = "0x2::usdc::USDC";
     let cap_type = format!("0x2::coin::TreasuryCap<{}>", token_type);
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
     let mut setup_cap_data = vec![0u8; UID_SIZE + U64_SIZE];
@@ -959,7 +981,19 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
             version: 2,
         },
     ));
-    mint.add_token_balance_set(owner, token_type.to_string(), 1_000_000);
+    let mut minted_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    minted_coin_data[UID_SIZE..].copy_from_slice(&1_000_000u64.to_le_bytes());
+    mint.created_objects.push((
+        "0xbeef".to_string(),
+        CreatedObject {
+            owner,
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: minted_coin_data,
+            version: 1,
+        },
+    ));
 
     state.apply_changeset(&mint)?;
 
@@ -979,6 +1013,7 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
     let stale_account = AccountAddress::from_hex_literal("0xffff")?;
     let custom_token = "0x2::usdc::USDC";
+    let custom_coin_type = format!("0x2::coin::Coin<{}>", custom_token);
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
@@ -987,10 +1022,22 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
 
     let mut mint = ChangeSet::new();
-    mint.get_or_create_change(sender).debit(210);
+    mint.get_or_create_owner_delta(sender).debit(210);
     mint.collect_gas(gas_collector, 210);
     mint.add_treasury(sender, custom_token.to_string(), 1_000_000);
-    mint.add_token_balance_set(sender, custom_token.to_string(), 1_000);
+    let mut custom_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    custom_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    mint.created_objects.push((
+        "0xc002".to_string(),
+        CreatedObject {
+            owner: sender,
+            uid: None,
+            id: None,
+            type_: custom_coin_type,
+            data: custom_coin_data,
+            version: 1,
+        },
+    ));
 
     state.apply_changeset(&mint)?;
 

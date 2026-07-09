@@ -200,6 +200,11 @@ module kanari_system::coin {
         object::save_object(coin);
     }
 
+    /// Entry wrapper for joining two coin objects owned by the sender.
+    public entry fun join_entry<T>(coin: &mut Coin<T>, other: Coin<T>) {
+        join(coin, other);
+    }
+
     /// Destroy a zero-balance coin. This function can only be called on coins with 0 balance.
     /// Useful for cleaning up empty coin objects to save storage.
     public fun destroy_zero<T>(coin: Coin<T>) {

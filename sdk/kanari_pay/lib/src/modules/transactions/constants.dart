@@ -11,7 +11,6 @@ class TransactionConstants {
 
   // RPC methods
   static const String rpcPublishModule = 'kanari_publishModule';
-  static const String rpcSubmitTransaction = 'kanari_submitTransaction';
   static const String rpcCallFunction = 'kanari_callFunction';
 
   // Default gas settings

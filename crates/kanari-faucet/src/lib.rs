@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use kanari_common::get_main_wallet;
-use kanari_rpc_api::SignedTransactionData;
+use kanari_rpc_api::{CallFunctionRequest, SignedTransactionData, TransactionStatus};
 use kanari_rpc_client::RpcClient;
 use kanari_types::{
     address::Address,
@@ -16,6 +16,158 @@ use kanari_types::{
     transaction::{SignedTransaction, Transaction},
 };
 use std::env;
+
+fn read_coin_balance(data: &[u8]) -> Option<u64> {
+    if data.len() < 40 {
+        return None;
+    }
+
+    let mut amount_bytes = [0u8; 8];
+    amount_bytes.copy_from_slice(&data[32..40]);
+    Some(u64::from_le_bytes(amount_bytes))
+}
+
+fn select_native_coin_object(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    required_amount: u64,
+) -> Option<(String, u64, u64)> {
+    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let mut total_balance = 0u64;
+    let mut smallest_sufficient: Option<(String, u64)> = None;
+    let mut largest_available: Option<(String, u64)> = None;
+
+    for obj in owned_objects {
+        if obj.type_ != coin_type {
+            continue;
+        }
+
+        let Some(balance) = read_coin_balance(&obj.data) else {
+            continue;
+        };
+        if balance == 0 {
+            continue;
+        }
+
+        total_balance = total_balance.saturating_add(balance);
+
+        if balance >= required_amount {
+            match &smallest_sufficient {
+                Some((_, current)) if *current <= balance => {}
+                _ => smallest_sufficient = Some((obj.id.clone(), balance)),
+            }
+        }
+
+        match &largest_available {
+            Some((_, current)) if *current >= balance => {}
+            _ => largest_available = Some((obj.id.clone(), balance)),
+        }
+    }
+
+    smallest_sufficient
+        .or(largest_available)
+        .map(|(id, balance)| (id, balance, total_balance))
+}
+
+fn sign_call_function_request(
+    mut request: CallFunctionRequest,
+    wallet: &kanari_crypto::wallet::Wallet,
+) -> anyhow::Result<CallFunctionRequest> {
+    let transaction = Transaction::ExecuteFunction {
+        sender: request.sender.clone(),
+        module: format!("{}::{}", request.package, request.module),
+        function: request.function.clone(),
+        type_args: request.type_args.clone(),
+        args: request.args.clone(),
+        gas_limit: request.gas_limit,
+        gas_price: request.gas_price,
+        sequence_number: request.sequence_number,
+    };
+
+    let mut signed_tx = SignedTransaction::new(transaction);
+    signed_tx
+        .sign(&wallet.private_key, wallet.curve_type)
+        .context("Failed to sign function call")?;
+    request.signature = Some(signed_tx.signature);
+    Ok(request)
+}
+
+async fn sign_and_call_function(
+    client: &RpcClient,
+    wallet: &kanari_crypto::wallet::Wallet,
+    request: CallFunctionRequest,
+) -> anyhow::Result<TransactionStatus> {
+    let signed_request = sign_call_function_request(request, wallet)?;
+    client
+        .call_function(signed_request)
+        .await
+        .context("Failed to submit function call")
+}
+
+async fn consolidate_native_coins(
+    client: &RpcClient,
+    wallet: &kanari_crypto::wallet::Wallet,
+    sender_tagged: &str,
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    required_amount: u64,
+    starting_sequence: u64,
+    gas_limit: u64,
+    gas_price: u64,
+) -> anyhow::Result<(String, u64, u64, u64)> {
+    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let mut coins: Vec<(String, u64)> = owned_objects
+        .iter()
+        .filter(|obj| obj.type_ == coin_type)
+        .filter_map(|obj| read_coin_balance(&obj.data).map(|balance| (obj.id.clone(), balance)))
+        .filter(|(_, balance)| *balance > 0)
+        .collect();
+    coins.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let Some((primary_id, primary_balance)) = coins.first().cloned() else {
+        anyhow::bail!("No spendable native coin object found in dev wallet");
+    };
+
+    let total_balance = coins
+        .iter()
+        .fold(0u64, |sum, (_, balance)| sum.saturating_add(*balance));
+    let mut accumulated = primary_balance;
+    let mut sequence_number = starting_sequence;
+
+    for (coin_id, balance) in coins.iter().skip(1) {
+        if accumulated >= required_amount {
+            break;
+        }
+
+        let join_req = CallFunctionRequest {
+            sender: sender_tagged.to_string(),
+            package: "0x2".to_string(),
+            module: "coin".to_string(),
+            function: "join_entry".to_string(),
+            type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+            args: vec![
+                Address::from_hex_literal(&primary_id)
+                    .context("Invalid primary coin object ID")?
+                    .to_vec(),
+                Address::from_hex_literal(coin_id)
+                    .context("Invalid merge coin object ID")?
+                    .to_vec(),
+            ],
+            gas_limit,
+            gas_price,
+            sequence_number,
+            signature: None,
+            execute_immediate: Some(true),
+        };
+        let status = sign_and_call_function(client, wallet, join_req).await?;
+        eprintln!(
+            "  Consolidated coin {} into {} (tx: {})",
+            coin_id, primary_id, status.hash
+        );
+        sequence_number = sequence_number.saturating_add(1);
+        accumulated = accumulated.saturating_add(*balance);
+    }
+
+    Ok((primary_id, accumulated, total_balance, sequence_number))
+}
 
 /// Request KANARI tokens from the Dev wallet.
 ///
@@ -104,11 +256,7 @@ pub async fn request_from_dev(
     // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
     let estimated_gas_cost = 100_000 * 1000;
     let total_required = amount_mist + estimated_gas_cost;
-    let native_balance = owner
-        .balances
-        .get(KANARI_TOKEN_TYPE)
-        .copied()
-        .unwrap_or(0);
+    let native_balance = owner.balances.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
 
     if native_balance < total_required {
         anyhow::bail!(
@@ -131,11 +279,48 @@ pub async fn request_from_dev(
             .context("Failed to derive public key from wallet")?;
     let sender_for_tx = keypair.tagged_address();
 
+    let owned_objects = owner
+        .owned_objects
+        .as_ref()
+        .context("Dev wallet owner state has no owned object list from RPC")?;
+    let mut selected_coin = select_native_coin_object(owned_objects, total_required)
+            .context("No spendable native coin object found in dev wallet")?;
+    let mut next_sequence = owner.sequence_number;
+    if selected_coin.1 < total_required {
+        if selected_coin.2 < total_required {
+            anyhow::bail!(
+                "No single native coin object in the dev wallet can cover this faucet transfer: required {} Mist, best coin object {} Mist, total object-backed balance {} Mist",
+                total_required,
+                selected_coin.1,
+                selected_coin.2
+            );
+        }
+
+        eprintln!("  Consolidating dev wallet coin objects before faucet transfer...");
+        selected_coin = consolidate_native_coins(
+            &client,
+            &wallet,
+            &sender_for_tx,
+            owned_objects,
+            total_required,
+            owner.sequence_number,
+            100_000,
+            1_000,
+        )
+        .await
+        .map(|(id, selected_balance, total_balance, sequence)| {
+            next_sequence = sequence;
+            (id, selected_balance, total_balance)
+        })?;
+    }
+    let (coin_object_id, selected_coin_balance, _total_coin_balance) = selected_coin;
+
     let tx = Transaction::new_transfer(
         sender_for_tx.clone(),
+        coin_object_id.clone(),
         recipient.clone(),
         amount_mist,
-        owner.sequence_number,
+        next_sequence,
     );
 
     let mut signed_tx = SignedTransaction::new(tx);
@@ -145,11 +330,12 @@ pub async fn request_from_dev(
 
     let tx_data = SignedTransactionData {
         sender: sender_for_tx,
-        recipient: Some(recipient.clone()),
-        amount: Some(amount_mist),
+        coin_object_id: coin_object_id.clone(),
+        recipient: recipient.clone(),
+        amount: amount_mist,
         gas_limit: signed_tx.transaction.gas_limit(),
         gas_price: signed_tx.transaction.gas_price(),
-        sequence_number: owner.sequence_number,
+        sequence_number: next_sequence,
         signature: Some(signed_tx.signature.clone()),
         execute_immediate: Some(false),
     };
@@ -157,6 +343,8 @@ pub async fn request_from_dev(
     eprintln!("Submitting faucet transaction...");
     eprintln!("  From: {}", dev_address);
     eprintln!("  To: {}", recipient);
+    eprintln!("  Coin Object: {}", coin_object_id);
+    eprintln!("  Selected Coin Balance: {} Mist", selected_coin_balance);
     eprintln!(
         "  Amount: {:.9} KANARI",
         amount_mist as f64 / MIST_PER_KANARI

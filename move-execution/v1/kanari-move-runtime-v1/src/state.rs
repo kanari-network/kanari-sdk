@@ -28,7 +28,8 @@ mod apply;
 mod supply;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
-const ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
+const OWNER_INDEX_KEY: &[u8] = b"owner_index";
+const LEGACY_ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
 const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
@@ -494,7 +495,8 @@ impl StateManager {
     }
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
-        key == ACCOUNT_INDEX_KEY
+        key == OWNER_INDEX_KEY
+            || key == LEGACY_ACCOUNT_INDEX_KEY
             || key == OBJECT_LOCKED_COIN_RECORDS_KEY
             || key == b"total_supply"
             || key == b"global_token_supplies"
@@ -638,15 +640,15 @@ impl StateManager {
 
             let mut owner_state = self.load_owner_state_or_default(address)?;
             owner_state.sequence_number = owner_state.sequence_number.saturating_add(increment);
-            self.save_account_record(&owner_state)?;
+            self.save_owner_record(&owner_state)?;
             owner_index_additions.push(owner_state.address.to_hex_literal());
         }
 
-        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, owner_index_additions)
+        self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)
     }
 
-    fn save_account_record(&mut self, account: &OwnerState) -> Result<()> {
-        self.save_internal(&Self::owner_state_key(&account.address), account)
+    fn save_owner_record(&mut self, owner_state: &OwnerState) -> Result<()> {
+        self.save_internal(&Self::owner_state_key(&owner_state.address), owner_state)
     }
 
     fn add_many_to_index_list<I>(&mut self, key: &[u8], values: I) -> Result<()>
@@ -670,11 +672,20 @@ impl StateManager {
     }
 
     fn load_owner_addresses(&self) -> Result<Vec<AccountAddress>> {
-        let ids = self.load_index_list(ACCOUNT_INDEX_KEY)?;
+        let ids = self.load_owner_index_ids()?;
         Ok(ids
             .into_iter()
             .filter_map(|id| AccountAddress::from_hex_literal(&id).ok())
             .collect())
+    }
+
+    fn load_owner_index_ids(&self) -> Result<Vec<String>> {
+        let owner_ids = self.load_index_list(OWNER_INDEX_KEY)?;
+        if !owner_ids.is_empty() {
+            return Ok(owner_ids);
+        }
+
+        self.load_index_list(LEGACY_ACCOUNT_INDEX_KEY)
     }
 
     fn load_owner_state_or_default(&self, address: AccountAddress) -> Result<OwnerState> {
@@ -688,8 +699,8 @@ impl StateManager {
     }
 
     pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
-        self.save_account_record(owner_state)?;
-        self.add_to_index_list(ACCOUNT_INDEX_KEY, owner_state.address.to_hex_literal())
+        self.save_owner_record(owner_state)?;
+        self.add_to_index_list(OWNER_INDEX_KEY, owner_state.address.to_hex_literal())
     }
 
     pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {
@@ -809,8 +820,8 @@ impl StateManager {
 
     /// Get the total number of owners with persisted owner state.
     pub fn owner_count(&self) -> usize {
-        self.load_index_list(ACCOUNT_INDEX_KEY)
-            .map(|accounts| accounts.len())
+        self.load_owner_index_ids()
+            .map(|owner_ids| owner_ids.len())
             .unwrap_or(0)
     }
 

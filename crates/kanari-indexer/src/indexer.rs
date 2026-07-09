@@ -87,7 +87,7 @@ impl Indexer {
                 let tx_hash = hex::encode(signed_tx.hash());
 
                 // Extract coin information from transaction payload
-                if let Some(NativeCall::TransferAmount { recipient, amount }) =
+                if let Some(NativeCall::Transfer { recipient, amount, .. }) =
                     signed_tx.transaction.native_call()
                 {
                     // Create coin record for transfer

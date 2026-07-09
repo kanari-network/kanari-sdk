@@ -9,7 +9,8 @@
 //! ```
 
 use crate::command::common::{
-    get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr, resolve_sender,
+    consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx, load_wallet_for,
+    normalize_addr, resolve_sender, select_native_coin_object, spendable_coin_objects,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -168,20 +169,66 @@ impl StressTest {
         }
 
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
+        let owned_objects = owner
+            .owned_objects
+            .as_ref()
+            .context("Sender owner state has no owned object list from RPC")?;
+        let mut selected_coin = select_native_coin_object(owned_objects, total_required)
+            .context("Sender owner state has no spendable native coin object from RPC")?;
+        let mut seq = owner.sequence_number;
+        if selected_coin.selected_balance < total_required {
+            if selected_coin.total_balance < total_required {
+                anyhow::bail!(
+                    "Insufficient object-backed native balance for stress-test.\n\
+                     Required: {:.9} KANARI\n\
+                     Best coin object: {:.9} KANARI\n\
+                     Total spendable across coin objects: {:.9} KANARI",
+                    total_required as f64 / MIST_PER_KANARI,
+                    selected_coin.selected_balance as f64 / MIST_PER_KANARI,
+                    selected_coin.total_balance as f64 / MIST_PER_KANARI,
+                );
+            }
+
+            eprintln!("  Consolidating coin objects before stress-test...");
+            let consolidation = consolidate_coin_objects(
+                &client,
+                &wallet,
+                &sender_tagged,
+                KANARI_TOKEN_TYPE,
+                &spendable_coin_objects(owned_objects, KANARI_TOKEN_TYPE),
+                total_required,
+                owner.sequence_number,
+                100_000,
+                1_000,
+            )
+            .await?;
+            selected_coin = consolidation.0;
+            seq = consolidation.1;
+        }
+
+        eprintln!("  Using coin object: {}", selected_coin.coin_object_id);
+        eprintln!(
+            "  Selected coin balance: {:.9} KANARI",
+            selected_coin.selected_balance as f64 / MIST_PER_KANARI
+        );
 
         // ── Step 4: Send N transactions ──
         eprintln!();
         eprintln!("--- Sending {} transactions ---", self.count);
 
-        let mut seq = owner.sequence_number;
         let mut success_count = 0u64;
         let mut fail_count = 0u64;
         let start_time = Instant::now();
         let report_interval = (self.count / 20).max(1); // ~5% progress report
 
         for i in 0..self.count {
-            let tx =
-                Transaction::new_transfer(sender_tagged.clone(), to_addr.clone(), amount_mist, seq);
+            let tx = Transaction::new_transfer(
+                sender_tagged.clone(),
+                selected_coin.coin_object_id.clone(),
+                to_addr.clone(),
+                amount_mist,
+                seq,
+            );
 
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
@@ -190,8 +237,9 @@ impl StressTest {
 
             let tx_data = kanari_rpc_api::SignedTransactionData {
                 sender: sender_tagged.clone(),
-                recipient: Some(to_addr.clone()),
-                amount: Some(amount_mist),
+                coin_object_id: selected_coin.coin_object_id.clone(),
+                recipient: to_addr.clone(),
+                amount: amount_mist,
                 gas_limit: signed_tx.transaction.gas_limit(),
                 gas_price: signed_tx.transaction.gas_price(),
                 sequence_number: seq,

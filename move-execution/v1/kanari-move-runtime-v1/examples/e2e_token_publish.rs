@@ -96,7 +96,7 @@ fn main() {
 
     println!(
         "Publish ChangeSet produced: accounts={}, treasuries={}, token_sets={}",
-        publish_cs.account_changes.len(),
+        publish_cs.owner_deltas.len(),
         publish_cs.treasuries.len(),
         publish_cs.token_balance_sets.len()
     );
@@ -161,7 +161,7 @@ fn main() {
 
     println!(
         "Call ChangeSet produced: accounts={}, treasuries={}, token_sets={}",
-        call_cs.account_changes.len(),
+        call_cs.owner_deltas.len(),
         call_cs.treasuries.len(),
         call_cs.token_balance_sets.len()
     );

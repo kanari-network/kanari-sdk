@@ -25,9 +25,9 @@ pub struct CreatedObject {
     pub version: u64,
 }
 
-/// Represents changes to owner state from Move VM execution.
+/// Represents owner-state deltas from Move VM execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountChange {
+pub struct OwnerDelta {
     pub address: AccountAddress,
     /// Positive = credit, negative = debit. i128 prevents lossy u64 -> i64 casts.
     pub balance_delta: i128,
@@ -35,7 +35,7 @@ pub struct AccountChange {
     pub modules_added: BTreeSet<String>,
 }
 
-impl AccountChange {
+impl OwnerDelta {
     fn new(address: AccountAddress) -> Self {
         Self {
             address,
@@ -66,7 +66,7 @@ impl AccountChange {
 /// This is the canonical output from Move VM that StateManager will apply.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChangeSet {
-    pub account_changes: BTreeMap<AccountAddress, AccountChange>,
+    pub owner_deltas: BTreeMap<AccountAddress, OwnerDelta>,
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
@@ -76,7 +76,7 @@ pub struct ChangeSet {
         String,
         kanari_types::collection::NftCapRecord,
     )>,
-    /// Per-account token balances (absolute set): (owner, token_type, BalanceRecord)
+    /// Per-owner token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     /// Objects created during execution. Each entry is (object_id, CreatedObject)
     pub created_objects: Vec<(String, CreatedObject)>,
@@ -97,7 +97,7 @@ pub struct ChangeSet {
 impl ChangeSet {
     fn with_status(gas_used: u64, success: bool, error_message: Option<String>) -> Self {
         Self {
-            account_changes: BTreeMap::new(),
+            owner_deltas: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
@@ -117,40 +117,41 @@ impl ChangeSet {
         Self::with_status(0, true, None)
     }
 
-    pub fn get_or_create_change(&mut self, address: AccountAddress) -> &mut AccountChange {
-        self.account_changes
+    pub fn get_or_create_owner_delta(&mut self, address: AccountAddress) -> &mut OwnerDelta {
+        self.owner_deltas
             .entry(address)
-            .or_insert_with(|| AccountChange::new(address))
+            .or_insert_with(|| OwnerDelta::new(address))
     }
 
     /// Transfer operation: debit sender, credit receiver
     pub fn transfer(&mut self, from: AccountAddress, to: AccountAddress, amount: u64) {
-        let sender = self.get_or_create_change(from);
+        let sender = self.get_or_create_owner_delta(from);
         sender.debit(amount);
         sender.increment_sequence();
 
-        let receiver = self.get_or_create_change(to);
+        let receiver = self.get_or_create_owner_delta(to);
         receiver.credit(amount);
     }
 
     /// Mint operation: create new tokens
     pub fn mint(&mut self, to: AccountAddress, amount: u64) {
-        self.get_or_create_change(to).credit(amount);
+        self.get_or_create_owner_delta(to).credit(amount);
     }
 
     /// Burn operation: destroy tokens
     pub fn burn(&mut self, from: AccountAddress, amount: u64) {
-        self.get_or_create_change(from).debit(amount);
+        self.get_or_create_owner_delta(from).debit(amount);
     }
 
     /// Module publish operation. Sequence handling remains in the engine layer.
     pub fn publish_module(&mut self, publisher: AccountAddress, module_name: String) {
-        self.get_or_create_change(publisher).add_module(module_name);
+        self.get_or_create_owner_delta(publisher)
+            .add_module(module_name);
     }
 
     /// Collect gas fees to DAO
     pub fn collect_gas(&mut self, dao_address: AccountAddress, gas_amount: u64) {
-        self.get_or_create_change(dao_address).credit(gas_amount);
+        self.get_or_create_owner_delta(dao_address).credit(gas_amount);
     }
 
     pub fn set_gas_used(&mut self, gas: u64) {
@@ -163,7 +164,7 @@ impl ChangeSet {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.account_changes.is_empty()
+        self.owner_deltas.is_empty()
             && self.events.is_empty()
             && self.treasuries.is_empty()
             && self.token_balance_sets.is_empty()
@@ -180,8 +181,8 @@ impl ChangeSet {
     /// Merge another ChangeSet into this one. Later Move writes replace earlier writes
     /// for the same canonical key, matching serial transaction execution semantics.
     pub fn merge(&mut self, mut other: ChangeSet) {
-        for (addr, other_change) in other.account_changes {
-            let existing = self.get_or_create_change(addr);
+        for (addr, other_change) in other.owner_deltas {
+            let existing = self.get_or_create_owner_delta(addr);
             existing.balance_delta = existing
                 .balance_delta
                 .saturating_add(other_change.balance_delta);

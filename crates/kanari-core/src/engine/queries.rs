@@ -302,6 +302,7 @@ mod tests {
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
         let tx = Transaction::new_transfer(
             sender.tagged_address(),
+            "0xaaaa".to_string(),
             recipient.address,
             1,
             sequence_number,

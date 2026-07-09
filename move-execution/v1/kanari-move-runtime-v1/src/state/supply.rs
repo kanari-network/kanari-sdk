@@ -13,10 +13,11 @@ impl StateManager {
         let mut balances = self.compute_owned_token_balances(owner, native_balance_fallback)?;
 
         if let Some(owner_state) = owner_state {
-            for (token_type, balance) in owner_state.owned_token_balances() {
+            let native_balance = owner_state.native_balance();
+            if native_balance > 0 {
                 balances
-                    .entry(token_type.clone())
-                    .or_insert_with(|| balance.value());
+                    .entry(KANARI_TOKEN_TYPE.to_string())
+                    .or_insert(native_balance);
             }
         }
 
@@ -206,7 +207,7 @@ impl StateManager {
             let debit = current.min(excess);
             let next = current - debit;
             account.set_token_balance_value(KANARI_TOKEN_TYPE, next);
-            self.save_account_record(&account)?;
+            self.save_owner_record(&account)?;
             excess -= debit;
         }
 
@@ -472,7 +473,7 @@ impl StateManager {
     ) -> Result<bool> {
         let mut owner_state = self.load_owner_state_or_default(owner)?;
         let old_balances = owner_state.token_balances.clone();
-        let native_balance_after_account_changes = owner_state.native_balance();
+        let native_balance_after_owner_deltas = owner_state.native_balance();
         let mut aggregated = self.compute_owned_token_balances(owner, None)?;
 
         let native_object_balance = aggregated.remove(KANARI_TOKEN_TYPE);
@@ -492,7 +493,7 @@ impl StateManager {
         } else if native_object_changed {
             0
         } else {
-            native_balance_after_account_changes
+            native_balance_after_owner_deltas
         };
         owner_state.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
         self.save_owner_state(&owner_state)?;

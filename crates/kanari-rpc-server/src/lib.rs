@@ -627,7 +627,13 @@ mod tests {
         let recipient_address = recipient.address.clone();
 
         let mut transaction =
-            Transaction::new_transfer(sender_tagged.clone(), recipient_address.clone(), 1, 0);
+            Transaction::new_transfer(
+                sender_tagged.clone(),
+                "0xaaaa".to_string(),
+                recipient_address.clone(),
+                1,
+                0,
+            );
         if let Transaction::ExecuteFunction {
             gas_limit,
             gas_price,
@@ -647,6 +653,7 @@ mod tests {
             methods::SUBMIT_TRANSACTION,
             serde_json::json!({
                 "sender": sender_tagged,
+                "coin_object_id": "0xaaaa",
                 "recipient": recipient_address,
                 "amount": 1,
                 "gas_limit": 1_000_000,
@@ -706,6 +713,7 @@ mod tests {
         let recipient_address = recipient.address.clone();
         let transaction = Transaction::new_transfer_with_gas(
             sender_tagged.clone(),
+            "0xaaaa".to_string(),
             recipient_address.clone(),
             1,
             0,
@@ -723,6 +731,7 @@ mod tests {
             methods::SUBMIT_TRANSACTION,
             serde_json::json!({
                 "sender": sender_tagged,
+                "coin_object_id": "0xaaaa",
                 "recipient": recipient_address,
                 "amount": 1,
                 "gas_limit": 1_000_000,
@@ -752,6 +761,7 @@ mod tests {
             methods::SUBMIT_TRANSACTION,
             serde_json::json!({
                 "sender": "0x1111",
+                "coin_object_id": "0xaaaa",
                 "recipient": "0x2222",
                 "amount": 1,
                 "gas_limit": 1_000_000,

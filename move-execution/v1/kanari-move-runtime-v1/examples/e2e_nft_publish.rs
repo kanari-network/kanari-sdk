@@ -90,7 +90,7 @@ fn main() {
 
     println!(
         "Publish ChangeSet produced: accounts={}, created_objects={}",
-        publish_cs.account_changes.len(),
+        publish_cs.owner_deltas.len(),
         publish_cs.created_objects.len()
     );
 
@@ -249,7 +249,7 @@ fn main() {
                 Ok(m_cs) => {
                     println!(
                         "Mint call ChangeSet produced: accounts={}, created_objects={}, events={}",
-                        m_cs.account_changes.len(),
+                        m_cs.owner_deltas.len(),
                         m_cs.created_objects.len(),
                         m_cs.events.len()
                     );

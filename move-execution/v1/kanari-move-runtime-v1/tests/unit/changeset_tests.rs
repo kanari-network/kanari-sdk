@@ -13,23 +13,23 @@ fn test_changeset_transfer() {
 
     cs.transfer(from, to, 100);
 
-    assert_eq!(cs.account_changes.len(), 2);
+    assert_eq!(cs.owner_deltas.len(), 2);
     assert_eq!(
-        cs.account_changes
+        cs.owner_deltas
             .get(&from)
             .invariant("sender change missing")
             .balance_delta,
         -100
     );
     assert_eq!(
-        cs.account_changes
+        cs.owner_deltas
             .get(&to)
             .invariant("recipient change missing")
             .balance_delta,
         100
     );
     assert_eq!(
-        cs.account_changes
+        cs.owner_deltas
             .get(&from)
             .invariant("sender change missing")
             .sequence_increment,
@@ -45,9 +45,9 @@ fn test_changeset_mint() {
 
     cs.mint(to, 1000);
 
-    assert_eq!(cs.account_changes.len(), 1);
+    assert_eq!(cs.owner_deltas.len(), 1);
     assert_eq!(
-        cs.account_changes
+        cs.owner_deltas
             .get(&to)
             .invariant("recipient change missing")
             .balance_delta,
@@ -63,9 +63,9 @@ fn test_changeset_burn() {
 
     cs.burn(from, 500);
 
-    assert_eq!(cs.account_changes.len(), 1);
+    assert_eq!(cs.owner_deltas.len(), 1);
     assert_eq!(
-        cs.account_changes
+        cs.owner_deltas
             .get(&from)
             .invariant("sender change missing")
             .balance_delta,
@@ -82,7 +82,7 @@ fn test_changeset_module_publish() {
     cs.publish_module(publisher, "kanari".to_string());
 
     let change = cs
-        .account_changes
+        .owner_deltas
         .get(&publisher)
         .invariant("publisher change missing");
     assert_eq!(change.modules_added.len(), 1);

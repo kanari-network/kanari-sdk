@@ -58,6 +58,7 @@ fn main() -> Result<()> {
 
     let signed_tx = auth.sign_transfer(
         &session,
+        "0xaaaa",
         recipient,
         amount_mist,
         Some(100_000), // gas limit

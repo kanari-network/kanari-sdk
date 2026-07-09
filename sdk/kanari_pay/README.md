@@ -79,23 +79,18 @@ if (authClient.isAuthenticated) {
 }
 ```
 
-### 5. Sign a Transfer Transaction
+### 5. Execute an Object-Centric Transfer
 
 ```dart
-final response = await authClient.signTransfer(
+final result = await rpcClient.transfer(
+  wallet: wallet,
   recipient: '0xRecipientAddress...',
   amount: 1000000, // in mist
   gasLimit: 100000,
   gasPrice: 1000,
 );
 
-if (response.success) {
-  final signedTx = response.data!['signed_transaction'];
-  print('Transaction signed: $signedTx');
-  
-  // Submit the signed transaction using KanariClient
-  // ...
-}
+print('Transaction submitted: ${result.hash}');
 ```
 
 ### 6. Validate Session
@@ -155,20 +150,28 @@ import 'package:kanari_kit/kanari_kit.dart';
 // Initialize RPC client
 final rpcClient = KanariClient('http://localhost:3000/rpc');
 
-// After authenticating and signing a transaction...
-final authResponse = await authClient.signTransfer(
+// Query owner-centric state
+final owner = await rpcClient.getOwner(wallet.address);
+print('Owned objects: ${owner.ownedObjects?.length ?? 0}');
+
+// Automatic coin selection + consolidation when needed
+final transfer = await rpcClient.transfer(
+  wallet: wallet,
   recipient: '0xRecipient...',
   amount: 1000000,
 );
 
-if (authResponse.success) {
-  // Parse the signed transaction
-  final signedTxJson = authResponse.data!['signed_transaction'];
-  
-  // Submit to blockchain via RPC
-  final txResponse = await rpcClient.submitTransaction(signedTxJson);
-  print('Transaction submitted: ${txResponse.result}');
-}
+print('Auto-selected transfer hash: ${transfer.hash}');
+
+// Explicit object-input flow
+final explicit = await rpcClient.transferWithCoinObject(
+  wallet: wallet,
+  coinObjectId: '0xCoinObjectId...',
+  recipient: '0xRecipient...',
+  amount: 1000000,
+);
+
+print('Explicit coin transfer hash: ${explicit.hash}');
 ```
 
 ## Environment Configuration

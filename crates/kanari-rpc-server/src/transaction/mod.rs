@@ -81,8 +81,13 @@ fn tx_matches_account(tx: &Transaction, account_norm: Option<&str>) -> bool {
         return true;
     };
 
-    if let Some(NativeCall::TransferAmount { recipient, .. }) = tx.native_call() {
-        return normalize_addr(tx.sender()) == acct || normalize_addr(&recipient) == acct;
+    if let Some(native_call) = tx.native_call() {
+        match native_call {
+            NativeCall::Transfer { recipient, .. } => {
+                return normalize_addr(tx.sender()) == acct || normalize_addr(&recipient) == acct;
+            }
+            NativeCall::BurnAmount { .. } => {}
+        }
     }
 
     normalize_addr(tx.sender()) == acct
@@ -256,8 +261,17 @@ fn map_transaction_to_details(
             details.module = Some(module.clone());
             details.function = Some(function.clone());
             details.module_functions = lookup_module_functions(state, module);
-            if let Some(NativeCall::TransferAmount { recipient, .. }) = tx.native_call() {
-                details.module = Some(format!("To: {}", recipient));
+            if let Some(native_call) = tx.native_call() {
+                match native_call {
+                    NativeCall::Transfer {
+                        coin_object_id,
+                        recipient,
+                        ..
+                    } => {
+                        details.module = Some(format!("To: {} via {}", recipient, coin_object_id));
+                    }
+                    NativeCall::BurnAmount { .. } => {}
+                }
             }
             details
         }
@@ -485,52 +499,25 @@ pub async fn handle_submit_transaction(
         }
     };
 
-    let sender = match parse_hex_address(request.id, &tx_data.sender, "sender address") {
+    let _sender = match parse_hex_address(request.id, &tx_data.sender, "sender address") {
         Ok(addr) => addr,
         Err(response) => return *response,
     };
 
-    let transaction =
-        if let (Some(recipient_str), Some(amount)) = (&tx_data.recipient, tx_data.amount) {
-            let recipient = match parse_hex_address(request.id, recipient_str, "recipient") {
-                Ok(addr) => addr,
-                Err(response) => return *response,
-            };
+    let recipient = match parse_hex_address(request.id, &tx_data.recipient, "recipient") {
+        Ok(addr) => addr,
+        Err(response) => return *response,
+    };
 
-            Transaction::new_transfer_with_gas(
-                tx_data.sender.clone(),
-                recipient.to_hex_literal(),
-                amount,
-                tx_data.sequence_number,
-                tx_data.gas_limit,
-                tx_data.gas_price,
-            )
-        } else if let (None, Some(amount)) = (&tx_data.recipient, tx_data.amount) {
-            let system_addr =
-                Address::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).unwrap_or(Address::ZERO);
-            let dev_addr = Address::from_hex_literal(Address::DEV_ADDRESS).unwrap_or(Address::ZERO);
-
-            if sender != system_addr && sender != dev_addr {
-                error!("Unauthorized burn attempt from {}", sender.to_hex_literal());
-                return invalid_params_response(
-                    request.id,
-                    "Burn transactions are restricted to system administrators",
-                );
-            }
-
-            Transaction::new_burn_with_gas(
-                tx_data.sender.clone(),
-                amount,
-                tx_data.sequence_number,
-                tx_data.gas_limit,
-                tx_data.gas_price,
-            )
-        } else {
-            return invalid_params_response(
-                request.id,
-                "Only transfer or burn transactions are supported",
-            );
-        };
+    let transaction = Transaction::new_transfer_with_gas(
+        tx_data.sender.clone(),
+        tx_data.coin_object_id.clone(),
+        recipient.to_hex_literal(),
+        tx_data.amount,
+        tx_data.sequence_number,
+        tx_data.gas_limit,
+        tx_data.gas_price,
+    );
 
     let mut signed_tx = SignedTransaction::new(transaction);
     maybe_attach_signature(&mut signed_tx, tx_data.signature);

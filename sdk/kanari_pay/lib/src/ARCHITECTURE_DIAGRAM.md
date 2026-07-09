@@ -78,14 +78,14 @@ sequenceDiagram
     participant RPC as RpcUtils
     participant Node as Kanari Node
 
-    App->>Client: getAccount(address)
-    Client->>Queries: getAccount(address)
-    Queries->>RPC: request('kanari_getAccount')
+    App->>Client: getOwner(address)
+    Client->>Queries: getOwner(address)
+    Queries->>RPC: request('kanari_getOwner')
     RPC->>Node: HTTP POST
     Node-->>RPC: JSON Response
     RPC-->>Queries: Parsed Result
-    Queries-->>Client: AccountInfo
-    Client-->>App: AccountInfo
+    Queries-->>Client: OwnerInfo
+    Client-->>App: OwnerInfo
 ```
 
 ### Transaction Operation (Write)
@@ -102,10 +102,10 @@ sequenceDiagram
 
     App->>Client: transfer(wallet, recipient, amount)
     Client->>TxOps: transfer(...)
-    TxOps->>Queries: getAccount(wallet.address)
-    Queries-->>TxOps: AccountInfo (sequence number)
+    TxOps->>Queries: getOwner(wallet.address)
+    Queries-->>TxOps: OwnerInfo (sequence number + owned objects)
     
-    TxOps->>TxOps: Prepare transaction data
+    TxOps->>TxOps: Select / consolidate coin objects, then prepare tx
     TxOps->>Crypto: blake3Hash(serialized tx)
     Crypto-->>TxOps: Hash
     TxOps->>Wallet: sign(hash)

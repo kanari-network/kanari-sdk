@@ -6,6 +6,24 @@ import 'package:kanari_crypto/kanari_crypto.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
+Map<String, dynamic> ownerResponse({
+  required int sequenceNumber,
+  Map<String, int> balances = const {},
+  List<Map<String, dynamic>> ownedObjects = const [],
+}) {
+  return {
+    'jsonrpc': '2.0',
+    'result': {
+      'owner': '0x123',
+      'sequence_number': sequenceNumber,
+      'modules': [],
+      'balances': balances,
+      'owned_objects': ownedObjects,
+    },
+    'id': 1,
+  };
+}
+
 void main() {
   group('KanariClient', () {
     test('getHealth returns health status', () async {
@@ -63,17 +81,31 @@ void main() {
         final body = jsonDecode(request.body);
         final method = body['method'];
 
-        if (method == 'kanari_getAccount') {
+        if (method == 'kanari_getOwner') {
           return http.Response(
-            jsonEncode({
-              'jsonrpc': '2.0',
-              'result': {
-                'address': '0x123',
-                'balance': 5000,
-                'sequence_number': 5,
-                'modules': [],
-                'token_balances': {},
-                'owned_objects': [
+            jsonEncode(
+              ownerResponse(
+                sequenceNumber: 5,
+                balances: {'0x2::kanari::KANARI': 7000},
+                ownedObjects: [
+                  {
+                    'id':
+                        '0x0000000000000000000000000000000000000000000000000000000000000aaa',
+                    'owner': '0x123',
+                    'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                    'data': [
+                      ...List<int>.filled(32, 0),
+                      136,
+                      19,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                    ],
+                    'version': 1,
+                  },
                   {
                     'id':
                         '0x0000000000000000000000000000000000000000000000000000000000000abc',
@@ -81,8 +113,8 @@ void main() {
                     'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
                     'data': [
                       ...List<int>.filled(32, 0),
-                      232,
-                      3,
+                      208,
+                      7,
                       0,
                       0,
                       0,
@@ -93,9 +125,8 @@ void main() {
                     'version': 1,
                   },
                 ],
-              },
-              'id': 1,
-            }),
+              ),
+            ),
             200,
           );
         }
@@ -122,6 +153,8 @@ void main() {
         wallet: mockWallet,
         recipient: '0x456',
         amount: 1000,
+        gasLimit: 1,
+        gasPrice: 1,
       );
 
       expect(result.hash, '0xtxhash');
@@ -136,6 +169,14 @@ void main() {
       expect(txData['function'], 'transfer');
       expect(txData['sequence_number'], 5);
       expect(txData['args'], hasLength(3));
+      expect(
+        (txData['args'] as List)[0],
+        [
+          ...List<int>.filled(30, 0),
+          10,
+          0xbc,
+        ],
+      );
       expect(txData['signature'], isA<List>());
     });
 
@@ -157,19 +198,9 @@ void main() {
         final body = jsonDecode(request.body);
         final method = body['method'];
 
-        if (method == 'kanari_getAccount') {
+        if (method == 'kanari_getOwner') {
           return http.Response(
-            jsonEncode({
-              'jsonrpc': '2.0',
-              'result': {
-                'address': '0x123',
-                'balance': 5000,
-                'sequence_number': 10,
-                'modules': [],
-                'token_balances': {},
-              },
-              'id': 1,
-            }),
+            jsonEncode(ownerResponse(sequenceNumber: 10)),
             200,
           );
         }
@@ -228,19 +259,9 @@ void main() {
         final body = jsonDecode(request.body);
         final method = body['method'];
 
-        if (method == 'kanari_getAccount') {
+        if (method == 'kanari_getOwner') {
           return http.Response(
-            jsonEncode({
-              'jsonrpc': '2.0',
-              'result': {
-                'address': '0x123',
-                'balance': 5000,
-                'sequence_number': 15,
-                'modules': [],
-                'token_balances': {},
-              },
-              'id': 1,
-            }),
+            jsonEncode(ownerResponse(sequenceNumber: 15)),
             200,
           );
         }
@@ -309,23 +330,13 @@ void main() {
         final body = jsonDecode(request.body);
         final method = body['method'];
 
-        if (method == 'kanari_getAccount') {
+        if (method == 'kanari_getOwner') {
           return http.Response(
-            jsonEncode({
-              'jsonrpc': '2.0',
-              'result': {
-                'address': '0x123',
-                'balance': 5000,
-                'sequence_number': 20,
-                'modules': [],
-                'token_balances': {},
-              },
-              'id': 1,
-            }),
+            jsonEncode(ownerResponse(sequenceNumber: 20)),
             200,
           );
         }
-        if (method == 'kanari_submitTransaction') {
+        if (method == 'kanari_callFunction') {
           capturedParams = body['params'] as Map<String, dynamic>;
           return http.Response(
             jsonEncode({
@@ -352,9 +363,120 @@ void main() {
       // Verify params
       expect(capturedParams, isNotNull);
       expect(capturedParams!['sender'], 'Ed25519:0x123');
-      expect(capturedParams!['amount'], 500);
+      expect(capturedParams!['package'], '0x2');
+      expect(capturedParams!['module'], 'kanari');
+      expect(capturedParams!['function'], 'burn_amount');
+      expect(capturedParams!['args'], [
+        [244, 1, 0, 0, 0, 0, 0, 0],
+      ]);
       expect(capturedParams!['sequence_number'], 20);
       expect(capturedParams!['signature'], isA<List>());
+    });
+
+    test('transfer consolidates fragmented native coins before sending', () async {
+      final mockWallet = KanariWallet(
+        KeyPairData(
+          privateKey: 'priv',
+          publicKey: 'pub',
+          address: '0x123',
+          taggedAddress: 'Ed25519:0x123',
+          rawPublicKey: Uint8List(32),
+          curveType: 'Ed25519',
+        ),
+      );
+
+      final submittedCalls = <Map<String, dynamic>>[];
+
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body);
+        final method = body['method'];
+
+        if (method == 'kanari_getOwner') {
+          return http.Response(
+            jsonEncode(
+              ownerResponse(
+                sequenceNumber: 9,
+                balances: {'0x2::kanari::KANARI': 4500},
+                ownedObjects: [
+                  {
+                    'id':
+                        '0x00000000000000000000000000000000000000000000000000000000000000aa',
+                    'owner': '0x123',
+                    'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                    'data': [
+                      ...List<int>.filled(32, 0),
+                      208,
+                      7,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                    ],
+                    'version': 1,
+                  },
+                  {
+                    'id':
+                        '0x00000000000000000000000000000000000000000000000000000000000000bb',
+                    'owner': '0x123',
+                    'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                    'data': [
+                      ...List<int>.filled(32, 0),
+                      196,
+                      9,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                    ],
+                    'version': 1,
+                  },
+                ],
+              ),
+            ),
+            200,
+          );
+        }
+
+        if (method == 'kanari_callFunction') {
+          submittedCalls.add(body['params'] as Map<String, dynamic>);
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'hash': '0x${submittedCalls.length}',
+                'status': 'success',
+                'gas_used': 100,
+              },
+              'id': 2,
+            }),
+            200,
+          );
+        }
+
+        return http.Response('', 404);
+      });
+
+      final client = KanariClient('http://localhost/rpc', client: mockClient);
+      final result = await client.transfer(
+        wallet: mockWallet,
+        recipient: '0x456',
+        amount: 3000,
+        gasLimit: 1000,
+        gasPrice: 1,
+      );
+
+      expect(result.hash, '0x2');
+      expect(submittedCalls, hasLength(2));
+      expect(submittedCalls[0]['module'], 'coin');
+      expect(submittedCalls[0]['function'], 'join_entry');
+      expect(submittedCalls[0]['sequence_number'], 9);
+      expect(submittedCalls[1]['module'], 'kanari');
+      expect(submittedCalls[1]['function'], 'transfer');
+      expect(submittedCalls[1]['sequence_number'], 10);
     });
   });
 }

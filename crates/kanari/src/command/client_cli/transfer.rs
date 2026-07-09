@@ -2,24 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::common::{
-    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    resolve_sender, resolve_transaction_gas, sign_call_function_request,
+    check_node_connection, consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx,
+    load_wallet_for, normalize_addr, resolve_sender, resolve_transaction_gas,
+    select_native_coin_object, sign_and_call_function, spendable_coin_objects,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
-
-fn read_coin_balance(data: &[u8]) -> Option<u64> {
-    if data.len() < 40 {
-        return None;
-    }
-
-    let mut amount_bytes = [0u8; 8];
-    amount_bytes.copy_from_slice(&data[32..40]);
-    Some(u64::from_le_bytes(amount_bytes))
-}
 
 #[derive(Parser, Debug)]
 pub struct Transfer {
@@ -76,49 +67,50 @@ impl Transfer {
             .as_ref()
             .context("Sender owner state has no owned object list from RPC")?;
 
-        let mut selected_coin_id = None;
-        let mut selected_coin_balance = 0u64;
-        let mut total_coin_balance = 0u64;
-
-        for obj in owned_objects {
-            if obj.type_ != format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE) {
-                continue;
-            }
-
-            let Some(coin_balance) = read_coin_balance(&obj.data) else {
-                continue;
-            };
-
-            total_coin_balance = total_coin_balance.saturating_add(coin_balance);
-
-            if selected_coin_id.is_none() && coin_balance > 0 {
-                selected_coin_id = Some(obj.id.clone());
-                selected_coin_balance = coin_balance;
-            }
-        }
-
-        let coin_object_id = selected_coin_id.with_context(|| {
+        let required_balance = amount_mist.saturating_add(gas_limit.saturating_mul(gas_price));
+        let mut selected_coin =
+            select_native_coin_object(owned_objects, required_balance).with_context(|| {
             format!(
                 "No spendable Coin<{}> object found for {}",
                 KANARI_TOKEN_TYPE, from_addr
             )
         })?;
 
-        if total_coin_balance < amount_mist {
-            anyhow::bail!(
-                "Insufficient Coin<{}> balance for {}.\n  - requested: {} Mist\n  - spendable in coin objects: {} Mist",
+        let mut next_sequence = owner.sequence_number;
+        if selected_coin.selected_balance < required_balance {
+            if selected_coin.total_balance < required_balance {
+                anyhow::bail!(
+                    "Insufficient Coin<{}> balance for {}.\n  - required (amount + max gas): {} Mist\n  - best coin object: {} Mist\n  - total spendable across coin objects: {} Mist",
+                    KANARI_TOKEN_TYPE,
+                    from_addr,
+                    required_balance,
+                    selected_coin.selected_balance,
+                    selected_coin.total_balance
+                );
+            }
+
+            eprintln!("  Consolidating coin objects before transfer...");
+            let consolidation = consolidate_coin_objects(
+                &client,
+                &wallet,
+                &sender_tagged,
                 KANARI_TOKEN_TYPE,
-                from_addr,
-                amount_mist,
-                total_coin_balance
-            );
+                &spendable_coin_objects(owned_objects, KANARI_TOKEN_TYPE),
+                required_balance,
+                owner.sequence_number,
+                gas_limit,
+                gas_price,
+            )
+            .await?;
+            selected_coin = consolidation.0;
+            next_sequence = consolidation.1;
         }
 
-        eprintln!("  Using coin object: {}", coin_object_id);
-        eprintln!("  Selected Coin Balance (Mist): {}", selected_coin_balance);
+        eprintln!("  Using coin object: {}", selected_coin.coin_object_id);
+        eprintln!("  Selected Coin Balance (Mist): {}", selected_coin.selected_balance);
         eprintln!(
             "  Total Spendable Coin Balance (Mist): {}",
-            total_coin_balance
+            selected_coin.total_balance
         );
 
         let call_req = CallFunctionRequest {
@@ -128,7 +120,9 @@ impl Transfer {
             function: "transfer".to_string(),
             type_args: vec![],
             args: vec![
-                move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_id)
+                move_core_types::account_address::AccountAddress::from_hex_literal(
+                    &selected_coin.coin_object_id,
+                )
                     .context("Invalid coin object ID")?
                     .to_vec(),
                 bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
@@ -139,21 +133,15 @@ impl Transfer {
             ],
             gas_limit,
             gas_price,
-            sequence_number: owner.sequence_number,
+            sequence_number: next_sequence,
             signature: None,
             execute_immediate: Some(true),
         };
-        let final_call_req = sign_call_function_request(call_req, &wallet)?;
-
-        eprintln!("  Gas Limit: {}", final_call_req.gas_limit);
-        eprintln!("  Gas Price: {} Mist/gas", final_call_req.gas_price);
-        eprintln!("  Transaction signed");
+        eprintln!("  Gas Limit: {}", gas_limit);
+        eprintln!("  Gas Price: {} Mist/gas", gas_price);
         eprintln!("  Submitting transaction to node...");
 
-        let status = client
-            .call_function(final_call_req)
-            .await
-            .context("Failed to submit transaction")?;
+        let status = sign_and_call_function(&client, &wallet, call_req).await?;
 
         eprintln!("  Transaction submitted successfully");
         eprintln!("  Transaction hash: {}", status.hash);

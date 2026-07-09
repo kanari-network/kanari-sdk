@@ -323,6 +323,17 @@ impl StateManager {
             .contains_key(token_type))
     }
 
+    fn changeset_touches_object_backed_token_for_owner(
+        &self,
+        changeset: &ChangeSet,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> Result<bool> {
+        Ok(self.owner_has_object_backed_token_balance(owner, token_type)?
+            || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
+            || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?)
+    }
+
     fn persist_treasury_cap_state(
         &mut self,
         token_type: &str,
@@ -412,7 +423,7 @@ impl StateManager {
 
         let supply_delta =
             changeset
-                .account_changes
+                .owner_deltas
                 .values()
                 .try_fold(0i128, |total, change| {
                     total
@@ -441,13 +452,13 @@ impl StateManager {
             None
         };
 
-        for (address, change) in &changeset.account_changes {
+        for (address, change) in &changeset.owner_deltas {
             if change.balance_delta >= 0 {
                 continue;
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
                 .expect("Native debit overflowed u64 account balance");
-            let balance = self.load_owner_state_or_default(*address)?.native_balance();
+            let balance = self.resolve_owner_native_balance(*address)?;
             ensure!(
                 balance >= debit,
                 "Insufficient native balance for {}: need {}, have {}",
@@ -458,20 +469,31 @@ impl StateManager {
         }
 
         let mut supplies_dirty = false;
-        let mut account_index_additions = Vec::with_capacity(changeset.account_changes.len());
+        let mut owner_index_additions = Vec::with_capacity(changeset.owner_deltas.len());
         let reconcile_object_locked = Self::needs_object_locked_reconciliation(changeset);
         let (issued_before, visible_before) = if reconcile_object_locked {
             self.capture_supply_snapshots(self.supply_tracking_token_types(changeset))?
         } else {
             (BTreeMap::new(), BTreeMap::new())
         };
+        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
 
-        for (address, change) in &changeset.account_changes {
+        for (address, change) in &changeset.owner_deltas {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
             let old_balances = owner_state.token_balances.clone();
             let native_token = KANARI_TOKEN_TYPE.to_string();
+            let native_object_backed = self
+                .changeset_touches_object_backed_token_for_owner(
+                    changeset,
+                    *address,
+                    KANARI_TOKEN_TYPE,
+                )?;
 
-            if change.balance_delta > 0 {
+            if native_object_backed {
+                owners_to_recompute.insert(*address);
+            } else if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
                     .expect("Native credit overflowed u64 account balance");
                 let next = owner_state
@@ -492,12 +514,12 @@ impl StateManager {
             for module_name in &change.modules_added {
                 owner_state.add_module(module_name.clone());
             }
-            self.save_account_record(&owner_state)?;
-            account_index_additions.push(owner_state.address.to_hex_literal());
+            self.save_owner_record(&owner_state)?;
+            owner_index_additions.push(owner_state.address.to_hex_literal());
             supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
         }
 
-        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)?;
+        self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)?;
 
         // Update total supply if there was mint/burn (supply_delta != 0)
         if let Some(next_total_supply) = next_total_supply {
@@ -528,46 +550,26 @@ impl StateManager {
         }
 
         // Record Global Token Supplies to database only once after all processing
-        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
-
-        // Apply incremental token balance hints only for owners/tokens that do not yet have
-        // object-backed balances. Once a token balance is represented by owned objects, the
-        // account cache is refreshed from object state instead of being incremented directly.
+        // Treat token balance hints as recompute triggers, not as canonical balance writes.
+        // Non-native balances must come from owned objects so queries always reflect object
+        // inventory instead of a parallel per-owner cache.
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let normalized_token_type = Self::normalize_token_type(token_type);
             if normalized_token_type == KANARI_TOKEN_TYPE {
-                // Native KANARI balance is applied from account_changes so gas and
+                // Native KANARI balance is applied from owner deltas so gas and
                 // transfers remain exact. Object-derived hints must not double count it.
                 continue;
             }
 
-            let object_backed = self
-                .owner_has_object_backed_token_balance(*owner, &normalized_token_type)?
-                || Self::changeset_creates_object_balance_for_owner(
-                    changeset,
-                    *owner,
-                    &normalized_token_type,
-                )
-                || self.changeset_deletes_object_balance_for_owner(
-                    changeset,
-                    *owner,
-                    &normalized_token_type,
-                )?;
+            let _ = amount;
+            let object_backed = self.changeset_touches_object_backed_token_for_owner(
+                changeset,
+                *owner,
+                &normalized_token_type,
+            )?;
             if object_backed {
                 owners_to_recompute.insert(*owner);
-                continue;
             }
-
-            let mut owner_state = self.load_owner_state_or_default(*owner)?;
-            let old_balances = owner_state.token_balances.clone();
-            let current = owner_state.get_token_balance(&normalized_token_type);
-            let next = current.saturating_add(amount.value());
-            owner_state.set_token_balance_value(&normalized_token_type, next);
-            self.save_owner_state(&owner_state)?;
-
-            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
         }
 
         for obj_id in &changeset.deleted_objects {
@@ -642,7 +644,7 @@ impl StateManager {
                         .is_some_and(|(token_type, _)| token_type == KANARI_TOKEN_TYPE);
                 if existing_native_coin {
                     let sender_native_debit: u64 = changeset
-                        .account_changes
+                        .owner_deltas
                         .get(&existing.owner)
                         .map(|change| change.balance_delta)
                         .filter(|delta| *delta < 0)
@@ -740,7 +742,7 @@ impl StateManager {
 
         for owner in owners_to_recompute {
             let native_delta = changeset
-                .account_changes
+                .owner_deltas
                 .get(&owner)
                 .map(|change| change.balance_delta)
                 .unwrap_or(0i128);

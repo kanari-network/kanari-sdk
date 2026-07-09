@@ -857,11 +857,11 @@ impl BlockchainEngine {
         gas_cost: u64,
         gas_used: u64,
     ) -> Result<()> {
-        let sender_change = changeset.get_or_create_change(sender);
-        if sender_change.sequence_increment == 0 {
-            sender_change.increment_sequence();
+        let sender_owner_delta = changeset.get_or_create_owner_delta(sender);
+        if sender_owner_delta.sequence_increment == 0 {
+            sender_owner_delta.increment_sequence();
         }
-        sender_change.debit(gas_cost);
+        sender_owner_delta.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
         changeset.collect_gas(dao_addr, gas_cost);
@@ -985,21 +985,32 @@ impl BlockchainEngine {
             } => {
                 if let Some(native_call) = native_call {
                     match native_call {
-                        NativeCall::TransferAmount { recipient, amount } => {
+                        NativeCall::Transfer {
+                            coin_object_id: _,
+                            recipient,
+                            amount,
+                        } => {
                             let to_addr = KanariAddress::parse_to_account_address(&recipient)?;
                             changeset.transfer(sender_addr, to_addr, amount);
+                            Self::apply_gas_and_sequence(
+                                &mut changeset,
+                                sender_addr,
+                                gas_cost,
+                                gas_meter.gas_used,
+                            )?;
+                            return Ok(changeset);
                         }
                         NativeCall::BurnAmount { amount } => {
                             changeset.burn(sender_addr, amount);
+                            Self::apply_gas_and_sequence(
+                                &mut changeset,
+                                sender_addr,
+                                gas_cost,
+                                gas_meter.gas_used,
+                            )?;
+                            return Ok(changeset);
                         }
                     }
-                    Self::apply_gas_and_sequence(
-                        &mut changeset,
-                        sender_addr,
-                        gas_cost,
-                        gas_meter.gas_used,
-                    )?;
-                    return Ok(changeset);
                 }
 
                 let parts: Vec<&str> = module.split("::").collect();
@@ -1227,6 +1238,7 @@ mod tests {
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
         let tx = Transaction::new_transfer(
             sender.tagged_address(),
+            "0xaaaa".to_string(),
             recipient.address,
             1,
             sequence_number,
@@ -1496,13 +1508,15 @@ mod tests {
     fn gas_application_does_not_increment_sequence_twice() {
         let sender = AccountAddress::random();
         let mut changeset = ChangeSet::new();
-        changeset.get_or_create_change(sender).increment_sequence();
+        changeset
+            .get_or_create_owner_delta(sender)
+            .increment_sequence();
 
         BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
 
-        let sender_change = changeset.account_changes.get(&sender).unwrap();
-        assert_eq!(sender_change.sequence_increment, 1);
-        assert_eq!(sender_change.balance_delta, -10);
+        let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
+        assert_eq!(sender_owner_delta.sequence_increment, 1);
+        assert_eq!(sender_owner_delta.balance_delta, -10);
     }
 
     #[test]
@@ -1552,7 +1566,13 @@ mod tests {
             fund_sender(&engine, &sender.address, 1_000_000);
 
             let tx =
-                Transaction::new_transfer(sender.tagged_address(), recipient.address.clone(), 1, 0);
+                Transaction::new_transfer(
+                    sender.tagged_address(),
+                    "0xaaaa".to_string(),
+                    recipient.address.clone(),
+                    1,
+                    0,
+                );
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)

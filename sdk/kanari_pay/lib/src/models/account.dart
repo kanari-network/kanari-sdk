@@ -30,7 +30,7 @@ class AccountInfo extends Equatable {
 
   factory AccountInfo.fromJson(Map<String, dynamic> json) {
     final tokenBalances = <String, int>{};
-    final rawTokenBalances = json['token_balances'];
+    final rawTokenBalances = json['balances'] ?? json['token_balances'];
     if (rawTokenBalances is Map) {
       for (final entry in rawTokenBalances.entries) {
         tokenBalances[entry.key.toString()] = _jsonInt(entry.value);
@@ -38,7 +38,7 @@ class AccountInfo extends Equatable {
     }
 
     return AccountInfo(
-      address: _jsonString(json['address']),
+      address: _jsonString(json['owner'] ?? json['address']),
       sequenceNumber: _jsonInt(json['sequence_number']),
       modules: (json['modules'] as List<dynamic>? ?? const [])
           .map((item) => item.toString())
@@ -51,10 +51,10 @@ class AccountInfo extends Equatable {
   }
 
   Map<String, dynamic> toJson() => {
-    'address': address,
+    'owner': address,
     'sequence_number': sequenceNumber,
     'modules': modules,
-    'token_balances': tokenBalances,
+    'balances': tokenBalances,
     'owned_objects': ownedObjects?.map((item) => item.toJson()).toList(),
   };
 

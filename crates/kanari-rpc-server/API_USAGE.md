@@ -134,13 +134,14 @@ Response (invalid):
 
 **Transaction methods**
 
-- `kanari_submitTransaction` - submit a signed transfer or burn transaction
+- `kanari_submitTransaction` - submit a signed object-input native transfer transaction
 
 Request `params` (SignedTransactionData):
 
 ```json
 {
   "sender": "Ed25519:<public-key-hex>",
+  "coin_object_id": "0x...",
   "recipient": "0x...",
   "amount": 1000,
   "gas_limit": 1000000,
@@ -151,7 +152,7 @@ Request `params` (SignedTransactionData):
 }
 ```
 
-When `execute_immediate` is `true`, the RPC server attempts execution immediately and returns the resulting changeset. When omitted or `false`, the transaction is submitted as pending.
+`coin_object_id` must identify the `Coin<0x2::kanari::KANARI>` object that will be split for the transfer. When `execute_immediate` is `true`, the RPC server attempts execution immediately and returns the resulting changeset. When omitted or `false`, the transaction is submitted as pending.
 
 **Examples (curl)**
 

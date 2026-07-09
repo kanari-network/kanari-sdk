@@ -15,11 +15,15 @@ class QueriesModule {
   QueriesModule(this.url, this.client);
 
   Future<AccountInfo> getAccount(String address) async {
+    return getOwner(address);
+  }
+
+  Future<AccountInfo> getOwner(String address) async {
     final normalizedAddress = _normalizeAddress(address);
     final resp = await RpcUtils.request(
       client,
       url,
-      'kanari_getAccount',
+      'kanari_getOwner',
       normalizedAddress,
       (j) => AccountInfo.fromJson(j as Map<String, dynamic>),
     );

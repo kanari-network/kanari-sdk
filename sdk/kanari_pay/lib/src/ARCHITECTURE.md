@@ -60,8 +60,8 @@ lib/src/
 
 `KanariClient` acts as a facade that delegates to various modules:
 
-- **QueriesModule**: Handles read operations (getAccount, getBalance, etc.)
-- **TransactionOperations**: Handles write operations (transfer, executeFunction, etc.)
+- **QueriesModule**: Handles owner-centric read operations (`getOwner`, balances, objects, blocks)
+- **TransactionOperations**: Handles object-input write operations (`transferWithCoinObject`, `joinCoinObjects`, etc.)
 
 ### 2. **Separation of Concerns**
 
@@ -71,7 +71,7 @@ lib/src/
 
 ### 3. **Backward Compatibility**
 
-All original APIs work as before, no breaking changes.
+Legacy-style facade methods still work, but they now compile down to owner/object-centric RPC calls.
 
 ### 4. **Modular Extensibility**
 
@@ -85,12 +85,19 @@ Easy to add new features by creating new modules following available templates.
 final client = KanariClient('http://localhost:3000');
 
 // Queries
-final account = await client.getAccount(address);
-final balance = await client.getBalance(address);
+final owner = await client.getOwner(address);
+final balances = await client.getAllBalances(address);
 
 // Transactions
 await client.transfer(
   wallet: wallet,
+  recipient: recipientAddress,
+  amount: 1000,
+);
+
+await client.transferWithCoinObject(
+  wallet: wallet,
+  coinObjectId: coinObjectId,
   recipient: recipientAddress,
   amount: 1000,
 );
@@ -110,7 +117,7 @@ import 'package:kanari_kit/src/modules/modules.dart';
 
 // Access queries module directly
 final queries = client.queries;
-final account = await queries.getAccount(address);
+final owner = await queries.getOwner(address);
 
 // Access transactions module directly
 final transactions = client.transactions;
@@ -118,6 +125,13 @@ await transactions.transfer(
   wallet: wallet,
   recipient: recipientAddress,
   amount: 1000,
+);
+
+await transactions.joinCoinObjects(
+  wallet: wallet,
+  primaryCoinObjectId: primaryCoinObjectId,
+  mergeCoinObjectId: mergeCoinObjectId,
+  tokenType: '0x2::kanari::KANARI',
 );
 
 // Use template modules (when implemented)
@@ -184,7 +198,7 @@ Future<TransactionResult> myOperation({
   required String param,
 }) async {
   // Get sequence number
-  final account = await queries.getAccount(wallet.address);
+  final owner = await queries.getOwner(wallet.address);
   
   // Prepare transaction data and params
   // ...

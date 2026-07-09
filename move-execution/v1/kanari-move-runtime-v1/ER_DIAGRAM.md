@@ -12,7 +12,7 @@ erDiagram
     MoveRuntime ||--|| ChangeSet : produces
     ChangeSet ||--o{ CreatedObject : creates
     ChangeSet ||--o{ Event : emits
-    ChangeSet ||--o{ AccountChange : modifies
+    ChangeSet ||--o{ OwnerDelta : modifies
     
     %% State Management
     StateManager ||--|| PersistentStore : persists_to
@@ -45,7 +45,7 @@ erDiagram
     
     %% Relationships Notes
     CreatedObject }o--|| StoredObject : converts_to
-    AccountChange }o--|| OwnerState : applies_to
+    OwnerDelta }o--|| OwnerState : applies_to
     Event }o--|| OwnerState : emitted_by
 ```
 
@@ -103,7 +103,7 @@ graph TD
 - **ChangeSet**: [src/changeset.rs#L67](src/changeset.rs#L67)
 - **CreatedObject**: [src/changeset.rs#L14](src/changeset.rs#L14)
 - **Event**: [crates/kanari-types/src/event.rs](../../crates/kanari-types/src/event.rs)
-- **AccountChange**: [src/changeset.rs#L26](src/changeset.rs#L26)
+- **OwnerDelta**: [src/changeset.rs#L26](src/changeset.rs#L26)
 
 ### State Management
 

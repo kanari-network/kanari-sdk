@@ -106,6 +106,8 @@ impl TokenTransfer {
         let mut selected_coin_id = None;
         let mut selected_coin_balance = 0u64;
         let mut total_coin_balance = 0u64;
+        let mut largest_coin_id = None;
+        let mut largest_coin_balance = 0u64;
         let mut seen_coin_types = std::collections::BTreeSet::new();
         if let Some(owned_objects) = &owner.owned_objects {
             for obj in owned_objects {
@@ -116,13 +118,25 @@ impl TokenTransfer {
                             continue;
                         };
                         total_coin_balance = total_coin_balance.saturating_add(coin_balance);
-                        if selected_coin_id.is_none() && coin_balance > 0 {
+                        if coin_balance > largest_coin_balance {
+                            largest_coin_balance = coin_balance;
+                            largest_coin_id = Some(obj.id.clone());
+                        }
+                        if coin_balance >= self.amount
+                            && (selected_coin_id.is_none()
+                                || coin_balance < selected_coin_balance)
+                        {
                             selected_coin_id = Some(obj.id.clone());
                             selected_coin_balance = coin_balance;
                         }
                     }
                 }
             }
+        }
+
+        if selected_coin_id.is_none() && largest_coin_id.is_some() {
+            selected_coin_id = largest_coin_id;
+            selected_coin_balance = largest_coin_balance;
         }
 
         if selected_coin_id.is_none() {
@@ -148,12 +162,13 @@ impl TokenTransfer {
             );
         }
 
-        if total_coin_balance < self.amount {
+        if selected_coin_balance < self.amount {
             anyhow::bail!(
-                "Insufficient Coin<{}> balance for address {}.\n  - requested: {}\n  - spendable in coin objects: {}",
+                "No single Coin<{}> object can cover this transfer for address {}.\n  - requested: {}\n  - best coin object: {}\n  - spendable in coin objects: {}\n  - action: consolidate coins before retrying",
                 wanted_token,
                 from_addr,
                 self.amount,
+                selected_coin_balance,
                 total_coin_balance
             );
         }

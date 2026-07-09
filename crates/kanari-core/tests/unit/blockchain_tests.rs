@@ -5,6 +5,7 @@ use kanari_types::transaction::Transaction;
 fn test_tx(sequence_number: u64) -> SignedTransaction {
     SignedTransaction::new(Transaction::new_transfer(
         "0x1".to_string(),
+        "0xaaaa".to_string(),
         "0x2".to_string(),
         1,
         sequence_number,

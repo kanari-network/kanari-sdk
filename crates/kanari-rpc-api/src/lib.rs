@@ -252,8 +252,9 @@ pub struct SubmitTransactionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransactionData {
     pub sender: String,
-    pub recipient: Option<String>,
-    pub amount: Option<u64>,
+    pub coin_object_id: String,
+    pub recipient: String,
+    pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
     pub sequence_number: u64,

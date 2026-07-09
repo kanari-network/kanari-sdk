@@ -54,7 +54,7 @@ Welcome to the Kanari SDK Modular Architecture documentation.
 
 ```
 1. Read QUICK_REFERENCE.md → Learn imports and basic usage
-2. Try using client.getAccount(), client.transfer()
+2. Try using client.getOwner(), client.transfer(), or client.transferWithCoinObject()
 3. Read ARCHITECTURE.md → Understand structure
 ```
 

@@ -3,12 +3,12 @@
 
 use crate::command::common::{
     check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, resolve_sender,
-    sign_and_submit_transaction,
+    resolve_transaction_gas, sign_call_function_request,
 };
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
+use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::transaction::Transaction;
 
 #[derive(Parser, Debug)]
 pub struct Burn {
@@ -32,6 +32,7 @@ impl Burn {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
         let from_addr = resolve_sender(self.from.clone())?;
         let wallet = load_wallet_for(&from_addr, Some(self.password.clone()))?;
+        let (gas_limit, gas_price) = resolve_transaction_gas(None, None);
 
         eprintln!("Burning Kanari tokens...");
         eprintln!("  From: {}", from_addr);
@@ -58,11 +59,27 @@ impl Burn {
 
         let sender_for_tx = get_sender_for_tx(&wallet, &from_addr)?;
 
-        // Create burn transaction
-        let tx = Transaction::new_burn(sender_for_tx.clone(), amount_mist, owner.sequence_number);
+        let call_req = CallFunctionRequest {
+            sender: sender_for_tx.clone(),
+            package: "0x2".to_string(),
+            module: "kanari".to_string(),
+            function: "burn_amount".to_string(),
+            type_args: vec![],
+            args: vec![bcs::to_bytes(&amount_mist).context("Failed to serialize burn amount")?],
+            gas_limit,
+            gas_price,
+            sequence_number: owner.sequence_number,
+            signature: None,
+            execute_immediate: Some(true),
+        };
+        let final_call_req = sign_call_function_request(call_req, &wallet)?;
+        let status = client
+            .call_function(final_call_req)
+            .await
+            .context("Failed to submit burn transaction")?;
 
-        sign_and_submit_transaction(&client, tx, &wallet, sender_for_tx, None, Some(amount_mist))
-            .await?;
+        eprintln!("  Transaction hash: {}", status.hash);
+        eprintln!("  Status: {}", status.status);
 
         Ok(())
     }
