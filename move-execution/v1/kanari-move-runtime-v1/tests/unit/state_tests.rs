@@ -1,5 +1,10 @@
 use super::*;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::ObjectOwnerKind;
+
+fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
+    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+}
 
 fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Result<()> {
     state.total_supply = total_supply;
@@ -91,6 +96,7 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
         "0xaaaa".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type,
@@ -123,6 +129,7 @@ fn resolve_owner_token_balances_requires_object_backed_non_native_assets() -> Re
         "0xaaaa".to_string(),
         CreatedObject {
             owner: object_owner,
+            owner_kind: address_owner(object_owner),
             uid: None,
             id: None,
             type_: coin_type,
@@ -154,6 +161,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xaaaa".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type.clone(),
@@ -170,6 +178,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xaaaa".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type.clone(),
@@ -181,6 +190,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xbbbb".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: deal_type.clone(),
@@ -206,6 +216,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xbbbb".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: deal_type,
@@ -217,6 +228,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xcccc".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type,
@@ -247,6 +259,7 @@ fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<
         padded_id.clone(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::test::Object".to_string(),
@@ -263,6 +276,7 @@ fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<
         canonical_id.clone(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::test::Object".to_string(),
@@ -373,6 +387,7 @@ fn compute_state_root_tracks_indexed_canonical_objects() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
@@ -388,6 +403,7 @@ fn compute_state_root_tracks_indexed_canonical_objects() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
@@ -463,6 +479,7 @@ fn compute_state_root_matches_materialized_sparse_root_for_rocksdb() -> Result<(
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
@@ -566,6 +583,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: "0x2::coin::CoinMetadata<0x2::test::TEST>".to_string(),
@@ -628,6 +646,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type,
@@ -665,6 +684,7 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
         "0xaaaa".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.clone(),
@@ -687,6 +707,7 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
         "0xaaaa".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.clone(),
@@ -698,6 +719,7 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
         "0xbbbb".to_string(),
         CreatedObject {
             owner: bob,
+            owner_kind: address_owner(bob),
             uid: None,
             id: None,
             type_: coin_type,
@@ -814,6 +836,7 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
         "0xaaaa".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.clone(),
@@ -833,6 +856,7 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
         "0xaaaa".to_string(),
         CreatedObject {
             owner: bob,
+            owner_kind: address_owner(bob),
             uid: None,
             id: None,
             type_: coin_type,
@@ -901,6 +925,7 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
         "0xc001".to_string(),
         CreatedObject {
             owner: sender,
+            owner_kind: address_owner(sender),
             uid: None,
             id: None,
             type_: custom_coin_type,
@@ -957,6 +982,7 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: cap_type.clone(),
@@ -974,6 +1000,7 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
         "0xcafe".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: cap_type,
@@ -987,6 +1014,7 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
         "0xbeef".to_string(),
         CreatedObject {
             owner,
+            owner_kind: address_owner(owner),
             uid: None,
             id: None,
             type_: coin_type,
@@ -1031,6 +1059,7 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
         "0xc002".to_string(),
         CreatedObject {
             owner: sender,
+            owner_kind: address_owner(sender),
             uid: None,
             id: None,
             type_: custom_coin_type,

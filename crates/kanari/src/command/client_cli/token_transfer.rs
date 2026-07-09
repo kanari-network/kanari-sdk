@@ -213,9 +213,11 @@ impl TokenTransfer {
                 )
                 .context("Failed to serialize recipient address")?,
             ],
+            object_inputs: None,
             gas_limit,
             gas_price,
             sequence_number: owner.sequence_number,
+            gas_payment: None,
             signature: None, // Will be set after signing
             execute_immediate: Some(true),
         };

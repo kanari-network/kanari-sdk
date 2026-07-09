@@ -241,9 +241,11 @@ impl StressTest {
                     )
                     .context("Failed to serialize recipient address")?,
                 ],
+                object_inputs: None,
                 gas_limit: 100_000,
                 gas_price: 1,
                 sequence_number: seq,
+                gas_payment: None,
                 signature: None,
                 // false = go through mempool -> DAG -> P2P gossip to all nodes
                 // false = go through mempool → DAG → P2P gossip to all nodes

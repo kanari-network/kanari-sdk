@@ -15,6 +15,7 @@ use kanari_types::error::KanariUnwrapExt;
 use kanari_types::event::Event;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::object::{IDRecord, UIDRecord};
+use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 use serde::de::DeserializeOwned;
@@ -580,6 +581,9 @@ impl StateManager {
 
         bcs::from_bytes::<StoredObject>(value)
             .map(|stored| {
+                if !matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                    return false;
+                }
                 let owner_key = owned_objects_key(&stored.owner);
                 self.load_internal::<Vec<String>>(&owner_key)
                     .ok()
@@ -765,6 +769,7 @@ impl StateManager {
 
         Ok(Some(CreatedObject {
             owner: stored.owner,
+            owner_kind: stored.owner_kind,
             uid,
             id,
             type_: stored.type_name,
@@ -825,6 +830,16 @@ impl StateManager {
             .unwrap_or(0)
     }
 
+}
+
+pub(crate) fn default_owner_kind_for_type(type_name: &str, owner: AccountAddress) -> ObjectOwnerKind {
+    if type_name.contains("::clock::Clock") {
+        ObjectOwnerKind::Shared
+    } else if type_name.contains("::coin::CoinMetadata<") {
+        ObjectOwnerKind::Immutable
+    } else {
+        ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+    }
 }
 
 #[cfg(test)]

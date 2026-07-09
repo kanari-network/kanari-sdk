@@ -152,6 +152,8 @@ fn build_call_signed_tx(call_data: CallFunctionRequest) -> SignedTransaction {
         function: call_data.function,
         type_args: call_data.type_args,
         args: call_data.args,
+        object_inputs: call_data.object_inputs.unwrap_or_default(),
+        gas_payment: call_data.gas_payment,
         gas_limit: call_data.gas_limit,
         gas_price: call_data.gas_price,
         sequence_number: call_data.sequence_number,
@@ -182,6 +184,9 @@ fn base_transaction_details(
         sequence_number,
         gas_limit,
         gas_price,
+        object_inputs: None,
+        gas_payment: None,
+        effects: None,
         module: None,
         function: None,
         module_functions: None,
@@ -262,6 +267,10 @@ fn map_transaction_to_details(
             details.module = Some(module.clone());
             details.function = Some(function.clone());
             details.module_functions = lookup_module_functions(state, module);
+            let object_inputs = tx.object_inputs();
+            if !object_inputs.is_empty() {
+                details.object_inputs = Some(object_inputs);
+            }
             if let Some(native_call) = tx.native_call() {
                 match native_call {
                     NativeCall::Transfer {
@@ -332,6 +341,12 @@ fn format_changeset_json(state: &RpcServerState, changeset: &ChangeSet) -> serde
                 }
             }
         }
+    }
+    if let Some(map) = cs_value.as_object_mut() {
+        map.insert(
+            "effects".to_string(),
+            serde_json::to_value(changeset.effects(None)).unwrap_or(serde_json::json!(null)),
+        );
     }
     cs_value
 }
@@ -429,17 +444,18 @@ async fn execute_or_submit_response(
     match state.engine.execute_transaction_immediate(exec_tx) {
         Ok((tx_hash, changeset)) => {
             let tx_hash_hex = hex::encode(&tx_hash);
-            let cs_value = format_changeset_json(state, &changeset);
+            let _cs_value = format_changeset_json(state, &changeset);
 
             if !changeset.success {
                 return respond_with_serialize(
                     request_id,
-                    serde_json::json!({
-                        "hash": tx_hash_hex,
-                        "status": "failed",
-                        "action": action,
-                        "changeset": cs_value
-                    }),
+                    kanari_rpc_api::TransactionResult {
+                        hash: tx_hash_hex,
+                        status: "failed".to_string(),
+                        gas_used: changeset.gas_used,
+                        effects: Some(changeset.effects(None)),
+                        error_message: changeset.error_message.clone(),
+                    },
                 );
             }
 
@@ -464,12 +480,13 @@ async fn execute_or_submit_response(
             );
             respond_with_serialize(
                 request_id,
-                serde_json::json!({
-                    "hash": tx_hash_hex,
-                    "status": "executed",
-                    "action": action,
-                    "changeset": cs_value
-                }),
+                kanari_rpc_api::TransactionResult {
+                    hash: tx_hash_hex,
+                    status: "executed".to_string(),
+                    gas_used: changeset.gas_used,
+                    effects: Some(changeset.effects(None)),
+                    error_message: None,
+                },
             )
         }
         Err(e) => RpcResponse {
@@ -512,7 +529,11 @@ pub async fn handle_submit_object_transfer(
 
     let transaction = Transaction::new_transfer_with_gas(
         tx_data.sender.clone(),
-        tx_data.coin_object_id.clone(),
+        tx_data
+            .coin_object_ref
+            .as_ref()
+            .map(|object_ref| object_ref.object_id.clone())
+            .unwrap_or_else(|| tx_data.coin_object_id.clone()),
         recipient.to_hex_literal(),
         tx_data.amount,
         tx_data.sequence_number,

@@ -65,6 +65,7 @@ impl BlockchainEngine {
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
                 balances,
+                owned_object_count: Some(final_owned_objects.len()),
                 owned_objects: Some(final_owned_objects),
             }
         })
@@ -115,6 +116,7 @@ impl BlockchainEngine {
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
             events: Vec::new(),
+            transaction_effects: checkpoint.transaction_effects.iter().cloned().collect(),
         }
     }
 
@@ -128,6 +130,7 @@ impl BlockchainEngine {
             tx_count: checkpoint.transactions.len(),
             events: Vec::new(),
             transactions: checkpoint.transactions.iter().cloned().collect(),
+            transaction_effects: checkpoint.transaction_effects.iter().cloned().collect(),
             vertices: checkpoint.vertices.iter().map(hex::encode).collect(),
         }
     }
@@ -293,7 +296,11 @@ mod tests {
     use super::*;
     use crate::{CheckpointSyncData, consensus::Checkpoint};
     use kanari_crypto::keys::{CurveType, generate_keypair};
-    use kanari_move_runtime_v1::changeset::ChangeSet;
+    use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
+    use kanari_move_runtime_v1::state::OwnerState;
+    use kanari_types::balance::BalanceRecord;
+    use kanari_types::coin::TreasuryCap;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::address::Address as KanariAddress;
     use kanari_types::transaction::{SignedTransaction, Transaction};
 
@@ -312,6 +319,72 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
         signed_tx
+    }
+
+    fn fund_sender_with_coin(
+        engine: &BlockchainEngine,
+        owner: move_core_types::account_address::AccountAddress,
+        coin_object_id: &str,
+        balance: u64,
+    ) {
+        let mut coin_data = vec![0u8; 40];
+        coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
+        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+        let previous_total = state.total_supply;
+        let previous_visible = state
+            .global_token_supplies
+            .get(KANARI_TOKEN_TYPE)
+            .copied()
+            .unwrap_or(previous_total);
+
+        let mut create_coin = ChangeSet::new();
+        create_coin.created_objects.push((
+            coin_object_id.to_string(),
+            CreatedObject {
+                owner,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    owner.to_hex_literal(),
+                ),
+                uid: None,
+                id: None,
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: coin_data,
+                version: 1,
+            },
+        ));
+        state
+            .apply_changeset_without_supply_validation(&create_coin)
+            .unwrap();
+
+        let mut owner_state = state
+            .get_owner_state(&owner)
+            .unwrap_or_else(|| OwnerState::new(owner));
+        owner_state.set_token_balance(
+            KANARI_TOKEN_TYPE.to_string(),
+            BalanceRecord::new(balance),
+        );
+        state.save_owner_state(&owner_state).unwrap();
+
+        let updated_total = previous_total.saturating_add(balance);
+        let updated_visible = previous_visible.saturating_add(balance);
+        state.total_supply = updated_total;
+        state.store.save(b"total_supply", &updated_total).unwrap();
+        state
+            .store
+            .save(
+                format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
+                &TreasuryCap {
+                    total_supply: updated_total,
+                },
+            )
+            .unwrap();
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
+        state
+            .store
+            .save(b"global_token_supplies", &state.global_token_supplies)
+            .unwrap();
     }
 
     #[test]
@@ -349,12 +422,7 @@ mod tests {
         let sender =
             KanariAddress::parse_to_account_address(signed_tx.transaction.sender_address())
                 .unwrap();
-        {
-            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-            let mut mint = ChangeSet::new();
-            mint.mint(sender, 1_000_000);
-            state.apply_changeset(&mint).unwrap();
-        }
+        fund_sender_with_coin(&engine, sender, "0xaaaa", 1_000_000);
         let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![9u8; 32], 42, prev_hash);
         let sync_data = CheckpointSyncData { checkpoint };
 

@@ -4,6 +4,7 @@
 use crate::common::keys::owned_objects_key;
 use crate::storage::persistent_store::{PersistentStore, PersistentStoreError};
 use anyhow::Result;
+use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
@@ -63,9 +64,19 @@ pub trait ObjectStore: Send + Sync {
 pub struct StoredObject {
     pub id: String,
     pub owner: AccountAddress,
+    pub owner_kind: ObjectOwnerKind,
     pub type_name: String,
     pub data: Vec<u8>,
     pub version: u64,
+}
+
+impl StoredObject {
+    pub fn owner_address(&self) -> Option<AccountAddress> {
+        match self.owner_kind {
+            ObjectOwnerKind::AddressOwner(_) => Some(self.owner),
+            ObjectOwnerKind::Shared | ObjectOwnerKind::Immutable => None,
+        }
+    }
 }
 
 struct InnerState {
@@ -198,7 +209,7 @@ impl ObjectStorage {
             state
                 .objects
                 .values()
-                .filter(|obj| obj.owner == owner)
+                .filter(|obj| obj.owner_address() == Some(owner))
                 .filter(|obj| Self::matches_coin_type(obj, coin_type))
                 .cloned()
                 .collect()
@@ -239,11 +250,13 @@ impl ObjectStorage {
         let id = obj.id.clone();
         let owner = obj.owner;
         let mut old_owner = None;
+        let mut old_owner_kind = None;
 
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = state.objects.get(&id) {
                 old_owner = Some(existing.owner);
+                old_owner_kind = Some(existing.owner_kind.clone());
             }
             state.objects.insert(id.clone(), obj.clone());
         }
@@ -251,25 +264,33 @@ impl ObjectStorage {
         if let Some(store) = &self.persistent {
             store.save(format!("object:{}", id).as_bytes(), &obj)?;
 
+            let new_is_owned = matches!(obj.owner_kind, ObjectOwnerKind::AddressOwner(_));
             if let Some(old) = old_owner {
-                if old != owner {
-                    let old_key = owned_objects_key(&old);
-                    let mut old_ids = Self::load_id_index(store, &old_key)?;
-                    if Self::remove_index_id(&mut old_ids, &id) {
-                        Self::save_id_index(store, &old_key, &old_ids)?;
+                let old_is_owned = matches!(old_owner_kind, Some(ObjectOwnerKind::AddressOwner(_)));
+                if old != owner || old_is_owned != new_is_owned {
+                    if old_is_owned {
+                        let old_key = owned_objects_key(&old);
+                        let mut old_ids = Self::load_id_index(store, &old_key)?;
+                        if Self::remove_index_id(&mut old_ids, &id) {
+                            Self::save_id_index(store, &old_key, &old_ids)?;
+                        }
                     }
 
+                    if new_is_owned {
+                        let new_key = owned_objects_key(&owner);
+                        let mut new_ids = Self::load_owned_object_ids(store, &owner)?;
+                        if Self::add_index_id(&mut new_ids, &id) {
+                            Self::save_id_index(store, &new_key, &new_ids)?;
+                        }
+                    }
+                }
+            } else {
+                if new_is_owned {
                     let new_key = owned_objects_key(&owner);
                     let mut new_ids = Self::load_owned_object_ids(store, &owner)?;
                     if Self::add_index_id(&mut new_ids, &id) {
                         Self::save_id_index(store, &new_key, &new_ids)?;
                     }
-                }
-            } else {
-                let new_key = owned_objects_key(&owner);
-                let mut new_ids = Self::load_owned_object_ids(store, &owner)?;
-                if Self::add_index_id(&mut new_ids, &id) {
-                    Self::save_id_index(store, &new_key, &new_ids)?;
                 }
             }
 
@@ -317,7 +338,7 @@ impl ObjectStorage {
         let mut results: Vec<_> = state
             .objects
             .values()
-            .filter(|obj| obj.owner == *owner)
+            .filter(|obj| obj.owner_address() == Some(*owner))
             .cloned()
             .collect();
         results.sort_by(|a, b| a.id.cmp(&b.id));

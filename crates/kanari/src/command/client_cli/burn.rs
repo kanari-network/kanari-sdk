@@ -66,9 +66,11 @@ impl Burn {
             function: "burn_amount".to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&amount_mist).context("Failed to serialize burn amount")?],
+            object_inputs: None,
             gas_limit,
             gas_price,
             sequence_number: owner.sequence_number,
+            gas_payment: None,
             signature: None,
             execute_immediate: Some(true),
         };

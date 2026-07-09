@@ -360,6 +360,9 @@ mod tests {
             "0xaaa1".to_string(),
             CreatedObject {
                 owner,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    owner.to_hex_literal(),
+                ),
                 uid: None,
                 id: None,
                 type_: coin_type.clone(),
@@ -371,6 +374,9 @@ mod tests {
             "0xaaa2".to_string(),
             CreatedObject {
                 owner,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    owner.to_hex_literal(),
+                ),
                 uid: None,
                 id: None,
                 type_: coin_type,

@@ -11,12 +11,15 @@ fn build_object_info(
     id: String,
     obj: kanari_move_runtime_v1::changeset::CreatedObject,
 ) -> ObjectInfo {
+    let digest = format!("0x{}", hex::encode(blake3::hash(&obj.data).as_bytes()));
     ObjectInfo {
         id,
         owner: format!("{:#x}", obj.owner),
+        owner_kind: obj.owner_kind,
         type_: obj.type_,
         data: obj.data,
         version: obj.version,
+        digest: Some(digest),
     }
 }
 
@@ -235,12 +238,15 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
     let objects = aggregate_owned_objects(objects);
 
     // Return the filtered list of objects
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::json!({
-            "objects": objects
-        })),
-        error: None,
-        id: request.id,
-    }
+    respond_with_serialize(
+        request.id,
+        kanari_rpc_api::OwnedObjectsResponse {
+            summary: Some(kanari_rpc_api::OwnerObjectSummary {
+                owner: req.owner,
+                total_objects: objects.len(),
+                object_changes_hint: "Use kanari_getObject for object-first reads and transaction effects for mutations".to_string(),
+            }),
+            objects,
+        },
+    )
 }

@@ -100,6 +100,8 @@ pub fn sign_call_function_request(
         function: request.function.clone(),
         type_args: request.type_args.clone(),
         args: request.args.clone(),
+        object_inputs: request.object_inputs.clone().unwrap_or_default(),
+        gas_payment: request.gas_payment.clone(),
         gas_limit: request.gas_limit,
         gas_price: request.gas_price,
         sequence_number: request.sequence_number,
@@ -275,9 +277,11 @@ pub async fn consolidate_coin_objects(
                 .context("Invalid merge coin object ID")?
                 .to_vec(),
             ],
+            object_inputs: None,
             gas_limit,
             gas_price,
             sequence_number,
+            gas_payment: None,
             signature: None,
             execute_immediate: Some(true),
         };

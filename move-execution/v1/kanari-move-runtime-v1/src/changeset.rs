@@ -3,6 +3,10 @@
 
 use hex;
 use kanari_crypto::hash_data_blake3;
+use kanari_types::transaction::{
+    GasPayment, ObjectChange, ObjectChangeKind, ObjectOwnerKind, ObjectRef, TransactionEffects,
+    ObjectInput,
+};
 use kanari_types::coin::TreasuryCap;
 use kanari_types::object::IDRecord;
 use kanari_types::object::UIDRecord;
@@ -15,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatedObject {
     pub owner: AccountAddress,
+    pub owner_kind: ObjectOwnerKind,
     /// Optional UIDRecord when object follows UID pattern (for ownership tracking)
     pub uid: Option<UIDRecord>,
     /// Optional IDRecord for DEX/DeFi objects that need copyable IDs
@@ -23,6 +28,20 @@ pub struct CreatedObject {
     pub type_: String,
     pub data: Vec<u8>,
     pub version: u64,
+}
+
+impl CreatedObject {
+    pub fn owner_kind(&self) -> ObjectOwnerKind {
+        self.owner_kind.clone()
+    }
+
+    pub fn digest(&self) -> String {
+        format!("0x{}", hex::encode(hash_data_blake3(&self.data)))
+    }
+
+    pub fn object_ref(&self, object_id: &str) -> ObjectRef {
+        ObjectRef::new(object_id.to_string(), Some(self.version), Some(self.digest()))
+    }
 }
 
 /// Represents owner-state deltas from Move VM execution.
@@ -78,10 +97,16 @@ pub struct ChangeSet {
     )>,
     /// Per-owner token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
+    pub input_objects: Vec<ObjectInput>,
+    pub shared_inputs: Vec<ObjectRef>,
+    pub immutable_inputs: Vec<ObjectRef>,
+    pub gas_payment: Option<GasPayment>,
+    pub gas_object_refs: Vec<ObjectRef>,
     /// Objects created during execution. Each entry is (object_id, CreatedObject)
     pub created_objects: Vec<(String, CreatedObject)>,
     /// Objects deleted during execution. Each entry is object_id
     pub deleted_objects: Vec<String>,
+    pub explicit_object_changes: Vec<ObjectChange>,
     /// (object_id, name_bytes, value_bytes)
     pub added_dynamic_fields: Vec<(String, Vec<u8>, Vec<u8>)>,
     /// (object_id, name_bytes)
@@ -102,8 +127,14 @@ impl ChangeSet {
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
+            input_objects: Vec::new(),
+            shared_inputs: Vec::new(),
+            immutable_inputs: Vec::new(),
+            gas_payment: None,
+            gas_object_refs: Vec::new(),
             created_objects: Vec::new(),
             deleted_objects: Vec::new(),
+            explicit_object_changes: Vec::new(),
             added_dynamic_fields: Vec::new(),
             removed_dynamic_fields: Vec::new(),
             move_writes: BTreeMap::new(),
@@ -168,8 +199,14 @@ impl ChangeSet {
             && self.events.is_empty()
             && self.treasuries.is_empty()
             && self.token_balance_sets.is_empty()
+            && self.input_objects.is_empty()
+            && self.shared_inputs.is_empty()
+            && self.immutable_inputs.is_empty()
+            && self.gas_payment.is_none()
+            && self.gas_object_refs.is_empty()
             && self.created_objects.is_empty()
             && self.deleted_objects.is_empty()
+            && self.explicit_object_changes.is_empty()
             && self.added_dynamic_fields.is_empty()
             && self.removed_dynamic_fields.is_empty()
             && self.move_writes.is_empty()
@@ -194,6 +231,13 @@ impl ChangeSet {
         self.events.extend(other.events);
         self.treasuries.extend(other.treasuries);
         self.nft_caps.extend(other.nft_caps);
+        self.input_objects.append(&mut other.input_objects);
+        self.shared_inputs.append(&mut other.shared_inputs);
+        self.immutable_inputs.append(&mut other.immutable_inputs);
+        if self.gas_payment.is_none() {
+            self.gas_payment = other.gas_payment.take();
+        }
+        self.gas_object_refs.append(&mut other.gas_object_refs);
 
         for (owner, token_type, amount) in other.token_balance_sets {
             self.add_token_balance_set(owner, token_type, amount.value());
@@ -201,6 +245,8 @@ impl ChangeSet {
 
         self.created_objects.extend(other.created_objects);
         self.deleted_objects.extend(other.deleted_objects);
+        self.explicit_object_changes
+            .append(&mut other.explicit_object_changes);
         self.added_dynamic_fields
             .append(&mut other.added_dynamic_fields);
         self.removed_dynamic_fields
@@ -308,12 +354,94 @@ impl ChangeSet {
                     owner,
                     uid,
                     id,
+                    owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
                     type_,
                     data,
                     version,
                 },
             ));
         }
+    }
+
+    pub fn object_changes(&self) -> Vec<ObjectChange> {
+        if !self.explicit_object_changes.is_empty() {
+            return self.explicit_object_changes.clone();
+        }
+        let mut changes = Vec::new();
+
+        for (object_id, created) in &self.created_objects {
+            let change_type = if created.version <= 1 {
+                ObjectChangeKind::Created
+            } else {
+                ObjectChangeKind::Mutated
+            };
+
+            changes.push(ObjectChange {
+                change_type: change_type.clone(),
+                object_ref: created.object_ref(object_id),
+                type_: Some(created.type_.clone()),
+                owner: Some(created.owner_kind()),
+                previous_owner: None,
+                previous_version: match change_type {
+                    ObjectChangeKind::Created => None,
+                    _ => created.version.checked_sub(1),
+                },
+            });
+        }
+
+        for object_id in &self.deleted_objects {
+            changes.push(ObjectChange {
+                change_type: ObjectChangeKind::Deleted,
+                object_ref: ObjectRef::new(object_id.clone(), None, None),
+                type_: None,
+                owner: None,
+                previous_owner: None,
+                previous_version: None,
+            });
+        }
+
+        changes
+    }
+
+    pub fn effects(&self, gas_payment: Option<GasPayment>) -> TransactionEffects {
+        TransactionEffects {
+            status: if self.success {
+                "success".to_string()
+            } else {
+                "failure".to_string()
+            },
+            gas_used: self.gas_used,
+            gas_payment: gas_payment.or_else(|| self.gas_payment.clone()),
+            object_changes: self.object_changes(),
+            error_message: self.error_message.clone(),
+        }
+    }
+
+    pub fn set_transaction_context(
+        &mut self,
+        object_inputs: Vec<ObjectInput>,
+        gas_payment: Option<GasPayment>,
+    ) {
+        self.input_objects = object_inputs.clone();
+        self.shared_inputs = object_inputs
+            .iter()
+            .filter(|input| matches!(input.owner, Some(ObjectOwnerKind::Shared)))
+            .map(|input| input.object_ref.clone())
+            .collect();
+        self.immutable_inputs = object_inputs
+            .iter()
+            .filter(|input| matches!(input.owner, Some(ObjectOwnerKind::Immutable)))
+            .map(|input| input.object_ref.clone())
+            .collect();
+        self.gas_object_refs = gas_payment
+            .as_ref()
+            .map(|payment| payment.payment_objects.clone())
+            .unwrap_or_default();
+        self.gas_payment = gas_payment;
+    }
+
+    pub fn set_explicit_object_changes(&mut self, object_changes: Vec<ObjectChange>) {
+        self.explicit_object_changes = object_changes;
     }
 }
 

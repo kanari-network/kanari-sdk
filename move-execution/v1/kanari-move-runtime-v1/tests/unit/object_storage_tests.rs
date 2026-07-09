@@ -1,4 +1,9 @@
 use super::*;
+use kanari_types::transaction::ObjectOwnerKind;
+
+fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
+    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+}
 
 #[test]
 fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()> {
@@ -12,6 +17,7 @@ fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()>
         &StoredObject {
             id: stale_id.clone(),
             owner,
+            owner_kind: address_owner(owner),
             type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
             data: vec![1],
             version: 1,
@@ -22,6 +28,7 @@ fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()>
         &StoredObject {
             id: canonical_id.clone(),
             owner,
+            owner_kind: address_owner(owner),
             type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
             data: vec![2],
             version: 1,
@@ -57,6 +64,7 @@ fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
         &StoredObject {
             id: object_id.clone(),
             owner,
+            owner_kind: address_owner(owner),
             type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
             data: vec![3],
             version: 1,

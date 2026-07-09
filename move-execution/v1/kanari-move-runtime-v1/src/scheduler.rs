@@ -12,13 +12,38 @@ use kanari_types::transaction::SignedTransaction;
 pub struct TransactionScheduler;
 
 impl TransactionScheduler {
-    /// Produce one transaction per wave in the original order.
-    ///
-    /// Parallel scheduling may be reintroduced only after conflict discovery covers
-    /// all Move resources, object inputs, native operations, module publication, and
-    /// dynamic-field accesses, with deterministic post-execution revalidation.
     pub fn schedule(transactions: Vec<SignedTransaction>) -> Vec<Vec<SignedTransaction>> {
-        transactions.into_iter().map(|tx| vec![tx]).collect()
+        let mut waves: Vec<(std::collections::BTreeSet<String>, Vec<SignedTransaction>)> =
+            Vec::new();
+
+        for tx in transactions {
+            let access_keys = tx
+                .transaction
+                .object_access_keys()
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+
+            if access_keys.is_empty() {
+                waves.push((std::collections::BTreeSet::new(), vec![tx]));
+                continue;
+            }
+
+            let mut placed = false;
+            for (wave_keys, wave_txs) in &mut waves {
+                if wave_keys.is_disjoint(&access_keys) {
+                    wave_keys.extend(access_keys.iter().cloned());
+                    wave_txs.push(tx.clone());
+                    placed = true;
+                    break;
+                }
+            }
+
+            if !placed {
+                waves.push((access_keys, vec![tx]));
+            }
+        }
+
+        waves.into_iter().map(|(_, txs)| txs).collect()
     }
 }
 

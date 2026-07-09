@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::storage::resolver::KanariMoveResolver;
+use crate::state::default_owner_kind_for_type;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_system_natives::dynamic_field::DynamicFieldsExt;
@@ -680,6 +681,7 @@ impl MoveRuntime {
     ) -> crate::changeset::CreatedObject {
         crate::changeset::CreatedObject {
             owner,
+            owner_kind: default_owner_kind_for_type(type_name, owner),
             uid: Self::uid_from_object_id(object_id),
             id: Self::id_from_object_id(object_id),
             type_: type_name.to_string(),
@@ -710,6 +712,7 @@ impl MoveRuntime {
             let stored = StoredObject {
                 id: id.clone(),
                 owner: created.owner,
+                owner_kind: created.owner_kind.clone(),
                 type_name: created.type_.clone(),
                 data: created.data.clone(),
                 version: created.version,
@@ -735,6 +738,7 @@ impl MoveRuntime {
         let stored = StoredObject {
             id: object_id.to_string(),
             owner,
+            owner_kind: default_owner_kind_for_type(type_name, owner),
             type_name: type_name.to_string(),
             data,
             version,

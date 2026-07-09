@@ -58,6 +58,7 @@ impl super::MoveRuntime {
                 let stored_obj = StoredObject {
                     id: canonical_id.clone(),
                     owner,
+                    owner_kind: crate::state::default_owner_kind_for_type(&obj_type, owner),
                     type_name: obj_type.clone(),
                     data: data.clone(),
                     version: next_version,

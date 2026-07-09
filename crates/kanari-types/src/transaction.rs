@@ -188,6 +188,81 @@ impl NativeCall {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectOwnerKind {
+    AddressOwner(String),
+    Shared,
+    Immutable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectRef {
+    pub object_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+}
+
+impl ObjectRef {
+    pub fn new(object_id: impl Into<String>, version: Option<u64>, digest: Option<String>) -> Self {
+        Self {
+            object_id: object_id.into(),
+            version,
+            digest,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectInput {
+    pub object_ref: ObjectRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<ObjectOwnerKind>,
+    pub mutable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GasPayment {
+    pub payment_objects: Vec<ObjectRef>,
+    pub owner: String,
+    pub budget: u64,
+    pub price: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectChangeKind {
+    Created,
+    Mutated,
+    Deleted,
+    Transferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectChange {
+    pub change_type: ObjectChangeKind,
+    pub object_ref: ObjectRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<ObjectOwnerKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_owner: Option<ObjectOwnerKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_version: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionEffects {
+    pub status: String,
+    pub gas_used: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
+    pub object_changes: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
 /// Transaction types in Kanari blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Transaction {
@@ -207,6 +282,8 @@ pub enum Transaction {
         function: String,
         type_args: Vec<String>,
         args: Vec<Vec<u8>>,
+        object_inputs: Vec<ObjectInput>,
+        gas_payment: Option<GasPayment>,
         gas_limit: u64,
         gas_price: u64,
         sequence_number: u64,
@@ -268,7 +345,6 @@ impl Transaction {
     /// Get conflict keys for this transaction.
     /// Transactions with overlapping conflict keys must be executed sequentially.
     pub fn get_conflict_keys(&self) -> Vec<String> {
-        // 1. Force Normalize Sender (convert to standard Address, lowercase, always with 0x)
         let sender_norm = if let Ok(addr) = AccountAddress::from_hex_literal(self.sender()) {
             addr.to_hex_literal()
         } else {
@@ -280,16 +356,22 @@ impl Transaction {
             }
         };
 
-        let mut keys = vec![sender_norm];
+        let mut keys = Vec::new();
+
+        let object_access_keys = self.object_access_keys();
+        if !object_access_keys.is_empty() {
+            keys.extend(object_access_keys);
+        }
+        keys.push(format!("owner:{}", sender_norm));
 
         match self {
-            Transaction::ExecuteFunction { args, .. } => {
+            Transaction::ExecuteFunction { args, .. } if keys.len() == 1 => {
                 for arg in args {
                     if arg.len() == 32
                         && let Ok(addr) = AccountAddress::from_bytes(arg)
                     {
-                        keys.push(addr.to_hex_literal());
-                        continue; // Skip to next item if condition already met
+                        keys.push(format!("object:{}", addr.to_hex_literal()));
+                        continue;
                     }
 
                     // 2. Extract String from Argument (support both BCS String and Raw UTF-8)
@@ -308,16 +390,83 @@ impl Transaction {
 
                         // Use from_hex_literal to handle length and convert to Lowercase
                         if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                            keys.push(addr.to_hex_literal());
+                            keys.push(format!("object:{}", addr.to_hex_literal()));
                         }
                     }
                 }
             }
             Transaction::PublishModule { module_name, .. } => {
-                keys.push(module_name.clone());
+                keys.push(format!("module:{}", module_name));
             }
+            Transaction::ExecuteFunction { .. } => {}
         }
+        keys.sort();
+        keys.dedup();
         keys
+    }
+
+    pub fn object_inputs(&self) -> Vec<ObjectInput> {
+        match self {
+            Transaction::ExecuteFunction { object_inputs, .. } if !object_inputs.is_empty() => {
+                object_inputs.clone()
+            }
+            _ => match self.native_call() {
+                Some(NativeCall::Transfer { coin_object_id, .. }) => vec![ObjectInput {
+                    object_ref: ObjectRef::new(coin_object_id, None, None),
+                    owner: Some(ObjectOwnerKind::AddressOwner(self.sender().to_string())),
+                    mutable: true,
+                }],
+                _ => Vec::new(),
+            },
+        }
+    }
+
+    pub fn gas_payment(&self) -> Option<GasPayment> {
+        match self {
+            Transaction::ExecuteFunction { gas_payment, .. } => gas_payment.clone(),
+            Transaction::PublishModule {
+                sender,
+                gas_limit,
+                gas_price,
+                ..
+            } => Some(GasPayment {
+                payment_objects: Vec::new(),
+                owner: sender.clone(),
+                budget: *gas_limit,
+                price: *gas_price,
+            }),
+        }
+    }
+
+    pub fn object_access_keys(&self) -> Vec<String> {
+        let mut keys = self
+            .object_inputs()
+            .into_iter()
+            .map(|input| {
+                let mutability = if input.mutable { "mut" } else { "ro" };
+                format!("{mutability}:object:{}", input.object_ref.object_id)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(gas_payment) = self.gas_payment() {
+            keys.extend(
+                gas_payment
+                    .payment_objects
+                    .into_iter()
+                    .map(|payment| format!("mut:gas:{}", payment.object_id)),
+            );
+        }
+
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    pub fn primary_access_key(&self) -> String {
+        self.object_access_keys()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| format!("owner:{}", self.sender()))
     }
 
     pub fn native_call(&self) -> Option<NativeCall> {
@@ -405,7 +554,7 @@ impl Transaction {
         let recipient_addr = AccountAddress::from_hex_literal(&to).unwrap_or(AccountAddress::ZERO);
 
         Self::ExecuteFunction {
-            sender: from,
+            sender: from.clone(),
             module: Self::KANARI_MODULE.to_string(),
             function: Self::TRANSFER_AMOUNT_FUNCTION.to_string(),
             type_args: vec![],
@@ -414,6 +563,17 @@ impl Transaction {
                 bcs::to_bytes(&amount).unwrap_or_default(),
                 recipient_addr.to_vec(),
             ],
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new(coin_object_id.clone(), None, None),
+                owner: Some(ObjectOwnerKind::AddressOwner(from.clone())),
+                mutable: true,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![ObjectRef::new(coin_object_id, None, None)],
+                owner: from,
+                budget: gas_limit,
+                price: gas_price,
+            }),
             gas_limit,
             gas_price,
             sequence_number,
@@ -433,11 +593,18 @@ impl Transaction {
         gas_price: u64,
     ) -> Self {
         Self::ExecuteFunction {
-            sender: from,
+            sender: from.clone(),
             module: Self::KANARI_MODULE.to_string(),
             function: Self::BURN_AMOUNT_FUNCTION.to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&amount).unwrap_or_default()],
+            object_inputs: Vec::new(),
+            gas_payment: Some(GasPayment {
+                payment_objects: Vec::new(),
+                owner: from,
+                budget: gas_limit,
+                price: gas_price,
+            }),
             gas_limit,
             gas_price,
             sequence_number,

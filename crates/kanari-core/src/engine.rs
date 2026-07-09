@@ -4,7 +4,7 @@
 use crate::blockchain::Blockchain;
 use crate::consensus::Checkpoint;
 use ahash::AHashMap;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
@@ -13,7 +13,10 @@ use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
 
-use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
+use kanari_types::transaction::{
+    ObjectChange, ObjectChangeKind, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    TransactionEffects,
+};
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
 use lru::LruCache;
@@ -59,6 +62,7 @@ pub(crate) struct MempoolState {
     pending_txs: Vec<SignedTransaction>,
     pending_tx_hashes: HashSet<Vec<u8>>,
     pending_sender_counts: AHashMap<String, u64>,
+    pending_access_counts: AHashMap<String, u64>,
 }
 
 /// Complete blockchain engine with Move VM integration
@@ -392,6 +396,18 @@ impl BlockchainEngine {
             }
         }
 
+        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        for checkpoint in chain.dag_checkpoints.iter().rev() {
+            if checkpoint.sequence == 0 {
+                break;
+            }
+            for tx in checkpoint.transactions.iter().rev() {
+                if tx.transaction_hash() == tx_hash {
+                    return Some((tx.clone(), checkpoint.sequence, checkpoint.state_root.clone()));
+                }
+            }
+        }
+
         None
     }
 
@@ -416,14 +432,14 @@ impl BlockchainEngine {
                 if results.len() >= limit {
                     break;
                 }
-                if !seen_hashes.insert(tx_hash.clone()) {
-                    continue;
-                }
                 let Some((tx, location)) =
                     Self::load_transaction_by_hash_from_index(store, tx_hash)
                 else {
                     continue;
                 };
+                if !seen_hashes.insert(tx_hash.clone()) {
+                    continue;
+                }
                 if matches(&tx.transaction) {
                     results.push((tx, location.checkpoint_sequence, location.state_root));
                 }
@@ -457,6 +473,30 @@ impl BlockchainEngine {
                 }
                 if matches(&tx.transaction) {
                     results.push((tx.clone(), sequence, state_root.clone()));
+                }
+            }
+        }
+
+        if results.len() < limit {
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            for checkpoint in chain.dag_checkpoints.iter().rev() {
+                if checkpoint.sequence == 0 || results.len() >= limit {
+                    break;
+                }
+
+                for tx in checkpoint.transactions.iter().rev() {
+                    if results.len() >= limit {
+                        break;
+                    }
+
+                    let tx_hash = tx.transaction_hash().to_vec();
+                    if !seen_hashes.insert(tx_hash) {
+                        continue;
+                    }
+
+                    if matches(&tx.transaction) {
+                        results.push((tx.clone(), checkpoint.sequence, checkpoint.state_root.clone()));
+                    }
                 }
             }
         }
@@ -531,12 +571,15 @@ impl BlockchainEngine {
 
         for id in unique_ids {
             if let Ok(Some(obj)) = state.get_object(&id) {
+                let digest = format!("0x{}", hex::encode(blake3::hash(&obj.data).as_bytes()));
                 let info = ObjectInfo {
                     id: id.clone(),
                     owner: format!("{:#x}", obj.owner),
+                    owner_kind: obj.owner_kind.clone(),
                     type_: obj.type_.clone(),
                     data: obj.data.clone(),
                     version: obj.version,
+                    digest: Some(digest),
                 };
 
                 if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
@@ -619,49 +662,9 @@ impl BlockchainEngine {
         transactions: &[SignedTransaction],
         state_arc: &Arc<RwLock<StateManager>>,
     ) -> Result<Option<(usize, usize)>> {
-        if transactions.is_empty() {
-            return Ok(Some((0, 0)));
-        }
-
-        let mut sequence_increments: AHashMap<AccountAddress, u64> = AHashMap::default();
-        let zero_amount = 0u64.to_le_bytes();
-
-        for signed_tx in transactions {
-            let Transaction::ExecuteFunction {
-                sender,
-                module,
-                function,
-                args,
-                gas_price,
-                ..
-            } = &signed_tx.transaction
-            else {
-                return Ok(None);
-            };
-            if *gas_price != 0 || module != Transaction::KANARI_MODULE {
-                return Ok(None);
-            }
-
-            let is_zero_native_call = matches!(
-                function.as_str(),
-                Transaction::BURN_AMOUNT_FUNCTION | Transaction::TRANSFER_AMOUNT_FUNCTION
-            ) && args
-                .first()
-                .is_some_and(|amount| amount.as_slice() == zero_amount);
-            if !is_zero_native_call {
-                return Ok(None);
-            }
-
-            let sender_addr = KanariAddress::parse_to_account_address(sender)?;
-            *sequence_increments.entry(sender_addr).or_insert(0) += 1;
-        }
-
-        let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
-        state_write
-            .apply_zero_effect_sequence_batch(sequence_increments)
-            .require("Failed to apply zero-effect native batch")?;
-
-        Ok(Some((transactions.len(), 0)))
+        let _ = transactions;
+        let _ = state_arc;
+        Ok(None)
     }
 
     fn execute_tx_waves_parallel_inner(
@@ -893,30 +896,27 @@ impl BlockchainEngine {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
+        changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
 
         let native_call = tx.native_call();
 
-        let (gas_op, required_amount) = match tx {
-            Transaction::PublishModule { module_bytes, .. } => (
-                GasOperation::PublishModule {
-                    module_size: module_bytes.len(),
-                },
-                0,
-            ),
+        let gas_op = match tx {
+            Transaction::PublishModule { module_bytes, .. } => GasOperation::PublishModule {
+                module_size: module_bytes.len(),
+            },
             Transaction::ExecuteFunction { .. } => {
-                if let Some(native_call) = &native_call {
-                    (GasOperation::Transfer, native_call.required_native_amount())
+                if native_call.is_some() {
+                    GasOperation::Transfer
                 } else {
-                    (GasOperation::ExecuteFunction { complexity: 1 }, 0)
+                    GasOperation::ExecuteFunction { complexity: 1 }
                 }
             }
         };
 
         gas_meter.consume(gas_op.gas_units())?;
         let gas_cost = gas_meter.total_cost();
-        let total_required = required_amount.saturating_add(gas_cost);
 
-        if validate_sequence || total_required > 0 {
+        if validate_sequence || gas_cost > 0 {
             let state = match state_arc.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -929,20 +929,14 @@ impl BlockchainEngine {
                     .validate_owner_sequence(&sender_addr, tx.sequence_number())
                     .context("Sequence number validation failed")?;
             }
-            if total_required > 0 {
+            Self::validate_transaction_object_access(&state, tx, sender_addr)?;
+            if gas_cost > 0 {
                 let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
-                if balance < total_required {
-                    let msg = if required_amount > 0 {
-                        format!(
-                            "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
-                            total_required, required_amount, gas_cost, balance
-                        )
-                    } else {
-                        format!(
-                            "Insufficient balance for gas: need {}, have {}",
-                            gas_cost, balance
-                        )
-                    };
+                if balance < gas_cost {
+                    let msg = format!(
+                        "Insufficient balance for gas: need {}, have {}",
+                        gas_cost, balance
+                    );
                     changeset.mark_failed(msg);
                     Self::apply_gas_and_sequence(
                         &mut changeset,
@@ -950,6 +944,7 @@ impl BlockchainEngine {
                         gas_cost,
                         gas_meter.gas_used,
                     )?;
+                    Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
                 }
             }
@@ -983,36 +978,6 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                if let Some(native_call) = native_call {
-                    match native_call {
-                        NativeCall::Transfer {
-                            coin_object_id: _,
-                            recipient,
-                            amount,
-                        } => {
-                            let to_addr = KanariAddress::parse_to_account_address(&recipient)?;
-                            changeset.transfer(sender_addr, to_addr, amount);
-                            Self::apply_gas_and_sequence(
-                                &mut changeset,
-                                sender_addr,
-                                gas_cost,
-                                gas_meter.gas_used,
-                            )?;
-                            return Ok(changeset);
-                        }
-                        NativeCall::BurnAmount { amount } => {
-                            changeset.burn(sender_addr, amount);
-                            Self::apply_gas_and_sequence(
-                                &mut changeset,
-                                sender_addr,
-                                gas_cost,
-                                gas_meter.gas_used,
-                            )?;
-                            return Ok(changeset);
-                        }
-                    }
-                }
-
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -1053,7 +1018,218 @@ impl BlockchainEngine {
         }
 
         Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+        let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
+        Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
+    }
+
+    fn annotate_changeset_object_effects(
+        state: &StateManager,
+        changeset: &mut ChangeSet,
+    ) -> Result<()> {
+        let mut object_changes = Vec::new();
+
+        for (object_id, created) in &changeset.created_objects {
+            let next_ref = created.object_ref(object_id);
+            if let Some(existing) = state.get_object(object_id)? {
+                let previous_owner = existing.owner_kind();
+                let next_owner = created.owner_kind();
+                let change_type = if existing.owner != created.owner {
+                    ObjectChangeKind::Transferred
+                } else {
+                    ObjectChangeKind::Mutated
+                };
+                object_changes.push(ObjectChange {
+                    change_type,
+                    object_ref: next_ref,
+                    type_: Some(created.type_.clone()),
+                    owner: Some(next_owner),
+                    previous_owner: Some(previous_owner),
+                    previous_version: Some(existing.version),
+                });
+            } else {
+                object_changes.push(ObjectChange {
+                    change_type: ObjectChangeKind::Created,
+                    object_ref: next_ref,
+                    type_: Some(created.type_.clone()),
+                    owner: Some(created.owner_kind()),
+                    previous_owner: None,
+                    previous_version: None,
+                });
+            }
+        }
+
+        for object_id in &changeset.deleted_objects {
+            let (previous_owner, previous_version) = if let Some(existing) = state.get_object(object_id)?
+            {
+                (Some(existing.owner_kind()), Some(existing.version))
+            } else {
+                (None, None)
+            };
+            object_changes.push(ObjectChange {
+                change_type: ObjectChangeKind::Deleted,
+                object_ref: ObjectRef::new(object_id.clone(), previous_version, None),
+                type_: None,
+                owner: None,
+                previous_owner,
+                previous_version,
+            });
+        }
+
+        changeset.set_explicit_object_changes(object_changes);
+        Ok(())
+    }
+
+    fn validate_transaction_object_access(
+        state: &StateManager,
+        tx: &Transaction,
+        sender_addr: AccountAddress,
+    ) -> Result<()> {
+        for input in tx.object_inputs() {
+            if matches!(input.owner, Some(ObjectOwnerKind::Immutable)) && input.mutable {
+                anyhow::bail!(
+                    "Immutable object input {} cannot be declared mutable",
+                    input.object_ref.object_id
+                );
+            }
+
+            let stored = state
+                .get_object(&input.object_ref.object_id)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Referenced object {} does not exist",
+                        input.object_ref.object_id
+                    )
+                })?;
+
+            if let Some(version) = input.object_ref.version
+                && stored.version != version
+            {
+                anyhow::bail!(
+                    "Object version mismatch for {}: expected {}, found {}",
+                    input.object_ref.object_id,
+                    version,
+                    stored.version
+                );
+            }
+
+            if let Some(digest) = &input.object_ref.digest
+                && stored.digest() != *digest
+            {
+                anyhow::bail!(
+                    "Object digest mismatch for {}",
+                    input.object_ref.object_id
+                );
+            }
+
+            if let Some(owner) = input.owner {
+                match owner {
+                    ObjectOwnerKind::AddressOwner(expected_owner) => {
+                        ensure!(
+                            matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)),
+                            "Object {} is not canonically address-owned",
+                            input.object_ref.object_id
+                        );
+                        let expected = KanariAddress::parse_to_account_address(&expected_owner)?;
+                        if stored.owner != expected {
+                            anyhow::bail!(
+                                "Owned object {} is not owned by declared owner {}",
+                                input.object_ref.object_id,
+                                expected_owner
+                            );
+                        }
+                    }
+                    ObjectOwnerKind::Shared => {
+                        ensure!(
+                            matches!(stored.owner_kind, ObjectOwnerKind::Shared),
+                            "Object {} is not canonically shared",
+                            input.object_ref.object_id
+                        );
+                    }
+                    ObjectOwnerKind::Immutable => {
+                        ensure!(
+                            matches!(stored.owner_kind, ObjectOwnerKind::Immutable),
+                            "Object {} is not canonically immutable",
+                            input.object_ref.object_id
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(gas_payment) = tx.gas_payment() {
+            let expected_owner = KanariAddress::parse_to_account_address(&gas_payment.owner)?;
+            if expected_owner != sender_addr {
+                anyhow::bail!("Gas payment owner must match sender");
+            }
+
+            for payment in gas_payment.payment_objects {
+                let stored = state
+                    .get_object(&payment.object_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id))?;
+                if stored.owner != expected_owner {
+                    anyhow::bail!(
+                        "Gas payment object {} is not owned by sender",
+                        payment.object_id
+                    );
+                }
+                if let Some(version) = payment.version
+                    && stored.version != version
+                {
+                    anyhow::bail!(
+                        "Gas payment version mismatch for {}: expected {}, found {}",
+                        payment.object_id,
+                        version,
+                        stored.version
+                    );
+                }
+                if let Some(digest) = &payment.digest
+                    && stored.digest() != *digest
+                {
+                    anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn collect_transaction_effects_strict(
+        &self,
+        transactions: &[SignedTransaction],
+        timestamp: Option<u64>,
+    ) -> Result<Vec<TransactionEffects>> {
+        if transactions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut state_snapshot = self.state_read().clone();
+        state_snapshot
+            .repair_legacy_native_wallet_overcount()
+            .context("Failed to repair legacy native wallet overcount before effect collection")?;
+        let state_arc = Arc::new(RwLock::new(state_snapshot));
+
+        if let Some(ts) = timestamp {
+            self.apply_system_prologue_to_state(&state_arc, ts, false)?;
+        }
+
+        let mut effects = Vec::with_capacity(transactions.len());
+        for signed_tx in transactions {
+            let changeset = self.execute_transaction_with_runtime_internal(
+                &signed_tx.transaction,
+                &self.runtime_pool[0],
+                &state_arc,
+                false,
+                timestamp,
+                false,
+            )?;
+            effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
+
+            let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+            state_write.apply_changeset(&changeset)?;
+        }
+
+        Ok(effects)
     }
 
     fn dag_engine_instance(&self) -> Result<DagEngine> {
@@ -1221,6 +1397,7 @@ mod tests {
     use crate::consensus::Checkpoint;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
+    use kanari_types::coin::TreasuryCap;
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -1250,12 +1427,74 @@ mod tests {
         signed_tx
     }
 
-    fn fund_sender(engine: &BlockchainEngine, address: &str, balance: u64) {
+    fn fund_sender_with_coin(
+        engine: &BlockchainEngine,
+        address: &str,
+        coin_object_id: &str,
+        balance: u64,
+    ) {
         let addr = AccountAddress::from_hex_literal(address).unwrap();
+        let mut coin_data = vec![0u8; 40];
+        coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
         let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-        let mut mint = ChangeSet::new();
-        mint.mint(addr, balance);
-        state.apply_changeset(&mint).unwrap();
+        let previous_total = state.total_supply;
+        let previous_visible = state
+            .global_token_supplies
+            .get(KANARI_TOKEN_TYPE)
+            .copied()
+            .unwrap_or(previous_total);
+
+        let mut create_coin = ChangeSet::new();
+        create_coin.created_objects.push((
+            coin_object_id.to_string(),
+            CreatedObject {
+                owner: addr,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    addr.to_hex_literal(),
+                ),
+                uid: None,
+                id: None,
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: coin_data,
+                version: 1,
+            },
+        ));
+        state
+            .apply_changeset_without_supply_validation(&create_coin)
+            .unwrap();
+
+        let mut owner_state = state
+            .get_owner_state(&addr)
+            .unwrap_or_else(|| OwnerState::new(addr));
+        owner_state.set_token_balance(
+            KANARI_TOKEN_TYPE.to_string(),
+            BalanceRecord::new(balance),
+        );
+        state.save_owner_state(&owner_state).unwrap();
+
+        let updated_total = previous_total.saturating_add(balance);
+        let updated_visible = previous_visible.saturating_add(balance);
+        state.total_supply = updated_total;
+        state
+            .store
+            .save(b"total_supply", &updated_total)
+            .unwrap();
+        state
+            .store
+            .save(
+                format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
+                &TreasuryCap {
+                    total_supply: updated_total,
+                },
+            )
+            .unwrap();
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
+        state
+            .store
+            .save(b"global_token_supplies", &state.global_token_supplies)
+            .unwrap();
     }
 
     #[test]
@@ -1272,6 +1511,9 @@ mod tests {
             "0xcoin".to_string(),
             CreatedObject {
                 owner,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    owner.to_hex_literal(),
+                ),
                 uid: None,
                 id: None,
                 type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
@@ -1560,15 +1802,16 @@ mod tests {
         let engine = BlockchainEngine::new_in_memory().unwrap();
         let mut txs = Vec::new();
 
-        for _ in 0..16 {
+        for i in 0..16 {
             let sender = generate_keypair(CurveType::Ed25519).unwrap();
             let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-            fund_sender(&engine, &sender.address, 1_000_000);
+            let coin_object_id = format!("0x{:0>64x}", i + 1);
+            fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
 
             let tx =
                 Transaction::new_transfer(
                     sender.tagged_address(),
-                    "0xaaaa".to_string(),
+                    coin_object_id,
                     recipient.address.clone(),
                     1,
                     0,

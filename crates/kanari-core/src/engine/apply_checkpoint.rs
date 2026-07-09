@@ -24,7 +24,7 @@ impl BlockchainEngine {
         })
     }
 
-    fn apply_system_prologue_to_state(
+    pub(crate) fn apply_system_prologue_to_state(
         &self,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp_ms: u64,
@@ -176,6 +176,7 @@ impl BlockchainEngine {
                 mempool.pending_txs.clear();
                 mempool.pending_tx_hashes.clear();
                 mempool.pending_sender_counts.clear();
+                mempool.pending_access_counts.clear();
             } else {
                 let committed_hashes: std::collections::HashSet<_> = checkpoint
                     .transactions
@@ -196,6 +197,10 @@ impl BlockchainEngine {
                     .retain(|hash| !committed_hashes.contains(hash));
                 Self::remove_pending_sender_counts(
                     &mut mempool.pending_sender_counts,
+                    &removed_transactions,
+                );
+                Self::remove_pending_access_counts(
+                    &mut mempool.pending_access_counts,
                     &removed_transactions,
                 );
             }

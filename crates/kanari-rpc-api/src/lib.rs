@@ -5,7 +5,10 @@
 //!
 //! Defines request/response types and RPC methods for Kanari blockchain
 use kanari_types::event::Event;
-use kanari_types::transaction::SignedTransaction;
+use kanari_types::transaction::{
+    GasPayment, ObjectChange, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction,
+    TransactionEffects,
+};
 use serde::{Deserialize, Serialize};
 
 /// RPC request wrapper
@@ -103,6 +106,8 @@ pub struct OwnerInfo {
     pub modules: Vec<String>,
     pub balances: std::collections::BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub owned_object_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub owned_objects: Option<Vec<ObjectInfo>>,
 }
 
@@ -142,9 +147,12 @@ pub struct BlockchainStats {
 pub struct ObjectInfo {
     pub id: String,
     pub owner: String,
+    pub owner_kind: ObjectOwnerKind,
     pub type_: String,
     pub data: Vec<u8>,
     pub version: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +164,8 @@ pub struct BlockData {
     pub state_root: String,
     pub tx_count: usize,
     pub events: Vec<Event>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub transaction_effects: Vec<TransactionEffects>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +178,8 @@ pub struct FullBlockData {
     pub tx_count: usize,
     pub events: Vec<Event>,
     pub transactions: Vec<SignedTransaction>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub transaction_effects: Vec<TransactionEffects>,
     pub vertices: Vec<String>,
 }
 
@@ -225,6 +237,12 @@ pub struct TransactionDetails {
     pub gas_limit: u64,
     pub gas_price: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_inputs: Option<Vec<ObjectInput>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<TransactionEffects>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,
@@ -238,6 +256,8 @@ pub struct TransactionResult {
     pub hash: String,
     pub status: String,
     pub gas_used: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<TransactionEffects>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
 }
@@ -253,11 +273,15 @@ pub struct SubmitObjectTransferRequest {
 pub struct ObjectTransferData {
     pub sender: String,
     pub coin_object_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coin_object_ref: Option<ObjectRef>,
     pub recipient: String,
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
     pub sequence_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
@@ -287,11 +311,34 @@ pub struct CallFunctionRequest {
     pub function: String,
     pub type_args: Vec<String>,
     pub args: Vec<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_inputs: Option<Vec<ObjectInput>>,
     pub gas_limit: u64,
     pub gas_price: u64,
     pub sequence_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
     pub execute_immediate: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnedObjectsResponse {
+    pub objects: Vec<ObjectInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<OwnerObjectSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerObjectSummary {
+    pub owner: String,
+    pub total_objects: usize,
+    pub object_changes_hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectChangeSet {
+    pub changes: Vec<ObjectChange>,
 }
 
 /// View function request (read-only, no transaction submission)

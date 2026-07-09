@@ -509,8 +509,13 @@ impl DagEngine {
         let mut transactions = self.engine.pending_transactions_snapshot();
         transactions.sort_by(|a, b| {
             a.transaction
-                .sender_address()
-                .cmp(b.transaction.sender_address())
+                .primary_access_key()
+                .cmp(&b.transaction.primary_access_key())
+                .then_with(|| {
+                    a.transaction
+                        .sender_address()
+                        .cmp(b.transaction.sender_address())
+                })
                 .then_with(|| {
                     a.transaction
                         .sequence_number()
@@ -581,6 +586,9 @@ impl DagEngine {
                 validate_supply,
             )
         };
+        let transaction_effects = self
+            .engine
+            .collect_transaction_effects_strict(&transactions, Some(timestamp))?;
 
         let (vertex_id, round, parent_entries) = {
             let mut state = lock_write(&self.state);
@@ -645,6 +653,7 @@ impl DagEngine {
             to_execute,
             validate_supply,
             state_root,
+            transaction_effects,
         )?;
         let checkpoint = self.finalize_staged_checkpoint(vertex.id)?;
         let checkpoint_info = Some(CheckpointInfo {
@@ -678,6 +687,7 @@ impl DagEngine {
         to_execute: Vec<SignedTransaction>,
         validate_supply: bool,
         state_root: Vec<u8>,
+        transaction_effects: Vec<kanari_types::transaction::TransactionEffects>,
     ) -> Result<Checkpoint> {
         {
             let mut state = lock_write(&self.state);
@@ -698,7 +708,8 @@ impl DagEngine {
             state_root,
             vertex.timestamp,
             prev_hash,
-        );
+        )
+        .with_transaction_effects(transaction_effects);
 
         let mut staged = lock_write(&self.staged_checkpoints);
         staged.insert(

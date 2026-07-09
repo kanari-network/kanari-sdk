@@ -29,11 +29,12 @@ impl BlockchainEngine {
 
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
-        let (pending_hashes, pending_by_sender) = {
+        let (pending_hashes, pending_by_sender, pending_by_access) = {
             let mempool = self.mempool_read();
             (
                 mempool.pending_tx_hashes.clone(),
                 mempool.pending_sender_counts.clone(),
+                mempool.pending_access_counts.clone(),
             )
         };
 
@@ -54,41 +55,59 @@ impl BlockchainEngine {
         let mut verified_txs = signed_txs
             .into_par_iter()
             .map(
-                |signed_tx| -> Result<(SignedTransaction, Vec<u8>, String, u64)> {
+                |signed_tx| -> Result<(SignedTransaction, Vec<u8>, String, u64, String, Vec<String>)> {
                     let verified = signed_tx.into_verified()?;
                     let tx_hash = verified.hash().to_vec();
-                    let sender = verified.transaction().sender_address();
+                    let tx = verified.transaction();
+                    let sender = tx.sender_address();
                     let normalized_sender = sender_cache
                         .get(sender)
                         .expect("sender cache must contain every batch sender")
                         .clone();
-                    let sequence_number = verified.transaction().sequence_number();
+                    let sequence_number = tx.sequence_number();
+                    let primary_access_key = tx.primary_access_key();
+                    let access_keys = tx.object_access_keys();
                     Ok((
                         verified.into_signed_transaction(),
                         tx_hash,
                         normalized_sender,
                         sequence_number,
+                        primary_access_key,
+                        access_keys,
                     ))
                 },
             )
             .collect::<Result<Vec<_>>>()?;
 
         verified_txs.sort_by(|a, b| {
-            a.2.cmp(&b.2)
+            let a_pending = pending_by_access.get(&a.4).copied().unwrap_or(0);
+            let b_pending = pending_by_access.get(&b.4).copied().unwrap_or(0);
+            a_pending
+                .cmp(&b_pending)
+                .then_with(|| a.4.cmp(&b.4))
+                .then_with(|| a.2.cmp(&b.2))
                 .then_with(|| a.3.cmp(&b.3))
                 .then_with(|| a.1.cmp(&b.1))
         });
 
-        let batch_metadata: Vec<(Vec<u8>, String, u64)> = verified_txs
+        let batch_metadata: Vec<(Vec<u8>, String, u64, String, Vec<String>)> = verified_txs
             .iter()
-            .map(|(_, hash, sender, sequence)| (hash.clone(), sender.clone(), *sequence))
+            .map(|(_, hash, sender, sequence, primary_access, access_keys)| {
+                (
+                    hash.clone(),
+                    sender.clone(),
+                    *sequence,
+                    primary_access.clone(),
+                    access_keys.clone(),
+                )
+            })
             .collect();
 
         // Batch read account sequences to minimize state lock contention
         let base_sequences = {
             let state = self.state_read();
             let mut sequences = std::collections::HashMap::with_capacity(batch_metadata.len());
-            for (_, sender, _) in &batch_metadata {
+            for (_, sender, _, _, _) in &batch_metadata {
                 sequences.entry(sender.clone()).or_insert_with(|| {
                     KanariAddress::parse_to_account_address(sender)
                         .ok()
@@ -119,7 +138,7 @@ impl BlockchainEngine {
                 use rayon::prelude::*;
                 batch_metadata
                     .par_iter()
-                    .filter_map(|(tx_hash, _, _)| {
+                    .filter_map(|(tx_hash, _, _, _, _)| {
                         if chain.is_transaction_hash_executed(tx_hash) {
                             Some(tx_hash.clone())
                         } else {
@@ -136,8 +155,9 @@ impl BlockchainEngine {
         let mut batch_hashes = AHashSet::with_capacity(batch_size);
         let mut accepted_hashes = Vec::with_capacity(batch_size);
         let mut accepted_counts_by_sender = ahash::AHashMap::new();
+        let mut accepted_counts_by_access = ahash::AHashMap::new();
         let mut sequence_groups = ahash::AHashMap::new();
-        for (tx_hash, sender, tx_seq) in &batch_metadata {
+        for (tx_hash, sender, tx_seq, primary_access, access_keys) in &batch_metadata {
             if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
                 let tx_hash_hex = hex::encode(tx_hash);
                 anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
@@ -149,6 +169,12 @@ impl BlockchainEngine {
 
             accepted_hashes.push(tx_hash.clone());
             *accepted_counts_by_sender.entry(sender.clone()).or_insert(0) += 1;
+            *accepted_counts_by_access
+                .entry(primary_access.clone())
+                .or_insert(0) += 1;
+            for access_key in access_keys {
+                *accepted_counts_by_access.entry(access_key.clone()).or_insert(0) += 1;
+            }
             sequence_groups
                 .entry(sender.clone())
                 .or_insert_with(Vec::new)
@@ -200,7 +226,7 @@ impl BlockchainEngine {
             mempool.pending_txs.extend(
                 verified_txs
                     .into_iter()
-                    .map(|(signed_tx, _, _, _)| signed_tx),
+                    .map(|(signed_tx, _, _, _, _, _)| signed_tx),
             );
             mempool
                 .pending_tx_hashes
@@ -209,6 +235,12 @@ impl BlockchainEngine {
                 *mempool
                     .pending_sender_counts
                     .entry(sender.clone())
+                    .or_insert(0) += *count;
+            }
+            for (access_key, count) in &accepted_counts_by_access {
+                *mempool
+                    .pending_access_counts
+                    .entry(access_key.clone())
                     .or_insert(0) += *count;
             }
         }
@@ -277,6 +309,33 @@ impl BlockchainEngine {
             };
             if should_remove {
                 counts.remove(&sender);
+            }
+        }
+    }
+
+    pub(crate) fn remove_pending_access_counts(
+        counts: &mut ahash::AHashMap<String, u64>,
+        transactions: &[SignedTransaction],
+    ) {
+        if transactions.is_empty() {
+            return;
+        }
+
+        for tx in transactions {
+            let mut keys = tx.transaction.object_access_keys();
+            keys.push(tx.transaction.primary_access_key());
+            keys.sort();
+            keys.dedup();
+            for key in keys {
+                let should_remove = if let Some(count) = counts.get_mut(&key) {
+                    *count = count.saturating_sub(1);
+                    *count == 0
+                } else {
+                    false
+                };
+                if should_remove {
+                    counts.remove(&key);
+                }
             }
         }
     }

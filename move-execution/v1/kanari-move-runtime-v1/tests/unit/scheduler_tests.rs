@@ -1,5 +1,5 @@
 use super::*;
-use kanari_types::transaction::Transaction;
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef, Transaction};
 
 fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTransaction {
     let mut args = Vec::new();
@@ -18,6 +18,16 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
         function: "test".to_string(),
         type_args: vec![],
         args,
+        object_inputs: object
+            .map(|obj| {
+                vec![ObjectInput {
+                    object_ref: ObjectRef::new(obj.to_string(), None, None),
+                    owner: Some(ObjectOwnerKind::AddressOwner(sender.to_string())),
+                    mutable: true,
+                }]
+            })
+            .unwrap_or_default(),
+        gas_payment: None,
         gas_limit: 1000,
         gas_price: 1,
         sequence_number: 0,
@@ -26,7 +36,7 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
 }
 
 #[test]
-fn test_schedule_is_strictly_serial() {
+fn test_schedule_groups_non_overlapping_object_access() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
@@ -40,12 +50,13 @@ fn test_schedule_is_strictly_serial() {
         .collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
-    assert_eq!(waves.len(), expected_hashes.len());
-    assert!(waves.iter().all(|wave| wave.len() == 1));
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0].len(), 2);
+    assert_eq!(waves[1].len(), 2);
 
     let actual_hashes = waves
         .iter()
-        .map(|wave| wave[0].transaction_hash().to_vec())
+        .flat_map(|wave| wave.iter().map(|tx| tx.transaction_hash().to_vec()))
         .collect::<Vec<_>>();
     assert_eq!(actual_hashes, expected_hashes);
 }
@@ -57,14 +68,13 @@ fn test_schedule_empty_batch() {
 }
 
 #[test]
-fn test_independent_transactions_are_not_parallelized() {
+fn test_independent_transactions_are_parallelized_into_one_wave() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
     ];
 
     let waves = TransactionScheduler::schedule(txs);
-    assert_eq!(waves.len(), 2);
-    assert_eq!(waves[0].len(), 1);
-    assert_eq!(waves[1].len(), 1);
+    assert_eq!(waves.len(), 1);
+    assert_eq!(waves[0].len(), 2);
 }

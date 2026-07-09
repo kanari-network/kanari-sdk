@@ -131,9 +131,11 @@ impl Transfer {
                 )
                 .context("Failed to serialize recipient address")?,
             ],
+            object_inputs: None,
             gas_limit,
             gas_price,
             sequence_number: next_sequence,
+            gas_payment: None,
             signature: None,
             execute_immediate: Some(true),
         };

@@ -1,4 +1,5 @@
 use super::*;
+use kanari_types::transaction::ObjectOwnerKind;
 
 impl StateManager {
     fn is_object_locked_coin_holder_type(type_name: &str) -> bool {
@@ -553,7 +554,13 @@ impl StateManager {
                     &existing.type_name,
                     &existing.data,
                 );
-                self.remove_owned_object_index_variants(existing.owner, obj_id, Some(&stored_id))?;
+                if matches!(existing.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                    self.remove_owned_object_index_variants(
+                        existing.owner,
+                        obj_id,
+                        Some(&stored_id),
+                    )?;
+                }
                 self.overlay.insert(obj_key, None);
             } else {
                 let obj_key = object_key(obj_id);
@@ -655,11 +662,13 @@ impl StateManager {
                 }
 
                 if existing.owner != new_obj.owner {
-                    self.remove_owned_object_index_variants(
-                        existing.owner,
-                        obj_id,
-                        Some(&stored_id),
-                    )?;
+                    if matches!(existing.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                        self.remove_owned_object_index_variants(
+                            existing.owner,
+                            obj_id,
+                            Some(&stored_id),
+                        )?;
+                    }
                 }
                 if stored_id != *obj_id {
                     self.overlay.insert(object_key(&stored_id), None);
@@ -694,13 +703,20 @@ impl StateManager {
             let stored_obj = StoredObject {
                 id: obj_id.clone(),
                 owner: new_obj.owner,
+                owner_kind: new_obj.owner_kind.clone(),
                 type_name: new_obj.type_.clone(),
                 data: new_obj.data.clone(),
                 version: new_obj.version,
             };
             self.save_internal(&obj_key, &stored_obj)?;
 
-            self.refresh_owned_object_index(new_obj.owner, obj_id, existing_stored_id.as_deref())?;
+            if matches!(new_obj.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                self.refresh_owned_object_index(
+                    new_obj.owner,
+                    obj_id,
+                    existing_stored_id.as_deref(),
+                )?;
+            }
 
             if new_obj.type_.contains("::coin::CoinMetadata<")
                 && let Some(start) = new_obj.type_.find('<')

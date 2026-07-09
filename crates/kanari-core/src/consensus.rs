@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::transaction::SignedTransaction;
+use kanari_types::transaction::{SignedTransaction, TransactionEffects};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -22,6 +22,8 @@ pub struct Checkpoint {
     pub sequence: u64,
     pub vertices: Vec<[u8; 32]>,
     pub transactions: Arc<[SignedTransaction]>,
+    #[serde(default)]
+    pub transaction_effects: Arc<[TransactionEffects]>,
     pub state_root: Vec<u8>,
     pub timestamp: u64,
     pub prev_checkpoint_hash: Vec<u8>,
@@ -43,10 +45,19 @@ impl Checkpoint {
             sequence,
             vertices,
             transactions: transactions.into(),
+            transaction_effects: Vec::new().into(),
             state_root,
             timestamp,
             prev_checkpoint_hash,
         }
+    }
+
+    pub fn with_transaction_effects<T>(mut self, effects: T) -> Self
+    where
+        T: Into<Arc<[TransactionEffects]>>,
+    {
+        self.transaction_effects = effects.into();
+        self
     }
 
     pub fn hash(&self) -> Result<Vec<u8>> {
@@ -69,6 +80,7 @@ impl Checkpoint {
             sequence: 0,
             vertices: Vec::new(),
             transactions: Vec::new().into(),
+            transaction_effects: Vec::new().into(),
             state_root: smt::default_hashes()[0].to_vec(),
             timestamp: 0,
             prev_checkpoint_hash: vec![0u8; 32],

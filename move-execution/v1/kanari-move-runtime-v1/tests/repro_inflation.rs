@@ -1,8 +1,19 @@
 use anyhow::Result;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::ObjectOwnerKind;
 
 use kanari_move_runtime_v1::{ChangeSet, changeset::CreatedObject, state::StateManager};
 use move_core_types::account_address::AccountAddress;
+
+fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
+    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+}
+
+fn canonical_object_id(object_id: &str) -> String {
+    AccountAddress::from_hex_literal(object_id)
+        .invariant("object id should be valid hex")
+        .to_hex_literal()
+}
 
 #[test]
 fn test_ownership_transfer() -> Result<()> {
@@ -15,11 +26,13 @@ fn test_ownership_transfer() -> Result<()> {
 
     // 3. Create an object (Coin)
     let object_id = "0xAAAA";
+    let canonical_id = canonical_object_id(object_id);
     let object_data = vec![1, 2, 3]; // Dummy data
     let object_type = "0x2::coin::Coin<0x2::james::JAMES>";
 
     let created_obj = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -38,20 +51,21 @@ fn test_ownership_transfer() -> Result<()> {
     // Verify Alice owns it
     let alice_owned = state.get_owned_objects(&alice)?;
     assert!(
-        alice_owned.contains(&object_id.to_string()),
+        alice_owned.contains(&canonical_id),
         "Alice should own the object"
     );
 
     // Verify Bob does not own it
     let bob_owned = state.get_owned_objects(&bob)?;
     assert!(
-        !bob_owned.contains(&object_id.to_string()),
+        !bob_owned.contains(&canonical_id),
         "Bob should not own the object"
     );
 
     // 6. Transfer object to Bob (Update object with new owner)
     let updated_obj = CreatedObject {
         owner: bob, // New owner
+        owner_kind: address_owner(bob),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -70,14 +84,14 @@ fn test_ownership_transfer() -> Result<()> {
     // Verify Bob owns it
     let bob_owned_after = state.get_owned_objects(&bob)?;
     assert!(
-        bob_owned_after.contains(&object_id.to_string()),
+        bob_owned_after.contains(&canonical_id),
         "Bob should own the object after transfer"
     );
 
     // Verify Alice NO LONGER owns it (The Fix)
     let alice_owned_after = state.get_owned_objects(&alice)?;
     assert!(
-        !alice_owned_after.contains(&object_id.to_string()),
+        !alice_owned_after.contains(&canonical_id),
         "Alice should NOT own the object after transfer"
     );
 
@@ -94,11 +108,13 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
 
     // Create object owned by Alice
     let object_id = "0xAAAA";
+    let canonical_id = canonical_object_id(object_id);
     let object_data = vec![1, 2, 3];
     let object_type = "0x2::coin::coin::Coin<0x2::james::JAMES>";
 
     let created_obj = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -113,7 +129,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
 
     // Verify initial state
     let alice_owned_1 = state.get_owned_objects(&alice)?;
-    assert!(alice_owned_1.contains(&object_id.to_string()));
+    assert!(alice_owned_1.contains(&canonical_id));
     assert_eq!(alice_owned_1.len(), 1);
 
     let bob_owned_1 = state.get_owned_objects(&bob)?;
@@ -122,6 +138,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     // Transfer to Bob (update with new owner)
     let transferred_obj = CreatedObject {
         owner: bob,
+        owner_kind: address_owner(bob),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -137,19 +154,20 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     // Verify transfer: Alice should NOT own it anymore
     let alice_owned_2 = state.get_owned_objects(&alice)?;
     assert!(
-        !alice_owned_2.contains(&object_id.to_string()),
+        !alice_owned_2.contains(&canonical_id),
         "Alice should not own the object after transfer"
     );
     assert_eq!(alice_owned_2.len(), 0, "Alice should own 0 objects");
 
     // Verify Bob owns it
     let bob_owned_2 = state.get_owned_objects(&bob)?;
-    assert!(bob_owned_2.contains(&object_id.to_string()));
+    assert!(bob_owned_2.contains(&canonical_id));
     assert_eq!(bob_owned_2.len(), 1);
 
     // Transfer again to Charlie
     let transferred_obj2 = CreatedObject {
         owner: charlie,
+        owner_kind: address_owner(charlie),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -165,14 +183,14 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     // Verify second transfer: Bob should NOT own it anymore
     let bob_owned_3 = state.get_owned_objects(&bob)?;
     assert!(
-        !bob_owned_3.contains(&object_id.to_string()),
+        !bob_owned_3.contains(&canonical_id),
         "Bob should not own the object after second transfer"
     );
     assert_eq!(bob_owned_3.len(), 0, "Bob should own 0 objects");
 
     // Verify Charlie owns it
     let charlie_owned = state.get_owned_objects(&charlie)?;
-    assert!(charlie_owned.contains(&object_id.to_string()));
+    assert!(charlie_owned.contains(&canonical_id));
     assert_eq!(charlie_owned.len(), 1);
 
     Ok(())
@@ -187,6 +205,7 @@ fn test_coin_split_inflation() -> Result<()> {
 
     // 2. Create Coin A (1000) owned by Alice
     let coin_a_id = "0xAAAA";
+    let canonical_coin_a_id = canonical_object_id(coin_a_id);
     // Actually, RPC parses last 8 bytes. Let's make data 32 bytes (UID) + 8 bytes (Balance).
     let mut coin_a_data = vec![0u8; 32]; // UID
     coin_a_data.extend_from_slice(&1000u64.to_le_bytes()); // Balance 1000
@@ -195,6 +214,7 @@ fn test_coin_split_inflation() -> Result<()> {
 
     let created_a = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -210,7 +230,7 @@ fn test_coin_split_inflation() -> Result<()> {
 
     // Verify Initial State
     let alice_owned = state.get_owned_objects(&alice)?;
-    assert!(alice_owned.contains(&coin_a_id.to_string()));
+    assert!(alice_owned.contains(&canonical_coin_a_id));
     // We can't easily check balance sum here without RPC logic, but we can check objects.
 
     // 3. Simulate Transfer Amount (Split 500)
@@ -222,6 +242,7 @@ fn test_coin_split_inflation() -> Result<()> {
 
     let updated_a = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -230,12 +251,14 @@ fn test_coin_split_inflation() -> Result<()> {
     };
 
     let coin_b_id = "0xBBBB";
+    let canonical_coin_b_id = canonical_object_id(coin_b_id);
     let mut coin_b_data_500 = vec![0u8; 32];
     coin_b_data_500[0] = 0xBB; // Distinct UID
     coin_b_data_500.extend_from_slice(&500u64.to_le_bytes());
 
     let created_b = CreatedObject {
         owner: bob,
+        owner_kind: address_owner(bob),
         uid: None,
         id: None,
         type_: object_type.to_string(),
@@ -255,12 +278,12 @@ fn test_coin_split_inflation() -> Result<()> {
 
     // 4. Verify Final State
     let alice_owned_final = state.get_owned_objects(&alice)?;
-    assert!(alice_owned_final.contains(&coin_a_id.to_string()));
-    assert!(!alice_owned_final.contains(&coin_b_id.to_string()));
+    assert!(alice_owned_final.contains(&canonical_coin_a_id));
+    assert!(!alice_owned_final.contains(&canonical_coin_b_id));
     assert_eq!(alice_owned_final.len(), 1, "Alice should only own Coin A");
 
     let bob_owned_final = state.get_owned_objects(&bob)?;
-    assert!(bob_owned_final.contains(&coin_b_id.to_string()));
+    assert!(bob_owned_final.contains(&canonical_coin_b_id));
     assert_eq!(bob_owned_final.len(), 1, "Bob should only own Coin B");
 
     // Verify Data of Coin A in DB
@@ -281,6 +304,7 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let bob = AccountAddress::from_hex_literal("0x2222")?;
     let object_id = "0xABCD";
+    let canonical_id = canonical_object_id(object_id);
     let coin_type = "0x2::coin::Coin<0x2::james::JAMES>";
 
     let mut coin_data = AccountAddress::from_hex_literal(object_id)?.to_vec();
@@ -291,6 +315,7 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
         object_id.to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -306,6 +331,7 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
         object_id.to_string(),
         CreatedObject {
             owner: bob,
+            owner_kind: address_owner(bob),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -319,11 +345,11 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
     let bob_owned = state.get_owned_objects(&bob)?;
 
     assert!(
-        !alice_owned.contains(&object_id.to_string()),
+        !alice_owned.contains(&canonical_id),
         "Alice should no longer own object after transfer"
     );
     assert!(
-        bob_owned.contains(&object_id.to_string()),
+        bob_owned.contains(&canonical_id),
         "Bob should own the transferred object id"
     );
     assert_eq!(
@@ -341,6 +367,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let bob = AccountAddress::from_hex_literal("0x2222")?;
     let object_id = "0xDEAD";
+    let canonical_id = canonical_object_id(object_id);
     let coin_type = "0x2::coin::Coin<0x2::james::JAMES>";
 
     let mut init_data = AccountAddress::from_hex_literal(object_id)?.to_vec();
@@ -350,6 +377,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         object_id.to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -368,6 +396,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         object_id.to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -379,6 +408,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         object_id.to_string(),
         CreatedObject {
             owner: bob,
+            owner_kind: address_owner(bob),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -391,11 +421,11 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
     let alice_owned = state.get_owned_objects(&alice)?;
     let bob_owned = state.get_owned_objects(&bob)?;
     assert!(
-        !alice_owned.contains(&object_id.to_string()),
+        !alice_owned.contains(&canonical_id),
         "Alice should not keep duplicate id after final transfer"
     );
     assert!(
-        bob_owned.contains(&object_id.to_string()),
+        bob_owned.contains(&canonical_id),
         "Latest owner should keep the object id"
     );
 

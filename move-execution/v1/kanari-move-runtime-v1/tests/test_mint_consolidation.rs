@@ -7,7 +7,19 @@ use anyhow::Result;
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
+
+fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
+    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+}
+
+fn coin_data(marker: u8, amount: u64) -> Vec<u8> {
+    let mut data = vec![0u8; 40];
+    data[0] = marker;
+    data[32..40].copy_from_slice(&amount.to_le_bytes());
+    data
+}
 
 #[test]
 fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
@@ -22,6 +34,18 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
     println!("=== First Mint (100 tokens) ===");
     let mut cs1 = ChangeSet::new();
     cs1.add_token_balance_set(alice, token_type.to_string(), 100);
+    cs1.created_objects.push((
+        "0xaaa1".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_type),
+            data: coin_data(0xA1, 100),
+            version: 1,
+        },
+    ));
 
     println!(
         "ChangeSet 1 token_balance_sets: {:?}",
@@ -33,6 +57,18 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
     println!("=== Second Mint (50 tokens) ===");
     let mut cs2 = ChangeSet::new();
     cs2.add_token_balance_set(alice, token_type.to_string(), 50);
+    cs2.created_objects.push((
+        "0xaaa2".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_type),
+            data: coin_data(0xA2, 50),
+            version: 1,
+        },
+    ));
 
     println!(
         "ChangeSet 2 token_balance_sets: {:?}",
@@ -44,6 +80,18 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
     println!("=== Third Mint (75 tokens) ===");
     let mut cs3 = ChangeSet::new();
     cs3.add_token_balance_set(alice, token_type.to_string(), 75);
+    cs3.created_objects.push((
+        "0xaaa3".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_type),
+            data: coin_data(0xA3, 75),
+            version: 1,
+        },
+    ));
 
     println!(
         "ChangeSet 3 token_balance_sets: {:?}",
@@ -52,10 +100,7 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
     state.apply_changeset(&cs3)?;
 
     // Verify final balance
-    let alice_account = state
-        .get_owner_state(&alice)
-        .invariant("Alice owner state should exist");
-    let final_balance = alice_account.get_token_balance(token_type);
+    let final_balance = state.resolve_owner_token_balance(alice, token_type)?;
 
     println!("Final balance for Alice: {}", final_balance);
     assert_eq!(
@@ -129,19 +174,40 @@ fn test_changeset_consolidation_with_treasury() -> Result<()> {
     println!("=== Step 2: First Mint to Bob (100 tokens) ===");
     let mut cs_mint1 = ChangeSet::new();
     cs_mint1.add_token_balance_set(bob, token_type.to_string(), 100);
+    cs_mint1.created_objects.push((
+        "0xbbb1".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_type),
+            data: coin_data(0xB1, 100),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs_mint1)?;
 
     // Step 3: Second mint to Bob
     println!("=== Step 3: Second Mint to Bob (75 tokens) ===");
     let mut cs_mint2 = ChangeSet::new();
     cs_mint2.add_token_balance_set(bob, token_type.to_string(), 75);
+    cs_mint2.created_objects.push((
+        "0xbbb2".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_type),
+            data: coin_data(0xB2, 75),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs_mint2)?;
 
     // Verify Bob's balance
-    let bob_account = state
-        .get_owner_state(&bob)
-        .invariant("Bob owner state should exist");
-    let bob_balance = bob_account.get_token_balance(token_type);
+    let bob_balance = state.resolve_owner_token_balance(bob, token_type)?;
 
     println!("Bob's final balance: {}", bob_balance);
     assert_eq!(bob_balance, 175, "Bob should have 175 tokens (100 + 75)");
@@ -164,34 +230,75 @@ fn test_multiple_owners_and_token_types() -> Result<()> {
     println!("=== Alice Mint KANARI (100) ===");
     let mut cs1 = ChangeSet::new();
     cs1.add_token_balance_set(alice, token_kanari.to_string(), 100);
+    cs1.created_objects.push((
+        "0xaca1".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_kanari),
+            data: coin_data(0xC1, 100),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs1)?;
 
     println!("=== Alice Mint KANARI (50) ===");
     let mut cs2 = ChangeSet::new();
     cs2.add_token_balance_set(alice, token_kanari.to_string(), 50);
+    cs2.created_objects.push((
+        "0xaca2".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_kanari),
+            data: coin_data(0xC2, 50),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs2)?;
 
     // Mint THB to Bob twice: 200 + 100 = 300
     println!("=== Bob Mint THB (200) ===");
     let mut cs3 = ChangeSet::new();
     cs3.add_token_balance_set(bob, token_thb.to_string(), 200);
+    cs3.created_objects.push((
+        "0xbcb1".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_thb),
+            data: coin_data(0xD1, 200),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs3)?;
 
     println!("=== Bob Mint THB (100) ===");
     let mut cs4 = ChangeSet::new();
     cs4.add_token_balance_set(bob, token_thb.to_string(), 100);
+    cs4.created_objects.push((
+        "0xbcb2".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: format!("0x2::coin::Coin<{}>", token_thb),
+            data: coin_data(0xD2, 100),
+            version: 1,
+        },
+    ));
     state.apply_changeset(&cs4)?;
 
     // Verify all balances
-    let alice_account = state
-        .get_owner_state(&alice)
-        .invariant("Alice owner state should exist");
-    let alice_kanari = alice_account.get_token_balance(token_kanari);
-
-    let bob_account = state
-        .get_owner_state(&bob)
-        .invariant("Bob owner state should exist");
-    let bob_thb = bob_account.get_token_balance(token_thb);
+    let alice_kanari = state.resolve_owner_token_balance(alice, token_kanari)?;
+    let bob_thb = state.resolve_owner_token_balance(bob, token_thb)?;
 
     println!("Alice KANARI balance: {}", alice_kanari);
     println!("Bob THB balance: {}", bob_thb);
@@ -241,6 +348,7 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
         "0xbbb2".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: coin_type.to_string(),
@@ -292,6 +400,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
 
     let coin_1 = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
@@ -321,6 +430,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
 
     let coin_2 = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
@@ -357,6 +467,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
 
     let coin_1_remaining = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
@@ -373,6 +484,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
 
     let coin_1_split = CreatedObject {
         owner: alice,
+        owner_kind: address_owner(alice),
         uid: None,
         id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
@@ -425,6 +537,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
         "coin_1".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: format!("0x2::coin::Coin<{}>", token_type),
@@ -452,6 +565,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
         "coin_2".to_string(),
         CreatedObject {
             owner: alice,
+            owner_kind: address_owner(alice),
             uid: None,
             id: None,
             type_: format!("0x2::coin::Coin<{}>", token_type),
