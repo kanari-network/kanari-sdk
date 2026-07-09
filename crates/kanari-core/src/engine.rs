@@ -14,8 +14,8 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
 
 use kanari_types::transaction::{
-    ObjectChange, ObjectChangeKind, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
-    TransactionEffects,
+    ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef,
+    SignedTransaction, Transaction, TransactionEffects,
 };
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
@@ -207,6 +207,27 @@ impl BlockchainEngine {
             checkpoint.timestamp,
             checkpoint.prev_checkpoint_hash.clone(),
         )
+        .with_transaction_effects(checkpoint.transaction_effects.clone())
+        .with_object_changes(checkpoint.object_changes.clone())
+        .with_object_graph_edges(checkpoint.object_graph_edges.clone())
+    }
+
+    pub(crate) fn aggregate_checkpoint_object_changes(
+        transaction_effects: &[TransactionEffects],
+    ) -> Vec<ObjectChange> {
+        transaction_effects
+            .iter()
+            .flat_map(|effects| effects.object_changes.iter().cloned())
+            .collect()
+    }
+
+    pub(crate) fn aggregate_checkpoint_object_graph_edges(
+        transaction_effects: &[TransactionEffects],
+    ) -> Vec<ObjectGraphEdge> {
+        transaction_effects
+            .iter()
+            .flat_map(|effects| effects.causal_edges.iter().cloned())
+            .collect()
     }
 
     fn persist_checkpoint_transactions(
@@ -998,11 +1019,12 @@ impl BlockchainEngine {
                     .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
                     .collect::<Result<Vec<_>>>()?;
 
-                match runtime.execute_entry_function_with_tx_hash_and_persistence(
+                match runtime.execute_entry_function_with_object_context_and_persistence(
                     &module_id,
                     function,
                     type_tags,
                     args.clone(),
+                    tx.object_inputs(),
                     Some(sender_addr),
                     None,
                     timestamp,
@@ -1034,6 +1056,7 @@ impl BlockchainEngine {
             if let Some(existing) = state.get_object(object_id)? {
                 let previous_owner = existing.owner_kind();
                 let next_owner = created.owner_kind();
+                let previous_ref = existing.object_ref(object_id);
                 let change_type = if existing.owner != created.owner {
                     ObjectChangeKind::Transferred
                 } else {
@@ -1042,6 +1065,7 @@ impl BlockchainEngine {
                 object_changes.push(ObjectChange {
                     change_type,
                     object_ref: next_ref,
+                    previous_object_ref: Some(previous_ref),
                     type_: Some(created.type_.clone()),
                     owner: Some(next_owner),
                     previous_owner: Some(previous_owner),
@@ -1051,6 +1075,7 @@ impl BlockchainEngine {
                 object_changes.push(ObjectChange {
                     change_type: ObjectChangeKind::Created,
                     object_ref: next_ref,
+                    previous_object_ref: None,
                     type_: Some(created.type_.clone()),
                     owner: Some(created.owner_kind()),
                     previous_owner: None,
@@ -1060,15 +1085,22 @@ impl BlockchainEngine {
         }
 
         for object_id in &changeset.deleted_objects {
-            let (previous_owner, previous_version) = if let Some(existing) = state.get_object(object_id)?
-            {
-                (Some(existing.owner_kind()), Some(existing.version))
-            } else {
-                (None, None)
-            };
+            let (previous_owner, previous_version, previous_object_ref) =
+                if let Some(existing) = state.get_object(object_id)? {
+                    (
+                        Some(existing.owner_kind()),
+                        Some(existing.version),
+                        Some(existing.object_ref(object_id)),
+                    )
+                } else {
+                    (None, None, None)
+                };
             object_changes.push(ObjectChange {
                 change_type: ObjectChangeKind::Deleted,
-                object_ref: ObjectRef::new(object_id.clone(), previous_version, None),
+                object_ref: previous_object_ref
+                    .clone()
+                    .unwrap_or_else(|| ObjectRef::new(object_id.clone(), previous_version, None)),
+                previous_object_ref,
                 type_: None,
                 owner: None,
                 previous_owner,
@@ -1085,7 +1117,21 @@ impl BlockchainEngine {
         tx: &Transaction,
         sender_addr: AccountAddress,
     ) -> Result<()> {
+        let strict_metadata = tx.requires_strict_object_metadata();
+
         for input in tx.object_inputs() {
+            if strict_metadata {
+                ensure!(
+                    input.object_ref.version.is_some() && input.object_ref.digest.is_some(),
+                    "ExecuteFunction object input {} must include (object_id, version, digest)",
+                    input.object_ref.object_id
+                );
+                ensure!(
+                    input.owner.is_some(),
+                    "ExecuteFunction object input {} must declare owner semantics",
+                    input.object_ref.object_id
+                );
+            }
             if matches!(input.owner, Some(ObjectOwnerKind::Immutable)) && input.mutable {
                 anyhow::bail!(
                     "Immutable object input {} cannot be declared mutable",
@@ -1162,8 +1208,21 @@ impl BlockchainEngine {
             if expected_owner != sender_addr {
                 anyhow::bail!("Gas payment owner must match sender");
             }
+            if strict_metadata {
+                ensure!(
+                    !gas_payment.payment_objects.is_empty(),
+                    "ExecuteFunction gas payment must declare at least one payment object"
+                );
+            }
 
             for payment in gas_payment.payment_objects {
+                if strict_metadata {
+                    ensure!(
+                        payment.version.is_some() && payment.digest.is_some(),
+                        "ExecuteFunction gas payment {} must include (object_id, version, digest)",
+                        payment.object_id
+                    );
+                }
                 let stored = state
                     .get_object(&payment.object_id)?
                     .ok_or_else(|| anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id))?;
@@ -1401,7 +1460,9 @@ mod tests {
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
-    use kanari_types::transaction::{SignedTransaction, Transaction};
+    use kanari_types::transaction::{
+        GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    };
     use move_core_types::account_address::AccountAddress;
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex, RwLock};
@@ -1849,5 +1910,41 @@ mod tests {
 
         assert_eq!(strict_counts, parallel_counts);
         assert_eq!(strict_root, parallel_root);
+    }
+
+    #[test]
+    fn non_native_execute_function_requires_full_object_ref_metadata() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+
+        let tx = Transaction::ExecuteFunction {
+            sender: sender.tagged_address(),
+            module: "0x2::coin".to_string(),
+            function: "join_entry".to_string(),
+            type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+            args: vec![],
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new("0xaaaa", None, None),
+                owner: Some(ObjectOwnerKind::AddressOwner(sender.address.clone())),
+                mutable: true,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![ObjectRef::new("0xaaaa", None, None)],
+                owner: sender.address.clone(),
+                budget: 100_000,
+                price: 1,
+            }),
+            gas_limit: 100_000,
+            gas_price: 1,
+            sequence_number: 0,
+        };
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+
+        let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must include (object_id, version, digest)"));
     }
 }

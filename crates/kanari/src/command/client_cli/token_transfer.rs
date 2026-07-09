@@ -3,13 +3,14 @@
 
 use crate::command::common::{
     check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    resolve_sender, resolve_transaction_gas, sign_call_function_request,
+    object_call_context, resolve_sender, resolve_transaction_gas, sign_call_function_request,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::ObjectRef;
 use move_core_types::language_storage::TypeTag;
 use std::str::FromStr;
 
@@ -104,9 +105,11 @@ impl TokenTransfer {
         // Find coin objects of the specified token type
         let wanted_token = normalize_token_type(&self.token);
         let mut selected_coin_id = None;
+        let mut selected_coin_ref = None;
         let mut selected_coin_balance = 0u64;
         let mut total_coin_balance = 0u64;
         let mut largest_coin_id = None;
+        let mut largest_coin_ref = None;
         let mut largest_coin_balance = 0u64;
         let mut seen_coin_types = std::collections::BTreeSet::new();
         if let Some(owned_objects) = &owner.owned_objects {
@@ -121,12 +124,16 @@ impl TokenTransfer {
                         if coin_balance > largest_coin_balance {
                             largest_coin_balance = coin_balance;
                             largest_coin_id = Some(obj.id.clone());
+                            largest_coin_ref =
+                                Some(ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()));
                         }
                         if coin_balance >= self.amount
                             && (selected_coin_id.is_none()
                                 || coin_balance < selected_coin_balance)
                         {
                             selected_coin_id = Some(obj.id.clone());
+                            selected_coin_ref =
+                                Some(ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()));
                             selected_coin_balance = coin_balance;
                         }
                     }
@@ -136,6 +143,7 @@ impl TokenTransfer {
 
         if selected_coin_id.is_none() && largest_coin_id.is_some() {
             selected_coin_id = largest_coin_id;
+            selected_coin_ref = largest_coin_ref;
             selected_coin_balance = largest_coin_balance;
         }
 
@@ -195,6 +203,12 @@ impl TokenTransfer {
 
         let package_address = module_parts[0].to_string();
         let module_name = module_parts[1].to_string();
+        let (object_inputs, gas_payment) = object_call_context(
+            &sender_tagged,
+            selected_coin_ref.invariant("selected coin ref checked"),
+            gas_limit,
+            gas_price,
+        );
 
         // Create the CallFunctionRequest for transfer_amount
         let call_req = CallFunctionRequest {
@@ -213,11 +227,11 @@ impl TokenTransfer {
                 )
                 .context("Failed to serialize recipient address")?,
             ],
-            object_inputs: None,
+            object_inputs: Some(object_inputs),
             gas_limit,
             gas_price,
             sequence_number: owner.sequence_number,
-            gas_payment: None,
+            gas_payment: Some(gas_payment),
             signature: None, // Will be set after signing
             execute_immediate: Some(true),
         };

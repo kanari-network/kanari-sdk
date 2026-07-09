@@ -5,7 +5,6 @@
 use crate::changeset::ChangeSet;
 use anyhow::Result;
 use kanari_types::GasConfig;
-use kanari_types::address::Address as KanariAddress;
 use kanari_types::gas::{GasMeter, GasOperation};
 use move_core_types::account_address::AccountAddress;
 
@@ -14,11 +13,12 @@ use move_core_types::resolver::{ModuleResolver, ResourceResolver};
 
 impl super::MoveRuntime {
     /// Helper to apply gas accounting to a ChangeSet. Handles sender debit + sequence increment
-    /// and credits gas to DAO. `sender` may be `None` for system-level calls.
+    /// metadata only. Monetary gas charging is owned by the engine layer so every
+    /// execution path debits exactly once. `sender` is still accepted for API stability.
     pub(crate) fn apply_gas_info(
         &self,
         cs: &mut ChangeSet,
-        sender: Option<AccountAddress>,
+        _sender: Option<AccountAddress>,
         gas_limit: u64,
         gas_price: u64,
         gas_op: GasOperation,
@@ -50,17 +50,11 @@ impl super::MoveRuntime {
             total_cost_signed as u64
         };
 
-        if let Some(saddr) = sender {
-            let sender_owner_delta = cs.get_or_create_owner_delta(saddr);
-            sender_owner_delta.increment_sequence();
-            sender_owner_delta.debit(total_cost);
-        }
+        let _ = total_cost;
 
-        let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-        cs.collect_gas(dao_addr, total_cost);
-
-        // Use the gas units from GasOperation (calculated by our GasMeter), not from KanariGasMeter
-        // KanariGasMeter is only for DoS protection during VM execution
+        // Report gas units derived from GasOperation. The VM-internal KanariGasMeter
+        // is still used as an execution cap, but monetary debit/credit happens later
+        // in kanari-core so publish/call/immediate/mempool paths stay consistent.
         cs.set_gas_used(gas_op.gas_units());
 
         Ok(())

@@ -4,8 +4,8 @@
 use hex;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::{
-    GasPayment, ObjectChange, ObjectChangeKind, ObjectOwnerKind, ObjectRef, TransactionEffects,
-    ObjectInput,
+    GasPayment, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind,
+    ObjectOwnerKind, ObjectRef, TransactionEffects, ObjectInput,
 };
 use kanari_types::coin::TreasuryCap;
 use kanari_types::object::IDRecord;
@@ -379,6 +379,14 @@ impl ChangeSet {
             changes.push(ObjectChange {
                 change_type: change_type.clone(),
                 object_ref: created.object_ref(object_id),
+                previous_object_ref: match change_type {
+                    ObjectChangeKind::Created => None,
+                    _ => Some(ObjectRef::new(
+                        object_id.clone(),
+                        created.version.checked_sub(1),
+                        None,
+                    )),
+                },
                 type_: Some(created.type_.clone()),
                 owner: Some(created.owner_kind()),
                 previous_owner: None,
@@ -393,6 +401,7 @@ impl ChangeSet {
             changes.push(ObjectChange {
                 change_type: ObjectChangeKind::Deleted,
                 object_ref: ObjectRef::new(object_id.clone(), None, None),
+                previous_object_ref: None,
                 type_: None,
                 owner: None,
                 previous_owner: None,
@@ -404,6 +413,76 @@ impl ChangeSet {
     }
 
     pub fn effects(&self, gas_payment: Option<GasPayment>) -> TransactionEffects {
+        let object_changes = self.object_changes();
+        let mut created = Vec::new();
+        let mut mutated = Vec::new();
+        let mut deleted = Vec::new();
+        let mut transferred = Vec::new();
+        let mut causal_edges = Vec::new();
+
+        for change in &object_changes {
+            match change.change_type {
+                ObjectChangeKind::Created => created.push(change.clone()),
+                ObjectChangeKind::Mutated => mutated.push(change.clone()),
+                ObjectChangeKind::Deleted => deleted.push(change.clone()),
+                ObjectChangeKind::Transferred => transferred.push(change.clone()),
+            }
+
+            if let Some(previous_object_ref) = &change.previous_object_ref {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: previous_object_ref.clone(),
+                    target_object_ref: change.object_ref.clone(),
+                    relation: if matches!(change.change_type, ObjectChangeKind::Deleted) {
+                        ObjectGraphEdgeKind::Delete
+                    } else {
+                        ObjectGraphEdgeKind::VersionSuccessor
+                    },
+                });
+            }
+
+            for input in &self.input_objects {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: input.object_ref.clone(),
+                    target_object_ref: change.object_ref.clone(),
+                    relation: ObjectGraphEdgeKind::Input,
+                });
+            }
+            for input in &self.shared_inputs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: input.clone(),
+                    target_object_ref: change.object_ref.clone(),
+                    relation: ObjectGraphEdgeKind::SharedInput,
+                });
+            }
+            for input in &self.immutable_inputs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: input.clone(),
+                    target_object_ref: change.object_ref.clone(),
+                    relation: ObjectGraphEdgeKind::ImmutableInput,
+                });
+            }
+            for input in &self.gas_object_refs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: input.clone(),
+                    target_object_ref: change.object_ref.clone(),
+                    relation: ObjectGraphEdgeKind::GasPayment,
+                });
+            }
+        }
+        causal_edges.sort_by(|a, b| {
+            (
+                a.source_object_ref.object_id.as_str(),
+                a.target_object_ref.object_id.as_str(),
+                format!("{:?}", a.relation),
+            )
+                .cmp(&(
+                    b.source_object_ref.object_id.as_str(),
+                    b.target_object_ref.object_id.as_str(),
+                    format!("{:?}", b.relation),
+                ))
+        });
+        causal_edges.dedup();
+
         TransactionEffects {
             status: if self.success {
                 "success".to_string()
@@ -412,7 +491,20 @@ impl ChangeSet {
             },
             gas_used: self.gas_used,
             gas_payment: gas_payment.or_else(|| self.gas_payment.clone()),
-            object_changes: self.object_changes(),
+            input_objects: self
+                .input_objects
+                .iter()
+                .map(|input| input.object_ref.clone())
+                .collect(),
+            shared_inputs: self.shared_inputs.clone(),
+            immutable_inputs: self.immutable_inputs.clone(),
+            gas_object_refs: self.gas_object_refs.clone(),
+            object_changes,
+            created,
+            mutated,
+            deleted,
+            transferred,
+            causal_edges,
             error_message: self.error_message.clone(),
         }
     }

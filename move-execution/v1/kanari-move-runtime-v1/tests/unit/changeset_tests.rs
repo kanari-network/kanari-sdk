@@ -1,5 +1,8 @@
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::{
+    GasPayment, ObjectChangeKind, ObjectGraphEdgeKind, ObjectInput, ObjectOwnerKind, ObjectRef,
+};
 
 use super::*;
 
@@ -89,4 +92,88 @@ fn test_changeset_module_publish() {
     assert!(change.modules_added.contains("kanari"));
     // Note: sequence_increment is NOT set by publish_module - it's handled by engine
     assert_eq!(change.sequence_increment, 0);
+}
+
+#[test]
+fn effects_bucket_object_changes_and_preserve_input_refs() {
+    let owner = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)
+        .invariant("valid standard address");
+    let mut cs = ChangeSet::new();
+    cs.set_transaction_context(
+        vec![
+            ObjectInput {
+                object_ref: ObjectRef::new("0x1", Some(7), Some("0xaaa".to_string())),
+                owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+                mutable: true,
+            },
+            ObjectInput {
+                object_ref: ObjectRef::new("0x2", Some(3), Some("0xbbb".to_string())),
+                owner: Some(ObjectOwnerKind::Shared),
+                mutable: false,
+            },
+            ObjectInput {
+                object_ref: ObjectRef::new("0x3", Some(9), Some("0xccc".to_string())),
+                owner: Some(ObjectOwnerKind::Immutable),
+                mutable: false,
+            },
+        ],
+        Some(GasPayment {
+            payment_objects: vec![ObjectRef::new("0xgas", Some(1), Some("0xddd".to_string()))],
+            owner: owner.to_hex_literal(),
+            budget: 100,
+            price: 1,
+        }),
+    );
+    cs.set_explicit_object_changes(vec![
+        ObjectChange {
+            change_type: ObjectChangeKind::Created,
+            object_ref: ObjectRef::new("0xc", Some(1), Some("0x1".to_string())),
+            previous_object_ref: None,
+            type_: Some("0x2::test::Created".to_string()),
+            owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+            previous_owner: None,
+            previous_version: None,
+        },
+        ObjectChange {
+            change_type: ObjectChangeKind::Transferred,
+            object_ref: ObjectRef::new("0xt", Some(2), Some("0x2".to_string())),
+            previous_object_ref: Some(ObjectRef::new(
+                "0xt",
+                Some(1),
+                Some("0xold".to_string()),
+            )),
+            type_: Some("0x2::test::Transferred".to_string()),
+            owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+            previous_owner: Some(ObjectOwnerKind::Shared),
+            previous_version: Some(1),
+        },
+    ]);
+
+    let effects = cs.effects(None);
+    assert_eq!(effects.input_objects.len(), 3);
+    assert_eq!(effects.shared_inputs.len(), 1);
+    assert_eq!(effects.immutable_inputs.len(), 1);
+    assert_eq!(effects.gas_object_refs.len(), 1);
+    assert_eq!(effects.created.len(), 1);
+    assert_eq!(effects.transferred.len(), 1);
+    assert!(
+        effects
+            .causal_edges
+            .iter()
+            .any(|edge| matches!(edge.relation, ObjectGraphEdgeKind::VersionSuccessor))
+    );
+    assert!(
+        effects
+            .causal_edges
+            .iter()
+            .any(|edge| matches!(edge.relation, ObjectGraphEdgeKind::GasPayment))
+    );
+    assert_eq!(
+        effects.transferred[0]
+            .previous_object_ref
+            .as_ref()
+            .invariant("previous ref should exist")
+            .version,
+        Some(1)
+    );
 }

@@ -5,6 +5,7 @@
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
+use kanari_types::transaction::ObjectInput;
 
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -52,8 +53,26 @@ impl super::MoveRuntime {
             crate::storage::resolver::KanariMoveResolver,
         >,
         args: &[Vec<u8>],
+        object_inputs: &[ObjectInput],
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
+
+        let exts = session.get_native_extensions();
+        let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
+
+        for input in object_inputs {
+            if let Some(stored_obj) = self.object_storage.get_object(&input.object_ref.object_id) {
+                loaded_ext.insert(
+                    input.object_ref.object_id.clone(),
+                    stored_obj.type_name,
+                    stored_obj.data,
+                );
+                log::debug!(
+                    "[RUNTIME] Preloaded explicit object input {} into LoadedObjectsExt",
+                    input.object_ref.object_id
+                );
+            }
+        }
 
         // Scan through arguments to find potential object IDs (32-byte addresses)
         for arg in args {
@@ -68,8 +87,6 @@ impl super::MoveRuntime {
                 // Try to load object from storage
                 if let Some(stored_obj) = stored_obj {
                     // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
-                    let exts = session.get_native_extensions();
-                    let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
                     loaded_ext.insert(object_id.clone(), stored_obj.type_name, stored_obj.data);
                     log::debug!(
                         "[RUNTIME] Preloaded object {} into LoadedObjectsExt",

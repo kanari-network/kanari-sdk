@@ -6,8 +6,8 @@
 //! Defines request/response types and RPC methods for Kanari blockchain
 use kanari_types::event::Event;
 use kanari_types::transaction::{
-    GasPayment, ObjectChange, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction,
-    TransactionEffects,
+    GasPayment, ObjectChange, ObjectGraphEdge, ObjectInput, ObjectOwnerKind, ObjectRef,
+    SignedTransaction, TransactionEffects,
 };
 use serde::{Deserialize, Serialize};
 
@@ -166,6 +166,10 @@ pub struct BlockData {
     pub events: Vec<Event>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub transaction_effects: Vec<TransactionEffects>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub object_changes: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub object_graph_edges: Vec<ObjectGraphEdge>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +184,10 @@ pub struct FullBlockData {
     pub transactions: Vec<SignedTransaction>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub transaction_effects: Vec<TransactionEffects>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub object_changes: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub object_graph_edges: Vec<ObjectGraphEdge>,
     pub vertices: Vec<String>,
 }
 

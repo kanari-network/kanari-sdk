@@ -39,6 +39,26 @@ function readTransactionHash(transaction: unknown, fallback: string) {
   );
 }
 
+function readObject(source: unknown, key: string) {
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return null;
+  const value = (source as Record<string, unknown>)[key];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readArrayLength(source: unknown, key: string) {
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return 0;
+  const value = (source as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function readEffectArrayLength(transaction: unknown, key: string) {
+  const effects = readObject(transaction, "effects");
+  if (!effects) return 0;
+  const value = effects[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
 function AccountContent() {
   const searchParams = useSearchParams();
   const [address, setAddress] = useState(searchParams.get("address") ?? "");
@@ -198,6 +218,9 @@ function AccountContent() {
               const fallbackHash = `transaction-${index}`;
               const hash = readTransactionHash(transaction, fallbackHash);
               const canOpen = hash !== fallbackHash;
+              const objectInputs = readArrayLength(transaction, "object_inputs");
+              const objectChanges = readEffectArrayLength(transaction, "object_changes");
+              const graphEdges = readEffectArrayLength(transaction, "causal_edges");
               return (
                 <div className="data-row" key={`${hash}-${index}`}>
                   <div>
@@ -224,6 +247,12 @@ function AccountContent() {
                   <div>
                     <p className="tiny-label">Status</p>
                     <StatusPill label={readString(transaction, "status", "unknown")} />
+                  </div>
+                  <div>
+                    <p className="tiny-label">Objects</p>
+                    <span className="mono muted-text">
+                      {objectInputs} inputs / {objectChanges} changes / {graphEdges} edges
+                    </span>
                   </div>
                 </div>
               );

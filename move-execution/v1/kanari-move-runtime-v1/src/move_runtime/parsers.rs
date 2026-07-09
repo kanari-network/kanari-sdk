@@ -54,6 +54,10 @@ impl super::MoveRuntime {
 
                         let created = Self::build_created_object(
                             *addr,
+                            crate::state::default_owner_kind_for_type(
+                                &struct_tag.to_string(),
+                                *addr,
+                            ),
                             &object_id,
                             &struct_tag.to_string(),
                             bytes.to_vec(),

@@ -53,12 +53,17 @@ impl super::MoveRuntime {
                 .get_object(&canonical_id)
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
+            let owner_kind = self
+                .object_storage
+                .get_object(&canonical_id)
+                .map(|existing| existing.owner_kind)
+                .unwrap_or_else(|| crate::state::default_owner_kind_for_type(&obj_type, owner));
 
             if persist_runtime_state {
                 let stored_obj = StoredObject {
                     id: canonical_id.clone(),
                     owner,
-                    owner_kind: crate::state::default_owner_kind_for_type(&obj_type, owner),
+                    owner_kind: owner_kind.clone(),
                     type_name: obj_type.clone(),
                     data: data.clone(),
                     version: next_version,
@@ -94,8 +99,14 @@ impl super::MoveRuntime {
                 }
             }
 
-            let created =
-                Self::build_created_object(owner, &canonical_id, &obj_type, data, next_version);
+            let created = Self::build_created_object(
+                owner,
+                owner_kind,
+                &canonical_id,
+                &obj_type,
+                data,
+                next_version,
+            );
 
             debug!(
                 "Object {} - UID: {:?}, ID: {:?}",

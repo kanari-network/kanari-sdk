@@ -13,7 +13,7 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::{
     address::Address,
     kanari::KANARI_TOKEN_TYPE,
-    transaction::{SignedTransaction, Transaction},
+    transaction::{GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction},
 };
 use std::env;
 
@@ -30,11 +30,11 @@ fn read_coin_balance(data: &[u8]) -> Option<u64> {
 fn select_native_coin_object(
     owned_objects: &[kanari_rpc_api::ObjectInfo],
     required_amount: u64,
-) -> Option<(String, u64, u64)> {
+) -> Option<(ObjectRef, u64, u64)> {
     let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
     let mut total_balance = 0u64;
-    let mut smallest_sufficient: Option<(String, u64)> = None;
-    let mut largest_available: Option<(String, u64)> = None;
+    let mut smallest_sufficient: Option<(ObjectRef, u64)> = None;
+    let mut largest_available: Option<(ObjectRef, u64)> = None;
 
     for obj in owned_objects {
         if obj.type_ != coin_type {
@@ -53,19 +53,49 @@ fn select_native_coin_object(
         if balance >= required_amount {
             match &smallest_sufficient {
                 Some((_, current)) if *current <= balance => {}
-                _ => smallest_sufficient = Some((obj.id.clone(), balance)),
+                _ => {
+                    smallest_sufficient = Some((
+                        ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
+                        balance,
+                    ))
+                }
             }
         }
 
         match &largest_available {
             Some((_, current)) if *current >= balance => {}
-            _ => largest_available = Some((obj.id.clone(), balance)),
+            _ => {
+                largest_available = Some((
+                    ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
+                    balance,
+                ))
+            }
         }
     }
 
     smallest_sufficient
         .or(largest_available)
-        .map(|(id, balance)| (id, balance, total_balance))
+        .map(|(object_ref, balance)| (object_ref, balance, total_balance))
+}
+
+fn object_call_context(
+    sender: &str,
+    primary_object_ref: ObjectRef,
+    gas_limit: u64,
+    gas_price: u64,
+) -> (Vec<ObjectInput>, GasPayment) {
+    let object_inputs = vec![ObjectInput {
+        object_ref: primary_object_ref.clone(),
+        owner: Some(ObjectOwnerKind::AddressOwner(sender.to_string())),
+        mutable: true,
+    }];
+    let gas_payment = GasPayment {
+        payment_objects: vec![primary_object_ref],
+        owner: sender.to_string(),
+        budget: gas_limit,
+        price: gas_price,
+    };
+    (object_inputs, gas_payment)
 }
 
 fn sign_call_function_request(
@@ -114,17 +144,24 @@ async fn consolidate_native_coins(
     starting_sequence: u64,
     gas_limit: u64,
     gas_price: u64,
-) -> anyhow::Result<(String, u64, u64, u64)> {
+) -> anyhow::Result<(ObjectRef, u64, u64, u64)> {
     let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
-    let mut coins: Vec<(String, u64)> = owned_objects
+    let mut coins: Vec<(ObjectRef, u64)> = owned_objects
         .iter()
         .filter(|obj| obj.type_ == coin_type)
-        .filter_map(|obj| read_coin_balance(&obj.data).map(|balance| (obj.id.clone(), balance)))
+        .filter_map(|obj| {
+            read_coin_balance(&obj.data).map(|balance| {
+                (
+                    ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
+                    balance,
+                )
+            })
+        })
         .filter(|(_, balance)| *balance > 0)
         .collect();
     coins.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let Some((primary_id, primary_balance)) = coins.first().cloned() else {
+    let Some((primary_ref, primary_balance)) = coins.first().cloned() else {
         anyhow::bail!("No spendable native coin object found in dev wallet");
     };
 
@@ -134,10 +171,13 @@ async fn consolidate_native_coins(
     let mut accumulated = primary_balance;
     let mut sequence_number = starting_sequence;
 
-    for (coin_id, balance) in coins.iter().skip(1) {
+    for (coin_ref, balance) in coins.iter().skip(1) {
         if accumulated >= required_amount {
             break;
         }
+
+        let (object_inputs, gas_payment) =
+            object_call_context(sender_tagged, primary_ref.clone(), gas_limit, gas_price);
 
         let join_req = CallFunctionRequest {
             sender: sender_tagged.to_string(),
@@ -146,31 +186,31 @@ async fn consolidate_native_coins(
             function: "join_entry".to_string(),
             type_args: vec![KANARI_TOKEN_TYPE.to_string()],
             args: vec![
-                Address::from_hex_literal(&primary_id)
+                Address::from_hex_literal(&primary_ref.object_id)
                     .context("Invalid primary coin object ID")?
                     .to_vec(),
-                Address::from_hex_literal(coin_id)
+                Address::from_hex_literal(&coin_ref.object_id)
                     .context("Invalid merge coin object ID")?
                     .to_vec(),
             ],
-            object_inputs: None,
+            object_inputs: Some(object_inputs),
             gas_limit,
             gas_price,
             sequence_number,
-            gas_payment: None,
+            gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: Some(true),
         };
         let status = sign_and_call_function(client, wallet, join_req).await?;
         eprintln!(
             "  Consolidated coin {} into {} (tx: {})",
-            coin_id, primary_id, status.hash
+            coin_ref.object_id, primary_ref.object_id, status.hash
         );
         sequence_number = sequence_number.saturating_add(1);
         accumulated = accumulated.saturating_add(*balance);
     }
 
-    Ok((primary_id, accumulated, total_balance, sequence_number))
+    Ok((primary_ref, accumulated, total_balance, sequence_number))
 }
 
 /// Request KANARI tokens from the Dev wallet.
@@ -312,12 +352,19 @@ pub async fn request_from_dev(
             1_000,
         )
         .await
-        .map(|(id, selected_balance, total_balance, sequence)| {
+        .map(|(object_ref, selected_balance, total_balance, sequence)| {
             next_sequence = sequence;
-            (id, selected_balance, total_balance)
+            (object_ref, selected_balance, total_balance)
         })?;
     }
-    let (coin_object_id, selected_coin_balance, _total_coin_balance) = selected_coin;
+    let (coin_object_ref, selected_coin_balance, _total_coin_balance) = selected_coin;
+
+    let (object_inputs, gas_payment) = object_call_context(
+        &sender_for_tx,
+        coin_object_ref.clone(),
+        100_000,
+        1_000,
+    );
 
     let call_req = CallFunctionRequest {
         sender: sender_for_tx,
@@ -326,7 +373,7 @@ pub async fn request_from_dev(
         function: "transfer".to_string(),
         type_args: vec![],
         args: vec![
-            move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_id)
+            move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_ref.object_id)
                 .context("Invalid coin object ID")?
                 .to_vec(),
             bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
@@ -335,11 +382,11 @@ pub async fn request_from_dev(
             )
             .context("Failed to serialize recipient address")?,
         ],
-        object_inputs: None,
+        object_inputs: Some(object_inputs),
         gas_limit: 100_000,
         gas_price: 1_000,
         sequence_number: next_sequence,
-        gas_payment: None,
+        gas_payment: Some(gas_payment),
         signature: None,
         execute_immediate: Some(false),
     };
@@ -347,7 +394,7 @@ pub async fn request_from_dev(
     eprintln!("Submitting faucet transaction...");
     eprintln!("  From: {}", dev_address);
     eprintln!("  To: {}", recipient);
-    eprintln!("  Coin Object: {}", coin_object_id);
+    eprintln!("  Coin Object: {}", coin_object_ref.object_id);
     eprintln!("  Selected Coin Balance: {} Mist", selected_coin_balance);
     eprintln!(
         "  Amount: {:.9} KANARI",

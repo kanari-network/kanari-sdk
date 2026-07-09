@@ -18,6 +18,7 @@ import {
 } from "./lib/rpc";
 import { ArrowIcon } from "./components/SiteChrome";
 import { asArray, CopyButton, formatNumber, Panel, readString, SearchForm, StatCard, StatusPill } from "./components/ExplorerUI";
+import ObjectGraphView from "./components/ObjectGraphView";
 
 const ROOT_SCAN_DEPTH = 8;
 const ROOT_SCAN_ENDPOINT_LIMIT = 8;
@@ -83,6 +84,18 @@ function readFirstString(source: unknown, ...keys: string[]) {
     if (value && value !== "-") return value;
   }
   return "";
+}
+
+function readArrayLength(source: unknown, key: string) {
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return 0;
+  const value = (source as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function readArray(source: unknown, key: string) {
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return [];
+  const value = (source as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value : [];
 }
 
 function isLaggingAt(check: StateRootCheck, height: number | null) {
@@ -618,6 +631,12 @@ export default function Home() {
   const totalAccounts = maxNullable(nodes.map((node) => node.totalAccounts));
   const pendingTransactions =
     maxNullable((syncedAuthorityNodes.length > 0 ? syncedAuthorityNodes : onlineNodes).map((node) => node.pendingTransactions)) ?? 0;
+  const latestCheckpointEffectCount = readArrayLength(latestBlock, "transaction_effects");
+  const latestCheckpointObjectChangeCount = readArrayLength(latestBlock, "object_changes");
+  const latestCheckpointGraphEdgeCount = readArrayLength(latestBlock, "object_graph_edges");
+  const latestCheckpointEffects = readArray(latestBlock, "transaction_effects");
+  const latestCheckpointObjectChanges = readArray(latestBlock, "object_changes");
+  const latestCheckpointGraphEdges = readArray(latestBlock, "object_graph_edges");
 
   const networkStatusLabel = useMemo(() => {
     if (nodes.length === 0) return "Loading network";
@@ -853,6 +872,20 @@ export default function Home() {
                 </strong>
               </div>
             </div>
+            <div className="block-summary__top">
+              <div>
+                <p className="tiny-label">Effects</p>
+                <strong className="mono">{formatNumber(latestCheckpointEffectCount)}</strong>
+              </div>
+              <div>
+                <p className="tiny-label">Object Changes</p>
+                <strong className="mono">{formatNumber(latestCheckpointObjectChangeCount)}</strong>
+              </div>
+              <div>
+                <p className="tiny-label">Graph Edges</p>
+                <strong className="mono">{formatNumber(latestCheckpointGraphEdgeCount)}</strong>
+              </div>
+            </div>
             <div>
               <p className="tiny-label">Hash</p>
               <p className="mono muted-text block-summary__hash">{readString(latestBlock, "hash")}</p>
@@ -862,6 +895,47 @@ export default function Home() {
               <p className="mono muted-text block-summary__hash">{readString(latestBlock, "state_root")}</p>
             </div>
           </div>
+          {latestCheckpointEffects.length > 0 || latestCheckpointObjectChangeCount > 0 || latestCheckpointGraphEdgeCount > 0 ? (
+            <details className="object-graph-details">
+              <summary>Checkpoint Object Graph</summary>
+              {latestCheckpointEffects.length > 0 ? (
+                <div className="checkpoint-effect-strip">
+                  {latestCheckpointEffects.map((effect, index) => (
+                    <article className="checkpoint-effect-card" key={`effect-${index}`}>
+                      <div className="checkpoint-effect-card__head">
+                        <span className="checkpoint-effect-card__title">Tx Effect {index + 1}</span>
+                        <StatusPill label={readString(effect, "status", "unknown")} state={readString(effect, "status", "success") === "success" ? "ok" : "warn"} />
+                      </div>
+                      <div className="checkpoint-effect-card__grid">
+                        <div>
+                          <p className="tiny-label">Gas Used</p>
+                          <strong className="mono">{readString(effect, "gas_used", "-")}</strong>
+                        </div>
+                        <div>
+                          <p className="tiny-label">Inputs</p>
+                          <strong className="mono">{readArrayLength(effect, "input_objects")}</strong>
+                        </div>
+                        <div>
+                          <p className="tiny-label">Changes</p>
+                          <strong className="mono">{readArrayLength(effect, "object_changes")}</strong>
+                        </div>
+                        <div>
+                          <p className="tiny-label">Edges</p>
+                          <strong className="mono">{readArrayLength(effect, "causal_edges")}</strong>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              <ObjectGraphView
+                title="Checkpoint Timeline"
+                subtitle="Aggregated object graph for the latest checkpoint across all executed transaction effects."
+                objectChanges={latestCheckpointObjectChanges}
+                graphEdges={latestCheckpointGraphEdges}
+              />
+            </details>
+          ) : null}
         </Panel>
       </section>
     </div>

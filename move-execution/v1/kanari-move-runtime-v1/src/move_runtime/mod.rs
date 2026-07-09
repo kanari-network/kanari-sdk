@@ -33,6 +33,7 @@ mod object_ops;
 mod parsers;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::gas::GasOperation;
+use kanari_types::transaction::ObjectInput;
 use kanari_types::tx_context::TxContextModule;
 mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
@@ -69,7 +70,14 @@ struct AutoMergeReceiptData {
     total_amount: u64,
 }
 
-type LoadedMutableObject = (usize, String, AccountAddress, String, u64);
+type LoadedMutableObject = (
+    usize,
+    String,
+    AccountAddress,
+    kanari_types::transaction::ObjectOwnerKind,
+    String,
+    u64,
+);
 
 #[derive(Clone)]
 struct ExecutionOptions {
@@ -77,6 +85,7 @@ struct ExecutionOptions {
     gas_info: Option<(u64, u64)>,
     timestamp: Option<u64>,
     tx_hash: Option<Vec<u8>>,
+    object_inputs: Vec<ObjectInput>,
     persist_runtime_state: bool,
     bypass_entry_check: bool,
 }
@@ -93,9 +102,15 @@ impl ExecutionOptions {
             gas_info,
             timestamp,
             tx_hash,
+            object_inputs: Vec::new(),
             persist_runtime_state: true,
             bypass_entry_check: false,
         }
+    }
+
+    fn with_object_inputs(mut self, object_inputs: Vec<ObjectInput>) -> Self {
+        self.object_inputs = object_inputs;
+        self
     }
 
     fn with_persistence(mut self, persist_runtime_state: bool) -> Self {
@@ -655,25 +670,32 @@ impl MoveRuntime {
         }
     }
 
-    fn resolve_saved_owner_and_version(
+    fn resolve_saved_owner_metadata(
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> (AccountAddress, u64) {
-        if let Some((_, _, owner, _, version)) = loaded_mutable_objects
+    ) -> (AccountAddress, kanari_types::transaction::ObjectOwnerKind, u64) {
+        if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
             .iter()
-            .find(|(_, id, _, _, _)| id == object_id)
+            .find(|(_, id, _, _, _, _)| id == object_id)
         {
-            return (*owner, *version + 1);
+            return (*owner, owner_kind.clone(), *version + 1);
         }
         if let Some(stored) = self.object_storage.get_object(object_id) {
-            return (stored.owner, stored.version + 1);
+            return (stored.owner, stored.owner_kind, stored.version + 1);
         }
-        (AccountAddress::ZERO, 1)
+        (
+            AccountAddress::ZERO,
+            kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                AccountAddress::ZERO.to_hex_literal(),
+            ),
+            1,
+        )
     }
 
     fn build_created_object(
         owner: AccountAddress,
+        owner_kind: kanari_types::transaction::ObjectOwnerKind,
         object_id: &str,
         type_name: &str,
         data: Vec<u8>,
@@ -681,7 +703,7 @@ impl MoveRuntime {
     ) -> crate::changeset::CreatedObject {
         crate::changeset::CreatedObject {
             owner,
-            owner_kind: default_owner_kind_for_type(type_name, owner),
+            owner_kind,
             uid: Self::uid_from_object_id(object_id),
             id: Self::id_from_object_id(object_id),
             type_: type_name.to_string(),
@@ -694,6 +716,7 @@ impl MoveRuntime {
         &self,
         cs: &mut ChangeSet,
         owner: AccountAddress,
+        owner_kind: kanari_types::transaction::ObjectOwnerKind,
         object_id: &str,
         type_name: &str,
         data: Vec<u8>,
@@ -701,7 +724,8 @@ impl MoveRuntime {
         source: &str,
     ) {
         self.maybe_add_token_balance(cs, owner, type_name, &data, object_id, source);
-        let updated_obj = Self::build_created_object(owner, object_id, type_name, data, version);
+        let updated_obj =
+            Self::build_created_object(owner, owner_kind, object_id, type_name, data, version);
         cs.created_objects.retain(|(k, _)| k != object_id);
         cs.created_objects
             .push((object_id.to_string(), updated_obj));
@@ -843,12 +867,40 @@ impl MoveRuntime {
         tx_hash: Option<Vec<u8>>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
+        self.execute_entry_function_with_object_context_and_persistence(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            Vec::new(),
+            sender,
+            gas_info,
+            timestamp,
+            tx_hash,
+            persist_runtime_state,
+        )
+    }
+
+    pub fn execute_entry_function_with_object_context_and_persistence(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        object_inputs: Vec<ObjectInput>,
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
         self.execute_entry_function_internal(
             module_id,
             function_name,
             type_args,
             args,
             ExecutionOptions::new(sender, gas_info, timestamp, tx_hash)
+                .with_object_inputs(object_inputs)
                 .with_persistence(persist_runtime_state),
         )
     }
@@ -889,6 +941,7 @@ impl MoveRuntime {
             gas_info,
             timestamp,
             tx_hash,
+            object_inputs,
             persist_runtime_state,
             bypass_entry_check,
         } = options;
@@ -897,12 +950,16 @@ impl MoveRuntime {
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
-        self.preload_objects_for_execution(&mut session, &args)?;
+        self.preload_objects_for_execution(&mut session, &args, &object_inputs)?;
 
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
         let mut total_merge_reads: u64 = 0;
         let mut synthetic_events = Vec::new();
+        let explicit_object_ids: HashSet<String> = object_inputs
+            .iter()
+            .map(|input| input.object_ref.object_id.clone())
+            .collect();
 
         let mut ty_args_loaded = vec![];
         for tag in type_args.iter() {
@@ -960,6 +1017,11 @@ impl MoveRuntime {
                         continue;
                     };
                     let object_id = object_addr.to_hex_literal();
+                    if !explicit_object_ids.is_empty()
+                        && !explicit_object_ids.contains(&object_id)
+                    {
+                        continue;
+                    }
 
                     if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
                         if let Some(s_addr) = sender {
@@ -1040,6 +1102,7 @@ impl MoveRuntime {
                                 i,
                                 stored_obj.id.clone(),
                                 stored_obj.owner,
+                                stored_obj.owner_kind.clone(),
                                 stored_obj.type_name.clone(),
                                 stored_obj.version,
                             ));
@@ -1128,14 +1191,16 @@ impl MoveRuntime {
                 let mut processed_ids = std::collections::HashSet::new();
 
                 for (idx, data, _layout) in return_values.mutable_reference_outputs {
-                    if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
+                    if let Some((_, id, owner, owner_kind, type_name, version)) =
+                        loaded_mutable_objects
                         .iter()
-                        .find(|(i, _, _, _, _)| *i == idx as usize)
+                        .find(|(i, _, _, _, _, _)| *i == idx as usize)
                     {
                         auto_merged_coin_ids.retain(|merged_id| merged_id != id);
                         self.upsert_created_object(
                             &mut cs,
                             *owner,
+                            owner_kind.clone(),
                             id,
                             type_name,
                             data.clone(),
@@ -1151,12 +1216,13 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    let (owner, version) = self
-                        .resolve_saved_owner_and_version(&loaded_mutable_objects, &saved.object_id);
+                    let (owner, owner_kind, version) = self
+                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &saved.object_id);
 
                     self.upsert_created_object(
                         &mut cs,
                         owner,
+                        owner_kind,
                         &saved.object_id,
                         &saved.object_type,
                         saved.data.clone(),
@@ -1172,7 +1238,7 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    let (owner, version) = self.resolve_saved_owner_and_version(
+                    let (owner, owner_kind, version) = self.resolve_saved_owner_metadata(
                         &loaded_mutable_objects,
                         &borrowed.object_id,
                     );
@@ -1180,6 +1246,7 @@ impl MoveRuntime {
                     self.upsert_created_object(
                         &mut cs,
                         owner,
+                        owner_kind,
                         &borrowed.object_id,
                         &borrowed.object_type,
                         borrowed.data.clone(),
@@ -1325,7 +1392,7 @@ impl MoveRuntime {
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload object arguments so view functions can borrow them through natives.
-        self.preload_objects_for_execution(&mut session, args)
+        self.preload_objects_for_execution(&mut session, args, &[])
             .require("Failed to preload objects")?;
 
         // Parse and load type arguments before invocation.

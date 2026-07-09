@@ -1,4 +1,5 @@
 import { EmptyState, RawDetails, readAddress, readString, shortHash } from "./ExplorerUI";
+import ObjectGraphView from "./ObjectGraphView";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
   for (const key of keys) {
@@ -13,6 +14,24 @@ function readOptionalArray(value: unknown, key: string) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
   const item = (value as Record<string, unknown>)[key];
   return Array.isArray(item) ? item.map((entry) => String(entry)) : [];
+}
+
+function readArrayLength(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return 0;
+  const item = (value as Record<string, unknown>)[key];
+  return Array.isArray(item) ? item.length : 0;
+}
+
+function readObject(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const item = (value as Record<string, unknown>)[key];
+  return item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
+}
+
+function readArray(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  const item = (value as Record<string, unknown>)[key];
+  return Array.isArray(item) ? item : [];
 }
 
 function DetailItem({ label, value, mono = false, wide = false }: { label: string; value: string; mono?: boolean; wide?: boolean }) {
@@ -43,6 +62,23 @@ export default function TransactionDetailsModal({
   const status = readFirstString(transaction, ["status"], "unknown");
   const senderAddress = readAddress(transaction, "sender_address", "sender");
   const moduleFunctions = readOptionalArray(transaction, "module_functions");
+  const effects = readObject(transaction, "effects");
+  const objectInputs = readArrayLength(transaction, "object_inputs");
+  const effectObjectChanges = readArrayLength(effects, "object_changes");
+  const createdCount = readArrayLength(effects, "created");
+  const mutatedCount = readArrayLength(effects, "mutated");
+  const deletedCount = readArrayLength(effects, "deleted");
+  const transferredCount = readArrayLength(effects, "transferred");
+  const graphEdgeCount = readArrayLength(effects, "causal_edges");
+  const gasPaymentObjectCount = readArrayLength(readObject(transaction, "gas_payment"), "payment_objects");
+  const effectInputObjects = readArray(effects, "input_objects");
+  const effectSharedInputs = readArray(effects, "shared_inputs");
+  const effectImmutableInputs = readArray(effects, "immutable_inputs");
+  const effectGasObjects = readArray(effects, "gas_object_refs");
+  const effectObjectChangesList = readArray(effects, "object_changes");
+  const effectGraphEdgesList = readArray(effects, "causal_edges");
+  const declaredObjectInputs = readArray(transaction, "object_inputs");
+  const gasPaymentObjects = readArray(readObject(transaction, "gas_payment"), "payment_objects");
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Transaction details">
@@ -86,11 +122,36 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />
                 <DetailItem label="Gas Used" value={readFirstString(transaction, ["gas_used"])} mono />
+                <DetailItem label="Object Inputs" value={objectInputs > 0 ? String(objectInputs) : "-"} mono />
+                <DetailItem label="Gas Objects" value={gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-"} mono />
+                <DetailItem label="Object Changes" value={effectObjectChanges > 0 ? String(effectObjectChanges) : "-"} mono />
+                <DetailItem label="Graph Edges" value={graphEdgeCount > 0 ? String(graphEdgeCount) : "-"} mono />
+                <DetailItem
+                  label="Effects Summary"
+                  value={
+                    effectObjectChanges > 0
+                      ? `created ${createdCount}, mutated ${mutatedCount}, deleted ${deletedCount}, transferred ${transferredCount}`
+                      : "-"
+                  }
+                  mono
+                  wide
+                />
                 <DetailItem label="Action" value={readFirstString(transaction, ["action"])} />
                 {moduleFunctions.length > 0 ? (
                   <DetailItem label="Module Functions" value={moduleFunctions.join(", ")} mono wide />
                 ) : null}
               </section>
+
+              <ObjectGraphView
+                title="Object Graph Timeline"
+                subtitle="Execution access sets, object mutations, and causal dependencies for this transaction."
+                objectInputs={effectInputObjects.length > 0 ? effectInputObjects : declaredObjectInputs}
+                sharedInputs={effectSharedInputs}
+                immutableInputs={effectImmutableInputs}
+                gasObjects={effectGasObjects.length > 0 ? effectGasObjects : gasPaymentObjects}
+                objectChanges={effectObjectChangesList}
+                graphEdges={effectGraphEdgesList}
+              />
 
               <RawDetails label="Raw transaction JSON" value={transaction} />
             </>

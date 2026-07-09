@@ -8,7 +8,9 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::GasConfig;
 use kanari_types::address::Address;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{
+    GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+};
 use log::error;
 use reqwest::blocking::Client;
 use rpassword;
@@ -150,6 +152,7 @@ fn read_coin_balance(data: &[u8]) -> Option<u64> {
 #[derive(Debug, Clone)]
 pub struct SelectedCoinObject {
     pub coin_object_id: String,
+    pub coin_object_ref: ObjectRef,
     pub selected_balance: u64,
     pub total_balance: u64,
 }
@@ -157,6 +160,7 @@ pub struct SelectedCoinObject {
 #[derive(Debug, Clone)]
 pub struct SpendableCoinObject {
     pub coin_object_id: String,
+    pub coin_object_ref: ObjectRef,
     pub balance: u64,
 }
 
@@ -181,6 +185,7 @@ pub fn spendable_coin_objects(
 
         coins.push(SpendableCoinObject {
             coin_object_id: obj.id.clone(),
+            coin_object_ref: ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
             balance,
         });
     }
@@ -195,8 +200,8 @@ pub fn select_coin_object(
 ) -> Result<SelectedCoinObject> {
     let coins = spendable_coin_objects(owned_objects, token_type);
     let mut total_balance = 0u64;
-    let mut smallest_sufficient: Option<(String, u64)> = None;
-    let mut largest_available: Option<(String, u64)> = None;
+    let mut smallest_sufficient: Option<(ObjectRef, u64)> = None;
+    let mut largest_available: Option<(ObjectRef, u64)> = None;
 
     for coin in coins {
         let balance = coin.balance;
@@ -205,22 +210,23 @@ pub fn select_coin_object(
         if balance >= required_amount {
             match &smallest_sufficient {
                 Some((_, current)) if *current <= balance => {}
-                _ => smallest_sufficient = Some((coin.coin_object_id.clone(), balance)),
+                _ => smallest_sufficient = Some((coin.coin_object_ref.clone(), balance)),
             }
         }
 
         match &largest_available {
             Some((_, current)) if *current >= balance => {}
-            _ => largest_available = Some((coin.coin_object_id.clone(), balance)),
+            _ => largest_available = Some((coin.coin_object_ref.clone(), balance)),
         }
     }
 
-    let (coin_object_id, selected_balance) = smallest_sufficient
+    let (coin_object_ref, selected_balance) = smallest_sufficient
         .or(largest_available)
         .context("No spendable native coin object found")?;
 
     Ok(SelectedCoinObject {
-        coin_object_id,
+        coin_object_id: coin_object_ref.object_id.clone(),
+        coin_object_ref,
         selected_balance,
         total_balance,
     })
@@ -297,6 +303,7 @@ pub async fn consolidate_coin_objects(
     Ok((
         SelectedCoinObject {
             coin_object_id: primary.coin_object_id,
+            coin_object_ref: primary.coin_object_ref,
             selected_balance: accumulated,
             total_balance: spendable_coins
                 .iter()
@@ -304,6 +311,27 @@ pub async fn consolidate_coin_objects(
         },
         sequence_number,
     ))
+}
+
+pub fn object_call_context(
+    sender: &str,
+    primary_object_ref: ObjectRef,
+    gas_limit: u64,
+    gas_price: u64,
+) -> (Vec<ObjectInput>, GasPayment) {
+    (
+        vec![ObjectInput {
+            object_ref: primary_object_ref.clone(),
+            owner: Some(ObjectOwnerKind::AddressOwner(sender.to_string())),
+            mutable: true,
+        }],
+        GasPayment {
+            payment_objects: vec![primary_object_ref],
+            owner: sender.to_string(),
+            budget: gas_limit,
+            price: gas_price,
+        },
+    )
 }
 
 /// Query owner sequence number from RPC for a sender address (normalized).

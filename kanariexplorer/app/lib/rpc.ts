@@ -5,17 +5,17 @@ const DEFAULT_RPC_URL = "http://192.168.1.101:19001";
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_RPC_URL;
 
 export const RPC_METHODS = {
-  GET_ACCOUNT: "kanari_getAccount",
+  GET_ACCOUNT: "kanari_getOwner",
   GET_TOKEN_BALANCE: "kanari_getTokenBalance",
   LIST_TOKENS: "kanari_listTokens",
-  GET_ALL_BALANCES: "kanari_getAllBalances",
+  GET_ALL_BALANCES: "kanari_getOwnerBalances",
   GET_BLOCK: "kanari_getBlock",
   GET_FULL_BLOCK: "kanari_getFullBlock",
   GET_TRANSACTION: "kanari_getTransaction",
   GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
   GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
   GET_STATS: "kanari_getStats",
-  SUBMIT_TRANSACTION: "kanari_submitTransaction",
+  SUBMIT_TRANSACTION: "kanari_submitObjectTransfer",
   HEALTH: "kanari_health",
   GET_NETWORK_STATUS: "kanari_getNetworkStatus",
   PUBLISH_MODULE: "kanari_publishModule",
@@ -198,16 +198,16 @@ export async function callRpc(
   }
 }
 export async function getTokenBalance(address: string, token_type: string) {
-  return callRpc(RPC_METHODS.GET_TOKEN_BALANCE, { address, token_type });
+  return callRpc(RPC_METHODS.GET_TOKEN_BALANCE, { owner: address, token_type });
 }
 
 export async function getAllBalances(address: string) {
-  const resp = await callRpc(RPC_METHODS.GET_ALL_BALANCES, { address });
-  return resp?.balances ?? resp;
+  const resp = await callRpc(RPC_METHODS.GET_ALL_BALANCES, { owner: address });
+  return asBalanceArray(resp);
 }
 
 export async function getAccount(address: string) {
-  return callRpc(RPC_METHODS.GET_ACCOUNT, address);
+  return normalizeAccount(address, await callRpc(RPC_METHODS.GET_ACCOUNT, address));
 }
 
 export async function getTokens() {
@@ -240,7 +240,7 @@ export async function getNodeHealth(endpoint: RpcEndpoint): Promise<NodeHealth> 
       height: Number(readField(stats, "height") ?? 0),
       stateRoot: String(readField(stats, "state_root") ?? readField(stats, "stateRoot") ?? "") || null,
       totalTransactions: Number(readField(stats, "total_transactions") ?? 0),
-      totalAccounts: Number(readField(stats, "total_accounts") ?? 0),
+      totalAccounts: Number(readField(stats, "total_accounts") ?? readField(stats, "total_owners") ?? 0),
       pendingTransactions: Number(readField(stats, "pending_transactions") ?? 0),
       latencyMs: Math.round(performance.now() - startedAt),
     };
@@ -271,16 +271,69 @@ export async function getBlockHeight() {
 }
 
 export async function getBlock(height: number, rpcUrl?: string) {
-  return callRpc(RPC_METHODS.GET_BLOCK, height, rpcUrl);
+  return normalizeBlock(await callRpc(RPC_METHODS.GET_BLOCK, height, rpcUrl));
 }
 
 export async function getFullBlock(height: number, rpcUrl?: string) {
-  return callRpc(RPC_METHODS.GET_FULL_BLOCK, height, rpcUrl);
+  return normalizeBlock(await callRpc(RPC_METHODS.GET_FULL_BLOCK, height, rpcUrl));
 }
 
 function readField(value: unknown, field: string): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return (value as Record<string, unknown>)[field];
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asBalanceArray(value: unknown) {
+  if (Array.isArray(value)) return value;
+  const record = asRecord(value);
+  if (Array.isArray(record.balances)) return record.balances;
+
+  if (record.balances && typeof record.balances === "object") {
+    return Object.entries(record.balances as Record<string, unknown>).map(([token_type, amount]) => ({
+      amount: typeof amount === "number" || typeof amount === "string" ? amount : 0,
+      decimals: 9,
+      symbol: token_type.split("::").slice(-1)[0] || token_type,
+      token_type,
+    }));
+  }
+
+  return [];
+}
+
+function normalizeAccount(address: string, value: unknown) {
+  const record = asRecord(value);
+  return {
+    ...record,
+    address: String(record.owner ?? record.address ?? address),
+  };
+}
+
+function normalizeTransaction(value: unknown) {
+  const record = asRecord(value);
+  return {
+    ...record,
+    checkpoint_height: record.block_height ?? record.checkpoint_height ?? null,
+    block_height: record.block_height ?? record.checkpoint_height ?? null,
+    sender_address: record.sender_address ?? record.sender ?? null,
+    object_inputs: Array.isArray(record.object_inputs) ? record.object_inputs : [],
+    gas_payment: record.gas_payment ?? null,
+    effects: record.effects ?? null,
+  };
+}
+
+function normalizeBlock(value: unknown) {
+  const record = asRecord(value);
+  return {
+    ...record,
+    checkpoint_height: record.height ?? record.block_height ?? null,
+    transaction_effects: Array.isArray(record.transaction_effects) ? record.transaction_effects : [],
+    object_changes: Array.isArray(record.object_changes) ? record.object_changes : [],
+    object_graph_edges: Array.isArray(record.object_graph_edges) ? record.object_graph_edges : [],
+  };
 }
 
 function dedupeTransactions<T>(transactions: T[]): T[] {
@@ -298,26 +351,26 @@ function dedupeTransactions<T>(transactions: T[]): T[] {
 
 // ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit และการกรองด้วย Account)
 export async function getAllTransactions(limit: number = 50, account?: string) {
-  const params: { limit: number; account?: string } = { limit };
-  if (account) params.account = account;
+  const params: { limit: number; owner?: string } = { limit };
+  if (account) params.owner = account;
   const response = await callRpc(RPC_METHODS.GET_ALL_TRANSACTIONS, params);
-  if (Array.isArray(response)) return dedupeTransactions(response);
+  if (Array.isArray(response)) return dedupeTransactions(response.map(normalizeTransaction));
 
   const result = readField(response, "result");
-  if (Array.isArray(result)) return dedupeTransactions(result);
+  if (Array.isArray(result)) return dedupeTransactions(result.map(normalizeTransaction));
 
   const transactions = readField(response, "transactions");
-  if (Array.isArray(transactions)) return dedupeTransactions(transactions);
+  if (Array.isArray(transactions)) return dedupeTransactions(transactions.map(normalizeTransaction));
 
   const data = readField(response, "data");
-  if (Array.isArray(data)) return dedupeTransactions(data);
+  if (Array.isArray(data)) return dedupeTransactions(data.map(normalizeTransaction));
 
-  return response;
+  return normalizeTransaction(response);
 }
 
 // ค้นหาธุรกรรมแบบเจาะจงด้วย Hash
 export async function getTransaction(hash: string) {
-  return callRpc(RPC_METHODS.GET_TRANSACTION, { hash });
+  return normalizeTransaction(await callRpc(RPC_METHODS.GET_TRANSACTION, { hash }));
 }
 
 export async function submitTransaction(transaction: SignedTransactionPayload) {

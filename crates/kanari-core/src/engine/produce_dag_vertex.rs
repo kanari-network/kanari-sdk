@@ -589,6 +589,10 @@ impl DagEngine {
         let transaction_effects = self
             .engine
             .collect_transaction_effects_strict(&transactions, Some(timestamp))?;
+        let checkpoint_object_changes =
+            BlockchainEngine::aggregate_checkpoint_object_changes(&transaction_effects);
+        let checkpoint_object_graph_edges =
+            BlockchainEngine::aggregate_checkpoint_object_graph_edges(&transaction_effects);
 
         let (vertex_id, round, parent_entries) = {
             let mut state = lock_write(&self.state);
@@ -654,6 +658,8 @@ impl DagEngine {
             validate_supply,
             state_root,
             transaction_effects,
+            checkpoint_object_changes,
+            checkpoint_object_graph_edges,
         )?;
         let checkpoint = self.finalize_staged_checkpoint(vertex.id)?;
         let checkpoint_info = Some(CheckpointInfo {
@@ -688,6 +694,8 @@ impl DagEngine {
         validate_supply: bool,
         state_root: Vec<u8>,
         transaction_effects: Vec<kanari_types::transaction::TransactionEffects>,
+        checkpoint_object_changes: Vec<kanari_types::transaction::ObjectChange>,
+        checkpoint_object_graph_edges: Vec<kanari_types::transaction::ObjectGraphEdge>,
     ) -> Result<Checkpoint> {
         {
             let mut state = lock_write(&self.state);
@@ -709,7 +717,9 @@ impl DagEngine {
             vertex.timestamp,
             prev_hash,
         )
-        .with_transaction_effects(transaction_effects);
+        .with_transaction_effects(transaction_effects)
+        .with_object_changes(checkpoint_object_changes)
+        .with_object_graph_edges(checkpoint_object_graph_edges);
 
         let mut staged = lock_write(&self.staged_checkpoints);
         staged.insert(

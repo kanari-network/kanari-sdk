@@ -3,7 +3,7 @@
 
 use crate::command::common::{
     check_node_connection, consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx,
-    load_wallet_for, normalize_addr, resolve_sender, resolve_transaction_gas,
+    load_wallet_for, normalize_addr, object_call_context, resolve_sender, resolve_transaction_gas,
     select_native_coin_object, sign_and_call_function, spendable_coin_objects,
 };
 use anyhow::{Context, Result};
@@ -113,6 +113,13 @@ impl Transfer {
             selected_coin.total_balance
         );
 
+        let (object_inputs, gas_payment) = object_call_context(
+            &sender_tagged,
+            selected_coin.coin_object_ref.clone(),
+            gas_limit,
+            gas_price,
+        );
+
         let call_req = CallFunctionRequest {
             sender: sender_tagged.clone(),
             package: "0x2".to_string(),
@@ -131,11 +138,11 @@ impl Transfer {
                 )
                 .context("Failed to serialize recipient address")?,
             ],
-            object_inputs: None,
+            object_inputs: Some(object_inputs),
             gas_limit,
             gas_price,
             sequence_number: next_sequence,
-            gas_payment: None,
+            gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: Some(true),
         };

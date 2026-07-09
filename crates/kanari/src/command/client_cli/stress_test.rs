@@ -10,8 +10,8 @@
 
 use crate::command::common::{
     consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx, load_wallet_for,
-    normalize_addr, resolve_sender, select_native_coin_object, sign_and_call_function,
-    spendable_coin_objects,
+    normalize_addr, object_call_context, resolve_sender, select_native_coin_object,
+    sign_and_call_function, spendable_coin_objects,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -221,6 +221,12 @@ impl StressTest {
         let report_interval = (self.count / 20).max(1); // ~5% progress report
 
         for i in 0..self.count {
+            let (object_inputs, gas_payment) = object_call_context(
+                &sender_tagged,
+                selected_coin.coin_object_ref.clone(),
+                100_000,
+                1,
+            );
             let call_req = CallFunctionRequest {
                 sender: sender_tagged.clone(),
                 package: "0x2".to_string(),
@@ -241,11 +247,11 @@ impl StressTest {
                     )
                     .context("Failed to serialize recipient address")?,
                 ],
-                object_inputs: None,
+                object_inputs: Some(object_inputs),
                 gas_limit: 100_000,
                 gas_price: 1,
                 sequence_number: seq,
-                gas_payment: None,
+                gas_payment: Some(gas_payment),
                 signature: None,
                 // false = go through mempool -> DAG -> P2P gossip to all nodes
                 // false = go through mempool → DAG → P2P gossip to all nodes

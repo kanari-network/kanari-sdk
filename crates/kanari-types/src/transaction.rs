@@ -239,9 +239,28 @@ pub enum ObjectChangeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectGraphEdgeKind {
+    Input,
+    SharedInput,
+    ImmutableInput,
+    GasPayment,
+    VersionSuccessor,
+    Delete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectGraphEdge {
+    pub source_object_ref: ObjectRef,
+    pub target_object_ref: ObjectRef,
+    pub relation: ObjectGraphEdgeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectChange {
     pub change_type: ObjectChangeKind,
     pub object_ref: ObjectRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_object_ref: Option<ObjectRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,7 +277,25 @@ pub struct TransactionEffects {
     pub gas_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub input_objects: Vec<ObjectRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub shared_inputs: Vec<ObjectRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub immutable_inputs: Vec<ObjectRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub gas_object_refs: Vec<ObjectRef>,
     pub object_changes: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub created: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub mutated: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub deleted: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub transferred: Vec<ObjectChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub causal_edges: Vec<ObjectGraphEdge>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
 }
@@ -438,6 +475,13 @@ impl Transaction {
         }
     }
 
+    pub fn requires_strict_object_metadata(&self) -> bool {
+        matches!(
+            self,
+            Transaction::ExecuteFunction { .. } if !self.is_native_balance_call()
+        )
+    }
+
     pub fn object_access_keys(&self) -> Vec<String> {
         let mut keys = self
             .object_inputs()
@@ -549,8 +593,46 @@ impl Transaction {
         gas_limit: u64,
         gas_price: u64,
     ) -> Self {
-        let coin_object_addr =
-            AccountAddress::from_hex_literal(&coin_object_id).unwrap_or(AccountAddress::ZERO);
+        Self::new_transfer_with_object_ref_and_gas(
+            from,
+            ObjectRef::new(coin_object_id, None, None),
+            to,
+            amount,
+            sequence_number,
+            gas_limit,
+            gas_price,
+        )
+    }
+
+    pub fn new_transfer_with_object_ref(
+        from: String,
+        coin_object_ref: ObjectRef,
+        to: String,
+        amount: u64,
+        sequence_number: u64,
+    ) -> Self {
+        Self::new_transfer_with_object_ref_and_gas(
+            from,
+            coin_object_ref,
+            to,
+            amount,
+            sequence_number,
+            100_000,
+            1000,
+        )
+    }
+
+    pub fn new_transfer_with_object_ref_and_gas(
+        from: String,
+        coin_object_ref: ObjectRef,
+        to: String,
+        amount: u64,
+        sequence_number: u64,
+        gas_limit: u64,
+        gas_price: u64,
+    ) -> Self {
+        let coin_object_addr = AccountAddress::from_hex_literal(&coin_object_ref.object_id)
+            .unwrap_or(AccountAddress::ZERO);
         let recipient_addr = AccountAddress::from_hex_literal(&to).unwrap_or(AccountAddress::ZERO);
 
         Self::ExecuteFunction {
@@ -564,12 +646,12 @@ impl Transaction {
                 recipient_addr.to_vec(),
             ],
             object_inputs: vec![ObjectInput {
-                object_ref: ObjectRef::new(coin_object_id.clone(), None, None),
+                object_ref: coin_object_ref.clone(),
                 owner: Some(ObjectOwnerKind::AddressOwner(from.clone())),
                 mutable: true,
             }],
             gas_payment: Some(GasPayment {
-                payment_objects: vec![ObjectRef::new(coin_object_id, None, None)],
+                payment_objects: vec![coin_object_ref],
                 owner: from,
                 budget: gas_limit,
                 price: gas_price,
@@ -685,6 +767,29 @@ mod tests {
                 amount: 42,
             })
         );
+    }
+
+    #[test]
+    fn transfer_helper_preserves_full_object_ref_metadata() {
+        let object_ref = ObjectRef::new(
+            "0xaaaa".to_string(),
+            Some(7),
+            Some("0xdigest".to_string()),
+        );
+        let tx = Transaction::new_transfer_with_object_ref(
+            "0x1".to_string(),
+            object_ref.clone(),
+            "0x2".to_string(),
+            42,
+            7,
+        );
+
+        let object_inputs = tx.object_inputs();
+        assert_eq!(object_inputs.len(), 1);
+        assert_eq!(object_inputs[0].object_ref, object_ref);
+
+        let gas_payment = tx.gas_payment().expect("transfer should carry gas payment");
+        assert_eq!(gas_payment.payment_objects, vec![object_ref]);
     }
 
     #[test]

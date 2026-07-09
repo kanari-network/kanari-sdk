@@ -117,6 +117,8 @@ impl BlockchainEngine {
             tx_count: checkpoint.transactions.len(),
             events: Vec::new(),
             transaction_effects: checkpoint.transaction_effects.iter().cloned().collect(),
+            object_changes: checkpoint.object_changes.iter().cloned().collect(),
+            object_graph_edges: checkpoint.object_graph_edges.iter().cloned().collect(),
         }
     }
 
@@ -131,6 +133,8 @@ impl BlockchainEngine {
             events: Vec::new(),
             transactions: checkpoint.transactions.iter().cloned().collect(),
             transaction_effects: checkpoint.transaction_effects.iter().cloned().collect(),
+            object_changes: checkpoint.object_changes.iter().cloned().collect(),
+            object_graph_edges: checkpoint.object_graph_edges.iter().cloned().collect(),
             vertices: checkpoint.vertices.iter().map(hex::encode).collect(),
         }
     }
@@ -302,7 +306,10 @@ mod tests {
     use kanari_types::coin::TreasuryCap;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::address::Address as KanariAddress;
-    use kanari_types::transaction::{SignedTransaction, Transaction};
+    use kanari_types::transaction::{
+        ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectRef,
+        SignedTransaction, Transaction,
+    };
 
     fn signed_transfer(sequence_number: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
@@ -429,5 +436,42 @@ mod tests {
         let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
         assert!(error.to_string().contains("state root mismatch"));
         assert_eq!(engine.get_stats().height, 0);
+    }
+
+    #[test]
+    fn block_queries_include_checkpoint_object_changes() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let prev_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let checkpoint = Checkpoint::new(1, vec![], vec![], vec![9u8; 32], 42, prev_hash)
+            .with_object_changes(vec![ObjectChange {
+                change_type: ObjectChangeKind::Created,
+                object_ref: ObjectRef::new("0x1", Some(1), Some("0xabc".to_string())),
+                previous_object_ref: None,
+                type_: Some("0x2::test::Thing".to_string()),
+                owner: None,
+                previous_owner: None,
+                previous_version: None,
+            }])
+            .with_object_graph_edges(vec![ObjectGraphEdge {
+                source_object_ref: ObjectRef::new("0xgas", Some(1), Some("0xdef".to_string())),
+                target_object_ref: ObjectRef::new("0x1", Some(1), Some("0xabc".to_string())),
+                relation: ObjectGraphEdgeKind::GasPayment,
+            }]);
+
+        {
+            let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
+            chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
+        }
+
+        let block = engine.get_block(1).expect("block should exist");
+        let full_block = engine.get_full_block(1).expect("full block should exist");
+        assert_eq!(block.object_changes.len(), 1);
+        assert_eq!(full_block.object_changes.len(), 1);
+        assert_eq!(block.object_changes[0].object_ref.object_id, "0x1");
+        assert_eq!(block.object_graph_edges.len(), 1);
+        assert_eq!(full_block.object_graph_edges.len(), 1);
     }
 }

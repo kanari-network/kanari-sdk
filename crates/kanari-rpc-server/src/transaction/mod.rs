@@ -10,7 +10,7 @@ use kanari_rpc_api::{
     ViewFunctionRequest,
 };
 use kanari_types::address::Address;
-use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
+use kanari_types::transaction::{NativeCall, ObjectRef, SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
 use std::collections::HashSet;
 use tokio::time::{Duration, sleep};
@@ -271,6 +271,7 @@ fn map_transaction_to_details(
             if !object_inputs.is_empty() {
                 details.object_inputs = Some(object_inputs);
             }
+            details.gas_payment = tx.gas_payment();
             if let Some(native_call) = tx.native_call() {
                 match native_call {
                     NativeCall::Transfer {
@@ -349,6 +350,46 @@ fn format_changeset_json(state: &RpcServerState, changeset: &ChangeSet) -> serde
         );
     }
     cs_value
+}
+
+fn validate_object_ref_completeness(
+    id: u64,
+    field: &str,
+    object_ref: &ObjectRef,
+) -> Result<(), RpcResponse> {
+    if object_ref.version.is_some() ^ object_ref.digest.is_some() {
+        return Err(invalid_params_response(
+            id,
+            format!("{field} must include both version and digest when either is provided"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_object_inputs_and_gas(
+    id: u64,
+    object_inputs: &[kanari_types::transaction::ObjectInput],
+    gas_payment: Option<&kanari_types::transaction::GasPayment>,
+) -> Result<(), RpcResponse> {
+    for (index, input) in object_inputs.iter().enumerate() {
+        validate_object_ref_completeness(
+            id,
+            &format!("object_inputs[{index}].object_ref"),
+            &input.object_ref,
+        )?;
+    }
+
+    if let Some(gas_payment) = gas_payment {
+        for (index, payment) in gas_payment.payment_objects.iter().enumerate() {
+            validate_object_ref_completeness(
+                id,
+                &format!("gas_payment.payment_objects[{index}]"),
+                payment,
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 fn maybe_attach_signature(signed_tx: &mut SignedTransaction, signature: Option<Vec<u8>>) {
@@ -527,19 +568,33 @@ pub async fn handle_submit_object_transfer(
         Err(response) => return *response,
     };
 
-    let transaction = Transaction::new_transfer_with_gas(
+    let coin_object_ref = tx_data
+        .coin_object_ref
+        .clone()
+        .unwrap_or_else(|| ObjectRef::new(tx_data.coin_object_id.clone(), None, None));
+    if let Err(response) =
+        validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref)
+    {
+        return response;
+    }
+    if let Err(response) = validate_object_inputs_and_gas(request.id, &[], tx_data.gas_payment.as_ref()) {
+        return response;
+    }
+
+    let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
         tx_data.sender.clone(),
-        tx_data
-            .coin_object_ref
-            .as_ref()
-            .map(|object_ref| object_ref.object_id.clone())
-            .unwrap_or_else(|| tx_data.coin_object_id.clone()),
+        coin_object_ref,
         recipient.to_hex_literal(),
         tx_data.amount,
         tx_data.sequence_number,
         tx_data.gas_limit,
         tx_data.gas_price,
     );
+    if let Transaction::ExecuteFunction { gas_payment, .. } = &mut transaction
+        && tx_data.gas_payment.is_some()
+    {
+        *gas_payment = tx_data.gas_payment.clone();
+    }
 
     let mut signed_tx = SignedTransaction::new(transaction);
     maybe_attach_signature(&mut signed_tx, tx_data.signature);
@@ -767,6 +822,13 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
     }
     if let Err(response) = parse_hex_address(request.id, &call_data.package, "package address") {
         return *response;
+    }
+    if let Err(response) = validate_object_inputs_and_gas(
+        request.id,
+        call_data.object_inputs.as_deref().unwrap_or(&[]),
+        call_data.gas_payment.as_ref(),
+    ) {
+        return response;
     }
 
     let execute_immediate = call_data.execute_immediate.unwrap_or(false);

@@ -8,7 +8,9 @@
 
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::transaction::{SignedTransaction, TransactionEffects};
+use kanari_types::transaction::{
+    ObjectChange, ObjectGraphEdge, SignedTransaction, TransactionEffects,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -24,6 +26,10 @@ pub struct Checkpoint {
     pub transactions: Arc<[SignedTransaction]>,
     #[serde(default)]
     pub transaction_effects: Arc<[TransactionEffects]>,
+    #[serde(default)]
+    pub object_changes: Arc<[ObjectChange]>,
+    #[serde(default)]
+    pub object_graph_edges: Arc<[ObjectGraphEdge]>,
     pub state_root: Vec<u8>,
     pub timestamp: u64,
     pub prev_checkpoint_hash: Vec<u8>,
@@ -46,6 +52,8 @@ impl Checkpoint {
             vertices,
             transactions: transactions.into(),
             transaction_effects: Vec::new().into(),
+            object_changes: Vec::new().into(),
+            object_graph_edges: Vec::new().into(),
             state_root,
             timestamp,
             prev_checkpoint_hash,
@@ -57,6 +65,22 @@ impl Checkpoint {
         T: Into<Arc<[TransactionEffects]>>,
     {
         self.transaction_effects = effects.into();
+        self
+    }
+
+    pub fn with_object_changes<T>(mut self, object_changes: T) -> Self
+    where
+        T: Into<Arc<[ObjectChange]>>,
+    {
+        self.object_changes = object_changes.into();
+        self
+    }
+
+    pub fn with_object_graph_edges<T>(mut self, object_graph_edges: T) -> Self
+    where
+        T: Into<Arc<[ObjectGraphEdge]>>,
+    {
+        self.object_graph_edges = object_graph_edges.into();
         self
     }
 
@@ -81,6 +105,8 @@ impl Checkpoint {
             vertices: Vec::new(),
             transactions: Vec::new().into(),
             transaction_effects: Vec::new().into(),
+            object_changes: Vec::new().into(),
+            object_graph_edges: Vec::new().into(),
             state_root: smt::default_hashes()[0].to_vec(),
             timestamp: 0,
             prev_checkpoint_hash: vec![0u8; 32],
