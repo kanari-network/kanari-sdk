@@ -49,6 +49,19 @@ class KanariClient {
     return _queries.getTokenBalance(address, tokenType);
   }
 
+  /// Get a single on-chain object by id.
+  Future<ObjectInfo> getObject(String objectId) {
+    return _queries.getObject(objectId);
+  }
+
+  /// Get objects owned by one owner, optionally filtered by object type.
+  Future<List<ObjectInfo>> getOwnedObjects(
+    String owner, {
+    String? objectType,
+  }) {
+    return _queries.getOwnedObjects(owner, objectType: objectType);
+  }
+
   /// Get all token balances
   Future<List<TokenBalance>> getAllBalances(String address) {
     return _queries.getAllBalances(address);

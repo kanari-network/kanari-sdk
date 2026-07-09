@@ -154,6 +154,13 @@ final rpcClient = KanariClient('http://localhost:3000/rpc');
 final owner = await rpcClient.getOwner(wallet.address);
 print('Owned objects: ${owner.ownedObjects?.length ?? 0}');
 
+// Query objects directly
+final objects = await rpcClient.getOwnedObjects(
+  wallet.address,
+  objectType: '0x2::coin::Coin<0x2::kanari::KANARI>',
+);
+print('Spendable coin objects: ${objects.length}');
+
 // Automatic coin selection + consolidation when needed
 final transfer = await rpcClient.transfer(
   wallet: wallet,

@@ -251,7 +251,7 @@ class TransactionOperations {
     int gasPrice = TransactionConstants.defaultGasPrice,
     bool? executeImmediate,
   }) async {
-    final account = await queries.getAccount(wallet.address);
+    final account = await queries.getOwner(wallet.address);
     final senderAddress = _getSenderForTx(wallet);
 
     final txData = {
@@ -291,7 +291,7 @@ class TransactionOperations {
     required int gasPrice,
   }) async {
     _requirePositiveAmount(amount, 'amount');
-    final account = await queries.getAccount(wallet.address);
+    final account = await queries.getOwner(wallet.address);
     final wantedToken = BcsUtils.normalizeTokenType(tokenType);
     final requiredAmount =
         BcsUtils.tokenTypesEqual(wantedToken, token_utils.kanariTokenType)
@@ -398,7 +398,7 @@ class TransactionOperations {
   }) async {
     _requirePositiveAmount(amount, 'amount');
     final account = sequenceNumber == null
-        ? await queries.getAccount(wallet.address)
+        ? await queries.getOwner(wallet.address)
         : null;
     final normalizedRecipient = BcsUtils.normalizeAddress(recipient);
 
@@ -431,7 +431,7 @@ class TransactionOperations {
   }) async {
     _requirePositiveAmount(amount, 'amount');
     final account = sequenceNumber == null
-        ? await queries.getAccount(wallet.address)
+        ? await queries.getOwner(wallet.address)
         : null;
     final normalizedRecipient = BcsUtils.normalizeAddress(recipient);
     final wantedToken = BcsUtils.normalizeTokenType(tokenType);
@@ -498,7 +498,7 @@ class TransactionOperations {
     int gasPrice = TransactionConstants.defaultGasPrice,
     bool? executeImmediate,
   }) async {
-    final account = await queries.getAccount(wallet.address);
+    final account = await queries.getOwner(wallet.address);
     return _executeFunctionWithSequence(
       wallet: wallet,
       package: package,
@@ -520,7 +520,7 @@ class TransactionOperations {
     int gasPrice = TransactionConstants.defaultGasPrice,
   }) async {
     _requirePositiveAmount(amount, 'amount');
-    final account = await queries.getAccount(wallet.address);
+    final account = await queries.getOwner(wallet.address);
     return _executeFunctionWithSequence(
       wallet: wallet,
       package: '0x2',
@@ -572,7 +572,7 @@ class TransactionOperations {
     int? sequenceNumber,
   }) async {
     final account = sequenceNumber == null
-        ? await queries.getAccount(wallet.address)
+        ? await queries.getOwner(wallet.address)
         : null;
 
     return _executeFunctionWithSequence(

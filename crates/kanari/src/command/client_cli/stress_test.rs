@@ -10,15 +10,14 @@
 
 use crate::command::common::{
     consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx, load_wallet_for,
-    normalize_addr, resolve_sender, select_native_coin_object, spendable_coin_objects,
+    normalize_addr, resolve_sender, select_native_coin_object, sign_and_call_function,
+    spendable_coin_objects,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
+use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::{
-    kanari::KANARI_TOKEN_TYPE,
-    transaction::{SignedTransaction, Transaction},
-};
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -222,33 +221,36 @@ impl StressTest {
         let report_interval = (self.count / 20).max(1); // ~5% progress report
 
         for i in 0..self.count {
-            let tx = Transaction::new_transfer(
-                sender_tagged.clone(),
-                selected_coin.coin_object_id.clone(),
-                to_addr.clone(),
-                amount_mist,
-                seq,
-            );
-
-            let mut signed_tx = SignedTransaction::new(tx);
-            signed_tx
-                .sign(&wallet.private_key, wallet.curve_type)
-                .context("Failed to sign transaction")?;
-
-            let tx_data = kanari_rpc_api::SignedTransactionData {
+            let call_req = CallFunctionRequest {
                 sender: sender_tagged.clone(),
-                coin_object_id: selected_coin.coin_object_id.clone(),
-                recipient: to_addr.clone(),
-                amount: amount_mist,
-                gas_limit: signed_tx.transaction.gas_limit(),
-                gas_price: signed_tx.transaction.gas_price(),
+                package: "0x2".to_string(),
+                module: "kanari".to_string(),
+                function: "transfer".to_string(),
+                type_args: vec![],
+                args: vec![
+                    move_core_types::account_address::AccountAddress::from_hex_literal(
+                        &selected_coin.coin_object_id,
+                    )
+                    .context("Invalid coin object ID")?
+                    .to_vec(),
+                    bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
+                    bcs::to_bytes(
+                        &move_core_types::account_address::AccountAddress::from_hex_literal(
+                            &to_addr,
+                        )?,
+                    )
+                    .context("Failed to serialize recipient address")?,
+                ],
+                gas_limit: 100_000,
+                gas_price: 1,
                 sequence_number: seq,
-                signature: Some(signed_tx.signature.clone()),
+                signature: None,
+                // false = go through mempool -> DAG -> P2P gossip to all nodes
                 // false = go through mempool → DAG → P2P gossip to all nodes
                 execute_immediate: Some(false),
             };
 
-            match client.submit_transaction(tx_data).await {
+            match sign_and_call_function(&client, &wallet, call_req).await {
                 Ok(status) => {
                     success_count += 1;
                     if (i + 1) % report_interval == 0 || i + 1 == self.count {

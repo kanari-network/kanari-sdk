@@ -86,6 +86,11 @@ final client = KanariClient('http://localhost:3000');
 
 // Queries
 final owner = await client.getOwner(address);
+final coinObject = await client.getObject(objectId);
+final ownedCoins = await client.getOwnedObjects(
+  address,
+  objectType: '0x2::coin::Coin<0x2::kanari::KANARI>',
+);
 final balances = await client.getAllBalances(address);
 
 // Transactions

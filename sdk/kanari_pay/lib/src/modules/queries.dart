@@ -44,6 +44,49 @@ class QueriesModule {
     return resp.result!;
   }
 
+  Future<ObjectInfo> getObject(String objectId) async {
+    final normalizedObjectId = _normalizeObjectId(objectId);
+    final resp = await RpcUtils.request(
+      client,
+      url,
+      'kanari_getObject',
+      {'object_id': normalizedObjectId},
+      (j) => ObjectInfo.fromJson(j as Map<String, dynamic>),
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
+  Future<List<ObjectInfo>> getOwnedObjects(
+    String owner, {
+    String? objectType,
+  }) async {
+    final normalizedOwner = _normalizeAddress(owner);
+    final params = <String, dynamic>{'owner': normalizedOwner};
+    if (objectType != null && objectType.trim().isNotEmpty) {
+      params['object_type'] = objectType;
+    }
+
+    final resp = await RpcUtils.request(
+      client,
+      url,
+      'kanari_getOwnedObjects',
+      params,
+      (j) {
+        final map = j as Map<String, dynamic>;
+        final objects =
+            map['objects'] as List<dynamic>? ??
+            map['owned_objects'] as List<dynamic>? ??
+            const [];
+        return objects
+            .map((item) => ObjectInfo.fromJson(item as Map<String, dynamic>))
+            .toList();
+      },
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
   Future<List<TokenBalance>> getAllBalances(String address) async {
     final normalizedAddress = _normalizeAddress(address);
     final resp = await RpcUtils.request(
@@ -234,5 +277,9 @@ class QueriesModule {
     }
 
     return '0x${clean.padLeft(64, '0').toLowerCase()}';
+  }
+
+  String _normalizeObjectId(String objectId) {
+    return _normalizeAddress(objectId);
   }
 }

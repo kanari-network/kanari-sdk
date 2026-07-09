@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use kanari_common::get_main_wallet;
-use kanari_rpc_api::{CallFunctionRequest, SignedTransactionData, TransactionStatus};
+use kanari_rpc_api::{CallFunctionRequest, TransactionStatus};
 use kanari_rpc_client::RpcClient;
 use kanari_types::{
     address::Address,
@@ -315,28 +315,26 @@ pub async fn request_from_dev(
     }
     let (coin_object_id, selected_coin_balance, _total_coin_balance) = selected_coin;
 
-    let tx = Transaction::new_transfer(
-        sender_for_tx.clone(),
-        coin_object_id.clone(),
-        recipient.clone(),
-        amount_mist,
-        next_sequence,
-    );
-
-    let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&wallet.private_key, wallet.curve_type)
-        .context("Failed to sign transaction with Dev wallet")?;
-
-    let tx_data = SignedTransactionData {
+    let call_req = CallFunctionRequest {
         sender: sender_for_tx,
-        coin_object_id: coin_object_id.clone(),
-        recipient: recipient.clone(),
-        amount: amount_mist,
-        gas_limit: signed_tx.transaction.gas_limit(),
-        gas_price: signed_tx.transaction.gas_price(),
+        package: "0x2".to_string(),
+        module: "kanari".to_string(),
+        function: "transfer".to_string(),
+        type_args: vec![],
+        args: vec![
+            move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_id)
+                .context("Invalid coin object ID")?
+                .to_vec(),
+            bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
+            bcs::to_bytes(
+                &move_core_types::account_address::AccountAddress::from_hex_literal(&recipient)?,
+            )
+            .context("Failed to serialize recipient address")?,
+        ],
+        gas_limit: 100_000,
+        gas_price: 1_000,
         sequence_number: next_sequence,
-        signature: Some(signed_tx.signature.clone()),
+        signature: None,
         execute_immediate: Some(false),
     };
 
@@ -350,8 +348,7 @@ pub async fn request_from_dev(
         amount_mist as f64 / MIST_PER_KANARI
     );
 
-    let status = client
-        .submit_transaction(tx_data)
+    let status = sign_and_call_function(&client, &wallet, call_req)
         .await
         .context("Failed to submit transaction to RPC")?;
 

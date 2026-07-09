@@ -74,8 +74,8 @@ class MyModuleOperations {
     int gasLimit = 100000,
     int gasPrice = 1000,
   }) async {
-    // 1. Get sequence number
-    final account = await queries.getAccount(wallet.address);
+    // 1. Get owner-centric state / sequence number
+    final owner = await queries.getOwner(wallet.address);
     
     // 2. Prepare arguments (BCS encode if needed)
     final args = [BcsSerializers.hexToBytes(param1)];

@@ -142,7 +142,7 @@ class EscrowClient {
   /// Get spendable coin types from user's owned objects
   Future<List<String>> getSpendableCoinTypes(String address) async {
     try {
-      final account = await rpc.getAccount(address);
+      final account = await rpc.getOwner(address);
       final coinTypes = <String>{};
 
       for (final obj in account.ownedObjects ?? const []) {

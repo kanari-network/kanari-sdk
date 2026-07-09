@@ -66,7 +66,7 @@ class EscrowOperations {
     required String ownerAddress,
     required String tokenType,
   }) async {
-    final account = await rpc.getAccount(ownerAddress);
+    final account = await rpc.getOwner(ownerAddress);
 
     for (final obj in account.ownedObjects ?? const []) {
       final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);

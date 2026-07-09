@@ -45,7 +45,7 @@ class EscrowQueries {
     required String buyerAddress,
   }) async {
     try {
-      final account = await rpc.getAccount(buyerAddress);
+      final account = await rpc.getOwner(buyerAddress);
       final allObjects = account.ownedObjects ?? [];
 
       final dealObjects = allObjects

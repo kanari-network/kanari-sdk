@@ -180,6 +180,85 @@ void main() {
       expect(txData['signature'], isA<List>());
     });
 
+    test('getOwnedObjects returns object-centric owner state', () async {
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body);
+        final method = body['method'];
+
+        if (method == 'kanari_getOwnedObjects') {
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'objects': [
+                  {
+                    'id':
+                        '0x0000000000000000000000000000000000000000000000000000000000000abc',
+                    'owner': '0x123',
+                    'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                    'data': [...List<int>.filled(40, 0)],
+                    'version': 7,
+                  },
+                ],
+              },
+              'id': 1,
+            }),
+            200,
+          );
+        }
+
+        return http.Response('', 404);
+      });
+
+      final client = KanariClient('http://localhost/rpc', client: mockClient);
+      final objects = await client.getOwnedObjects(
+        '0x123',
+        objectType: '0x2::coin::Coin<0x2::kanari::KANARI>',
+      );
+
+      expect(objects, hasLength(1));
+      expect(
+        objects.first.id,
+        '0x0000000000000000000000000000000000000000000000000000000000000abc',
+      );
+      expect(objects.first.version, 7);
+    });
+
+    test('getObject returns one on-chain object', () async {
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body);
+        final method = body['method'];
+
+        if (method == 'kanari_getObject') {
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'id':
+                    '0x0000000000000000000000000000000000000000000000000000000000000abc',
+                'owner': '0x123',
+                'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                'data': [...List<int>.filled(40, 0)],
+                'version': 9,
+              },
+              'id': 1,
+            }),
+            200,
+          );
+        }
+
+        return http.Response('', 404);
+      });
+
+      final client = KanariClient('http://localhost/rpc', client: mockClient);
+      final object = await client.getObject(
+        '0x0000000000000000000000000000000000000000000000000000000000000abc',
+      );
+
+      expect(object.owner, '0x123');
+      expect(object.version, 9);
+    });
+
     test('publishModule signs and submits correctly', () async {
       final mockWallet = KanariWallet(
         KeyPairData(
