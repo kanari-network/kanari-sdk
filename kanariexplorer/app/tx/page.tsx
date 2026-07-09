@@ -4,7 +4,18 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
-import { asArray, CopyButton, EmptyState, PageHeader, RawDetails, readAddress, readString, SearchForm, StatusPill } from "../components/ExplorerUI";
+import {
+  asArray,
+  CopyButton,
+  describeTransactionLifecycle,
+  EmptyState,
+  PageHeader,
+  RawDetails,
+  readAddress,
+  readString,
+  SearchForm,
+  StatusPill,
+} from "../components/ExplorerUI";
 import { getAllTransactions, getTransaction } from "../lib/rpc";
 
 function readTransactionHash(transaction: unknown, fallback: string) {
@@ -142,7 +153,7 @@ function PanelTransactions({
             const fallbackHash = `transaction-${index}`;
             const hash = readTransactionHash(transaction, fallbackHash);
             const canOpen = hash !== fallbackHash;
-            const status = readString(transaction, "status", "unknown");
+            const lifecycle = describeTransactionLifecycle(transaction);
             const senderAddress = readAddress(transaction, "sender_address", "sender");
             const objectInputs = readArrayLength(transaction, "object_inputs");
             const objectChanges = readEffectArrayLength(transaction, "object_changes");
@@ -181,7 +192,8 @@ function PanelTransactions({
                 </div>
                 <div>
                   <p className="tiny-label">Status</p>
-                  <StatusPill label={status} state={status === "pending" ? "warn" : "ok"} />
+                  <StatusPill label={lifecycle.label} state={lifecycle.state} />
+                  {lifecycle.detail ? <div className="mono muted-text">{lifecycle.detail}</div> : null}
                 </div>
                 <div>
                   <p className="tiny-label">Objects</p>

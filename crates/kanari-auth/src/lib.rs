@@ -10,7 +10,7 @@
 //!
 //! ```ignore
 //! use kanari_auth::AuthManager;
-//! use kanari_types::transaction::Transaction;
+//! use kanari_types::transaction::{ObjectRef, Transaction};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut auth = AuthManager::new();
@@ -22,9 +22,10 @@
 //!     let session = auth.login("user@example.com", "SecurePassword123!", None)?;
 //!     
 //!     // Create and sign a transaction
-//!     let tx = Transaction::new_transfer(
+//!     let tx = Transaction::new_transfer_with_object_ref(
 //!         session.wallet_address.clone(),
-//!         "0x2".to_string(),
+//!         ObjectRef::new("0x2", Some(1), Some("0xdigest".to_string())),
+//!         "0x3".to_string(),
 //!         1_000,
 //!         0,
 //!     );

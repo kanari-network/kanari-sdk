@@ -9,7 +9,9 @@ use crate::command::gas_and_coin_selection::{
     build_native_gas_payment, consolidate_coin_objects, object_call_context,
     select_native_coin_object, spendable_coin_objects,
 };
-use crate::command::rpc_helpers::{sign_and_call_function, wait_for_transaction_commit};
+use crate::command::rpc_helpers::{
+    should_wait_for_commit, sign_and_call_function, wait_for_transaction_commit,
+};
 use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -171,7 +173,12 @@ impl Transfer {
 
         let status = sign_and_call_function(&client, &wallet, call_req).await?;
         print_transaction_status("  ", &status);
-        if status.previewed && !status.committed {
+        if should_wait_for_commit(
+            status.success,
+            status.previewed,
+            status.submitted,
+            status.committed,
+        ) {
             eprintln!("  Waiting for transaction commit...");
             let committed = wait_for_transaction_commit(
                 &client,

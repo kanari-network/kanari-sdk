@@ -17,7 +17,17 @@ import {
   type RpcEndpoint,
 } from "./lib/rpc";
 import { ArrowIcon } from "./components/SiteChrome";
-import { asArray, CopyButton, formatNumber, Panel, readString, SearchForm, StatCard, StatusPill } from "./components/ExplorerUI";
+import {
+  asArray,
+  CopyButton,
+  describeTransactionLifecycle,
+  formatNumber,
+  Panel,
+  readString,
+  SearchForm,
+  StatCard,
+  StatusPill,
+} from "./components/ExplorerUI";
 import ObjectGraphView from "./components/ObjectGraphView";
 
 const ROOT_SCAN_DEPTH = 8;
@@ -900,32 +910,35 @@ export default function Home() {
               <summary>Checkpoint Object Graph</summary>
               {latestCheckpointEffects.length > 0 ? (
                 <div className="checkpoint-effect-strip">
-                  {latestCheckpointEffects.map((effect, index) => (
-                    <article className="checkpoint-effect-card" key={`effect-${index}`}>
-                      <div className="checkpoint-effect-card__head">
-                        <span className="checkpoint-effect-card__title">Tx Effect {index + 1}</span>
-                        <StatusPill label={readString(effect, "status", "unknown")} state={readString(effect, "status", "success") === "success" ? "ok" : "warn"} />
-                      </div>
-                      <div className="checkpoint-effect-card__grid">
-                        <div>
-                          <p className="tiny-label">Gas Used</p>
-                          <strong className="mono">{readString(effect, "gas_used", "-")}</strong>
+                  {latestCheckpointEffects.map((effect, index) => {
+                    const lifecycle = describeTransactionLifecycle(effect);
+                    return (
+                      <article className="checkpoint-effect-card" key={`effect-${index}`}>
+                        <div className="checkpoint-effect-card__head">
+                          <span className="checkpoint-effect-card__title">Tx Effect {index + 1}</span>
+                          <StatusPill label={lifecycle.label} state={lifecycle.state} />
                         </div>
-                        <div>
-                          <p className="tiny-label">Inputs</p>
-                          <strong className="mono">{readArrayLength(effect, "input_objects")}</strong>
+                        <div className="checkpoint-effect-card__grid">
+                          <div>
+                            <p className="tiny-label">Gas Used</p>
+                            <strong className="mono">{readString(effect, "gas_used", "-")}</strong>
+                          </div>
+                          <div>
+                            <p className="tiny-label">Inputs</p>
+                            <strong className="mono">{readArrayLength(effect, "input_objects")}</strong>
+                          </div>
+                          <div>
+                            <p className="tiny-label">Changes</p>
+                            <strong className="mono">{readArrayLength(effect, "object_changes")}</strong>
+                          </div>
+                          <div>
+                            <p className="tiny-label">Edges</p>
+                            <strong className="mono">{readArrayLength(effect, "causal_edges")}</strong>
+                          </div>
                         </div>
-                        <div>
-                          <p className="tiny-label">Changes</p>
-                          <strong className="mono">{readArrayLength(effect, "object_changes")}</strong>
-                        </div>
-                        <div>
-                          <p className="tiny-label">Edges</p>
-                          <strong className="mono">{readArrayLength(effect, "causal_edges")}</strong>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
               ) : null}
               <ObjectGraphView

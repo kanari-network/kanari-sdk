@@ -7,7 +7,9 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::gas_and_coin_selection::build_native_gas_payment;
-use crate::command::rpc_helpers::{get_owner_info, wait_for_transaction_commit_blocking};
+use crate::command::rpc_helpers::{
+    get_owner_info, should_wait_for_commit, wait_for_transaction_commit_blocking,
+};
 use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Result, bail};
 use clap::*;
@@ -245,7 +247,12 @@ impl Publish {
                                     )
                                 {
                                     print_transaction_result("     ", &tx_result);
-                                    if tx_result.previewed && !tx_result.committed {
+                                    if should_wait_for_commit(
+                                        tx_result.success,
+                                        tx_result.previewed,
+                                        tx_result.submitted,
+                                        tx_result.committed,
+                                    ) {
                                         eprintln!("     Waiting for transaction commit...");
                                         let committed = wait_for_transaction_commit_blocking(
                                             &client,

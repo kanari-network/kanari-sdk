@@ -244,12 +244,26 @@ pub enum ObjectChangeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObjectGraphEdgeKind {
-    Input,
-    SharedInput,
-    ImmutableInput,
-    GasPayment,
+    InputCreate,
+    InputMutate,
+    InputDelete,
+    InputTransfer,
+    SharedInputCreate,
+    SharedInputMutate,
+    SharedInputDelete,
+    SharedInputTransfer,
+    ImmutableInputCreate,
+    ImmutableInputMutate,
+    ImmutableInputDelete,
+    ImmutableInputTransfer,
+    GasCreate,
+    GasMutate,
+    GasDelete,
+    GasTransfer,
+    CallContextCreate,
     VersionSuccessor,
     Delete,
+    OwnershipTransfer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -685,9 +699,9 @@ mod tests {
 
     #[test]
     fn transfer_helper_builds_native_execute_function() {
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             "0x1".to_string(),
-            "0xaaaa".to_string(),
+            ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
             "0x2".to_string(),
             42,
             7,
@@ -720,9 +734,9 @@ mod tests {
 
     #[test]
     fn transfer_helper_builds_execute_function_with_coin_input() {
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             "0x1".to_string(),
-            "0xaaaa".to_string(),
+            ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
             "0x2".to_string(),
             42,
             7,

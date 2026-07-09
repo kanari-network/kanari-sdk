@@ -25,6 +25,8 @@ export const RPC_METHODS = {
   CALL_FUNCTION: "kanari_callFunction",
   VIEW_FUNCTION: "kanari_viewFunction",
   GET_OBJECT: "kanari_getObject",
+  GET_OBJECTS: "kanari_getObjects",
+  GET_OBJECT_BY_REF: "kanari_getObjectByRef",
   GET_OWNED_OBJECTS: "kanari_getOwnedObjects",
   GET_OWNED_NFTS: "kanari_getOwnedNfts",
   LIST_COLLECTIONS: "kanari_listCollections",
@@ -102,6 +104,22 @@ export type CallFunctionPayload = FunctionCallPayload & {
 
 export type GetOwnedObjectsOptions = {
   object_type?: string | null;
+};
+
+export type RpcObjectOwnerKindFilter = "address" | "shared" | "immutable";
+
+export type GetObjectsRequest = {
+  owner?: string | null;
+  owner_kind?: RpcObjectOwnerKindFilter | null;
+  object_type?: string | null;
+  min_version?: number | null;
+  max_version?: number | null;
+};
+
+export type ObjectRefPayload = {
+  object_id: string;
+  version?: number | null;
+  digest?: string | null;
 };
 
 function parseRpcEndpoints(): RpcEndpoint[] {
@@ -314,8 +332,27 @@ function normalizeAccount(address: string, value: unknown) {
 
 function normalizeTransaction(value: unknown) {
   const record = asRecord(value);
+  const status = String(record.status ?? "");
+  const normalizedStatus = status.toLowerCase();
+  const success =
+    typeof record.success === "boolean"
+      ? record.success
+      : ["success", "executed", "committed", "simulated_pending", "pending"].includes(normalizedStatus);
+  const previewed = typeof record.previewed === "boolean" ? record.previewed : normalizedStatus.includes("preview");
+  const submitted =
+    typeof record.submitted === "boolean"
+      ? record.submitted
+      : previewed || normalizedStatus === "pending" || normalizedStatus === "submitted" || normalizedStatus === "executed";
+  const committed =
+    typeof record.committed === "boolean"
+      ? record.committed
+      : normalizedStatus === "committed" || normalizedStatus === "success";
   return {
     ...record,
+    success,
+    previewed,
+    submitted,
+    committed,
     checkpoint_height: record.block_height ?? record.checkpoint_height ?? null,
     block_height: record.block_height ?? record.checkpoint_height ?? null,
     sender_address: record.sender_address ?? record.sender ?? null,
@@ -415,9 +452,25 @@ export async function getObject(object_id: string) {
   return callRpc(RPC_METHODS.GET_OBJECT, { object_id });
 }
 
+export async function getObjectByRef(object_ref: ObjectRefPayload) {
+  return callRpc(RPC_METHODS.GET_OBJECT_BY_REF, { object_ref });
+}
+
+export async function getObjects(request: GetObjectsRequest = {}) {
+  const response = await callRpc(RPC_METHODS.GET_OBJECTS, {
+    owner: request.owner ?? null,
+    owner_kind: request.owner_kind ?? null,
+    object_type: request.object_type ?? null,
+    min_version: request.min_version ?? null,
+    max_version: request.max_version ?? null,
+  });
+  return response?.objects ?? response;
+}
+
 export async function getOwnedObjects(owner: string, options: GetOwnedObjectsOptions = {}) {
-  const response = await callRpc(RPC_METHODS.GET_OWNED_OBJECTS, {
+  const response = await getObjects({
     owner,
+    owner_kind: "address",
     object_type: options.object_type ?? null,
   });
   return response?.objects ?? response;

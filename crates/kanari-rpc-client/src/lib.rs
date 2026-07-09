@@ -7,6 +7,7 @@
 
 use anyhow::{Context, Result};
 use kanari_rpc_api::*;
+use kanari_types::transaction::ObjectRef;
 use kanari_types::error::KanariUnwrapExt;
 use reqwest::Client;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,6 +96,27 @@ impl RpcClient {
             .await?;
 
         response.result.context("No result in response")
+    }
+
+    pub async fn get_object_by_ref(&self, object_ref: ObjectRef) -> Result<ObjectInfo> {
+        let response = self
+            .request(
+                methods::GET_OBJECT_BY_REF,
+                serde_json::to_value(GetObjectByRefRequest { object_ref })?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse object info")
+    }
+
+    pub async fn get_objects(&self, request: GetObjectsRequest) -> Result<OwnedObjectsResponse> {
+        let response = self
+            .request(methods::GET_OBJECTS, serde_json::to_value(request)?)
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse object query response")
     }
 
     /// Get block by height

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use kanari_rpc_api::ObjectInfo;
-use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData, OwnerInfo};
+use kanari_rpc_api::{
+    BlockData, BlockchainStats, FullBlockData, OwnerInfo, RpcObjectOwnerKindFilter,
+};
+use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use kanari_types::address::Address as KanariAddress;
 use log::{info, warn};
 
@@ -73,9 +76,34 @@ impl BlockchainEngine {
     }
 
     pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<ObjectInfo>> {
+        self.query_objects(None, None, Some(object_type), None, None)
+    }
+
+    pub fn query_objects(
+        &self,
+        owner: Option<&str>,
+        owner_kind: Option<RpcObjectOwnerKindFilter>,
+        object_type: Option<&str>,
+        min_version: Option<u64>,
+        max_version: Option<u64>,
+    ) -> Result<Vec<ObjectInfo>> {
         let state = self.state_read();
+        let owner_addr = owner
+            .map(KanariAddress::parse_to_account_address)
+            .transpose()?;
+        let owner_kind_filter = owner_kind.as_ref().map(|kind| match kind {
+            RpcObjectOwnerKindFilter::Address => ObjectOwnerKind::AddressOwner("".to_string()),
+            RpcObjectOwnerKindFilter::Shared => ObjectOwnerKind::Shared,
+            RpcObjectOwnerKindFilter::Immutable => ObjectOwnerKind::Immutable,
+        });
         Ok(state
-            .get_objects_by_type(object_type)?
+            .query_objects(
+                owner_addr,
+                owner_kind_filter.as_ref(),
+                object_type,
+                min_version,
+                max_version,
+            )?
             .into_iter()
             .map(|(id, obj)| {
                 let digest = obj.digest();
@@ -90,6 +118,33 @@ impl BlockchainEngine {
                 }
             })
             .collect())
+    }
+
+    pub fn get_object_by_ref(&self, object_ref: &ObjectRef) -> Result<Option<ObjectInfo>> {
+        let state = self.state_read();
+        let Some(obj) = state.get_object(&object_ref.object_id)? else {
+            return Ok(None);
+        };
+        if let Some(version) = object_ref.version
+            && obj.version != version
+        {
+            return Ok(None);
+        }
+        if let Some(digest) = &object_ref.digest
+            && obj.digest() != *digest
+        {
+            return Ok(None);
+        }
+        let digest = obj.digest();
+        Ok(Some(ObjectInfo {
+            id: object_ref.object_id.clone(),
+            owner: format!("{:#x}", obj.owner),
+            owner_kind: obj.owner_kind,
+            type_: obj.type_,
+            data: obj.data,
+            version: obj.version,
+            digest: Some(digest),
+        }))
     }
 
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
@@ -343,9 +398,9 @@ mod tests {
     fn signed_transfer(sequence_number: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             sender.tagged_address(),
-            "0xaaaa".to_string(),
+            ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
             recipient.address,
             1,
             sequence_number,
@@ -484,7 +539,7 @@ mod tests {
             .with_object_graph_edges(vec![ObjectGraphEdge {
                 source_object_ref: ObjectRef::new("0xgas", Some(1), Some("0xdef".to_string())),
                 target_object_ref: ObjectRef::new("0x1", Some(1), Some("0xabc".to_string())),
-                relation: ObjectGraphEdgeKind::GasPayment,
+                relation: ObjectGraphEdgeKind::GasCreate,
             }]);
 
         {

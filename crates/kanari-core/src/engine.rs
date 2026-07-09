@@ -1520,14 +1520,27 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    fn native_coin_object_ref(object_id: &str, balance: u64) -> ObjectRef {
+        let mut coin_data = vec![0u8; 40];
+        coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
+        ObjectRef::new(
+            object_id.to_string(),
+            Some(1),
+            Some(format!(
+                "0x{}",
+                hex::encode(kanari_crypto::hash_data_blake3(&coin_data))
+            )),
+        )
+    }
+
     fn signed_transfer_from(
         sender: &kanari_crypto::keys::KeyPair,
         sequence_number: u64,
     ) -> SignedTransaction {
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             sender.tagged_address(),
-            "0xaaaa".to_string(),
+            native_coin_object_ref("0xaaaa", 1_000_000),
             recipient.address,
             1,
             sequence_number,
@@ -1926,9 +1939,9 @@ mod tests {
             let coin_object_id = format!("0x{:0>64x}", i + 1);
             fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
 
-            let tx = Transaction::new_transfer(
+            let tx = Transaction::new_transfer_with_object_ref(
                 sender.tagged_address(),
-                coin_object_id,
+                native_coin_object_ref(&coin_object_id, 1_000_000),
                 recipient.address.clone(),
                 1,
                 0,
@@ -2051,9 +2064,9 @@ mod tests {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
 
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             sender.tagged_address(),
-            "0xaaaa".to_string(),
+            native_coin_object_ref("0xaaaa", 1_000_000),
             generate_keypair(CurveType::Ed25519).unwrap().address,
             1,
             0,

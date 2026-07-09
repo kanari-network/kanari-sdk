@@ -1,4 +1,6 @@
-use kanari_rpc_api::{ModuleInfo, ObjectInfo, RpcRequest, RpcResponse};
+use kanari_rpc_api::{
+    GetObjectByRefRequest, GetObjectsRequest, ModuleInfo, ObjectInfo, RpcRequest, RpcResponse,
+};
 use move_binary_format::CompiledModule;
 use std::collections::BTreeMap;
 
@@ -281,4 +283,64 @@ pub async fn handle_get_objects_by_type(
             summary: None,
         },
     )
+}
+
+pub async fn handle_get_objects(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: GetObjectsRequest = match parse_params(request.id, &request.params) {
+        Ok(r) => r,
+        Err(response) => return *response,
+    };
+
+    let objects = match state.engine.query_objects(
+        req.owner.as_deref(),
+        req.owner_kind,
+        req.object_type.as_deref(),
+        req.min_version,
+        req.max_version,
+    ) {
+        Ok(objects) => objects,
+        Err(e) => {
+            return internal_error_response(request.id, format!("Failed to query objects: {}", e));
+        }
+    };
+
+    respond_with_serialize(
+        request.id,
+        kanari_rpc_api::OwnedObjectsResponse {
+            summary: Some(kanari_rpc_api::OwnerObjectSummary {
+                owner: req.owner.unwrap_or_else(|| "*".to_string()),
+                total_objects: objects.len(),
+                object_changes_hint:
+                    "Prefer object refs and object graph edges for versioned/object-centric reads"
+                        .to_string(),
+            }),
+            objects,
+        },
+    )
+}
+
+pub async fn handle_get_object_by_ref(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req: GetObjectByRefRequest = match parse_params(request.id, &request.params) {
+        Ok(r) => r,
+        Err(response) => return *response,
+    };
+
+    if req.object_ref.version.is_none() || req.object_ref.digest.is_none() {
+        return invalid_params_response(
+            request.id,
+            "object_ref must include (object_id, version, digest)",
+        );
+    }
+
+    match state.engine.get_object_by_ref(&req.object_ref) {
+        Ok(Some(object)) => respond_with_serialize(request.id, object),
+        Ok(None) => internal_error_response(request.id, "Object ref not found"),
+        Err(e) => internal_error_response(
+            request.id,
+            format!("Failed to resolve object ref: {}", e),
+        ),
+    }
 }

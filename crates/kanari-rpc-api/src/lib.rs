@@ -163,6 +163,14 @@ pub struct ObjectInfo {
     pub digest: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcObjectOwnerKindFilter {
+    Address,
+    Shared,
+    Immutable,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockData {
     pub height: u64,
@@ -504,6 +512,25 @@ pub struct GetObjectsByTypeRequest {
     pub object_type: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetObjectsRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_kind: Option<RpcObjectOwnerKindFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_version: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetObjectByRefRequest {
+    pub object_ref: ObjectRef,
+}
+
 /// Get token balance request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTokenBalanceRequest {
@@ -766,6 +793,32 @@ pub mod methods {
         tags = ["object"]
     )]
     pub const GET_OBJECTS_BY_TYPE: &str = "kanari_getObjectsByType";
+    #[open_rpc_method(
+        summary = "Query objects",
+        description = "Returns objects filtered by owner, owner kind, object type, and/or version range.",
+        params = [(
+            "request",
+            "Object query filter payload.",
+            true,
+            object_schema(&[])
+        )],
+        result = ("objects", "Filtered object list.", schema_object()),
+        tags = ["object"]
+    )]
+    pub const GET_OBJECTS: &str = "kanari_getObjects";
+    #[open_rpc_method(
+        summary = "Get object by ref",
+        description = "Returns one object only if the full object ref (id, version, digest) matches the current canonical object.",
+        params = [(
+            "request",
+            "Full object ref payload.",
+            true,
+            object_schema(&[("object_ref", schema_object())])
+        )],
+        result = ("object", "Exact object ref match payload.", schema_object()),
+        tags = ["object"]
+    )]
+    pub const GET_OBJECT_BY_REF: &str = "kanari_getObjectByRef";
 
     // NFT queries
     #[open_rpc_method(

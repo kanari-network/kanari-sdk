@@ -6,6 +6,7 @@ import TransactionDetailsModal from "../components/TransactionDetailsModal";
 import {
   asArray,
   CopyButton,
+  describeTransactionLifecycle,
   EmptyState,
   formatBalance,
   PageHeader,
@@ -57,6 +58,19 @@ function readEffectArrayLength(transaction: unknown, key: string) {
   if (!effects) return 0;
   const value = effects[key];
   return Array.isArray(value) ? value.length : 0;
+}
+
+function readOwnerKindLabel(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "address owner";
+  const ownerKind = (value as Record<string, unknown>).owner_kind;
+  if (typeof ownerKind === "string" && ownerKind) return ownerKind.replace(/_/g, " ");
+  if (ownerKind && typeof ownerKind === "object" && !Array.isArray(ownerKind)) {
+    const record = ownerKind as Record<string, unknown>;
+    if ("AddressOwner" in record) return "address owner";
+    if ("Shared" in record) return "shared";
+    if ("Immutable" in record) return "immutable";
+  }
+  return "address owner";
 }
 
 function AccountContent() {
@@ -218,6 +232,7 @@ function AccountContent() {
               const fallbackHash = `transaction-${index}`;
               const hash = readTransactionHash(transaction, fallbackHash);
               const canOpen = hash !== fallbackHash;
+              const lifecycle = describeTransactionLifecycle(transaction);
               const objectInputs = readArrayLength(transaction, "object_inputs");
               const objectChanges = readEffectArrayLength(transaction, "object_changes");
               const graphEdges = readEffectArrayLength(transaction, "causal_edges");
@@ -246,7 +261,8 @@ function AccountContent() {
                   </div>
                   <div>
                     <p className="tiny-label">Status</p>
-                    <StatusPill label={readString(transaction, "status", "unknown")} />
+                    <StatusPill label={lifecycle.label} state={lifecycle.state} />
+                    {lifecycle.detail ? <div className="mono muted-text">{lifecycle.detail}</div> : null}
                   </div>
                   <div>
                     <p className="tiny-label">Objects</p>
@@ -272,6 +288,7 @@ function AccountContent() {
               const objectId = readString(object, "object_id", readString(object, "id", `object-${index}`));
               const objectType = readString(object, "type_", readString(object, "type", readString(object, "object_type", "-")));
               const owner = readString(object, "owner", address);
+              const ownerKind = readOwnerKindLabel(object);
               const dataBytes = readBytes(object, "data");
               const objectJson =
                 object && typeof object === "object" && !Array.isArray(object)
@@ -300,8 +317,16 @@ function AccountContent() {
                       </span>
                     </div>
                     <div className="object-detail-field">
+                      <p className="tiny-label">Owner Kind</p>
+                      <span className="mono">{ownerKind}</span>
+                    </div>
+                    <div className="object-detail-field">
                       <p className="tiny-label">Version</p>
                       <span className="mono">{readString(object, "version", "-")}</span>
+                    </div>
+                    <div className="object-detail-field">
+                      <p className="tiny-label">Digest</p>
+                      <span className="mono break-anywhere">{readString(object, "digest", "-")}</span>
                     </div>
                     <div className="object-detail-field">
                       <p className="tiny-label">Data Bytes</p>

@@ -7,7 +7,7 @@
 use anyhow::Result;
 use kanari_indexer::{Indexer, IndexerConfig};
 use kanari_types::block::Block;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -33,9 +33,13 @@ fn main() -> Result<()> {
     println!("✓ Genesis block indexed\n");
 
     // Create a sample transaction (for demonstration)
-    let _tx = SignedTransaction::new(Transaction::new_transfer(
+    let _tx = SignedTransaction::new(Transaction::new_transfer_with_object_ref(
         "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
-        "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
+        ObjectRef::new(
+            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            Some(1),
+            Some("0xexampledigest".to_string()),
+        ),
         "0x9999999999999999999999999999999999999999999999999999999999999999".to_string(),
         1000,
         0,

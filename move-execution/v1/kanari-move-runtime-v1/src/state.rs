@@ -779,13 +779,65 @@ impl StateManager {
     }
 
     pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<(String, CreatedObject)>> {
+        self.query_objects(
+            None,
+            None,
+            Some(object_type),
+            None,
+            None,
+        )
+    }
+
+    pub fn query_objects(
+        &self,
+        owner: Option<AccountAddress>,
+        owner_kind: Option<&ObjectOwnerKind>,
+        object_type: Option<&str>,
+        min_version: Option<u64>,
+        max_version: Option<u64>,
+    ) -> Result<Vec<(String, CreatedObject)>> {
         let object_ids: Vec<String> = self.load_internal(b"object_index")?.unwrap_or_default();
         let mut objects = Vec::new();
 
         for object_id in object_ids {
-            if let Some(object) = self.get_object(&object_id)?
-                && object.type_ == object_type
-            {
+            if let Some(object) = self.get_object(&object_id)? {
+                if let Some(owner) = owner
+                    && object.owner != owner
+                {
+                    continue;
+                }
+                if let Some(owner_kind) = owner_kind {
+                    let matches = match owner_kind {
+                        ObjectOwnerKind::AddressOwner(_) => {
+                            matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
+                        }
+                        ObjectOwnerKind::Shared => {
+                            matches!(object.owner_kind, ObjectOwnerKind::Shared)
+                        }
+                        ObjectOwnerKind::Immutable => {
+                            matches!(object.owner_kind, ObjectOwnerKind::Immutable)
+                        }
+                    };
+                    if !matches {
+                        continue;
+                    }
+                }
+                if let Some(object_type) = object_type
+                    && object.type_ != object_type
+                {
+                    continue;
+                }
+                if let Some(min_version) = min_version
+                    && object.version < min_version
+                {
+                    continue;
+                }
+                if let Some(max_version) = max_version
+                    && object.version > max_version
+                {
+                    continue;
+                }
+
                 objects.push((object_id, object));
             }
         }

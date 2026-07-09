@@ -124,6 +124,42 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
+    fn input_edge_relation(change_type: &ObjectChangeKind) -> ObjectGraphEdgeKind {
+        match change_type {
+            ObjectChangeKind::Created => ObjectGraphEdgeKind::InputCreate,
+            ObjectChangeKind::Mutated => ObjectGraphEdgeKind::InputMutate,
+            ObjectChangeKind::Deleted => ObjectGraphEdgeKind::InputDelete,
+            ObjectChangeKind::Transferred => ObjectGraphEdgeKind::InputTransfer,
+        }
+    }
+
+    fn shared_input_edge_relation(change_type: &ObjectChangeKind) -> ObjectGraphEdgeKind {
+        match change_type {
+            ObjectChangeKind::Created => ObjectGraphEdgeKind::SharedInputCreate,
+            ObjectChangeKind::Mutated => ObjectGraphEdgeKind::SharedInputMutate,
+            ObjectChangeKind::Deleted => ObjectGraphEdgeKind::SharedInputDelete,
+            ObjectChangeKind::Transferred => ObjectGraphEdgeKind::SharedInputTransfer,
+        }
+    }
+
+    fn immutable_input_edge_relation(change_type: &ObjectChangeKind) -> ObjectGraphEdgeKind {
+        match change_type {
+            ObjectChangeKind::Created => ObjectGraphEdgeKind::ImmutableInputCreate,
+            ObjectChangeKind::Mutated => ObjectGraphEdgeKind::ImmutableInputMutate,
+            ObjectChangeKind::Deleted => ObjectGraphEdgeKind::ImmutableInputDelete,
+            ObjectChangeKind::Transferred => ObjectGraphEdgeKind::ImmutableInputTransfer,
+        }
+    }
+
+    fn gas_edge_relation(change_type: &ObjectChangeKind) -> ObjectGraphEdgeKind {
+        match change_type {
+            ObjectChangeKind::Created => ObjectGraphEdgeKind::GasCreate,
+            ObjectChangeKind::Mutated => ObjectGraphEdgeKind::GasMutate,
+            ObjectChangeKind::Deleted => ObjectGraphEdgeKind::GasDelete,
+            ObjectChangeKind::Transferred => ObjectGraphEdgeKind::GasTransfer,
+        }
+    }
+
     fn with_status(gas_used: u64, success: bool, error_message: Option<String>) -> Self {
         Self {
             owner_deltas: BTreeMap::new(),
@@ -448,35 +484,52 @@ impl ChangeSet {
                         ObjectGraphEdgeKind::VersionSuccessor
                     },
                 });
+
+                if matches!(change.change_type, ObjectChangeKind::Transferred)
+                    && change.previous_owner != change.owner
+                {
+                    causal_edges.push(ObjectGraphEdge {
+                        source_object_ref: previous_object_ref.clone(),
+                        target_object_ref: change.object_ref.clone(),
+                        relation: ObjectGraphEdgeKind::OwnershipTransfer,
+                    });
+                }
             }
 
             for input in &self.input_objects {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: input.object_ref.clone(),
                     target_object_ref: change.object_ref.clone(),
-                    relation: ObjectGraphEdgeKind::Input,
+                    relation: Self::input_edge_relation(&change.change_type),
                 });
             }
             for input in &self.shared_inputs {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: input.clone(),
                     target_object_ref: change.object_ref.clone(),
-                    relation: ObjectGraphEdgeKind::SharedInput,
+                    relation: Self::shared_input_edge_relation(&change.change_type),
                 });
             }
             for input in &self.immutable_inputs {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: input.clone(),
                     target_object_ref: change.object_ref.clone(),
-                    relation: ObjectGraphEdgeKind::ImmutableInput,
+                    relation: Self::immutable_input_edge_relation(&change.change_type),
                 });
             }
             for input in &self.gas_object_refs {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: input.clone(),
                     target_object_ref: change.object_ref.clone(),
-                    relation: ObjectGraphEdgeKind::GasPayment,
+                    relation: Self::gas_edge_relation(&change.change_type),
                 });
+                if matches!(change.change_type, ObjectChangeKind::Created) {
+                    causal_edges.push(ObjectGraphEdge {
+                        source_object_ref: input.clone(),
+                        target_object_ref: change.object_ref.clone(),
+                        relation: ObjectGraphEdgeKind::CallContextCreate,
+                    });
+                }
             }
         }
 
@@ -485,21 +538,21 @@ impl ChangeSet {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: gas_ref.clone(),
                     target_object_ref: input_ref.clone(),
-                    relation: ObjectGraphEdgeKind::GasPayment,
+                    relation: ObjectGraphEdgeKind::GasMutate,
                 });
             }
             for input_ref in &self.shared_inputs {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: gas_ref.clone(),
                     target_object_ref: input_ref.clone(),
-                    relation: ObjectGraphEdgeKind::GasPayment,
+                    relation: ObjectGraphEdgeKind::GasMutate,
                 });
             }
             for input_ref in &self.immutable_inputs {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: gas_ref.clone(),
                     target_object_ref: input_ref.clone(),
-                    relation: ObjectGraphEdgeKind::GasPayment,
+                    relation: ObjectGraphEdgeKind::GasMutate,
                 });
             }
         }

@@ -27,8 +27,9 @@ use crate::{
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
-        handle_get_module, handle_get_object, handle_get_objects_by_type, handle_get_owned_objects,
-        handle_list_modules, handle_verify_module,
+        handle_get_module, handle_get_object, handle_get_object_by_ref, handle_get_objects,
+        handle_get_objects_by_type, handle_get_owned_objects, handle_list_modules,
+        handle_verify_module,
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
@@ -200,6 +201,8 @@ async fn handle_rpc(
 
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
+        methods::GET_OBJECT_BY_REF => handle_get_object_by_ref(&state, &request).await,
+        methods::GET_OBJECTS => handle_get_objects(&state, &request).await,
         methods::GET_OWNED_OBJECTS => handle_get_owned_objects(&state, &request).await,
         methods::GET_OBJECTS_BY_TYPE => handle_get_objects_by_type(&state, &request).await,
 
@@ -621,9 +624,13 @@ mod tests {
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
 
-        let mut transaction = Transaction::new_transfer(
+        let mut transaction = Transaction::new_transfer_with_object_ref(
             sender_tagged.clone(),
-            "0xaaaa".to_string(),
+            kanari_types::transaction::ObjectRef::new(
+                "0xaaaa",
+                Some(1),
+                Some("0xtest".to_string()),
+            ),
             recipient_address.clone(),
             1,
             0,
@@ -709,9 +716,13 @@ mod tests {
 
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
-        let transaction = Transaction::new_transfer(
+        let transaction = Transaction::new_transfer_with_object_ref(
             sender_tagged.clone(),
-            "0xaaaa".to_string(),
+            kanari_types::transaction::ObjectRef::new(
+                "0xaaaa",
+                Some(1),
+                Some("0xtest".to_string()),
+            ),
             recipient_address.clone(),
             1,
             0,

@@ -5,6 +5,7 @@ use crate::command::common::get_rpc_endpoint;
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::{RpcRequest, RpcResponse, methods};
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef};
 
 /// Call a view function (read-only, no transaction submission)
 ///
@@ -49,6 +50,18 @@ pub struct View {
     #[clap(long = "arg", short = 'a')]
     pub args: Vec<String>,
 
+    /// Explicit owned object input in the form OWNER,OBJECT_ID,VERSION,DIGEST
+    #[clap(long = "owned-input")]
+    pub owned_inputs: Vec<String>,
+
+    /// Explicit shared object input in the form OBJECT_ID,VERSION,DIGEST
+    #[clap(long = "shared-input")]
+    pub shared_inputs: Vec<String>,
+
+    /// Explicit immutable object input in the form OBJECT_ID,VERSION,DIGEST
+    #[clap(long = "immutable-input")]
+    pub immutable_inputs: Vec<String>,
+
     /// RPC endpoint URL (overrides default from config)
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
@@ -73,6 +86,10 @@ impl View {
 
         if !self.args.is_empty() {
             eprintln!("   Args: {} argument(s)", self.args.len());
+        }
+        let object_inputs = self.parse_object_inputs()?;
+        if !object_inputs.is_empty() {
+            eprintln!("   Object Inputs: {} explicit object ref(s)", object_inputs.len());
         }
 
         eprintln!("   RPC: {}\n", rpc);
@@ -102,7 +119,8 @@ impl View {
             "module": self.module,
             "function": self.function,
             "type_args": self.type_args,
-            "args": args_hex
+            "args": args_hex,
+            "object_inputs": object_inputs
         });
 
         let rpc_request = RpcRequest {
@@ -176,5 +194,53 @@ impl View {
         }
 
         Ok(())
+    }
+
+    fn parse_owned_input(&self, raw: &str) -> Result<ObjectInput> {
+        let parts: Vec<_> = raw.split(',').map(str::trim).collect();
+        if parts.len() != 4 {
+            anyhow::bail!("Invalid --owned-input. Expected OWNER,OBJECT_ID,VERSION,DIGEST");
+        }
+
+        Ok(ObjectInput {
+            object_ref: ObjectRef::new(
+                parts[1].to_string(),
+                Some(parts[2].parse().context("Invalid owned input version")?),
+                Some(parts[3].to_string()),
+            ),
+            owner: Some(ObjectOwnerKind::AddressOwner(parts[0].to_string())),
+            mutable: false,
+        })
+    }
+
+    fn parse_unowned_input(&self, raw: &str, owner: ObjectOwnerKind) -> Result<ObjectInput> {
+        let parts: Vec<_> = raw.split(',').map(str::trim).collect();
+        if parts.len() != 3 {
+            anyhow::bail!("Invalid object input. Expected OBJECT_ID,VERSION,DIGEST");
+        }
+
+        Ok(ObjectInput {
+            object_ref: ObjectRef::new(
+                parts[0].to_string(),
+                Some(parts[1].parse().context("Invalid object input version")?),
+                Some(parts[2].to_string()),
+            ),
+            owner: Some(owner),
+            mutable: false,
+        })
+    }
+
+    fn parse_object_inputs(&self) -> Result<Vec<ObjectInput>> {
+        let mut inputs = Vec::new();
+        for input in &self.owned_inputs {
+            inputs.push(self.parse_owned_input(input)?);
+        }
+        for input in &self.shared_inputs {
+            inputs.push(self.parse_unowned_input(input, ObjectOwnerKind::Shared)?);
+        }
+        for input in &self.immutable_inputs {
+            inputs.push(self.parse_unowned_input(input, ObjectOwnerKind::Immutable)?);
+        }
+        Ok(inputs)
     }
 }

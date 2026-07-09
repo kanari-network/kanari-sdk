@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::common::get_rpc_endpoint;
-use crate::command::rpc_helpers::wait_for_transaction_commit;
+use crate::command::rpc_helpers::{should_wait_for_commit, wait_for_transaction_commit};
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_client::RpcClient;
@@ -55,7 +55,12 @@ impl Faucet {
             status.committed
         );
 
-        if status.previewed && !status.committed {
+        if should_wait_for_commit(
+            status.success,
+            status.previewed,
+            status.submitted,
+            status.committed,
+        ) {
             eprintln!("Waiting for faucet transaction commit...");
             let client = RpcClient::new(&rpc);
             let committed = wait_for_transaction_commit(

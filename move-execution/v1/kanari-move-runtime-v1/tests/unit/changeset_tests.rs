@@ -162,7 +162,13 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
         effects
             .causal_edges
             .iter()
-            .any(|edge| matches!(edge.relation, ObjectGraphEdgeKind::GasPayment))
+            .any(|edge| matches!(edge.relation, ObjectGraphEdgeKind::GasCreate))
+    );
+    assert!(
+        effects
+            .causal_edges
+            .iter()
+            .any(|edge| matches!(edge.relation, ObjectGraphEdgeKind::OwnershipTransfer))
     );
     assert_eq!(
         effects.transferred[0]

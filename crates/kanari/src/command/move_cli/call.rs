@@ -6,17 +6,22 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::gas_and_coin_selection::build_native_gas_payment;
-use crate::command::rpc_helpers::{get_owner_info, wait_for_transaction_commit_blocking};
+use crate::command::rpc_helpers::{
+    get_owner_info, should_wait_for_commit, wait_for_transaction_commit_blocking,
+};
 use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Context, Result};
 use clap::*;
-use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
+use kanari_rpc_api::{CallFunctionRequest, ObjectInfo, RpcRequest, RpcResponse, methods};
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{
+    ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+};
 use kanari_types::{GasEstimate, GasOperation};
 use log::error;
 use move_core_types::{account_address::AccountAddress, parser, runtime_value::MoveValue};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 /// Call a Move function on the blockchain
@@ -148,6 +153,13 @@ impl Call {
             .owned_objects
             .as_ref()
             .context("Sender owner state has no owned object list from RPC")?;
+        let object_inputs = self.resolve_object_inputs(owned_objects)?;
+        if !object_inputs.is_empty() {
+            eprintln!(
+                "   Object Inputs: {} inferred object ref(s)",
+                object_inputs.len()
+            );
+        }
         let (selected_gas_coin, gas_payment) =
             build_native_gas_payment(owned_objects, &sender_for_tx, gas_limit, gas_price, &[])
                 .with_context(|| {
@@ -177,7 +189,7 @@ impl Call {
                 function: self.function.clone(),
                 type_args: parsed_type_args.clone(),
                 args: parsed_args.clone(),
-                object_inputs: Vec::new(),
+                object_inputs: object_inputs.clone(),
                 gas_payment: Some(gas_payment.clone()),
                 gas_limit,
                 gas_price,
@@ -199,7 +211,7 @@ impl Call {
             function: self.function.clone(),
             type_args: parsed_type_args.clone(),
             args: parsed_args.clone(),
-            object_inputs: None,
+            object_inputs: Some(object_inputs),
             gas_limit,
             gas_price,
             sequence_number: seq_num,
@@ -230,7 +242,22 @@ impl Call {
                         >(result.clone())
                         {
                             print_transaction_result("", &tx_result);
-                            if tx_result.previewed && !tx_result.committed {
+                            if !tx_result.success {
+                                anyhow::bail!(
+                                    "Move call failed: {}",
+                                    tx_result
+                                        .error_message
+                                        .clone()
+                                        .unwrap_or_else(|| tx_result.status.clone())
+                                );
+                            }
+
+                            if should_wait_for_commit(
+                                tx_result.success,
+                                tx_result.previewed,
+                                tx_result.submitted,
+                                tx_result.committed,
+                            ) {
                                 eprintln!("Waiting for transaction commit...");
                                 let committed = wait_for_transaction_commit_blocking(
                                     &client,
@@ -268,6 +295,48 @@ impl Call {
     }
 
     /// 🛠️ Flexible Deserialization Fix Function
+    fn resolve_object_inputs(&self, owned_objects: &[ObjectInfo]) -> Result<Vec<ObjectInput>> {
+        let object_index: BTreeMap<String, &ObjectInfo> = owned_objects
+            .iter()
+            .map(|object| {
+                (
+                    normalize_addr(&object.id).unwrap_or_else(|_| object.id.clone()),
+                    object,
+                )
+            })
+            .collect();
+
+        let mut inputs = Vec::new();
+        for arg in &self.args {
+            let Ok(normalized) = normalize_addr(arg) else {
+                continue;
+            };
+            let Some(object) = object_index.get(&normalized) else {
+                continue;
+            };
+
+            let owner = match &object.owner_kind {
+                ObjectOwnerKind::AddressOwner(address) => {
+                    Some(ObjectOwnerKind::AddressOwner(address.clone()))
+                }
+                ObjectOwnerKind::Shared => Some(ObjectOwnerKind::Shared),
+                ObjectOwnerKind::Immutable => Some(ObjectOwnerKind::Immutable),
+            };
+
+            inputs.push(ObjectInput {
+                object_ref: ObjectRef::new(
+                    object.id.clone(),
+                    Some(object.version),
+                    object.digest.clone(),
+                ),
+                owner,
+                mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
+            });
+        }
+
+        Ok(inputs)
+    }
+
     fn parse_arg_flexible(&self, arg: &str) -> Result<Vec<u8>> {
         let s = arg.trim();
 

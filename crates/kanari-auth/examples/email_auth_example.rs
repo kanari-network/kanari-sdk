@@ -13,6 +13,7 @@
 use anyhow::Result;
 use kanari_auth::AuthManager;
 use kanari_crypto::keys::CurveType;
+use kanari_types::transaction::ObjectRef;
 
 fn main() -> Result<()> {
     println!("=== Kanari Email-Based Authentication System ===\n");
@@ -58,7 +59,7 @@ fn main() -> Result<()> {
 
     let signed_tx = auth.sign_transfer(
         &session,
-        "0xaaaa",
+        ObjectRef::new("0xaaaa", Some(1), Some("0xexampledigest".to_string())),
         recipient,
         amount_mist,
         Some(100_000), // gas limit

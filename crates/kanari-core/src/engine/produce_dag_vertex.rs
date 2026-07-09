@@ -988,7 +988,7 @@ fn lock_write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
 mod tests {
     use super::*;
     use kanari_crypto::keys::{CurveType, generate_keypair};
-    use kanari_types::transaction::{SignedTransaction, Transaction};
+    use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 
     fn authority_key(seed: u8) -> ed25519_dalek::SigningKey {
         ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
@@ -997,9 +997,9 @@ mod tests {
     fn signed_transfer(sequence_number: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-        let tx = Transaction::new_transfer(
+        let tx = Transaction::new_transfer_with_object_ref(
             sender.tagged_address(),
-            "0xaaaa".to_string(),
+            ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
             recipient.address,
             1,
             sequence_number,

@@ -1,4 +1,4 @@
-import { EmptyState, RawDetails, readAddress, readString, shortHash } from "./ExplorerUI";
+import { describeTransactionLifecycle, EmptyState, RawDetails, readAddress, readString, shortHash, StatusPill } from "./ExplorerUI";
 import ObjectGraphView from "./ObjectGraphView";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
@@ -34,6 +34,12 @@ function readArray(value: unknown, key: string) {
   return Array.isArray(item) ? item : [];
 }
 
+function readBooleanField(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "false";
+  const item = (value as Record<string, unknown>)[key];
+  return item === true ? "true" : item === false ? "false" : String(item ?? "false");
+}
+
 function DetailItem({ label, value, mono = false, wide = false }: { label: string; value: string; mono?: boolean; wide?: boolean }) {
   if (!value || value === "-") return null;
 
@@ -59,7 +65,7 @@ export default function TransactionDetailsModal({
   if (!open) return null;
 
   const hash = readFirstString(transaction, ["hash", "tx_hash"]);
-  const status = readFirstString(transaction, ["status"], "unknown");
+  const status = describeTransactionLifecycle(transaction);
   const senderAddress = readAddress(transaction, "sender_address", "sender");
   const moduleFunctions = readOptionalArray(transaction, "module_functions");
   const effects = readObject(transaction, "effects");
@@ -107,13 +113,16 @@ export default function TransactionDetailsModal({
                   </strong>
                 </article>
                 <article className="tx-summary-card">
-                  <span className="tx-summary-label">Status</span>
-                  <strong className="tx-summary-value">{status}</strong>
+                  <span className="tx-summary-label">Lifecycle</span>
+                  <strong className="tx-summary-value">
+                    <StatusPill label={status.label} state={status.state} />
+                  </strong>
                 </article>
               </div>
 
               <section className="tx-detail-grid" aria-label="Transaction fields">
                 <DetailItem label="Type" value={readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ")} />
+                <DetailItem label="Status Detail" value={status.detail || readFirstString(transaction, ["status"], "unknown")} />
                 <DetailItem label="Checkpoint Height" value={readFirstString(transaction, ["checkpoint_height", "block_height", "height"])} mono />
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
@@ -126,6 +135,10 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Gas Objects" value={gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-"} mono />
                 <DetailItem label="Object Changes" value={effectObjectChanges > 0 ? String(effectObjectChanges) : "-"} mono />
                 <DetailItem label="Graph Edges" value={graphEdgeCount > 0 ? String(graphEdgeCount) : "-"} mono />
+                <DetailItem label="Previewed" value={readBooleanField(transaction, "previewed")} mono />
+                <DetailItem label="Submitted" value={readBooleanField(transaction, "submitted")} mono />
+                <DetailItem label="Committed" value={readBooleanField(transaction, "committed")} mono />
+                <DetailItem label="Success" value={readBooleanField(transaction, "success")} mono />
                 <DetailItem
                   label="Effects Summary"
                   value={

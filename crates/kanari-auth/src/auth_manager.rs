@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use kanari_crypto::{keys::CurveType, wallet};
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 
 use crate::private_key_crypto::{decrypt_private_key, encrypt_private_key};
@@ -264,15 +264,16 @@ impl AuthManager {
     /// # Examples
     /// ```ignore
     /// use kanari_auth::AuthManager;
-    /// use kanari_types::transaction::Transaction;
+    /// use kanari_types::transaction::{ObjectRef, Transaction};
     ///
     /// let mut auth = AuthManager::new();
     /// let session = auth.login("user@example.com", "SecurePassword123!", None)?;
     ///
     /// // Create your transaction here
-    /// let tx = Transaction::new_transfer(
+    /// let tx = Transaction::new_transfer_with_object_ref(
     ///     session.wallet_address.clone(),
-    ///     "0x2".to_string(),
+    ///     ObjectRef::new("0x2", Some(1), Some("0xdigest".to_string())),
+    ///     "0x3".to_string(),
     ///     1_000,
     ///     0,
     /// );
@@ -336,7 +337,7 @@ impl AuthManager {
     pub fn sign_transfer(
         &self,
         session: &Session,
-        coin_object_id: &str,
+        coin_object_ref: ObjectRef,
         to: &str,
         amount: u64,
         gas_limit: Option<u64>,
@@ -344,8 +345,13 @@ impl AuthManager {
     ) -> AuthResult<SignedTransaction> {
         let from = session.wallet_address.clone();
 
-        let mut transaction =
-            Transaction::new_transfer(from, coin_object_id.to_string(), to.to_string(), amount, 0);
+        let mut transaction = Transaction::new_transfer_with_object_ref(
+            from,
+            coin_object_ref,
+            to.to_string(),
+            amount,
+            0,
+        );
         if let Transaction::ExecuteFunction {
             gas_limit: tx_gas_limit,
             gas_price: tx_gas_price,

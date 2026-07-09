@@ -24,6 +24,16 @@ export function readString(value: unknown, key: string, fallback = "-") {
   return fallback;
 }
 
+export function readBoolean(value: unknown, key: string, fallback = false) {
+  const item = asRecord(value)[key];
+  if (typeof item === "boolean") return item;
+  if (typeof item === "string") {
+    if (item === "true") return true;
+    if (item === "false") return false;
+  }
+  return fallback;
+}
+
 export function readAddress(value: unknown, primaryKey: string, fallbackKey?: string, fallback = "-") {
   const primary = readString(value, primaryKey, "");
   if (primary) return primary;
@@ -174,6 +184,66 @@ export function StatusPill({ label, state = "ok" }: { label: string; state?: "ok
       <span className="status-pill__label">{label}</span>
     </span>
   );
+}
+
+export function describeTransactionLifecycle(value: unknown): {
+  detail: string;
+  flags: string[];
+  label: string;
+  state: "ok" | "warn" | "down";
+} {
+  const status = readString(value, "status", "").toLowerCase();
+  const success = readBoolean(
+    value,
+    "success",
+    ["success", "executed", "committed", "simulated_pending", "pending"].includes(status),
+  );
+  const previewed = readBoolean(value, "previewed", status.includes("preview"));
+  const submitted = readBoolean(
+    value,
+    "submitted",
+    previewed || status === "pending" || status === "submitted" || status === "executed",
+  );
+  const committed = readBoolean(value, "committed", status === "committed" || status === "success");
+  const failed =
+    !success ||
+    ["failed", "failure", "error", "rejected", "aborted"].some((token) => status.includes(token));
+
+  let label = "Unknown";
+  let state: "ok" | "warn" | "down" = "warn";
+
+  if (failed) {
+    label = committed ? "Committed / Failed" : submitted ? "Submitted / Failed" : "Failed";
+    state = "down";
+  } else if (committed) {
+    label = "Committed";
+    state = "ok";
+  } else if (submitted) {
+    label = "Submitted";
+    state = "ok";
+  } else if (previewed) {
+    label = "Previewed";
+    state = "warn";
+  } else if (status === "pending") {
+    label = "Pending";
+    state = "warn";
+  } else if (status) {
+    label = status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  const flags = [
+    previewed ? "previewed" : "",
+    submitted ? "submitted" : "",
+    committed ? "committed" : "",
+    success ? "success" : "failed",
+  ].filter(Boolean);
+
+  return {
+    detail: flags.join(" • "),
+    flags,
+    label,
+    state,
+  };
 }
 
 export function EmptyState({ loading, label }: { loading?: boolean; label: string }) {

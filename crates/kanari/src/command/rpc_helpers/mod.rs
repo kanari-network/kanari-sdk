@@ -15,6 +15,15 @@ use tokio::time::sleep;
 
 use crate::command::tx_output::print_rpc_error;
 
+pub fn should_wait_for_commit(
+    success: bool,
+    previewed: bool,
+    submitted: bool,
+    committed: bool,
+) -> bool {
+    success && previewed && submitted && !committed
+}
+
 pub fn sign_call_function_request(
     mut request: CallFunctionRequest,
     wallet: &Wallet,

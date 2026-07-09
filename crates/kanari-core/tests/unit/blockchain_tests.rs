@@ -1,11 +1,11 @@
 use super::*;
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::transaction::Transaction;
+use kanari_types::transaction::{ObjectRef, Transaction};
 
 fn test_tx(sequence_number: u64) -> SignedTransaction {
-    SignedTransaction::new(Transaction::new_transfer(
+    SignedTransaction::new(Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
-        "0xaaaa".to_string(),
+        ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
         "0x2".to_string(),
         1,
         sequence_number,
