@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData, OwnerInfo};
+use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use log::{info, warn};
 
@@ -69,6 +70,26 @@ impl BlockchainEngine {
                 owned_objects: Some(final_owned_objects),
             }
         })
+    }
+
+    pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<ObjectInfo>> {
+        let state = self.state_read();
+        Ok(state
+            .get_objects_by_type(object_type)?
+            .into_iter()
+            .map(|(id, obj)| {
+                let digest = obj.digest();
+                ObjectInfo {
+                    id,
+                    owner: format!("{:#x}", obj.owner),
+                    owner_kind: obj.owner_kind,
+                    type_: obj.type_,
+                    data: obj.data,
+                    version: obj.version,
+                    digest: Some(digest),
+                }
+            })
+            .collect())
     }
 
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
@@ -289,9 +310,17 @@ impl BlockchainEngine {
         function_name: &str,
         type_args: &[String],
         args: &[Vec<u8>],
+        object_inputs: &[kanari_types::transaction::ObjectInput],
     ) -> Result<serde_json::Value> {
         let runtime = &self.runtime_pool[0];
-        runtime.execute_view_function(package_addr, module_name, function_name, type_args, args)
+        runtime.execute_view_function(
+            package_addr,
+            module_name,
+            function_name,
+            type_args,
+            args,
+            object_inputs,
+        )
     }
 }
 

@@ -250,3 +250,35 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
         },
     )
 }
+
+/// Handle get objects by type request
+pub async fn handle_get_objects_by_type(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req: kanari_rpc_api::GetObjectsByTypeRequest =
+        match parse_params(request.id, &request.params) {
+            Ok(r) => r,
+            Err(response) => return *response,
+        };
+
+    let state_guard = state.engine.state_read();
+    drop(state_guard);
+    let objects = match state.engine.get_objects_by_type(&req.object_type) {
+        Ok(objects) => objects,
+        Err(e) => {
+            return internal_error_response(
+                request.id,
+                format!("Failed to get objects by type: {}", e),
+            );
+        }
+    };
+
+    respond_with_serialize(
+        request.id,
+        kanari_rpc_api::OwnedObjectsResponse {
+            objects,
+            summary: None,
+        },
+    )
+}

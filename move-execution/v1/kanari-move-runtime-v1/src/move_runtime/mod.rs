@@ -142,7 +142,7 @@ impl MoveRuntime {
         object_inputs: &[ObjectInput],
         requirements: &[ObjectParamBindingRequirement],
     ) -> Result<()> {
-        if object_inputs.is_empty() {
+        if requirements.is_empty() {
             return Ok(());
         }
 
@@ -1481,6 +1481,7 @@ impl MoveRuntime {
         function_name: &str,
         type_args: &[String],
         args: &[Vec<u8>],
+        object_inputs: &[ObjectInput],
     ) -> Result<serde_json::Value> {
         use move_core_types::account_address::AccountAddress;
 
@@ -1499,8 +1500,8 @@ impl MoveRuntime {
         let vm_guard = self.read_vm();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
-        // Preload object arguments so view functions can borrow them through natives.
-        self.preload_objects_for_execution(&mut session, args, &[])
+        // Preload declared object refs first; only fall back to arg scanning when none are declared.
+        self.preload_objects_for_execution(&mut session, args, object_inputs)
             .require("Failed to preload objects")?;
 
         // Parse and load type arguments before invocation.

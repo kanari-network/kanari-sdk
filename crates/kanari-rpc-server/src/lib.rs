@@ -27,8 +27,8 @@ use crate::{
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
-        handle_get_module, handle_get_object, handle_get_owned_objects, handle_list_modules,
-        handle_verify_module,
+        handle_get_module, handle_get_object, handle_get_objects_by_type,
+        handle_get_owned_objects, handle_list_modules, handle_verify_module,
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
@@ -201,6 +201,7 @@ async fn handle_rpc(
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
         methods::GET_OWNED_OBJECTS => handle_get_owned_objects(&state, &request).await,
+        methods::GET_OBJECTS_BY_TYPE => handle_get_objects_by_type(&state, &request).await,
 
         // NFT queries
         methods::GET_OWNED_NFTS => handle_get_owned_nfts(&state, &request).await,
@@ -648,6 +649,11 @@ mod tests {
             serde_json::json!({
                 "sender": sender_tagged,
                 "coin_object_id": "0xaaaa",
+                "coin_object_ref": {
+                    "object_id": "0xaaaa",
+                    "version": 1,
+                    "digest": "0xtest"
+                },
                 "recipient": recipient_address,
                 "amount": 1,
                 "gas_limit": 1_000_000,

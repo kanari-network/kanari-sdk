@@ -659,6 +659,15 @@ pub async fn handle_submit_object_transfer(
         Err(response) => return *response,
     };
 
+    if tx_data
+        .signature
+        .as_ref()
+        .map(|signature| signature.is_empty())
+        .unwrap_or(true)
+    {
+        return invalid_params_response(request.id, "Missing or empty signature");
+    }
+
     let recipient = match parse_hex_address(request.id, &tx_data.recipient, "recipient") {
         Ok(addr) => addr,
         Err(response) => return *response,
@@ -667,11 +676,24 @@ pub async fn handle_submit_object_transfer(
     let coin_object_ref = tx_data
         .coin_object_ref
         .clone()
-        .unwrap_or_else(|| ObjectRef::new(tx_data.coin_object_id.clone(), None, None));
-    if let Err(response) =
-        validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref)
-    {
+        .ok_or_else(|| {
+            invalid_params_response(
+                request.id,
+                "coin_object_ref is required and must include (object_id, version, digest)",
+            )
+        });
+    let coin_object_ref = match coin_object_ref {
+        Ok(object_ref) => object_ref,
+        Err(response) => return response,
+    };
+    if let Err(response) = validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref) {
         return response;
+    }
+    if !(coin_object_ref.version.is_some() && coin_object_ref.digest.is_some()) {
+        return invalid_params_response(
+            request.id,
+            "coin_object_ref must include (object_id, version, digest)",
+        );
     }
     if let Err(response) = validate_object_inputs_and_gas(request.id, &[], tx_data.gas_payment.as_ref()) {
         return response;
@@ -968,6 +990,13 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
     if let Err(response) = parse_hex_address(request.id, &view_data.package, "package address") {
         return *response;
     }
+    if let Err(response) = validate_object_inputs_and_gas(
+        request.id,
+        view_data.object_inputs.as_deref().unwrap_or(&[]),
+        None,
+    ) {
+        return response;
+    }
 
     info!(
         "Executing view function: {}::{}::{}",
@@ -980,6 +1009,7 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         &view_data.function,
         &view_data.type_args,
         &view_data.args,
+        view_data.object_inputs.as_deref().unwrap_or(&[]),
     ) {
         Ok(result) => {
             info!("View function executed successfully");

@@ -393,6 +393,8 @@ pub struct ViewFunctionRequest {
     pub type_args: Vec<String>,
     #[serde(deserialize_with = "deserialize_args")]
     pub args: Vec<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_inputs: Option<Vec<ObjectInput>>,
 }
 
 /// Custom deserializer for args that supports both hex strings and byte arrays
@@ -754,6 +756,19 @@ pub mod methods {
         tags = ["object"]
     )]
     pub const GET_OWNED_OBJECTS: &str = "kanari_getOwnedObjects";
+    #[open_rpc_method(
+        summary = "Get objects by type",
+        description = "Returns all known objects that match one exact object type string.",
+        params = [(
+            "request",
+            "Object type payload.",
+            true,
+            object_schema(&[("object_type", schema_string())])
+        )],
+        result = ("objects", "Object list.", schema_object()),
+        tags = ["object"]
+    )]
+    pub const GET_OBJECTS_BY_TYPE: &str = "kanari_getObjectsByType";
 
     // NFT queries
     #[open_rpc_method(

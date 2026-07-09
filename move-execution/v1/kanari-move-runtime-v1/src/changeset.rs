@@ -419,6 +419,11 @@ impl ChangeSet {
         let mut deleted = Vec::new();
         let mut transferred = Vec::new();
         let mut causal_edges = Vec::new();
+        let input_refs = self
+            .input_objects
+            .iter()
+            .map(|input| input.object_ref.clone())
+            .collect::<Vec<_>>();
 
         for change in &object_changes {
             match change.change_type {
@@ -465,6 +470,30 @@ impl ChangeSet {
                 causal_edges.push(ObjectGraphEdge {
                     source_object_ref: input.clone(),
                     target_object_ref: change.object_ref.clone(),
+                    relation: ObjectGraphEdgeKind::GasPayment,
+                });
+            }
+        }
+
+        for gas_ref in &self.gas_object_refs {
+            for input_ref in &input_refs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: gas_ref.clone(),
+                    target_object_ref: input_ref.clone(),
+                    relation: ObjectGraphEdgeKind::GasPayment,
+                });
+            }
+            for input_ref in &self.shared_inputs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: gas_ref.clone(),
+                    target_object_ref: input_ref.clone(),
+                    relation: ObjectGraphEdgeKind::GasPayment,
+                });
+            }
+            for input_ref in &self.immutable_inputs {
+                causal_edges.push(ObjectGraphEdge {
+                    source_object_ref: gas_ref.clone(),
+                    target_object_ref: input_ref.clone(),
                     relation: ObjectGraphEdgeKind::GasPayment,
                 });
             }

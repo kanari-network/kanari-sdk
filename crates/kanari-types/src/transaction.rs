@@ -212,6 +212,10 @@ impl ObjectRef {
             digest,
         }
     }
+
+    pub fn has_full_metadata(&self) -> bool {
+        self.version.is_some() && self.digest.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -446,17 +450,8 @@ impl Transaction {
 
     pub fn object_inputs(&self) -> Vec<ObjectInput> {
         match self {
-            Transaction::ExecuteFunction { object_inputs, .. } if !object_inputs.is_empty() => {
-                object_inputs.clone()
-            }
-            _ => match self.native_call() {
-                Some(NativeCall::Transfer { coin_object_id, .. }) => vec![ObjectInput {
-                    object_ref: ObjectRef::new(coin_object_id, None, None),
-                    owner: Some(ObjectOwnerKind::AddressOwner(self.sender().to_string())),
-                    mutable: true,
-                }],
-                _ => Vec::new(),
-            },
+            Transaction::ExecuteFunction { object_inputs, .. } => object_inputs.clone(),
+            Transaction::PublishModule { .. } => Vec::new(),
         }
     }
 
@@ -478,10 +473,7 @@ impl Transaction {
     }
 
     pub fn requires_strict_object_metadata(&self) -> bool {
-        matches!(
-            self,
-            Transaction::ExecuteFunction { .. } if !self.is_native_balance_call()
-        )
+        matches!(self, Transaction::ExecuteFunction { .. })
     }
 
     pub fn object_access_keys(&self) -> Vec<String> {

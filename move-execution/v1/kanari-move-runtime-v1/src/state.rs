@@ -778,6 +778,21 @@ impl StateManager {
         }))
     }
 
+    pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<(String, CreatedObject)>> {
+        let object_ids: Vec<String> = self.load_internal(b"object_index")?.unwrap_or_default();
+        let mut objects = Vec::new();
+
+        for object_id in object_ids {
+            if let Some(object) = self.get_object(&object_id)?
+                && object.type_ == object_type
+            {
+                objects.push((object_id, object));
+            }
+        }
+
+        Ok(objects)
+    }
+
     pub fn compute_state_root(&self) -> Vec<u8> {
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
             Ok(entries) => entries.into_iter().collect(),

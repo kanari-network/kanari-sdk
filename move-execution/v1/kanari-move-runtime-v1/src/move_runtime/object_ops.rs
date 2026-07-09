@@ -57,7 +57,15 @@ impl super::MoveRuntime {
                 .object_storage
                 .get_object(&canonical_id)
                 .map(|existing| existing.owner_kind)
-                .unwrap_or_else(|| crate::state::default_owner_kind_for_type(&obj_type, owner));
+                .unwrap_or_else(|| {
+                    if obj.is_frozen {
+                        kanari_types::transaction::ObjectOwnerKind::Immutable
+                    } else {
+                        kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                            owner.to_hex_literal(),
+                        )
+                    }
+                });
 
             if persist_runtime_state {
                 let stored_obj = StoredObject {
