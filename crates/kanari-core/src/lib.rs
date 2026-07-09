@@ -5,8 +5,10 @@ pub mod blockchain;
 pub mod consensus;
 pub mod engine;
 
-pub use consensus::{Checkpoint, DagVertex};
-pub use engine::{BlockchainEngine, CheckpointProductionInfo, CheckpointSyncData};
+pub use consensus::Checkpoint;
+pub use engine::{
+    BlockchainEngine, CheckpointProductionInfo, CheckpointSyncData, DagProductionPolicy, DagVertex,
+};
 pub use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData};
 
 pub use kanari_move_runtime_v1;

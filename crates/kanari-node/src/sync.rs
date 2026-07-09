@@ -1234,15 +1234,19 @@ mod tests {
     }
 
     fn test_dag_vertex(round: u64, author: &str) -> DagVertex {
-        DagVertex::new(
+        let mut vertex = DagVertex::new(
             round,
             author.to_string(),
-            "kanari-test".to_string(),
+            "kanari-v2-mysticeti".to_string(),
             vec![],
             vec![],
-            vec![0u8; 32],
             round,
-        )
+        );
+        // Assign a deterministic ID based on round so vertices are distinguishable.
+        let mut id = [0u8; 32];
+        id[..8].copy_from_slice(&round.to_le_bytes());
+        vertex.id = id;
+        vertex
     }
 
     fn apply_empty_checkpoint(engine: &BlockchainEngine, sequence: u64) {

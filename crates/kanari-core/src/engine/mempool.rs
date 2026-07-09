@@ -4,6 +4,20 @@
 use super::*;
 use ahash::AHashSet;
 
+/// Trait for normalizing address strings used across the engine.
+pub(crate) trait NormalizeAddr {
+    fn normalize_addr(addr: &str) -> String;
+}
+
+impl NormalizeAddr for BlockchainEngine {
+    fn normalize_addr(addr: &str) -> String {
+        use std::str::FromStr;
+        KanariAddress::from_str(addr)
+            .map(|a| a.to_hex())
+            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
+    }
+}
+
 impl BlockchainEngine {
     pub fn submit_transactions_batch(
         &self,
@@ -264,12 +278,5 @@ impl BlockchainEngine {
                 counts.remove(&sender);
             }
         }
-    }
-
-    pub(crate) fn normalize_addr(addr: &str) -> String {
-        use std::str::FromStr;
-        KanariAddress::from_str(addr)
-            .map(|a| a.to_hex())
-            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 }

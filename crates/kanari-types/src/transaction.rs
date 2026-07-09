@@ -209,7 +209,7 @@ pub enum Transaction {
 
 impl Transaction {
     pub const KANARI_MODULE: &'static str = "0x2::kanari";
-    pub const TRANSFER_AMOUNT_FUNCTION: &'static str = "transfer_amount";
+    pub const TRANSFER_AMOUNT_FUNCTION: &'static str = "transfer";
     pub const BURN_AMOUNT_FUNCTION: &'static str = "burn_amount";
 
     pub fn hash(&self) -> Vec<u8> {

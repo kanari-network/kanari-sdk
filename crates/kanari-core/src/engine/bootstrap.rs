@@ -52,18 +52,7 @@ impl BlockchainEngine {
 
     fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
         tracing::info!("Loading blockchain checkpoints");
-        let mut blockchain = Self::load_blockchain(&persistent_store);
-        tracing::info!("Loading Mysticeti DAG state");
-        let persisted_dag_state = Self::load_dag_state(&persistent_store);
-        tracing::info!("Repairing checkpoint index from DAG state");
-        if Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?
-            && let Some(store) = &persistent_store
-        {
-            let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
-            if let Err(e) = Self::persist_blockchain_snapshot_to_store(store, &chain) {
-                tracing::warn!("Failed to persist repaired blockchain: {}", e);
-            }
-        }
+        let blockchain = Self::load_blockchain(&persistent_store);
         tracing::info!("Opening state database");
         let state = Self::load_state(&persistent_store)?;
 
@@ -128,7 +117,6 @@ impl BlockchainEngine {
             dag_engine: Arc::new(RwLock::new(None)),
             authority_id,
             authorities,
-            persisted_dag_state,
             consensus_signing_key: None,
             consensus_public_keys: BTreeMap::new(),
         };
@@ -158,52 +146,6 @@ impl BlockchainEngine {
         }
 
         num_cpus::get().clamp(1, DEFAULT_MAX_RUNTIME_WORKERS)
-    }
-
-    pub(crate) fn repair_blockchain_from_dag_state(
-        blockchain: &mut Arc<RwLock<Blockchain>>,
-        persisted_dag_state: Option<&PersistentDagState>,
-    ) -> Result<bool> {
-        let Some(dag_state) = persisted_dag_state else {
-            return Ok(false);
-        };
-
-        let latest_dag_sequence = dag_state
-            .checkpoints
-            .last()
-            .map(|checkpoint| checkpoint.sequence)
-            .unwrap_or(0);
-        let dag_transaction_count: usize = dag_state
-            .checkpoints
-            .iter()
-            .map(|checkpoint| checkpoint.transactions.len())
-            .sum();
-
-        let (current_height, current_transaction_count) = {
-            let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
-            (chain.height(), chain.get_transaction_count())
-        };
-        if latest_dag_sequence == 0
-            || current_height > latest_dag_sequence
-            || (current_height > 0 && current_transaction_count >= dag_transaction_count)
-        {
-            return Ok(false);
-        }
-
-        let mut rebuilt = Blockchain::new();
-        for checkpoint in dag_state.checkpoints.iter().skip(1) {
-            rebuilt.add_checkpoint_with_validation(checkpoint.clone(), false)?;
-        }
-        rebuilt.rebuild_tx_hash_index();
-
-        info!(
-            "Recovered blockchain from persisted DAG state (height: {}, checkpoints: {}, txs: {})",
-            rebuilt.height(),
-            rebuilt.dag_checkpoints.len(),
-            rebuilt.get_transaction_count()
-        );
-        *blockchain = Arc::new(RwLock::new(rebuilt));
-        Ok(true)
     }
 
     fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
@@ -244,27 +186,5 @@ impl BlockchainEngine {
         };
         info!("Initializing StateManager with persistent store support (RocksDB)");
         Ok(Arc::new(RwLock::new(StateManager::try_new(store)?)))
-    }
-
-    fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {
-        if let Some(store) = store {
-            match store.load::<PersistentDagState>(b"dag_state") {
-                Ok(Some(mut state)) => {
-                    Self::hydrate_dag_state_transactions(store, &mut state);
-                    info!("Successfully loaded DAG consensus state from persistent store");
-                    Some(state)
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    error!(
-                        "Failed to load DAG state: {}. Falling back to fresh DAG.",
-                        e
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        }
     }
 }

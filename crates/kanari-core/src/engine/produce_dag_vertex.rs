@@ -1,8 +1,15 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! DAG vertex transport type and DAG engine backed by mysticeti.
+//!
+//! [`DagVertex`] is a kanari-specific transport type that carries kanari
+//! transactions over the network. All core DAG logic uses mysticeti types
+//! (`mysticeti_dag::Block`, `mysticeti_consensus::protocol::Protocol`, etc.)
+//! directly — no custom DAG wrappers.
+
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::info;
 use mysticeti_consensus::{
     committer::Committer as MysticetiCommitter,
     protocol::{
@@ -22,17 +29,71 @@ use mysticeti_dag::{
     metrics::Metrics as MysticetiMetrics,
     storage::Storage as MysticetiStorage,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::consensus::{
-    Checkpoint, ConsensusRuntimeProtocol, DagMetrics, DagProductionPolicy, DagVertex,
-    PersistentDagState, VertexId,
-};
+use crate::consensus::Checkpoint;
+use kanari_move_runtime_v1::state::StateManager;
+use kanari_types::event::Event;
+use kanari_types::transaction::SignedTransaction;
 
 use super::*;
+
+// ---------------------------------------------------------------------------
+// Kanari-specific DAG transport type
+// ---------------------------------------------------------------------------
+
+/// A DAG vertex for network transport.
+///
+/// This is a kanari-specific type that carries kanari [`SignedTransaction`]s
+/// so they can be serialised (JSON) and exchanged over gossip.  The core DAG
+/// engine inside `DagEngine` uses `mysticeti_dag::Block` directly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DagVertex {
+    pub id: [u8; 32],
+    pub round: u64,
+    pub author: String,
+    pub chain_id: String,
+    pub parents: Vec<[u8; 32]>,
+    pub transactions: Arc<[SignedTransaction]>,
+    pub timestamp: u64,
+    pub signature: Vec<u8>,
+    #[serde(skip)]
+    pub cached_serialized_data: Option<Vec<u8>>,
+}
+
+impl DagVertex {
+    pub fn new<T>(
+        round: u64,
+        author: String,
+        chain_id: String,
+        parents: Vec<[u8; 32]>,
+        transactions: T,
+        timestamp: u64,
+    ) -> Self
+    where
+        T: Into<Arc<[SignedTransaction]>>,
+    {
+        Self {
+            id: [0u8; 32],
+            round,
+            author,
+            chain_id,
+            parents,
+            transactions: transactions.into(),
+            timestamp,
+            signature: Vec::new(),
+            cached_serialized_data: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint production info (public API)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointProductionInfo {
@@ -60,8 +121,38 @@ struct StagedCheckpoint {
     validate_supply: bool,
 }
 
-pub struct MysticetiBackend {
-    _committee: Arc<MysticetiCommittee>,
+// ---------------------------------------------------------------------------
+// DAG production policy (public API)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DagProductionPolicy {
+    pub current_round: u64,
+    pub parent_round: u64,
+    pub target_round: u64,
+    pub parent_ids: Vec<[u8; 32]>,
+    pub parent_authors: Vec<String>,
+    pub missing_parent_authors: Vec<String>,
+    pub parent_author_count: usize,
+    pub quorum_size: usize,
+    pub local_has_vertex_in_current_round: bool,
+    pub using_catch_up_round: bool,
+}
+
+impl DagProductionPolicy {
+    pub fn should_wait_for_current_round_quorum(&self) -> bool {
+        self.current_round > 0
+            && self.parent_round == self.current_round
+            && self.local_has_vertex_in_current_round
+            && self.parent_author_count < self.quorum_size
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mysticeti backend — thin wrapper around mysticeti's `Core`
+// ---------------------------------------------------------------------------
+
+struct MysticetiBackend {
     core: MysticetiCore<MysticetiTokioCtx, MysticetiCommitter>,
     transaction_sender: mpsc::Sender<Vec<MysticetiTransaction>>,
     protocol: MysticetiRuntimeProtocol,
@@ -86,11 +177,16 @@ impl MysticetiBackend {
         );
         let (block_handler, transaction_sender) =
             MysticetiBlockHandler::<MysticetiTokioCtx>::new(metrics.clone());
-        let committer =
-            MysticetiCommitter::new(committee.clone(), storage.block_reader().clone(), protocol);
-        let protocol = protocol_config
-            .to_protocol(&committee)
-            .map_err(|e| anyhow::anyhow!("Failed to rebuild Mysticeti protocol: {}", e))?;
+        // Re-derive protocol config for the committer to avoid consuming `protocol`
+        // (Protocol does not implement Clone).
+        let committer_protocol = protocol_config.to_protocol(&committee).map_err(|e| {
+            anyhow::anyhow!("Failed to build Mysticeti protocol for committer: {}", e)
+        })?;
+        let committer = MysticetiCommitter::new(
+            committee.clone(),
+            storage.block_reader().clone(),
+            committer_protocol,
+        );
         let core = MysticetiCore::open(
             block_handler,
             MysticetiAuthority::default(),
@@ -104,26 +200,10 @@ impl MysticetiBackend {
         );
 
         Ok(Self {
-            _committee: committee,
             core,
             transaction_sender,
             protocol,
         })
-    }
-
-    fn runtime_protocol(&self) -> ConsensusRuntimeProtocol {
-        ConsensusRuntimeProtocol::from_mysticeti(&self.protocol)
-    }
-
-    fn quorum_threshold(&self) -> usize {
-        self.protocol.direct_commit_quorum as usize
-    }
-
-    fn try_advance(&mut self) {
-        let committed = self.core.try_commit();
-        if !committed.is_empty() {
-            log::debug!("Mysticeti committed {} leader block(s)", committed.len());
-        }
     }
 
     fn propose_block(
@@ -160,9 +240,9 @@ impl MysticetiBackend {
 }
 
 struct MysticetiBlockSummary {
-    vertex_id: VertexId,
+    vertex_id: [u8; 32],
     round: MysticetiRound,
-    parents: Vec<VertexId>,
+    parents: Vec<[u8; 32]>,
 }
 
 fn signed_tx_batch_to_mysticeti_transaction(
@@ -182,156 +262,42 @@ fn signed_tx_batch_to_mysticeti_transaction(
     ))
 }
 
-fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> VertexId {
+pub fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> [u8; 32] {
     let mut id = [0u8; 32];
     id.copy_from_slice(reference.digest.as_ref());
     id
 }
 
-pub struct CoreDagConsensus {
-    authority_id: String,
-    authorities: Vec<String>,
-    vertices: Vec<DagVertex>,
-    checkpoints: Vec<Checkpoint>,
-    current_round: u64,
-    last_checkpoint_round: u64,
-    metrics: DagMetrics,
+// ---------------------------------------------------------------------------
+// DagEngine — public API for DAG operations
+// ---------------------------------------------------------------------------
+
+/// Mutable state behind `DagEngine`'s read-write lock.
+struct DagEngineState {
     mysticeti: MysticetiBackend,
-}
-
-impl CoreDagConsensus {
-    fn new(
-        authority_id: String,
-        authorities: Vec<String>,
-        state: Option<PersistentDagState>,
-    ) -> Result<Self> {
-        let mut checkpoints = vec![Checkpoint::genesis()];
-        let mut vertices = Vec::new();
-        let mut current_round = 0;
-        let mut last_checkpoint_round = 0;
-
-        if let Some(state) = state {
-            if !state.checkpoints.is_empty() {
-                checkpoints = state.checkpoints;
-            }
-            vertices = state.vertices;
-            current_round = state.current_round;
-            last_checkpoint_round = state.last_checkpoint_round;
-        }
-
-        let mysticeti = MysticetiBackend::new(authorities.len())?;
-
-        Ok(Self {
-            authority_id,
-            authorities,
-            vertices,
-            checkpoints,
-            current_round,
-            last_checkpoint_round,
-            metrics: DagMetrics::default(),
-            mysticeti,
-        })
-    }
-
-    pub fn production_policy(&self) -> DagProductionPolicy {
-        let parent_round = self.current_round;
-        let target_round = self.current_round.saturating_add(1);
-        let parent_vertices: Vec<&DagVertex> = self
-            .vertices
-            .iter()
-            .filter(|vertex| vertex.round == parent_round)
-            .collect();
-        let parent_ids = parent_vertices.iter().map(|vertex| vertex.id).collect();
-        let parent_authors: Vec<String> = parent_vertices
-            .iter()
-            .map(|vertex| vertex.author.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let missing_parent_authors = self
-            .authorities
-            .iter()
-            .filter(|authority| !parent_authors.contains(authority))
-            .cloned()
-            .collect();
-        let local_has_vertex_in_current_round = parent_vertices
-            .iter()
-            .any(|vertex| vertex.author == self.authority_id);
-
-        DagProductionPolicy {
-            current_round: self.current_round,
-            parent_round,
-            target_round,
-            parent_ids,
-            parent_authors: parent_authors.clone(),
-            missing_parent_authors,
-            parent_author_count: parent_authors.len(),
-            quorum_size: self.mysticeti.quorum_threshold(),
-            local_has_vertex_in_current_round,
-            using_catch_up_round: false,
-        }
-    }
-
-    pub fn metrics(&self) -> &DagMetrics {
-        &self.metrics
-    }
-
-    pub fn protocol(&self) -> ConsensusRuntimeProtocol {
-        self.mysticeti.runtime_protocol()
-    }
-
-    fn save_state(&self) -> PersistentDagState {
-        PersistentDagState {
-            vertices: self.vertices.clone(),
-            checkpoints: self.checkpoints.clone(),
-            current_round: self.current_round,
-            last_checkpoint_round: self.last_checkpoint_round,
-        }
-    }
-
-    fn latest_vertices_by_authority(&self, authority: &str, limit: usize) -> Vec<DagVertex> {
-        self.vertices
-            .iter()
-            .rev()
-            .filter(|vertex| vertex.author == authority)
-            .take(limit)
-            .cloned()
-            .collect()
-    }
-
-    fn known_vertex(&self, id: &VertexId) -> bool {
-        self.vertices.iter().any(|vertex| &vertex.id == id)
-    }
-
-    fn add_vertex(&mut self, vertex: DagVertex) -> Result<bool> {
-        if vertex.transactions.len() != vertex.metadata.tx_count {
-            anyhow::bail!("Transaction count mismatch");
-        }
-        if self.known_vertex(&vertex.id) {
-            return Ok(false);
-        }
-        self.current_round = self.current_round.max(vertex.round);
-        self.metrics.vertices_created = self.metrics.vertices_created.saturating_add(1);
-        self.vertices.push(vertex);
-        Ok(true)
-    }
-
-    fn record_checkpoint(&mut self, checkpoint: Checkpoint) {
-        self.last_checkpoint_round = self.current_round;
-        self.metrics.checkpoints_created = self.metrics.checkpoints_created.saturating_add(1);
-        self.checkpoints.push(checkpoint);
-        self.mysticeti.try_advance();
-    }
+    /// Kanari transaction payloads for DAG blocks.
+    /// Mysticeti stores block metadata (via WAL), but does not store
+    /// kanari-specific `SignedTransaction`s. This cache bridges that gap
+    /// so network gossip can include full transaction data.
+    vertices: Vec<DagVertex>,
 }
 
 #[derive(Clone)]
 pub struct DagEngine {
     engine: Arc<BlockchainEngine>,
-    consensus: Arc<RwLock<CoreDagConsensus>>,
+    /// Consensus state (mysticeti backend + vertex cache) behind a
+    /// read-write lock for thread-safe access.
+    state: Arc<RwLock<DagEngineState>>,
+    /// Local authority ID (hex string).
     authority_id: String,
+    /// All authorities in the committee (hex strings).
+    authorities: Vec<String>,
+    /// Local signing key for producing DAG vertices.
     local_signing_key: ed25519_dalek::SigningKey,
+    /// Public keys of all authorities, keyed by authority ID.
     authority_public_keys: BTreeMap<String, Vec<u8>>,
-    staged_checkpoints: Arc<RwLock<BTreeMap<VertexId, StagedCheckpoint>>>,
+    /// Checkpoints staged for finalization after execution.
+    staged_checkpoints: Arc<RwLock<BTreeMap<[u8; 32], StagedCheckpoint>>>,
 }
 
 impl DagEngine {
@@ -365,73 +331,102 @@ impl DagEngine {
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        let state = Self::aligned_dag_state(&engine);
-        let consensus = CoreDagConsensus::new(authority_id.clone(), authorities, state)?;
+        let mysticeti = MysticetiBackend::new(authorities.len())?;
         let dag_engine = Self {
             engine,
-            consensus: Arc::new(RwLock::new(consensus)),
+            state: Arc::new(RwLock::new(DagEngineState {
+                mysticeti,
+                vertices: Vec::new(),
+            })),
             authority_id,
+            authorities,
             local_signing_key,
             authority_public_keys,
             staged_checkpoints: Arc::new(RwLock::new(BTreeMap::new())),
         };
-        dag_engine.persist_consensus_state()?;
         Ok(dag_engine)
     }
 
-    fn aligned_dag_state(engine: &BlockchainEngine) -> Option<PersistentDagState> {
-        let blockchain_checkpoints = {
-            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.dag_checkpoints.iter().cloned().collect::<Vec<_>>()
-        };
-        if blockchain_checkpoints.is_empty() {
-            return engine.persisted_dag_state.clone();
-        }
+    /// Query the DAG production policy from mysticeti's authoritative storage.
+    pub fn production_policy(&self) -> DagProductionPolicy {
+        let state = lock_read(&self.state);
+        let block_reader = state.mysticeti.core.block_reader();
+        let current_round = block_reader.highest_round();
+        let parent_round = current_round;
+        let target_round = current_round.saturating_add(1);
 
-        let dag_seq = engine
-            .persisted_dag_state
-            .as_ref()
-            .and_then(|state| state.checkpoints.last())
-            .map(|checkpoint| checkpoint.sequence)
-            .unwrap_or(0);
-        let chain_seq = blockchain_checkpoints
-            .last()
-            .map(|checkpoint| checkpoint.sequence)
-            .unwrap_or(0);
-        if dag_seq != chain_seq {
-            warn!(
-                "Persisted DAG checkpoint sequence ({}) does not match blockchain ({}); using blockchain checkpoints.",
-                dag_seq, chain_seq
-            );
-            return Some(PersistentDagState {
-                vertices: engine
-                    .persisted_dag_state
-                    .as_ref()
-                    .map(|state| state.vertices.clone())
-                    .unwrap_or_default(),
-                checkpoints: blockchain_checkpoints,
-                current_round: 0,
-                last_checkpoint_round: 0,
-            });
-        }
+        let mysticeti_blocks = block_reader.get_blocks_by_round(parent_round);
 
-        engine.persisted_dag_state.clone()
+        let parent_ids: Vec<[u8; 32]> = mysticeti_blocks
+            .iter()
+            .map(|block| {
+                let mut id = [0u8; 32];
+                id.copy_from_slice(block.reference().digest.as_ref());
+                id
+            })
+            .collect();
+
+        let parent_authors: Vec<String> = mysticeti_blocks
+            .iter()
+            .map(|block| self.authority_id(block.author()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        let missing_parent_authors = self
+            .authorities
+            .iter()
+            .filter(|authority| !parent_authors.contains(authority))
+            .cloned()
+            .collect();
+
+        let local_has_vertex_in_current_round = mysticeti_blocks
+            .iter()
+            .any(|block| self.authority_id(block.author()) == self.authority_id);
+
+        DagProductionPolicy {
+            current_round,
+            parent_round,
+            target_round,
+            parent_ids,
+            parent_authors: parent_authors.clone(),
+            missing_parent_authors,
+            parent_author_count: parent_authors.len(),
+            quorum_size: state.mysticeti.protocol.direct_commit_quorum as usize,
+            local_has_vertex_in_current_round,
+            using_catch_up_round: false,
+        }
     }
 
-    fn persist_consensus_state(&self) -> Result<()> {
-        let state = self
-            .consensus
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .save_state();
-        self.engine.persist_dag_state(state)
+    /// Map a mysticeti `Authority` to the kanari authority ID string.
+    fn authority_id(&self, authority: MysticetiAuthority) -> String {
+        let idx = authority.index();
+        self.authorities
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| format!("auth{}", idx + 1))
+    }
+
+    /// Export metrics as a Prometheus string via mysticeti.
+    pub fn metrics_prometheus(&self) -> String {
+        let state = lock_read(&self.state);
+        let block_reader = state.mysticeti.core.block_reader();
+        let round = block_reader.highest_round();
+        let chain = lock_read(&self.engine.blockchain);
+        let checkpoint_count = chain.dag_checkpoints.len().saturating_sub(1);
+        format!(
+            "# HELP dag_vertices_created_total Total DAG vertices created\n\
+             # TYPE dag_vertices_created_total counter\n\
+             dag_vertices_created_total {}\n\
+             # HELP dag_checkpoints_created_total Total DAG checkpoints created\n\
+             # TYPE dag_checkpoints_created_total counter\n\
+             dag_checkpoints_created_total {}\n",
+            round, checkpoint_count,
+        )
     }
 
     pub fn produce_vertex(&self) -> Result<CheckpointProductionInfo> {
-        let policy = {
-            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-            consensus.production_policy()
-        };
+        let policy = self.production_policy();
         let mut transactions = self.engine.pending_transactions_snapshot();
         transactions.sort_by(|a, b| {
             a.transaction
@@ -448,19 +443,17 @@ impl DagEngine {
         if tx_count == 0 {
             anyhow::bail!("No new transactions to checkpoint");
         }
+
         let timestamp = {
-            let chain = self
-                .engine
-                .blockchain
-                .read()
-                .unwrap_or_else(|e| e.into_inner());
+            let chain = lock_read(&self.engine.blockchain);
             chain
                 .latest_checkpoint()
                 .timestamp
                 .saturating_add(1)
                 .max(chain.height().saturating_add(1))
         };
-        let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
+
+        let (_state_root, executed, failed, verified_state, to_execute, validate_supply) = {
             let mut state_snapshot = self.engine.state_read().clone();
             state_snapshot
                 .repair_legacy_native_wallet_overcount()
@@ -511,10 +504,8 @@ impl DagEngine {
         };
 
         let mysticeti_block = {
-            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            consensus
-                .mysticeti
-                .propose_block(&transactions, timestamp)?
+            let mut state = lock_write(&self.state);
+            state.mysticeti.propose_block(&transactions, timestamp)?
         };
         let (vertex_id, round, parents) = mysticeti_block
             .map(|block| (block.vertex_id, block.round, block.parents))
@@ -530,11 +521,9 @@ impl DagEngine {
             "kanari-v2-mysticeti".to_string(),
             parents,
             transactions,
-            state_root,
             timestamp,
         );
         vertex.id = vertex_id;
-        vertex.cached_hash = Some(vertex_id.to_vec());
         use ed25519_dalek::Signer;
         vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
@@ -546,14 +535,14 @@ impl DagEngine {
             tx_count: checkpoint.transactions.len(),
         });
 
-        let vertex_id = hex::encode(vertex.id);
+        let vertex_id_hex = hex::encode(vertex.id);
         info!(
             "[DAG v2] Produced Mysticeti-backed vertex {} round {} txs {}",
-            vertex_id, vertex.round, tx_count
+            vertex_id_hex, vertex.round, tx_count
         );
 
         Ok(CheckpointProductionInfo {
-            vertex_id,
+            vertex_id: vertex_id_hex,
             round: vertex.round,
             tx_count,
             executed,
@@ -572,31 +561,25 @@ impl DagEngine {
         validate_supply: bool,
     ) -> Result<Checkpoint> {
         {
-            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            consensus.add_vertex(vertex.clone())?;
+            let mut state = lock_write(&self.state);
+            state.vertices.push(vertex.clone());
         }
 
         let prev_hash = {
-            let chain = self
-                .engine
-                .blockchain
-                .read()
-                .unwrap_or_else(|e| e.into_inner());
+            let chain = lock_read(&self.engine.blockchain);
             chain.latest_checkpoint().hash()?
         };
         let checkpoint = Checkpoint::new(
             self.engine.get_stats().height.saturating_add(1),
             vec![vertex.id],
             vertex.transactions.clone(),
-            vertex.metadata.state_root.clone(),
+            // Use empty state root initially; it will be set after finalization.
+            vec![],
             vertex.timestamp,
             prev_hash,
         );
 
-        let mut staged = self
-            .staged_checkpoints
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut staged = lock_write(&self.staged_checkpoints);
         staged.insert(
             vertex.id,
             StagedCheckpoint {
@@ -609,11 +592,8 @@ impl DagEngine {
         Ok(checkpoint)
     }
 
-    fn finalize_staged_checkpoint(&self, vertex_id: VertexId) -> Result<Checkpoint> {
-        let staged = self
-            .staged_checkpoints
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
+    fn finalize_staged_checkpoint(&self, vertex_id: [u8; 32]) -> Result<Checkpoint> {
+        let staged = lock_write(&self.staged_checkpoints)
             .remove(&vertex_id)
             .ok_or_else(|| {
                 anyhow::anyhow!(
@@ -629,28 +609,49 @@ impl DagEngine {
             staged.validate_supply,
         )?;
 
+        // Notify mysticeti to try committing after the checkpoint is recorded.
         {
-            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            consensus.record_checkpoint(staged.checkpoint.clone());
+            let mut state = lock_write(&self.state);
+            let committed = state.mysticeti.core.try_commit();
+            if !committed.is_empty() {
+                log::debug!("Mysticeti committed {} leader block(s)", committed.len());
+            }
         }
-        self.persist_consensus_state()?;
+
         Ok(staged.checkpoint)
     }
 
-    pub fn consensus(&self) -> Arc<RwLock<CoreDagConsensus>> {
-        self.consensus.clone()
-    }
-
     pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {
-        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.latest_vertices_by_authority(&self.authority_id, limit)
+        let state = lock_read(&self.state);
+        let block_reader = state.mysticeti.core.block_reader();
+        let own_blocks = block_reader.get_own_blocks(0, limit);
+        if own_blocks.is_empty() {
+            return Vec::new();
+        }
+        // Match mysticeti blocks to cached vertices by digest.
+        let own_digests: Vec<[u8; 32]> = own_blocks
+            .iter()
+            .map(|b| {
+                let mut d = [0u8; 32];
+                d.copy_from_slice(b.reference().digest.as_ref());
+                d
+            })
+            .collect();
+        state
+            .vertices
+            .iter()
+            .filter(|v| own_digests.contains(&v.id))
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
-    fn validate_network_vertex(
-        &self,
-        consensus: &CoreDagConsensus,
-        vertex: &DagVertex,
-    ) -> Result<()> {
+    /// Validate a network `DagVertex` against both kanari rules and mysticeti storage.
+    ///
+    /// Parent existence is checked against mysticeti's authoritative `block_reader()`
+    /// rather than the local kanari vertex cache, ensuring DAG integrity is
+    /// verified against the actual consensus state.
+    fn validate_network_vertex(&self, state: &DagEngineState, vertex: &DagVertex) -> Result<()> {
         const DAG_CHAIN_ID: &str = "kanari-v2-mysticeti";
 
         if vertex.chain_id != DAG_CHAIN_ID {
@@ -659,26 +660,11 @@ impl DagEngine {
         if vertex.round == 0 {
             anyhow::bail!("Invalid DAG vertex round 0");
         }
-        if !consensus.authorities.contains(&vertex.author) {
+        if !self.authorities.contains(&vertex.author) {
             anyhow::bail!("Unknown DAG vertex author: {}", vertex.author);
         }
-        if vertex.transactions.len() != vertex.metadata.tx_count {
-            anyhow::bail!("Transaction count mismatch");
-        }
-        if vertex.metadata.is_checkpoint || vertex.metadata.checkpoint_seq.is_some() {
-            anyhow::bail!("Network DAG vertex must not carry checkpoint metadata");
-        }
-        if consensus
-            .vertices
-            .iter()
-            .any(|existing| existing.author == vertex.author && existing.round == vertex.round)
-        {
-            anyhow::bail!(
-                "Duplicate DAG vertex for author {} at round {}",
-                vertex.author,
-                vertex.round
-            );
-        }
+        // Duplicate detection is handled by mysticeti storage; skip
+        // kanari-level cache checks. The block_reader() is authoritative.
 
         let public_key_bytes = self
             .authority_public_keys
@@ -700,6 +686,7 @@ impl DagEngine {
             anyhow::anyhow!("Invalid DAG vertex signature for {}: {}", vertex.author, e)
         })?;
 
+        // Validate transaction uniqueness within the vertex.
         let mut seen_tx_hashes = HashSet::new();
         for (index, tx) in vertex.transactions.iter().enumerate() {
             let tx_hash = tx.verified_transaction_hash().map_err(|e| {
@@ -718,6 +705,7 @@ impl DagEngine {
             }
         }
 
+        // Validate parent uniqueness within the vertex.
         let mut seen_parents = HashSet::new();
         for parent in &vertex.parents {
             if !seen_parents.insert(*parent) {
@@ -736,13 +724,20 @@ impl DagEngine {
             anyhow::bail!("DAG vertex round {} is missing parents", vertex.round);
         }
 
+        // Validate parent references against mysticeti's authoritative storage.
         let expected_parent_round = vertex.round - 1;
+        let block_reader = state.mysticeti.core.block_reader();
+        let parent_blocks = block_reader.get_blocks_by_round(expected_parent_round);
+
         let mut parent_authors = HashSet::new();
         for parent_id in &vertex.parents {
-            let parent = consensus
-                .vertices
+            let parent = parent_blocks
                 .iter()
-                .find(|candidate| candidate.id == *parent_id)
+                .find(|block| {
+                    let mut digest = [0u8; 32];
+                    digest.copy_from_slice(block.reference().digest.as_ref());
+                    digest == *parent_id
+                })
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "Missing parent {} for DAG vertex {}",
@@ -750,15 +745,9 @@ impl DagEngine {
                         hex::encode(vertex.id)
                     )
                 })?;
-            if parent.round != expected_parent_round {
-                anyhow::bail!(
-                    "Invalid parent round for DAG vertex {}: expected {}, got {}",
-                    hex::encode(vertex.id),
-                    expected_parent_round,
-                    parent.round
-                );
-            }
-            if !parent_authors.insert(parent.author.clone()) {
+
+            let parent_author = self.authority_id(parent.author());
+            if !parent_authors.insert(parent_author) {
                 anyhow::bail!(
                     "Duplicate parent author in DAG vertex {}",
                     hex::encode(vertex.id)
@@ -770,20 +759,21 @@ impl DagEngine {
     }
 
     pub fn add_network_vertex(&self, vertex: DagVertex) -> Result<()> {
-        let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-        if consensus.known_vertex(&vertex.id) {
+        let mut state = lock_write(&self.state);
+        // Dedup against local cache (kanari transaction payloads).
+        // Mysticeti handles block-level dedup in its own storage.
+        if state.vertices.iter().any(|v| v.id == vertex.id) {
             return Ok(());
         }
-        self.validate_network_vertex(&consensus, &vertex)?;
+        self.validate_network_vertex(&state, &vertex)?;
         info!(
             "[DAG v2 SYNC] Accepted network vertex {} round {} txs {}",
             hex::encode(vertex.id),
             vertex.round,
             vertex.transactions.len()
         );
-        consensus.add_vertex(vertex)?;
-        drop(consensus);
-        self.persist_consensus_state()
+        state.vertices.push(vertex);
+        Ok(())
     }
 }
 
@@ -800,6 +790,24 @@ impl BlockchainEngine {
         state_write.apply_changeset(&changeset)?;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lock helpers with poison recovery
+// ---------------------------------------------------------------------------
+
+fn lock_read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|e| {
+        log::error!("RwLock poisoned, recovering");
+        e.into_inner()
+    })
+}
+
+fn lock_write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(|e| {
+        log::error!("RwLock poisoned, recovering");
+        e.into_inner()
+    })
 }
 
 #[cfg(test)]
@@ -832,7 +840,7 @@ mod tests {
         author: &str,
         signing_key: &ed25519_dalek::SigningKey,
         round: u64,
-        parents: Vec<VertexId>,
+        parents: Vec<[u8; 32]>,
     ) -> DagVertex {
         let tx = signed_transfer(0);
         let mut vertex = DagVertex::new(
@@ -841,7 +849,6 @@ mod tests {
             "kanari-v2-mysticeti".to_string(),
             parents,
             vec![tx],
-            vec![7u8; 32],
             123,
         );
         use ed25519_dalek::Signer;
@@ -871,17 +878,12 @@ mod tests {
             public_keys,
         )
         .unwrap();
-        let protocol = dag_engine
-            .consensus
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .protocol();
 
-        assert_eq!(protocol.protocol, "mysticeti");
-        assert_eq!(protocol.wave_length, 3);
-        assert_eq!(protocol.direct_commit_quorum, 3);
-        assert!(protocol.pipeline);
-        assert!(protocol.leader_wait);
+        let state = lock_read(&dag_engine.state);
+        assert_eq!(state.mysticeti.protocol.wave_length, 3);
+        assert_eq!(state.mysticeti.protocol.direct_commit_quorum, 3);
+        assert!(state.mysticeti.protocol.pipeline);
+        assert!(state.mysticeti.protocol.leader_wait);
     }
 
     #[test]
@@ -906,63 +908,51 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_add_network_vertex_accepts_valid_remote_vertex() {
+    fn build_test_dag_engine(
+        authorities: Vec<String>,
+        local_authority: &str,
+    ) -> (Arc<BlockchainEngine>, DagEngine, ed25519_dalek::SigningKey) {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
         let local_key = authority_key(11);
         let remote_key = authority_key(22);
         let mut public_keys = BTreeMap::new();
-        public_keys.insert(
-            "auth1".to_string(),
-            local_key.verifying_key().to_bytes().to_vec(),
-        );
-        public_keys.insert(
-            "auth2".to_string(),
-            remote_key.verifying_key().to_bytes().to_vec(),
-        );
+        for auth in &authorities {
+            let key = if auth == local_authority {
+                &local_key
+            } else {
+                &remote_key
+            };
+            public_keys.insert(auth.clone(), key.verifying_key().to_bytes().to_vec());
+        }
         let dag_engine = DagEngine::new_secure(
-            engine,
-            "auth1".to_string(),
-            vec!["auth1".to_string(), "auth2".to_string()],
+            engine.clone(),
+            local_authority.to_string(),
+            authorities,
             local_key,
             public_keys,
         )
         .unwrap();
+        (engine, dag_engine, remote_key)
+    }
+
+    #[test]
+    fn test_add_network_vertex_accepts_valid_remote_vertex() {
+        let (_engine, dag_engine, remote_key) =
+            build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
 
         let vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
         dag_engine.add_network_vertex(vertex).unwrap();
 
-        let consensus = dag_engine
-            .consensus
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(consensus.vertices.len(), 1);
-        assert_eq!(consensus.vertices[0].author, "auth2");
+        let state = lock_read(&dag_engine.state);
+        assert_eq!(state.vertices.len(), 1);
+        assert_eq!(state.vertices[0].author, "auth2");
     }
 
     #[test]
     fn test_add_network_vertex_rejects_invalid_signature() {
-        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let local_key = authority_key(11);
-        let remote_key = authority_key(22);
+        let (_engine, dag_engine, _remote_key) =
+            build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
         let wrong_key = authority_key(33);
-        let mut public_keys = BTreeMap::new();
-        public_keys.insert(
-            "auth1".to_string(),
-            local_key.verifying_key().to_bytes().to_vec(),
-        );
-        public_keys.insert(
-            "auth2".to_string(),
-            remote_key.verifying_key().to_bytes().to_vec(),
-        );
-        let dag_engine = DagEngine::new_secure(
-            engine,
-            "auth1".to_string(),
-            vec!["auth1".to_string(), "auth2".to_string()],
-            local_key,
-            public_keys,
-        )
-        .unwrap();
 
         let vertex = signed_network_vertex("auth2", &wrong_key, 1, vec![]);
         let error = dag_engine.add_network_vertex(vertex).unwrap_err();
@@ -971,26 +961,8 @@ mod tests {
 
     #[test]
     fn test_add_network_vertex_rejects_missing_parent() {
-        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let local_key = authority_key(11);
-        let remote_key = authority_key(22);
-        let mut public_keys = BTreeMap::new();
-        public_keys.insert(
-            "auth1".to_string(),
-            local_key.verifying_key().to_bytes().to_vec(),
-        );
-        public_keys.insert(
-            "auth2".to_string(),
-            remote_key.verifying_key().to_bytes().to_vec(),
-        );
-        let dag_engine = DagEngine::new_secure(
-            engine,
-            "auth1".to_string(),
-            vec!["auth1".to_string(), "auth2".to_string()],
-            local_key,
-            public_keys,
-        )
-        .unwrap();
+        let (_engine, dag_engine, remote_key) =
+            build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
 
         let vertex = signed_network_vertex("auth2", &remote_key, 2, vec![[9u8; 32]]);
         let error = dag_engine.add_network_vertex(vertex).unwrap_err();

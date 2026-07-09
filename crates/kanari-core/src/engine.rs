@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::blockchain::Blockchain;
-use crate::consensus::{
-    Checkpoint, DagMetrics, DagProductionPolicy, DagVertex, PersistentDagState,
-};
+use crate::consensus::Checkpoint;
 use ahash::AHashMap;
 use anyhow::{Context, Result};
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -14,7 +12,7 @@ use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::event::Event;
+
 use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
@@ -39,7 +37,7 @@ mod mempool;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
-pub use produce_dag_vertex::{CheckpointProductionInfo, DagEngine};
+pub use produce_dag_vertex::{CheckpointProductionInfo, DagEngine, DagProductionPolicy, DagVertex};
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -80,8 +78,6 @@ pub struct BlockchainEngine {
     authority_id: String,
     // List of all authorities (validators) in the network
     authorities: Vec<String>,
-    // Persisted DAG state, loaded on startup
-    persisted_dag_state: Option<PersistentDagState>,
     // Optional production-safe DAG signing key. When absent, DAG mode uses
     // deterministic demo keys for tests/local development only.
     consensus_signing_key: Option<ed25519_dalek::SigningKey>,
@@ -198,12 +194,6 @@ impl BlockchainEngine {
         b"tx_recent"
     }
 
-    fn vertex_transactions_key(vertex_id: &[u8; 32]) -> Vec<u8> {
-        let mut key = b"dag_vertex_txs/".to_vec();
-        key.extend_from_slice(hex::encode(vertex_id).as_bytes());
-        key
-    }
-
     fn checkpoint_without_transactions(checkpoint: &Checkpoint) -> Checkpoint {
         Checkpoint::new(
             checkpoint.sequence,
@@ -213,12 +203,6 @@ impl BlockchainEngine {
             checkpoint.timestamp,
             checkpoint.prev_checkpoint_hash.clone(),
         )
-    }
-
-    fn vertex_without_transactions(vertex: &DagVertex) -> DagVertex {
-        let mut slim = vertex.clone();
-        slim.transactions = Vec::new().into();
-        slim
     }
 
     fn persist_checkpoint_transactions(
@@ -297,7 +281,7 @@ impl BlockchainEngine {
     fn load_checkpoint_transactions(
         store: &PersistentStore,
         sequence: u64,
-    ) -> Option<crate::consensus::TransactionBatch> {
+    ) -> Option<Arc<[SignedTransaction]>> {
         store
             .load(&Self::checkpoint_transactions_key(sequence))
             .map_err(|e| {
@@ -343,19 +327,6 @@ impl BlockchainEngine {
         Some((tx, location))
     }
 
-    fn persist_vertex_transactions(store: &PersistentStore, vertex: &DagVertex) -> Result<()> {
-        if vertex.transactions.is_empty() {
-            return Ok(());
-        }
-        store
-            .save(
-                &Self::vertex_transactions_key(&vertex.id),
-                &vertex.transactions,
-            )
-            .context("Failed to persist DAG vertex transaction payload")?;
-        Ok(())
-    }
-
     fn persist_blockchain_snapshot_to_store(
         store: &PersistentStore,
         chain: &Blockchain,
@@ -385,61 +356,6 @@ impl BlockchainEngine {
 
     fn hydrate_blockchain_transactions(store: &PersistentStore, chain: &mut Blockchain) {
         for checkpoint in &mut chain.dag_checkpoints {
-            if !checkpoint.transactions.is_empty() || checkpoint.sequence == 0 {
-                continue;
-            }
-            if let Some(transactions) =
-                Self::load_checkpoint_transactions(store, checkpoint.sequence)
-            {
-                checkpoint.transactions = transactions;
-            }
-        }
-    }
-
-    fn slim_persistent_dag_state(state: &PersistentDagState) -> PersistentDagState {
-        PersistentDagState {
-            vertices: state
-                .vertices
-                .iter()
-                .map(Self::vertex_without_transactions)
-                .collect(),
-            checkpoints: state
-                .checkpoints
-                .iter()
-                .map(Self::checkpoint_without_transactions)
-                .collect(),
-            current_round: state.current_round,
-            last_checkpoint_round: state.last_checkpoint_round,
-        }
-    }
-
-    fn persist_dag_payloads(store: &PersistentStore, state: &PersistentDagState) -> Result<()> {
-        for vertex in &state.vertices {
-            Self::persist_vertex_transactions(store, vertex)?;
-        }
-        for checkpoint in &state.checkpoints {
-            Self::persist_checkpoint_transactions(store, checkpoint)?;
-        }
-        Ok(())
-    }
-
-    fn hydrate_dag_state_transactions(store: &PersistentStore, state: &mut PersistentDagState) {
-        for vertex in &mut state.vertices {
-            if !vertex.transactions.is_empty() {
-                continue;
-            }
-            match store.load(&Self::vertex_transactions_key(&vertex.id)) {
-                Ok(Some(transactions)) => vertex.transactions = transactions,
-                Ok(None) => {}
-                Err(e) => tracing::warn!(
-                    vertex = %hex::encode(vertex.id),
-                    "Failed to hydrate DAG vertex transaction payload: {}",
-                    e
-                ),
-            }
-        }
-
-        for checkpoint in &mut state.checkpoints {
             if !checkpoint.transactions.is_empty() || checkpoint.sequence == 0 {
                 continue;
             }
@@ -949,17 +865,6 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    pub(crate) fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
-        if let Some(store) = &self.persistent_store {
-            Self::persist_dag_payloads(store, &state)?;
-            let slim = Self::slim_persistent_dag_state(&state);
-            store
-                .save(b"dag_state", &slim)
-                .context("Failed to persist DAG state")?;
-        }
-        Ok(())
-    }
-
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
@@ -1182,15 +1087,7 @@ impl BlockchainEngine {
 
     pub fn dag_production_policy(&self) -> Result<DagProductionPolicy> {
         let dag_engine = self.dag_engine_instance()?;
-        let consensus_lock = dag_engine.consensus();
-        let consensus = match consensus_lock.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Consensus lock poisoned while reading DAG production policy");
-                poisoned.into_inner()
-            }
-        };
-        Ok(consensus.production_policy())
+        Ok(dag_engine.production_policy())
     }
 
     pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
@@ -1212,7 +1109,6 @@ impl BlockchainEngine {
             dag_engine: Arc::new(RwLock::new(None)),
             authority_id: self.authority_id.clone(),
             authorities: self.authorities.clone(),
-            persisted_dag_state: self.persisted_dag_state.clone(),
             consensus_signing_key: self.consensus_signing_key.clone(),
             consensus_public_keys: self.consensus_public_keys.clone(),
         }
@@ -1300,26 +1196,17 @@ impl BlockchainEngine {
         };
 
         if let Some(dag_engine) = dag_engine_guard.as_ref() {
-            let consensus_lock = dag_engine.consensus();
-            let consensus = match consensus_lock.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("Consensus lock poisoned in metrics export");
-                    poisoned.into_inner()
-                }
-            };
-            return consensus.metrics().export_prometheus();
+            return Ok(dag_engine.metrics_prometheus());
         }
 
-        DagMetrics::default().export_prometheus()
+        Ok(String::new())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::BlockchainEngine;
-    use crate::blockchain::Blockchain;
-    use crate::consensus::{Checkpoint, PersistentDagState};
+    use crate::consensus::Checkpoint;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
     use kanari_move_runtime_v1::state::Account;
@@ -1527,58 +1414,6 @@ mod tests {
         assert_eq!(restarted.get_stats().height, 0);
         let err = restarted.produce_checkpoint().unwrap_err();
         assert!(err.to_string().contains("No new transactions"));
-    }
-
-    #[test]
-    fn restart_repairs_missing_transaction_history_from_dag_state() {
-        let sender = generate_keypair(CurveType::Ed25519).unwrap();
-        let tx = signed_transfer_from(&sender, 0);
-
-        let genesis = Checkpoint::genesis();
-        let prev_hash = genesis.hash().unwrap();
-        let vertex_id = [9u8; 32];
-        let state_root = vec![7u8; 32];
-        let timestamp = 42;
-
-        let broken_checkpoint = Checkpoint::new(
-            1,
-            vec![vertex_id],
-            Vec::new(),
-            state_root.clone(),
-            timestamp,
-            prev_hash.clone(),
-        );
-        let good_checkpoint = Checkpoint::new(
-            1,
-            vec![vertex_id],
-            vec![tx],
-            state_root,
-            timestamp,
-            prev_hash,
-        );
-
-        let mut broken_chain = Blockchain::new();
-        broken_chain
-            .add_checkpoint_with_validation(broken_checkpoint, false)
-            .unwrap();
-        let mut chain = Arc::new(RwLock::new(broken_chain));
-
-        let repaired = BlockchainEngine::repair_blockchain_from_dag_state(
-            &mut chain,
-            Some(&PersistentDagState {
-                vertices: Vec::new(),
-                checkpoints: vec![genesis, good_checkpoint],
-                current_round: 1,
-                last_checkpoint_round: 1,
-            }),
-        )
-        .unwrap();
-
-        assert!(repaired);
-        let repaired_chain = chain.read().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(repaired_chain.height(), 1);
-        assert_eq!(repaired_chain.get_transaction_count(), 1);
-        assert_eq!(repaired_chain.latest_checkpoint().transactions.len(), 1);
     }
 
     #[test]
