@@ -417,18 +417,6 @@ mod tests {
         create_router(RpcServerState::new(engine))
     }
 
-    fn fund_test_owner(engine: &BlockchainEngine, address: &str, balance: u64) {
-        let owner = AccountAddress::from_hex_literal(address).invariant("valid owner address");
-        let mut owner_state = OwnerState::with_native_balance(owner, balance);
-        owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
-        engine
-            .state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .save_owner_state(&owner_state)
-            .invariant("fund test owner state");
-    }
-
     async fn rpc_call(
         app: Router,
         method: &str,
@@ -713,46 +701,83 @@ mod tests {
 
         let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
         let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
-        fund_test_owner(&engine, &sender.address, 2_000_000);
 
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
-        let transaction = Transaction::new_transfer_with_gas(
+        let transaction = Transaction::new_transfer(
             sender_tagged.clone(),
             "0xaaaa".to_string(),
             recipient_address.clone(),
             1,
             0,
-            1_000_000,
-            1,
         );
         let mut signed_tx = SignedTransaction::new(transaction);
         signed_tx
             .sign(&sender.private_key, sender.curve_type)
             .invariant("sign transaction");
 
+        let tx_hash = hex::encode(signed_tx.transaction_hash());
+        engine
+            .submit_transactions_batch_with_metadata(
+                vec![signed_tx],
+                kanari_core::engine::PendingTransactionMetadata {
+                    previewed: true,
+                    preview_gas_used: Some(42),
+                    preview_effects: Some(kanari_types::transaction::TransactionEffects {
+                        status: "success".to_string(),
+                        gas_used: 42,
+                        gas_payment: None,
+                        input_objects: Vec::new(),
+                        shared_inputs: Vec::new(),
+                        immutable_inputs: Vec::new(),
+                        gas_object_refs: Vec::new(),
+                        object_changes: Vec::new(),
+                        created: Vec::new(),
+                        mutated: Vec::new(),
+                        deleted: Vec::new(),
+                        transferred: Vec::new(),
+                        causal_edges: Vec::new(),
+                        error_message: None,
+                    }),
+                },
+            )
+            .invariant("submit previewed pending transaction");
+
         let app = create_router(RpcServerState::new(Arc::new(engine)));
-        let submitted = rpc_call(
-            app,
-            methods::SUBMIT_OBJECT_TRANSFER,
-            serde_json::json!({
-                "sender": sender_tagged,
-                "coin_object_id": "0xaaaa",
-                "recipient": recipient_address,
-                "amount": 1,
-                "gas_limit": 1_000_000,
-                "gas_price": 1,
-                "sequence_number": 0,
-                "signature": signed_tx.signature,
-                "execute_immediate": true,
-            }),
+        let fetched = rpc_call(
+            app.clone(),
+            methods::GET_TRANSACTION,
+            serde_json::json!({ "hash": tx_hash.clone() }),
             20,
         )
         .await;
 
-        assert_eq!(submitted["status"], "simulated_pending");
-        assert_eq!(submitted["action"], "submit");
-        assert!(submitted["changeset"].is_object());
+        assert_eq!(fetched["hash"], format!("0x{}", tx_hash));
+        assert_eq!(fetched["status"], "simulated_pending");
+        assert_eq!(fetched["previewed"], true);
+        assert_eq!(fetched["submitted"], true);
+        assert_eq!(fetched["committed"], false);
+        assert_eq!(fetched["gas_used"], 42);
+        assert!(fetched["effects"].is_object());
+        assert_eq!(fetched["effects"]["gas_used"], 42);
+
+        let all = rpc_call(
+            app,
+            methods::GET_ALL_TRANSACTIONS,
+            serde_json::json!({ "limit": 10 }),
+            21,
+        )
+        .await;
+        assert!(all.as_array().invariant("json array").iter().any(|tx| {
+            tx["hash"]
+                .as_str()
+                .map(|candidate| candidate == format!("0x{}", tx_hash))
+                .unwrap_or(false)
+                && tx["previewed"] == true
+                && tx["status"] == "simulated_pending"
+                && tx["gas_used"] == 42
+                && tx["effects"]["gas_used"] == 42
+        }));
 
         drop(guard);
     }

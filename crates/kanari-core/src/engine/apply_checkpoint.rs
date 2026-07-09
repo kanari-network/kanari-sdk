@@ -186,12 +186,12 @@ impl BlockchainEngine {
                 let removed_transactions = mempool
                     .pending_txs
                     .iter()
-                    .filter(|tx| committed_hashes.contains(tx.transaction_hash()))
+                    .filter(|tx| committed_hashes.contains(tx.signed_tx.transaction_hash()))
                     .cloned()
                     .collect::<Vec<_>>();
                 mempool
                     .pending_txs
-                    .retain(|tx| !committed_hashes.contains(tx.transaction_hash()));
+                    .retain(|tx| !committed_hashes.contains(tx.signed_tx.transaction_hash()));
                 mempool
                     .pending_tx_hashes
                     .retain(|hash| !committed_hashes.contains(hash));

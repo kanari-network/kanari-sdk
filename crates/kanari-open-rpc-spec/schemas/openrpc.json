@@ -91,7 +91,7 @@
       ]
     },
     {
-      "name": "kanari_getAllBalances",
+      "name": "kanari_getOwnerBalances",
       "summary": "Get all balances",
       "description": "Returns all visible balances for one owner.",
       "params": [
@@ -290,7 +290,7 @@
       ]
     },
     {
-      "name": "kanari_submitTransaction",
+      "name": "kanari_submitObjectTransfer",
       "summary": "Submit transaction",
       "description": "Submits a transfer or burn transaction to the mempool.",
       "params": [

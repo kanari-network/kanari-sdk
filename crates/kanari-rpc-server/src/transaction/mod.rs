@@ -4,6 +4,7 @@ use crate::{
 };
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
+use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
     CallFunctionRequest, ObjectTransferData, PublishModuleRequest, TransactionDetails,
@@ -173,11 +174,16 @@ fn base_transaction_details(
     gas_limit: u64,
     gas_price: u64,
 ) -> TransactionDetails {
+    let (success, previewed, submitted, committed) = derive_transaction_state_flags(&status);
     TransactionDetails {
         hash,
         status,
         block_height,
         gas_used: None,
+        success,
+        previewed,
+        submitted,
+        committed,
         tx_type: tx_type.to_string(),
         sender,
         sender_address: Some(sender_address),
@@ -190,6 +196,37 @@ fn base_transaction_details(
         module: None,
         function: None,
         module_functions: None,
+    }
+}
+
+fn derive_transaction_state_flags(status: &str) -> (bool, bool, bool, bool) {
+    match status {
+        "failed" => (false, true, false, false),
+        "simulated_pending" => (true, true, true, false),
+        "pending" => (true, false, true, false),
+        "committed" => (true, false, true, true),
+        "executed" => (true, true, true, false),
+        _ => (false, false, false, false),
+    }
+}
+
+fn pending_status(record: &PendingTransactionRecord) -> &'static str {
+    if record.metadata.previewed {
+        "simulated_pending"
+    } else {
+        "pending"
+    }
+}
+
+fn apply_pending_preview_metadata(
+    record: &PendingTransactionRecord,
+    details: &mut TransactionDetails,
+) {
+    if let Some(gas_used) = record.metadata.preview_gas_used {
+        details.gas_used = Some(gas_used);
+    }
+    if let Some(effects) = &record.metadata.preview_effects {
+        details.effects = Some(effects.clone());
     }
 }
 
@@ -440,6 +477,7 @@ fn submit_pending_response(
 async fn submit_after_immediate_execution(
     state: &RpcServerState,
     signed_tx: SignedTransaction,
+    metadata: PendingTransactionMetadata,
 ) -> anyhow::Result<()> {
     const MAX_RETRIES: usize = 5;
     const RETRY_DELAY_MS: u64 = 50;
@@ -449,7 +487,7 @@ async fn submit_after_immediate_execution(
     for attempt in 0..MAX_RETRIES {
         match state
             .engine
-            .submit_transactions_batch(vec![signed_tx.clone()])
+            .submit_transactions_batch_with_metadata(vec![signed_tx.clone()], metadata.clone())
         {
             Ok(_) => return Ok(()),
             Err(e) => {
@@ -508,8 +546,19 @@ async fn execute_or_submit_response(
                 );
             }
 
+            let preview_effects = changeset.effects(None);
             let tx_for_broadcast = signed_tx.clone();
-            if let Err(e) = submit_after_immediate_execution(state, signed_tx).await {
+            if let Err(e) = submit_after_immediate_execution(
+                state,
+                signed_tx,
+                PendingTransactionMetadata {
+                    previewed: true,
+                    preview_gas_used: Some(changeset.gas_used),
+                    preview_effects: Some(preview_effects.clone()),
+                },
+            )
+            .await
+            {
                 error!("Failed to submit executed transaction: {}", e);
                 return RpcResponse {
                     jsonrpc: "2.0".into(),
@@ -537,7 +586,7 @@ async fn execute_or_submit_response(
                     previewed: true,
                     submitted: true,
                     committed: false,
-                    effects: Some(changeset.effects(None)),
+                    effects: Some(preview_effects),
                     error_message: None,
                 },
             )
@@ -669,13 +718,20 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         return respond_with_serialize(request.id, details);
     }
 
-    let pending = state.engine.pending_transactions_snapshot();
+    let pending = state.engine.pending_transaction_records_snapshot();
 
     for tx in pending.iter() {
-        let tx_hash = hex::encode(tx.transaction_hash());
+        let tx_hash = hex::encode(tx.signed_tx.transaction_hash());
         if tx_hash.to_lowercase() == normalized {
-            let details =
-                map_transaction_to_details(state, &tx.transaction, &tx_hash, "pending", None, None);
+            let mut details = map_transaction_to_details(
+                state,
+                &tx.signed_tx.transaction,
+                &tx_hash,
+                pending_status(tx),
+                None,
+                None,
+            );
+            apply_pending_preview_metadata(tx, &mut details);
             return respond_with_serialize(request.id, details);
         }
     }
@@ -708,10 +764,10 @@ pub async fn handle_get_all_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
-    let pending = state.engine.pending_transactions_snapshot();
+    let pending = state.engine.pending_transaction_records_snapshot();
 
     for tx in pending.iter().rev() {
-        if !tx_matches_owner(&tx.transaction, owner_norm.as_deref()) {
+        if !tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref()) {
             continue;
         }
 
@@ -719,14 +775,18 @@ pub async fn handle_get_all_transactions(
             &mut results,
             &mut seen_hashes,
             limit,
-            map_transaction_to_details(
+            {
+                let mut details = map_transaction_to_details(
                 state,
-                &tx.transaction,
-                &hex::encode(tx.transaction_hash()),
-                "pending",
+                &tx.signed_tx.transaction,
+                &hex::encode(tx.signed_tx.transaction_hash()),
+                pending_status(tx),
                 None,
                 None,
-            ),
+                );
+                apply_pending_preview_metadata(tx, &mut details);
+                details
+            },
         ) {
             break;
         }
@@ -901,5 +961,39 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
             error!("View function execution failed: {}", e);
             internal_error_response(request.id, format!("View function execution failed: {}", e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_transaction_state_flags;
+
+    #[test]
+    fn transaction_state_flags_match_pending_status() {
+        let (success, previewed, submitted, committed) = derive_transaction_state_flags("pending");
+        assert!(success);
+        assert!(!previewed);
+        assert!(submitted);
+        assert!(!committed);
+    }
+
+    #[test]
+    fn transaction_state_flags_match_committed_status() {
+        let (success, previewed, submitted, committed) =
+            derive_transaction_state_flags("committed");
+        assert!(success);
+        assert!(!previewed);
+        assert!(submitted);
+        assert!(committed);
+    }
+
+    #[test]
+    fn transaction_state_flags_match_simulated_pending_status() {
+        let (success, previewed, submitted, committed) =
+            derive_transaction_state_flags("simulated_pending");
+        assert!(success);
+        assert!(previewed);
+        assert!(submitted);
+        assert!(!committed);
     }
 }

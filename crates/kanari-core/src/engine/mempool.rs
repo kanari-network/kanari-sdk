@@ -19,9 +19,25 @@ impl NormalizeAddr for BlockchainEngine {
 }
 
 impl BlockchainEngine {
+    pub fn submit_transactions_batch_with_metadata(
+        &self,
+        signed_txs: Vec<SignedTransaction>,
+        metadata: PendingTransactionMetadata,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.submit_transactions_batch_internal(signed_txs, metadata)
+    }
+
     pub fn submit_transactions_batch(
         &self,
         signed_txs: Vec<SignedTransaction>,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.submit_transactions_batch_internal(signed_txs, PendingTransactionMetadata::default())
+    }
+
+    fn submit_transactions_batch_internal(
+        &self,
+        signed_txs: Vec<SignedTransaction>,
+        metadata: PendingTransactionMetadata,
     ) -> Result<Vec<Vec<u8>>> {
         if signed_txs.is_empty() {
             return Ok(Vec::new());
@@ -223,11 +239,12 @@ impl BlockchainEngine {
                 anyhow::bail!("Mempool is currently full. Please try again later.");
             }
 
-            mempool.pending_txs.extend(
-                verified_txs
-                    .into_iter()
-                    .map(|(signed_tx, _, _, _, _, _)| signed_tx),
-            );
+            mempool.pending_txs.extend(verified_txs.into_iter().map(
+                |(signed_tx, _, _, _, _, _)| PendingTransactionRecord {
+                    signed_tx,
+                    metadata: metadata.clone(),
+                },
+            ));
             mempool
                 .pending_tx_hashes
                 .extend(accepted_hashes.iter().cloned());
@@ -293,14 +310,14 @@ impl BlockchainEngine {
 
     pub(crate) fn remove_pending_sender_counts(
         counts: &mut ahash::AHashMap<String, u64>,
-        transactions: &[SignedTransaction],
+        transactions: &[PendingTransactionRecord],
     ) {
         if transactions.is_empty() {
             return;
         }
 
         for tx in transactions {
-            let sender = Self::normalize_addr(tx.transaction.sender_address());
+            let sender = Self::normalize_addr(tx.signed_tx.transaction.sender_address());
             let should_remove = if let Some(count) = counts.get_mut(&sender) {
                 *count = count.saturating_sub(1);
                 *count == 0
@@ -315,15 +332,15 @@ impl BlockchainEngine {
 
     pub(crate) fn remove_pending_access_counts(
         counts: &mut ahash::AHashMap<String, u64>,
-        transactions: &[SignedTransaction],
+        transactions: &[PendingTransactionRecord],
     ) {
         if transactions.is_empty() {
             return;
         }
 
         for tx in transactions {
-            let mut keys = tx.transaction.object_access_keys();
-            keys.push(tx.transaction.primary_access_key());
+            let mut keys = tx.signed_tx.transaction.object_access_keys();
+            keys.push(tx.signed_tx.transaction.primary_access_key());
             keys.sort();
             keys.dedup();
             for key in keys {

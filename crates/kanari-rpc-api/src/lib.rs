@@ -245,6 +245,14 @@ pub struct TransactionDetails {
     pub status: String,
     pub block_height: Option<u64>,
     pub gas_used: Option<u64>,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub previewed: bool,
+    #[serde(default)]
+    pub submitted: bool,
+    #[serde(default)]
+    pub committed: bool,
     pub tx_type: String,
     pub sender: String,
     #[serde(skip_serializing_if = "Option::is_none")]

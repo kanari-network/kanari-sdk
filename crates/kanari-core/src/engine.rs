@@ -57,9 +57,22 @@ struct PersistedTransactionLocation {
     state_root: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PendingTransactionMetadata {
+    pub previewed: bool,
+    pub preview_gas_used: Option<u64>,
+    pub preview_effects: Option<TransactionEffects>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingTransactionRecord {
+    pub signed_tx: SignedTransaction,
+    pub metadata: PendingTransactionMetadata,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct MempoolState {
-    pending_txs: Vec<SignedTransaction>,
+    pending_txs: Vec<PendingTransactionRecord>,
     pending_tx_hashes: HashSet<Vec<u8>>,
     pending_sender_counts: AHashMap<String, u64>,
     pending_access_counts: AHashMap<String, u64>,
@@ -553,8 +566,16 @@ impl BlockchainEngine {
         })
     }
 
-    pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
+    pub fn pending_transaction_records_snapshot(&self) -> Vec<PendingTransactionRecord> {
         self.mempool_read().pending_txs.clone()
+    }
+
+    pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
+        self.mempool_read()
+            .pending_txs
+            .iter()
+            .map(|record| record.signed_tx.clone())
+            .collect()
     }
 
     pub fn pending_transaction_len(&self) -> usize {
