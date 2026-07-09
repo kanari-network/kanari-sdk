@@ -11,6 +11,7 @@ pub mod envs;
 pub mod faucet;
 pub mod objects;
 pub mod stats;
+pub mod stress_test;
 pub mod token_transfer;
 pub mod transfer;
 pub mod view;
@@ -40,6 +41,8 @@ pub enum ClientCommand {
     Objects(objects::Objects),
     /// Call view functions (read-only, no transaction)
     View(view::View),
+    /// Stress test: faucet tokens and send N transactions
+    StressTest(stress_test::StressTest),
 }
 
 impl ClientCommand {
@@ -55,6 +58,7 @@ impl ClientCommand {
             ClientCommand::Envs(cmd) => cmd.execute(),
             ClientCommand::Objects(cmd) => cmd.execute().await,
             ClientCommand::View(cmd) => cmd.execute().await,
+            ClientCommand::StressTest(cmd) => cmd.execute().await,
         }
     }
 }
