@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kanari_pay/kanari_pay.dart';
@@ -290,45 +292,65 @@ class _TransactionDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.82;
+
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Transaction Details',
-              style: Theme.of(context).textTheme.headlineSmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 18),
-            _DetailRow(label: 'Hash', value: transaction.hash, copyable: true),
-            _DetailRow(label: 'Status', value: transaction.status),
-            _DetailRow(label: 'Type', value: transaction.txType),
-            _DetailRow(
-              label: 'Sender',
-              value: transaction.sender,
-              copyable: true,
-            ),
-            if (transaction.checkpointHeight != null)
-              _DetailRow(
-                label: 'Checkpoint',
-                value: '${transaction.checkpointHeight}',
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Transaction Details',
+                style: Theme.of(context).textTheme.headlineSmall,
+                textAlign: TextAlign.center,
               ),
-            if (transaction.gasUsed != null)
-              _DetailRow(label: 'Gas Used', value: '${transaction.gasUsed}'),
-            _DetailRow(
-              label: 'Sequence',
-              value: '${transaction.sequenceNumber}',
-            ),
-            _DetailRow(label: 'Gas Limit', value: '${transaction.gasLimit}'),
-            _DetailRow(label: 'Gas Price', value: '${transaction.gasPrice}'),
-            if (transaction.module != null)
-              _DetailRow(label: 'Module', value: transaction.module!),
-            if (transaction.function != null)
-              _DetailRow(label: 'Function', value: transaction.function!),
-          ],
+              const SizedBox(height: 18),
+              _DetailRow(
+                label: 'Hash',
+                value: transaction.hash,
+                copyable: true,
+                compactLongValue: true,
+              ),
+              _DetailRow(label: 'Status', value: transaction.status),
+              _DetailRow(label: 'Type', value: transaction.txType),
+              _DetailRow(
+                label: 'Sender',
+                value: transaction.senderAddress ?? transaction.sender,
+                copyValue: transaction.sender,
+                copyable: true,
+                compactLongValue: true,
+              ),
+              if (transaction.senderAddress != null &&
+                  transaction.senderAddress != transaction.sender)
+                _DetailRow(
+                  label: 'Signer',
+                  value: transaction.sender,
+                  copyable: true,
+                  compactLongValue: true,
+                ),
+              if (transaction.checkpointHeight != null)
+                _DetailRow(
+                  label: 'Checkpoint',
+                  value: '${transaction.checkpointHeight}',
+                ),
+              if (transaction.gasUsed != null)
+                _DetailRow(label: 'Gas Used', value: '${transaction.gasUsed}'),
+              _DetailRow(
+                label: 'Sequence',
+                value: '${transaction.sequenceNumber}',
+              ),
+              _DetailRow(label: 'Gas Limit', value: '${transaction.gasLimit}'),
+              _DetailRow(label: 'Gas Price', value: '${transaction.gasPrice}'),
+              if (transaction.module != null)
+                _DetailRow(label: 'Module', value: transaction.module!),
+              if (transaction.function != null)
+                _DetailRow(label: 'Function', value: transaction.function!),
+            ],
+          ),
         ),
       ),
     );
@@ -338,17 +360,23 @@ class _TransactionDetailsSheet extends StatelessWidget {
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
+  final String? copyValue;
   final bool copyable;
+  final bool compactLongValue;
 
   const _DetailRow({
     required this.label,
     required this.value,
+    this.copyValue,
     this.copyable = false,
+    this.compactLongValue = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final displayValue = compactLongValue ? _middleShort(value) : value;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -364,13 +392,24 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+            child: compactLongValue
+                ? SelectableText(
+                    displayValue,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                    maxLines: 3,
+                  )
+                : SelectableText(
+                    displayValue,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
           ),
           if (copyable)
             IconButton(
               visualDensity: VisualDensity.compact,
               onPressed: () {
-                Clipboard.setData(ClipboardData(text: value));
+                Clipboard.setData(ClipboardData(text: copyValue ?? value));
                 showAppInfoSnackBar(context, '$label copied');
               },
               icon: const Icon(Icons.copy_rounded, size: 18),
@@ -434,4 +473,9 @@ class _TxMessageState extends StatelessWidget {
 String _short(String value) {
   if (value.length <= 18) return value;
   return '${value.substring(0, 10)}...${value.substring(value.length - 6)}';
+}
+
+String _middleShort(String value, {int head = 22, int tail = 18}) {
+  if (value.length <= head + tail + 3) return value;
+  return '${value.substring(0, head)}...${value.substring(value.length - tail)}';
 }

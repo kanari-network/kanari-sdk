@@ -128,6 +128,13 @@ class BcsUtils {
     return value;
   }
 
+  /// Decode the balance field from a Coin<T> object layout: UID (32 bytes)
+  /// followed by Balance<T>.value (u64 little-endian).
+  static int? readCoinObjectBalance(List<int> data) {
+    if (data.length < 40) return null;
+    return decodeU64(data.sublist(32, 40));
+  }
+
   /// Encode string to BCS format
   static List<int> encodeString(String value) {
     final bcs = Bcs.string();

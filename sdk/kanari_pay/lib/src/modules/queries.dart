@@ -37,7 +37,7 @@ class QueriesModule {
       client,
       url,
       'kanari_getTokenBalance',
-      {'address': normalizedAddress, 'token_type': tokenType},
+      {'owner': normalizedAddress, 'token_type': tokenType},
       (j) => TokenBalance.fromJson(j as Map<String, dynamic>),
     );
     if (resp.error != null) throw Exception(resp.error!.message);
@@ -52,6 +52,38 @@ class QueriesModule {
       'kanari_getObject',
       {'object_id': normalizedObjectId},
       (j) => ObjectInfo.fromJson(j as Map<String, dynamic>),
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
+  Future<List<ObjectInfo>> getObjects({
+    String? owner,
+    String? objectType,
+  }) async {
+    final params = <String, dynamic>{};
+    if (owner != null && owner.trim().isNotEmpty) {
+      params['owner'] = _normalizeAddress(owner);
+    }
+    if (objectType != null && objectType.trim().isNotEmpty) {
+      params['object_type'] = objectType;
+    }
+
+    final resp = await RpcUtils.request(
+      client,
+      url,
+      'kanari_getObjects',
+      params,
+      (j) {
+        final map = j as Map<String, dynamic>;
+        final objects =
+            map['objects'] as List<dynamic>? ??
+            map['owned_objects'] as List<dynamic>? ??
+            const [];
+        return objects
+            .map((item) => ObjectInfo.fromJson(item as Map<String, dynamic>))
+            .toList();
+      },
     );
     if (resp.error != null) throw Exception(resp.error!.message);
     return resp.result!;
@@ -92,14 +124,27 @@ class QueriesModule {
     final resp = await RpcUtils.request(
       client,
       url,
-      'kanari_getAllBalances',
-      {'address': normalizedAddress},
+      'kanari_getOwnerBalances',
+      {'owner': normalizedAddress},
       (j) {
         final map = j as Map<String, dynamic>;
-        final balancesList = map['balances'] as List<dynamic>? ?? const [];
-        return balancesList
-            .map((e) => TokenBalance.fromJson(e as Map<String, dynamic>))
-            .toList();
+        final rawBalances = map['balances'] ?? map['token_balances'];
+        if (rawBalances is List) {
+          return rawBalances
+              .map((e) => TokenBalance.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        if (rawBalances is Map) {
+          return rawBalances.entries
+              .map(
+                (entry) => TokenBalance.fromJson({
+                  'token_type': entry.key.toString(),
+                  'amount': entry.value,
+                }),
+              )
+              .toList();
+        }
+        return const <TokenBalance>[];
       },
     );
     if (resp.error != null) throw Exception(resp.error!.message);

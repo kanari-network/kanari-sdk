@@ -244,6 +244,7 @@ class ObjectInfo extends Equatable {
   final String type;
   final List<int> data;
   final int version;
+  final String? digest;
 
   const ObjectInfo({
     required this.id,
@@ -251,6 +252,7 @@ class ObjectInfo extends Equatable {
     required this.type,
     required this.data,
     required this.version,
+    this.digest,
   });
 
   factory ObjectInfo.fromJson(Map<String, dynamic> json) {
@@ -260,6 +262,7 @@ class ObjectInfo extends Equatable {
       type: _jsonString(json['type_'] ?? json['type']),
       data: (json['data'] as List<dynamic>? ?? const []).map(_jsonInt).toList(),
       version: _jsonInt(json['version']),
+      digest: json['digest']?.toString(),
     );
   }
 
@@ -269,8 +272,9 @@ class ObjectInfo extends Equatable {
     'type_': type,
     'data': data,
     'version': version,
+    'digest': digest,
   };
 
   @override
-  List<Object?> get props => [id, owner, type, data, version];
+  List<Object?> get props => [id, owner, type, data, version, digest];
 }

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/token_utils.dart' as token_utils;
 import '../../client/escrow_client.dart';
+import '../../models/transaction.dart';
 import '../../providers/wallet_provider.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/escrow_widgets.dart';
@@ -192,6 +193,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     if (text.contains('No spendable Coin<')) {
       return 'This wallet does not have a spendable coin object for the selected token.';
     }
+    if (text.contains('KANARI can be used in DeFi')) {
+      return 'KANARI can be used in DeFi, but this wallet needs a second KANARI coin object for gas first.';
+    }
+    if (text.contains('No spendable native gas coin object found')) {
+      return 'No separate KANARI gas coin object was found. Split/fund a second KANARI coin object and try again.';
+    }
     return 'An unexpected error occurred: ${text.split('\n').first}';
   }
 
@@ -321,12 +328,56 @@ class _EscrowScreenState extends State<EscrowScreen>
       setState(() {
         _successMessage =
             'Deal created successfully! Tx Hash: ${result.hash.substring(0, 16)}...';
+        _buyerAddressController.text = buyerAddress;
       });
+      await _fetchAllDeals(buyerAddress);
+      final effects =
+          result.effects ?? await _loadTransactionEffects(escrow, result.hash);
+
+      if (_allDeals.isEmpty && effects != null) {
+        final effectDeal = await escrow
+            .getDealFromEffects(
+              wallet: wallet,
+              effects: effects,
+              buyerAddress: buyerAddress,
+              fallbackCoinType: tokenType,
+            )
+            .timeout(const Duration(seconds: 10));
+
+        if (effectDeal != null && mounted) {
+          setState(() {
+            _allDeals = [effectDeal];
+            _selectedDealId = effectDeal['deal_id'] as String?;
+            _selectedDeal = effectDeal;
+            _currentDealState = effectDeal['state'] as int?;
+            _dealDetails = {
+              'deal_id': effectDeal['deal_id'],
+              'buyer': effectDeal['buyer'],
+              'seller': effectDeal['seller'],
+              'amount': effectDeal['amount'],
+              'coin_type': effectDeal['coin_type'],
+            };
+            _errorMessage = null;
+          });
+        }
+      }
       _dealIdController.clear();
       _sellerAddressController.clear();
       _amountController.clear();
       _descriptionController.clear();
     });
+  }
+
+  Future<TransactionEffectsInfo?> _loadTransactionEffects(
+    EscrowClient escrow,
+    String hash,
+  ) async {
+    try {
+      final tx = await escrow.rpc.getTransaction(hash);
+      return tx.effects;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Seller: Confirm delivery
@@ -648,14 +699,16 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Missing object_id or coin_type in deal data');
       }
 
-      //  FIXED: Only query state, details already in _selectedDeal
-      final state = await escrow
-          .getDealStateByObjectId(
-            wallet: walletState.wallet!,
-            dealObjectId: objectId,
-            coinType: coinType,
-          )
-          .timeout(const Duration(seconds: 10));
+      final existingState = _selectedDeal!['state'];
+      final state = existingState is num
+          ? existingState.toInt()
+          : await escrow
+                .getDealStateByObjectId(
+                  wallet: walletState.wallet!,
+                  dealObjectId: objectId,
+                  coinType: coinType,
+                )
+                .timeout(const Duration(seconds: 10));
 
       // Extract details from selectedDeal (already have from getAllDeals)
       final dealId = _selectedDeal!['deal_id'] as String? ?? objectId;
@@ -974,6 +1027,18 @@ class _EscrowScreenState extends State<EscrowScreen>
             helperText: 'Address of the buyer who created the deal',
             onChanged: _autoCheckDealState,
           ),
+          if (_buyerAddressController.text.trim().isNotEmpty &&
+              _allDeals.isEmpty &&
+              _currentDealState == null &&
+              _errorMessage == null) ...[
+            const SizedBox(height: 12),
+            AppStatusBanner(
+              message:
+                  'No escrow deal objects found for this buyer on ${context.read<WalletState>().environment.name.toUpperCase()}. Check the buyer address, network, or create a deal first.',
+              tone: AppStatusTone.info,
+              icon: Icons.search_off_rounded,
+            ),
+          ],
           const SizedBox(height: 24),
           AppSectionTitle('Seller Actions'),
           const SizedBox(height: 8),

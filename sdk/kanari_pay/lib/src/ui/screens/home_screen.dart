@@ -69,7 +69,7 @@ class HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
-      body: state.isLoading
+      body: state.isLoading && wallets.isEmpty
           ? Center(child: SpinKitFadingCircle(color: colorScheme.primary))
           : Stack(
               children: [
@@ -228,6 +228,22 @@ class HomeScreenState extends State<HomeScreen> {
                             screenPadding,
                             0,
                           ),
+                          child: _buildWalletStatusSection(
+                            context,
+                            theme,
+                            colorScheme,
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            screenPadding,
+                            16,
+                            screenPadding,
+                            0,
+                          ),
                           child: _buildAssetsSection(
                             context,
                             theme,
@@ -267,6 +283,82 @@ class HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildWalletStatusSection(
+    BuildContext context,
+    ThemeData theme,
+    ColorScheme colorScheme,
+  ) {
+    final state = context.watch<WalletState>();
+    final error = state.error;
+
+    if (error != null && error.isNotEmpty) {
+      return AppStatusBanner(
+        message:
+            '$error\nNetwork: ${state.environment.name.toUpperCase()} (${state.environment.rpcUrl})',
+        tone: AppStatusTone.warning,
+        icon: Icons.cloud_off_rounded,
+      );
+    }
+
+    if (state.wallet == null || state.tokenBalances.isNotEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              Icons.account_balance_wallet_outlined,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No on-chain assets loaded',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'RPC: ${state.environment.rpcUrl}\nTap refresh after faucet/transfer, or switch network if this wallet lives on another node.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            onPressed: state.isLoading ? null : () => state.refreshBalance(),
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh balances',
+          ),
+        ],
+      ),
     );
   }
 

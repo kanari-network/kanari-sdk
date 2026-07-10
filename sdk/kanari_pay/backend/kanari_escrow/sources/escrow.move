@@ -162,6 +162,25 @@ module kanari_escrow::escrow {
         );
     }
 
+    // API-first entry: buyer coin is an authenticated mutable object input.
+    public entry fun create_deal_ref<CoinType>(
+        deal_id:        String,
+        seller:         address,
+        amount:         u64,
+        description:    String,
+        buyer_coin:     &mut Coin<CoinType>,
+        ctx:            &mut TxContext,
+    ) {
+        create_deal_internal(
+            deal_id,
+            seller,
+            amount,
+            description,
+            buyer_coin,
+            ctx,
+        );
+    }
+
     // Test-only: Create deal from Coin reference directly
     // For testing purposes where we have Coin object in memory
     #[test_only]
@@ -242,6 +261,123 @@ module kanari_escrow::escrow {
             old_state,
             new_state: STATE_DELIVERED,
             actor: seller_addr,
+            timestamp: now,
+        });
+    }
+
+    // API-first entry: deal and proof are authenticated mutable object inputs.
+    public entry fun confirm_delivery_ref<CoinType>(
+        deal:           &mut EscrowDeal<CoinType>,
+        proof:          &mut EscrowProof,
+        ctx:            &mut TxContext,
+    ) {
+        let seller_addr = tx_context::sender(ctx);
+
+        assert!(deal.seller == seller_addr, E_NOT_SELLER);
+        assert!(deal.state == STATE_LOCKED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_DELIVERED;
+        deal.delivered_at = now;
+        let deal_id_str = get_deal_id(deal);
+
+        let entry = ProofEntry {
+            state:      STATE_DELIVERED,
+            actor:      seller_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Seller confirmed delivery"),
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        object::save_object(deal);
+        object::save_object(proof);
+
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
+        });
+    }
+
+    // API-first entry: deal and proof are authenticated mutable object inputs.
+    public entry fun release_funds_ref<CoinType>(
+        deal:           &mut EscrowDeal<CoinType>,
+        proof:          &mut EscrowProof,
+        ctx:            &mut TxContext,
+    ) {
+        let buyer_addr = tx_context::sender(ctx);
+
+        assert!(deal.buyer == buyer_addr, E_NOT_BUYER);
+        assert!(deal.state == STATE_DELIVERED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_COMPLETED;
+        deal.completed_at = now;
+        let deal_id_str = get_deal_id(deal);
+
+        let funds = option::extract(&mut deal.funds);
+        transfer::public_transfer(funds, deal.seller);
+
+        let entry = ProofEntry {
+            state:      STATE_COMPLETED,
+            actor:      buyer_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Buyer released funds to seller"),
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        object::save_object(deal);
+        object::save_object(proof);
+
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
+        });
+    }
+
+    // API-first entry: deal and proof are authenticated mutable object inputs.
+    public entry fun raise_dispute_ref<CoinType>(
+        deal:           &mut EscrowDeal<CoinType>,
+        proof:          &mut EscrowProof,
+        reason:         String,
+        ctx:            &mut TxContext,
+    ) {
+        let caller = tx_context::sender(ctx);
+
+        assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
+        assert!(deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_DISPUTED;
+        let deal_id_str = get_deal_id(deal);
+
+        let funds = option::extract(&mut deal.funds);
+        transfer::public_transfer(funds, deal.buyer);
+
+        let entry = ProofEntry {
+            state:      STATE_DISPUTED,
+            actor:      caller,
+            timestamp:  now,
+            note:       reason,
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        object::save_object(deal);
+        object::save_object(proof);
+
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_DISPUTED,
+            actor: caller,
             timestamp: now,
         });
     }
@@ -496,6 +632,13 @@ module kanari_escrow::escrow {
         deal.state
     }
 
+    /// Get current deal state from an authenticated object input.
+    public fun get_state_ref<CoinType>(
+        deal: &EscrowDeal<CoinType>,
+    ): u8 {
+        deal.state
+    }
+
     /// Get proof entry count by Object ID  
     /// Returns the number of proof entries in the EscrowProof
     public fun get_proof_count(
@@ -514,6 +657,18 @@ module kanari_escrow::escrow {
         
         (
             deal_id,  // ใช้ deal_id ที่รับเข้ามาโดยตรง (เป็น address อยู่แล้ว)
+            deal.buyer,
+            deal.seller,
+            deal.amount,
+        )
+    }
+
+    /// Get full deal details from an authenticated object input.
+    public fun get_deal_details_ref<CoinType>(
+        deal: &EscrowDeal<CoinType>,
+    ): (address, address, address, u64) {
+        (
+            object::uid_address(&deal.id),
             deal.buyer,
             deal.seller,
             deal.amount,

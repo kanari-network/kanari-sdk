@@ -153,8 +153,16 @@ impl MoveRuntime {
         F: Fn(&RuntimeType) -> bool,
     {
         match param_type {
-            RuntimeType::Reference(inner) if is_key_struct(inner) => Some(false),
-            RuntimeType::MutableReference(inner) if is_key_struct(inner) => Some(true),
+            RuntimeType::Reference(inner)
+                if is_key_struct(inner) || Self::is_runtime_struct_like(inner) =>
+            {
+                Some(false)
+            }
+            RuntimeType::MutableReference(inner)
+                if is_key_struct(inner) || Self::is_runtime_struct_like(inner) =>
+            {
+                Some(true)
+            }
             _ => None,
         }
     }
@@ -1797,6 +1805,32 @@ impl MoveRuntime {
 #[cfg(test)]
 mod binding_tests {
     use super::*;
+    use move_vm_types::loaded_data::runtime_types::CachedStructIndex;
+
+    #[test]
+    fn generic_struct_references_are_object_input_candidates() {
+        let generic_coin_ref =
+            RuntimeType::MutableReference(Box::new(RuntimeType::StructInstantiation(Box::new((
+                CachedStructIndex(0),
+                vec![RuntimeType::TyParam(0)],
+            )))));
+
+        assert_eq!(
+            MoveRuntime::object_reference_mutability(&generic_coin_ref, |_| false),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn non_struct_references_are_not_object_input_candidates() {
+        let vector_ref =
+            RuntimeType::Reference(Box::new(RuntimeType::Vector(Box::new(RuntimeType::U8))));
+
+        assert_eq!(
+            MoveRuntime::object_reference_mutability(&vector_ref, |_| false),
+            None
+        );
+    }
 
     #[test]
     fn declared_object_inputs_must_match_reference_param_count() {

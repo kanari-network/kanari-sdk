@@ -231,6 +231,64 @@ impl RpcError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_transfer_policy_contract_is_backend_canonical() {
+        let policy = NativeTransferPolicyContract::kanari_native();
+
+        assert!(policy.api_selects_objects);
+        assert!(policy.canonical_object_refs_required);
+        assert!(policy.gas_payment_must_be_native_kanari);
+        assert!(policy.allows_single_coin_for_transfer_and_gas);
+        assert!(policy.allows_distinct_transfer_and_gas_objects);
+        assert!(policy.summary().contains("Coin<0x2::kanari::KANARI>"));
+    }
+
+    #[test]
+    fn structured_transaction_errors_mark_policy_reasons_only() {
+        assert!(
+            TransactionErrorReason::InsufficientNativeCoinObjects.uses_native_transfer_policy()
+        );
+        assert!(
+            TransactionErrorReason::NativeCoinConsolidationBlocked.uses_native_transfer_policy()
+        );
+        assert!(
+            TransactionErrorReason::InsufficientTransferCoinBalance.uses_native_transfer_policy()
+        );
+        assert!(TransactionErrorReason::InsufficientGasCoinBalance.uses_native_transfer_policy());
+        assert!(
+            TransactionErrorReason::NativeTransferPolicyNotSatisfied.uses_native_transfer_policy()
+        );
+
+        assert!(!TransactionErrorReason::GasPaymentObjectOverlap.uses_native_transfer_policy());
+        assert!(!TransactionErrorReason::GasPaymentDigestMismatch.uses_native_transfer_policy());
+    }
+
+    #[test]
+    fn rpc_error_round_trips_structured_transaction_reason() {
+        let error = RpcError::transaction_error_structured(
+            "native transfer policy not satisfied",
+            TransactionErrorData::with_native_transfer_policy(
+                TransactionErrorReason::NativeTransferPolicyNotSatisfied,
+            ),
+        );
+
+        assert_eq!(
+            error.transaction_error_reason(),
+            Some(TransactionErrorReason::NativeTransferPolicyNotSatisfied)
+        );
+        assert!(
+            error
+                .transaction_error_details()
+                .and_then(|details| details.native_transfer_policy)
+                .is_some()
+        );
+    }
+}
+
 /// Owner info response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnerInfo {

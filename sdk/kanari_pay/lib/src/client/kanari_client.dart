@@ -54,6 +54,14 @@ class KanariClient {
     return _queries.getObject(objectId);
   }
 
+  /// Query objects from the RPC object index.
+  Future<List<ObjectInfo>> getObjects({
+    String? owner,
+    String? objectType,
+  }) {
+    return _queries.getObjects(owner: owner, objectType: objectType);
+  }
+
   /// Get objects owned by one owner, optionally filtered by object type.
   Future<List<ObjectInfo>> getOwnedObjects(
     String owner, {

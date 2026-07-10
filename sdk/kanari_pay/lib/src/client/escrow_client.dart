@@ -130,6 +130,20 @@ class EscrowClient {
     );
   }
 
+  Future<Map<String, dynamic>?> getDealFromEffects({
+    required KanariWallet wallet,
+    required TransactionEffectsInfo effects,
+    required String buyerAddress,
+    required String fallbackCoinType,
+  }) {
+    return _queries.getDealFromEffects(
+      wallet: wallet,
+      effects: effects,
+      buyerAddress: buyerAddress,
+      fallbackCoinType: fallbackCoinType,
+    );
+  }
+
   // ==================== UTILS ====================
 
   /// Get state name
@@ -142,10 +156,10 @@ class EscrowClient {
   /// Get spendable coin types from user's owned objects
   Future<List<String>> getSpendableCoinTypes(String address) async {
     try {
-      final account = await rpc.getOwner(address);
+      final ownedObjects = await rpc.getOwnedObjects(address);
       final coinTypes = <String>{};
 
-      for (final obj in account.ownedObjects ?? const []) {
+      for (final obj in ownedObjects) {
         final tokenType = BcsUtils.extractCoinTypeFromObjectType(obj.type);
         if (tokenType != null) {
           coinTypes.add(BcsUtils.normalizeTokenType(tokenType));

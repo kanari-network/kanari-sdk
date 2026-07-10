@@ -458,6 +458,7 @@ class WalletState extends ChangeNotifier {
     }
 
     final walletAddress = _wallet!.address;
+    _setLoading(true);
 
     try {
       final balances = await _client!.getAllBalances(walletAddress);
@@ -474,6 +475,8 @@ class WalletState extends ChangeNotifier {
       _clearBalances();
       _error = 'Refresh balance failed: $e';
       debugPrint(_error);
+    } finally {
+      _setLoading(false);
     }
 
     if (notifyListenersOnSuccess) {

@@ -264,12 +264,7 @@ class TransactionOperations {
             'mutable': 1,
           },
         ],
-        'gas_payment': {
-          'payment_objects': [coinObjectRef],
-          'owner': sender,
-          'budget': prepared['gas_limit'],
-          'price': prepared['gas_price'],
-        },
+        'gas_payment': _gasPaymentForBcs(prepared['gas_payment']),
         'gas_limit': prepared['gas_limit'],
         'gas_price': prepared['gas_price'],
         'sequence_number': prepared['sequence_number'],

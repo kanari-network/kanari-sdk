@@ -7,14 +7,14 @@ class EscrowConstants {
   static const String module = 'escrow';
 
   // Entry functions
-  static const String fnCreateDeal = 'create_deal';
-  static const String fnConfirmDelivery = 'confirm_delivery';
-  static const String fnReleaseFunds = 'release_funds';
-  static const String fnRaiseDispute = 'raise_dispute';
+  static const String fnCreateDeal = 'create_deal_ref';
+  static const String fnConfirmDelivery = 'confirm_delivery_ref';
+  static const String fnReleaseFunds = 'release_funds_ref';
+  static const String fnRaiseDispute = 'raise_dispute_ref';
 
   // View functions
-  static const String fnGetState = 'get_state';
-  static const String fnGetDealDetails = 'get_deal_details';
+  static const String fnGetState = 'get_state_ref';
+  static const String fnGetDealDetails = 'get_deal_details_ref';
   static const String fnGetProofCount = 'get_proof_count';
 
   // Object types

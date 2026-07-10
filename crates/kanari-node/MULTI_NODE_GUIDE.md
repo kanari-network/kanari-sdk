@@ -210,6 +210,96 @@ Local endpoints:
 
 To expose RPC to the LAN, bind with `--rpc-host 0.0.0.0` or a specific machine IP. Only do this on a trusted network or behind firewall rules.
 
+## Long-Running Multi-Node Soak Test
+
+Use this flow before treating a branch as mainnet-ready. It exercises deterministic execution, object/gas invariants, consensus finality, and the RPC contract for several hours instead of only one happy-path transaction.
+
+### 1. Start From a Clean 4-Node Devnet
+
+```powershell
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
+```
+
+Start the four nodes with the commands from **Fast Local Setup**. Wait until all nodes report synced heights in the explorer or logs.
+
+### 2. Confirm RPC Health on Every Node
+
+```powershell
+$nodes = @(
+  "http://127.0.0.1:19001",
+  "http://127.0.0.1:19011",
+  "http://127.0.0.1:19021",
+  "http://127.0.0.1:19031"
+)
+
+foreach ($node in $nodes) {
+  Invoke-RestMethod -Uri $node -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","method":"kanari_health","params":[],"id":1}'
+  Invoke-RestMethod -Uri $node -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","method":"kanari_getNetworkStatus","params":[],"id":2}'
+}
+```
+
+Success criteria:
+
+- `supply_invariants_ok` is `true`
+- `strict_persistence_required` is `true` for persistent-node testing
+- every node sees the same authority set
+- no node reports state-root divergence
+
+### 3. Run a Sustained Transaction Loop
+
+Set the target and password for your local wallet, then run a loop. Keep `--count` modest so object/gas sequencing issues show up clearly instead of being hidden by a huge backlog.
+
+```powershell
+$to = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146"
+$password = "@Password12345678"
+$end = (Get-Date).AddHours(6)
+
+while ((Get-Date) -lt $end) {
+  cargo run -p kanari -- client transfer --to $to --amount 0.01 -p $password
+  cargo run -p kanari -- client stress-test --to $to --amount 0.001 --count 10 -p $password
+  Start-Sleep -Seconds 10
+}
+```
+
+Success criteria:
+
+- no `Gas payment object ... cannot overlap with a mutable object input`
+- no invalid pending transaction repeatedly blocks checkpoint production
+- submitted transactions become committed, not only pending
+- checkpoint height increases on all nodes
+
+### 4. Check Finality Alignment
+
+Sample block height and latest full block from every node.
+
+```powershell
+foreach ($node in $nodes) {
+  $height = Invoke-RestMethod -Uri $node -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","method":"kanari_getBlockHeight","params":[],"id":3}'
+  $height.result
+}
+```
+
+Use the explorer **State Divergence Audit** and **Latest Checkpoint** panels to compare:
+
+- checkpoint height
+- checkpoint hash
+- state root
+- transaction count
+- object change count
+
+All readable nodes should converge to the same canonical height, hash, and state root. A short delay is acceptable during sync; persistent disagreement is a stop-the-line failure.
+
+### 5. Stop-The-Line Conditions
+
+Stop the run and inspect logs immediately if any of these appear:
+
+- checkpoint production repeatedly fails on the same pending transaction
+- state root differs between nodes at the same checkpoint height
+- a checkpoint has invalid `prev_checkpoint_hash`
+- duplicate transaction hashes appear in the same checkpoint
+- RPC returns transaction errors without structured `reason` data for known policy failures
+- object refs accepted by RPC do not match current object `version` and `digest`
+
 ## Troubleshooting
 
 ### Node Fails With Missing Consensus Key

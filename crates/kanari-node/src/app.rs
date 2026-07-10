@@ -226,6 +226,7 @@ fn extract_failed_tx_hash(error_text: &str) -> Option<Vec<u8>> {
 fn should_drop_invalid_pending_transaction(error_text: &str) -> bool {
     error_text.contains("cannot overlap with a mutable object input")
         || error_text.contains("Gas payment object")
+        || error_text.contains("Insufficient native coin object balance for gas")
         || error_text.contains("does not exist")
         || error_text.contains("version mismatch")
         || error_text.contains("digest mismatch")

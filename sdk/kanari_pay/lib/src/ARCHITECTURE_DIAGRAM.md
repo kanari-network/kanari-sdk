@@ -102,10 +102,12 @@ sequenceDiagram
 
     App->>Client: transfer(wallet, recipient, amount)
     Client->>TxOps: transfer(...)
-    TxOps->>Queries: getOwner(wallet.address)
-    Queries-->>TxOps: OwnerInfo (sequence number + owned objects)
+    TxOps->>RPC: kanari_buildNativeTransfer
+    RPC->>Node: Resolve sequence, object refs, gas payment
+    Node-->>RPC: Canonical unsigned transfer
+    RPC-->>TxOps: Prepared transaction
     
-    TxOps->>TxOps: Select / consolidate coin objects, then prepare tx
+    TxOps->>TxOps: Serialize prepared tx exactly
     TxOps->>Crypto: blake3Hash(serialized tx)
     Crypto-->>TxOps: Hash
     TxOps->>Wallet: sign(hash)

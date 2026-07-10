@@ -82,9 +82,9 @@ void main() {
                   'payment_objects': [
                     {
                       'object_id':
-                          '0x0000000000000000000000000000000000000000000000000000000000000abc',
-                      'version': 7,
-                      'digest': '0xdigest',
+                          '0x0000000000000000000000000000000000000000000000000000000000000def',
+                      'version': 11,
+                      'digest': '0xgasdigest',
                     },
                   ],
                   'owner': 'Ed25519:0x123',
@@ -138,6 +138,10 @@ void main() {
         '0x0000000000000000000000000000000000000000000000000000000000000456',
       );
       expect(submittedParams?['coin_object_ref'], isA<Map>());
+      expect(
+        submittedParams?['gas_payment']?['payment_objects']?[0]?['object_id'],
+        '0x0000000000000000000000000000000000000000000000000000000000000def',
+      );
       expect(submittedParams?['sequence_number'], 5);
       expect(submittedParams?['signature'], isA<List>());
     });
