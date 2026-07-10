@@ -7,13 +7,19 @@ use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
-    CallFunctionRequest, ObjectTransferData, PublishModuleRequest, TransactionDetails,
-    ViewFunctionRequest,
+    BuildCallFunctionRequest, BuildNativeTransferRequest, BuildPublishModuleRequest,
+    BuildTokenTransferRequest, CallFunctionRequest, ObjectTransferData, PublishModuleRequest,
+    TransactionDetails, ViewFunctionRequest,
 };
 use kanari_types::address::Address;
-use kanari_types::transaction::{NativeCall, ObjectRef, SignedTransaction, Transaction};
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::transaction::{
+    GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+};
 use move_binary_format::CompiledModule;
+use move_core_types::language_storage::TypeTag;
 use std::collections::HashSet;
+use std::str::FromStr;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 
@@ -75,6 +81,213 @@ fn normalize_addr(s: &str) -> String {
     Address::from_str(s)
         .map(|addr| addr.to_hex())
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
+}
+
+fn read_coin_balance(data: &[u8]) -> Option<u64> {
+    if data.len() < 40 {
+        return None;
+    }
+
+    let mut amount_bytes = [0u8; 8];
+    amount_bytes.copy_from_slice(&data[32..40]);
+    Some(u64::from_le_bytes(amount_bytes))
+}
+
+fn normalize_token_type(token: &str) -> String {
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token) {
+        return format!("{}", st);
+    }
+    token.to_string()
+}
+
+fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
+    if let Some(start) = object_type.find('<')
+        && let Some(end) = object_type.rfind('>')
+    {
+        let outer = &object_type[..start];
+        if outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin") {
+            return Some(normalize_token_type(&object_type[start + 1..end]));
+        }
+    }
+
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(object_type)
+        && st.module.as_str() == "coin"
+        && st.name.as_str() == "Coin"
+        && let Some(TypeTag::Struct(inner)) = st.type_params.first()
+    {
+        return Some(format!("{}", inner));
+    }
+
+    None
+}
+
+fn build_object_input(
+    object: &kanari_rpc_api::ObjectInfo,
+    sender: &str,
+) -> anyhow::Result<ObjectInput> {
+    let owner = match &object.owner_kind {
+        ObjectOwnerKind::AddressOwner(address) => {
+            if normalize_addr(address) != normalize_addr(sender) {
+                anyhow::bail!(
+                    "Object input {} is owned by {}, not sender {}",
+                    object.id,
+                    address,
+                    sender
+                );
+            }
+            Some(ObjectOwnerKind::AddressOwner(address.clone()))
+        }
+        ObjectOwnerKind::Shared => Some(ObjectOwnerKind::Shared),
+        ObjectOwnerKind::Immutable => Some(ObjectOwnerKind::Immutable),
+    };
+
+    Ok(ObjectInput {
+        object_ref: ObjectRef::new(
+            object.id.clone(),
+            Some(object.version),
+            object.digest.clone(),
+        ),
+        owner,
+        mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
+    })
+}
+
+fn infer_object_inputs(
+    state: &RpcServerState,
+    sender: &str,
+    args: &[Vec<u8>],
+) -> anyhow::Result<Vec<ObjectInput>> {
+    let state_guard = state.engine.state_read();
+    let mut seen = HashSet::new();
+    let mut inputs = Vec::new();
+
+    for arg in args {
+        if arg.len() != 32 {
+            continue;
+        }
+        let object_id = format!("0x{}", hex::encode(arg));
+        if !seen.insert(object_id.clone()) {
+            continue;
+        }
+        let Some(stored) = state_guard.get_object(&object_id)? else {
+            continue;
+        };
+        let digest = stored.digest();
+        let object = kanari_rpc_api::ObjectInfo {
+            id: object_id,
+            owner: format!("{:#x}", stored.owner),
+            owner_kind: stored.owner_kind,
+            type_: stored.type_,
+            data: stored.data,
+            version: stored.version,
+            digest: Some(digest),
+        };
+        inputs.push(build_object_input(&object, sender)?);
+    }
+
+    Ok(inputs)
+}
+
+fn select_native_gas_payment(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    sender: &str,
+    gas_limit: u64,
+    gas_price: u64,
+    exclude_object_ids: &[String],
+) -> anyhow::Result<GasPayment> {
+    let excluded = exclude_object_ids
+        .iter()
+        .map(|id| normalize_addr(id))
+        .collect::<HashSet<_>>();
+    let required_amount = gas_limit.saturating_mul(gas_price);
+
+    let mut best: Option<(ObjectRef, u64)> = None;
+    for object in owned_objects {
+        if excluded.contains(&normalize_addr(&object.id)) {
+            continue;
+        }
+        if object.type_ != format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE) {
+            continue;
+        }
+        let Some(balance) = read_coin_balance(&object.data) else {
+            continue;
+        };
+        if balance < required_amount {
+            continue;
+        }
+        match &best {
+            Some((_, current)) if *current <= balance => {}
+            _ => {
+                best = Some((
+                    ObjectRef::new(
+                        object.id.clone(),
+                        Some(object.version),
+                        object.digest.clone(),
+                    ),
+                    balance,
+                ))
+            }
+        }
+    }
+
+    let (payment_object, _) =
+        best.ok_or_else(|| anyhow::anyhow!("No spendable native gas coin object found"))?;
+
+    Ok(GasPayment {
+        payment_objects: vec![payment_object],
+        owner: sender.to_string(),
+        budget: gas_limit,
+        price: gas_price,
+    })
+}
+
+fn select_coin_object_for_token(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    token_type: &str,
+    required_amount: u64,
+) -> anyhow::Result<ObjectRef> {
+    let wanted_token = normalize_token_type(token_type);
+    let mut best: Option<(ObjectRef, u64)> = None;
+    let mut largest: Option<(ObjectRef, u64)> = None;
+
+    for object in owned_objects {
+        let Some(obj_token) = coin_token_type_from_object_type(&object.type_) else {
+            continue;
+        };
+        if obj_token != wanted_token {
+            continue;
+        }
+        let Some(balance) = read_coin_balance(&object.data) else {
+            continue;
+        };
+        let object_ref = ObjectRef::new(
+            object.id.clone(),
+            Some(object.version),
+            object.digest.clone(),
+        );
+        if balance >= required_amount {
+            match &best {
+                Some((_, current)) if *current <= balance => {}
+                _ => best = Some((object_ref.clone(), balance)),
+            }
+        }
+        match &largest {
+            Some((_, current)) if *current >= balance => {}
+            _ => largest = Some((object_ref, balance)),
+        }
+    }
+
+    let (selected, selected_balance) = best
+        .or(largest)
+        .ok_or_else(|| anyhow::anyhow!("No spendable Coin<{}> object found", wanted_token))?;
+    if selected_balance < required_amount {
+        anyhow::bail!(
+            "No single Coin<{}> object can cover requested amount {}",
+            wanted_token,
+            required_amount
+        );
+    }
+    Ok(selected)
 }
 
 fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
@@ -639,6 +852,329 @@ async fn execute_or_submit_response(
 // =========================================================================
 // HANDLERS
 // =========================================================================
+
+pub async fn handle_build_publish_module(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildPublishModuleRequest =
+        match parse_labeled_params(request.id, &request.params, "build publish data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let gas_payment = match select_native_gas_payment(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        &[],
+    ) {
+        Ok(payment) => payment,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    respond_with_serialize(
+        request.id,
+        PublishModuleRequest {
+            sender: build_data.sender,
+            module_bytes: build_data.module_bytes,
+            module_name: build_data.module_name,
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            sequence_number: owner_info.sequence_number,
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+pub async fn handle_build_native_transfer(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildNativeTransferRequest =
+        match parse_labeled_params(request.id, &request.params, "build native transfer data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    if let Err(response) = parse_hex_address(request.id, &build_data.recipient, "recipient") {
+        return *response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let required_balance = build_data
+        .amount
+        .saturating_add(build_data.gas_limit.saturating_mul(build_data.gas_price));
+    let coin_object_ref =
+        match select_coin_object_for_token(&owned_objects, KANARI_TOKEN_TYPE, required_balance) {
+            Ok(selected) => selected,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".into(),
+                    result: None,
+                    error: Some(transaction_error_with_reason(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+    let gas_payment = match select_native_gas_payment(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        std::slice::from_ref(&coin_object_ref.object_id),
+    ) {
+        Ok(payment) => payment,
+        Err(_) => GasPayment {
+            payment_objects: vec![coin_object_ref.clone()],
+            owner: build_data.sender.clone(),
+            budget: build_data.gas_limit,
+            price: build_data.gas_price,
+        },
+    };
+
+    respond_with_serialize(
+        request.id,
+        ObjectTransferData {
+            sender: build_data.sender,
+            coin_object_id: coin_object_ref.object_id.clone(),
+            coin_object_ref: Some(coin_object_ref),
+            recipient: build_data.recipient,
+            amount: build_data.amount,
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            sequence_number: owner_info.sequence_number,
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+pub async fn handle_build_call_function(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildCallFunctionRequest =
+        match parse_labeled_params(request.id, &request.params, "build call data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    if let Err(response) = parse_hex_address(request.id, &build_data.package, "package address") {
+        return *response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let object_inputs = match infer_object_inputs(state, &build_data.sender, &build_data.args) {
+        Ok(inputs) => inputs,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+    let exclude_ids = object_inputs
+        .iter()
+        .filter(|input| input.mutable)
+        .map(|input| input.object_ref.object_id.clone())
+        .collect::<Vec<_>>();
+    let gas_payment = match select_native_gas_payment(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        &exclude_ids,
+    ) {
+        Ok(payment) => payment,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    respond_with_serialize(
+        request.id,
+        CallFunctionRequest {
+            sender: build_data.sender,
+            package: build_data.package,
+            module: build_data.module,
+            function: build_data.function,
+            type_args: build_data.type_args,
+            args: build_data.args,
+            object_inputs: if object_inputs.is_empty() {
+                None
+            } else {
+                Some(object_inputs)
+            },
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            sequence_number: owner_info.sequence_number,
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+pub async fn handle_build_token_transfer(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildTokenTransferRequest =
+        match parse_labeled_params(request.id, &request.params, "build token transfer data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    if let Err(response) = parse_hex_address(request.id, &build_data.recipient, "recipient") {
+        return *response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let coin_object_ref = match select_coin_object_for_token(
+        &owned_objects,
+        &build_data.token_type,
+        build_data.amount,
+    ) {
+        Ok(selected) => selected,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+    let object = match state.engine.get_object_by_ref(&coin_object_ref) {
+        Ok(Some(object)) => object,
+        Ok(None) => return internal_error_response(request.id, "Selected token object not found"),
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+    let object_input = match build_object_input(&object, &build_data.sender) {
+        Ok(input) => input,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+    let gas_payment = match select_native_gas_payment(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        std::slice::from_ref(&coin_object_ref.object_id),
+    ) {
+        Ok(payment) => payment,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    let module_parts: Vec<&str> = build_data.token_type.split("::").collect();
+    if module_parts.len() < 3 {
+        return invalid_params_response(
+            request.id,
+            "Invalid token type format. Expected address::module::struct",
+        );
+    }
+
+    respond_with_serialize(
+        request.id,
+        CallFunctionRequest {
+            sender: build_data.sender,
+            package: module_parts[0].to_string(),
+            module: module_parts[1].to_string(),
+            function: "transfer_amount".to_string(),
+            type_args: vec![],
+            args: vec![
+                move_core_types::account_address::AccountAddress::from_hex_literal(
+                    &coin_object_ref.object_id,
+                )
+                .map(|addr| addr.to_vec())
+                .unwrap_or_default(),
+                bcs::to_bytes(&build_data.amount).unwrap_or_default(),
+                move_core_types::account_address::AccountAddress::from_hex_literal(
+                    &build_data.recipient,
+                )
+                .map(|addr| bcs::to_bytes(&addr).unwrap_or_default())
+                .unwrap_or_default(),
+            ],
+            object_inputs: Some(vec![object_input]),
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            sequence_number: owner_info.sequence_number,
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
 
 /// Handle submit object transfer request
 pub async fn handle_submit_object_transfer(

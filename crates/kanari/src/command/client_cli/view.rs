@@ -89,7 +89,10 @@ impl View {
         }
         let object_inputs = self.parse_object_inputs()?;
         if !object_inputs.is_empty() {
-            eprintln!("   Object Inputs: {} explicit object ref(s)", object_inputs.len());
+            eprintln!(
+                "   Object Inputs: {} explicit object ref(s)",
+                object_inputs.len()
+            );
         }
 
         eprintln!("   RPC: {}\n", rpc);

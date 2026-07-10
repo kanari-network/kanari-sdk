@@ -316,6 +316,18 @@ pub struct SubmitObjectTransferRequest {
     pub transaction: ObjectTransferData,
 }
 
+/// Build native transfer request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildNativeTransferRequest {
+    pub sender: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
 /// Object transfer submission data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectTransferData {
@@ -351,6 +363,18 @@ pub struct PublishModuleRequest {
     pub execute_immediate: Option<bool>,
 }
 
+/// Build publish module request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildPublishModuleRequest {
+    pub sender: String,
+    pub module_bytes: Vec<u8>,
+    pub module_name: String,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
 /// Call function request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallFunctionRequest {
@@ -368,6 +392,34 @@ pub struct CallFunctionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
+    pub execute_immediate: Option<bool>,
+}
+
+/// Build call function request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildCallFunctionRequest {
+    pub sender: String,
+    pub package: String,
+    pub module: String,
+    pub function: String,
+    pub type_args: Vec<String>,
+    pub args: Vec<Vec<u8>>,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
+/// Build token transfer request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildTokenTransferRequest {
+    pub sender: String,
+    pub recipient: String,
+    pub token_type: String,
+    pub amount: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
 
@@ -654,6 +706,14 @@ pub mod methods {
         tags = ["transaction"]
     )]
     pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
+    #[open_rpc_method(
+        summary = "Build native transfer transaction",
+        description = "Selects a native coin object, gas payment, and sequence number for a transfer and returns a canonical unsigned transfer payload.",
+        params = [("transaction", "Unsigned native transfer payload.", true, schema_object())],
+        result = ("transaction", "Prepared object-transfer request.", schema_object()),
+        tags = ["transaction"]
+    )]
+    pub const BUILD_NATIVE_TRANSFER: &str = "kanari_buildNativeTransfer";
 
     // Stats & Info
     #[open_rpc_method(
@@ -692,6 +752,14 @@ pub mod methods {
         tags = ["module"]
     )]
     pub const PUBLISH_MODULE: &str = "kanari_publishModule";
+    #[open_rpc_method(
+        summary = "Build publish module transaction",
+        description = "Resolves sequence number and gas payment for a module publication and returns a canonical unsigned request.",
+        params = [("module", "Unsigned module publication payload.", true, schema_object())],
+        result = ("module", "Prepared publish-module request.", schema_object()),
+        tags = ["module"]
+    )]
+    pub const BUILD_PUBLISH_MODULE: &str = "kanari_buildPublishModule";
     #[open_rpc_method(
         summary = "Get module",
         description = "Returns module metadata by address and module name.",
@@ -736,6 +804,22 @@ pub mod methods {
         tags = ["function"]
     )]
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
+    #[open_rpc_method(
+        summary = "Build function call transaction",
+        description = "Resolves object inputs, sequence number, and gas payment for a Move entry function call and returns a canonical unsigned request.",
+        params = [("call", "Unsigned function call payload.", true, schema_object())],
+        result = ("call", "Prepared call-function request.", schema_object()),
+        tags = ["function"]
+    )]
+    pub const BUILD_CALL_FUNCTION: &str = "kanari_buildCallFunction";
+    #[open_rpc_method(
+        summary = "Build token transfer transaction",
+        description = "Selects a token coin object, resolves gas and sequence number, and returns a canonical unsigned Move call for token transfer.",
+        params = [("call", "Unsigned token transfer payload.", true, schema_object())],
+        result = ("call", "Prepared token-transfer call request.", schema_object()),
+        tags = ["function"]
+    )]
+    pub const BUILD_TOKEN_TRANSFER: &str = "kanari_buildTokenTransfer";
     #[open_rpc_method(
         summary = "View function",
         description = "Executes a read-only Move function without submitting a transaction.",

@@ -5,37 +5,26 @@ use crate::command::common::{
     check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
     resolve_sender, resolve_transaction_gas,
 };
-use crate::command::gas_and_coin_selection::{
-    build_native_gas_payment, consolidate_coin_objects, object_call_context,
-    select_native_coin_object, spendable_coin_objects,
-};
 use crate::command::rpc_helpers::{
-    should_wait_for_commit, sign_and_call_function, wait_for_transaction_commit,
+    should_wait_for_commit, sign_object_transfer_request, wait_for_transaction_commit,
 };
 use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
-use kanari_rpc_api::CallFunctionRequest;
+use kanari_rpc_api::BuildNativeTransferRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
 pub struct Transfer {
-    /// Sender wallet address (optional). If omitted, uses selected wallet in config.
     #[arg(short, long)]
     pub from: Option<String>,
-    /// Recipient address
     #[arg(short, long)]
     pub to: String,
-    /// Amount in Kanari (will be converted to Mist)
     #[arg(short, long)]
     pub amount: f64,
-    /// Wallet password
     #[arg(short, long)]
     pub password: String,
-
-    /// RPC endpoint
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
 }
@@ -53,125 +42,43 @@ impl Transfer {
         eprintln!("  To: {}", to_addr);
         eprintln!("  Amount: {} KANARI", self.amount);
 
-        // Convert Kanari to Mist (1 KANARI = 10^9 Mist)
         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
         let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
         eprintln!("  Amount (Mist): {}", amount_mist);
 
-        // Connect to RPC server
         let client = RpcClient::new(&rpc);
         check_node_connection(&client, &rpc).await?;
 
-        // Get owner state to determine the next sequence number and available objects.
-        let owner = client
-            .get_owner(&from_addr)
-            .await
-            .context("Failed to get sender owner state")?;
-
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
-
-        let owned_objects = owner
-            .owned_objects
-            .as_ref()
-            .context("Sender owner state has no owned object list from RPC")?;
-
-        let required_balance = amount_mist.saturating_add(gas_limit.saturating_mul(gas_price));
-        let mut selected_coin = select_native_coin_object(owned_objects, required_balance)
-            .with_context(|| {
-                format!(
-                    "No spendable Coin<{}> object found for {}",
-                    KANARI_TOKEN_TYPE, from_addr
-                )
-            })?;
-
-        let mut next_sequence = owner.sequence_number;
-        if selected_coin.selected_balance < required_balance {
-            if selected_coin.total_balance < required_balance {
-                anyhow::bail!(
-                    "Insufficient Coin<{}> balance for {}.\n  - required (amount + max gas): {} Mist\n  - best coin object: {} Mist\n  - total spendable across coin objects: {} Mist",
-                    KANARI_TOKEN_TYPE,
-                    from_addr,
-                    required_balance,
-                    selected_coin.selected_balance,
-                    selected_coin.total_balance
-                );
-            }
-
-            eprintln!("  Consolidating coin objects before transfer...");
-            let consolidation = consolidate_coin_objects(
-                &client,
-                &wallet,
-                &sender_tagged,
-                KANARI_TOKEN_TYPE,
-                &spendable_coin_objects(owned_objects, KANARI_TOKEN_TYPE),
-                required_balance,
-                owner.sequence_number,
+        let prepared = client
+            .build_native_transfer(BuildNativeTransferRequest {
+                sender: sender_tagged.clone(),
+                recipient: to_addr,
+                amount: amount_mist,
                 gas_limit,
                 gas_price,
-            )
-            .await?;
-            selected_coin = consolidation.0;
-            next_sequence = consolidation.1;
+                execute_immediate: None,
+            })
+            .await
+            .context("Failed to build native transfer transaction")?;
+
+        eprintln!("  Using coin object: {}", prepared.coin_object_id);
+        if let Some(gas_payment) = &prepared.gas_payment
+            && let Some(gas_object) = gas_payment.payment_objects.first()
+        {
+            eprintln!("  Gas payment object: {}", gas_object.object_id);
         }
+        eprintln!("  Gas Limit: {}", prepared.gas_limit);
+        eprintln!("  Gas Price: {} Mist/gas", prepared.gas_price);
 
-        eprintln!("  Using coin object: {}", selected_coin.coin_object_id);
-        eprintln!(
-            "  Selected Coin Balance (Mist): {}",
-            selected_coin.selected_balance
-        );
-        eprintln!(
-            "  Total Spendable Coin Balance (Mist): {}",
-            selected_coin.total_balance
-        );
-
-        let (object_inputs, mut gas_payment) = object_call_context(
-            &sender_tagged,
-            selected_coin.coin_object_ref.clone(),
-            gas_limit,
-            gas_price,
-        );
-        let (gas_coin, explicit_gas_payment) = build_native_gas_payment(
-            owned_objects,
-            &sender_tagged,
-            gas_limit,
-            gas_price,
-            &[selected_coin.coin_object_id.as_str()],
-        )
-        .unwrap_or_else(|_| (selected_coin.clone(), gas_payment.clone()));
-        eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);
-        gas_payment = explicit_gas_payment;
-
-        let call_req = CallFunctionRequest {
-            sender: sender_tagged.clone(),
-            package: "0x2".to_string(),
-            module: "kanari".to_string(),
-            function: "transfer".to_string(),
-            type_args: vec![],
-            args: vec![
-                move_core_types::account_address::AccountAddress::from_hex_literal(
-                    &selected_coin.coin_object_id,
-                )
-                .context("Invalid coin object ID")?
-                .to_vec(),
-                bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
-                bcs::to_bytes(
-                    &move_core_types::account_address::AccountAddress::from_hex_literal(&to_addr)?,
-                )
-                .context("Failed to serialize recipient address")?,
-            ],
-            object_inputs: Some(object_inputs),
-            gas_limit,
-            gas_price,
-            sequence_number: next_sequence,
-            gas_payment: Some(gas_payment),
-            signature: None,
-            execute_immediate: Some(true),
-        };
-        eprintln!("  Gas Limit: {}", gas_limit);
-        eprintln!("  Gas Price: {} Mist/gas", gas_price);
+        let signed = sign_object_transfer_request(prepared, &wallet)?;
+        eprintln!("  Transaction signed");
         eprintln!("  Submitting transaction to node...");
 
-        let status = sign_and_call_function(&client, &wallet, call_req).await?;
+        let status = client
+            .submit_object_transfer(signed)
+            .await
+            .context("Failed to submit transaction")?;
         print_transaction_status("  ", &status);
         if should_wait_for_commit(
             status.success,

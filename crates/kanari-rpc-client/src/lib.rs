@@ -7,8 +7,8 @@
 
 use anyhow::{Context, Result};
 use kanari_rpc_api::*;
-use kanari_types::transaction::ObjectRef;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::transaction::ObjectRef;
 use reqwest::Client;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -110,6 +110,20 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse object info")
     }
 
+    pub async fn get_object(&self, object_id: &str) -> Result<ObjectInfo> {
+        let response = self
+            .request(
+                methods::GET_OBJECT,
+                serde_json::to_value(GetObjectRequest {
+                    object_id: object_id.to_string(),
+                })?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse object info")
+    }
+
     pub async fn get_objects(&self, request: GetObjectsRequest) -> Result<OwnedObjectsResponse> {
         let response = self
             .request(methods::GET_OBJECTS, serde_json::to_value(request)?)
@@ -152,7 +166,10 @@ impl RpcClient {
     /// Get transaction details by hash.
     pub async fn get_transaction(&self, hash: &str) -> Result<TransactionDetails> {
         let response = self
-            .request(methods::GET_TRANSACTION, serde_json::json!({ "hash": hash }))
+            .request(
+                methods::GET_TRANSACTION,
+                serde_json::json!({ "hash": hash }),
+            )
             .await?;
 
         let result = response.result.context("No result in response")?;
@@ -203,6 +220,21 @@ impl RpcClient {
         Ok(status)
     }
 
+    pub async fn build_native_transfer(
+        &self,
+        request: BuildNativeTransferRequest,
+    ) -> Result<ObjectTransferData> {
+        let response = self
+            .request(
+                methods::BUILD_NATIVE_TRANSFER,
+                serde_json::to_value(request)?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse prepared native transfer")
+    }
+
     /// Publish Move module
     pub async fn publish_module(&self, request: PublishModuleRequest) -> Result<TransactionStatus> {
         let response = self
@@ -234,6 +266,21 @@ impl RpcClient {
         Ok(status)
     }
 
+    pub async fn build_publish_module(
+        &self,
+        request: BuildPublishModuleRequest,
+    ) -> Result<PublishModuleRequest> {
+        let response = self
+            .request(
+                methods::BUILD_PUBLISH_MODULE,
+                serde_json::to_value(request)?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse prepared publish request")
+    }
+
     /// Call Move function
     pub async fn call_function(&self, request: CallFunctionRequest) -> Result<TransactionStatus> {
         let response = self
@@ -263,6 +310,33 @@ impl RpcClient {
         };
 
         Ok(status)
+    }
+
+    pub async fn build_call_function(
+        &self,
+        request: BuildCallFunctionRequest,
+    ) -> Result<CallFunctionRequest> {
+        let response = self
+            .request(methods::BUILD_CALL_FUNCTION, serde_json::to_value(request)?)
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse prepared call request")
+    }
+
+    pub async fn build_token_transfer(
+        &self,
+        request: BuildTokenTransferRequest,
+    ) -> Result<CallFunctionRequest> {
+        let response = self
+            .request(
+                methods::BUILD_TOKEN_TRANSFER,
+                serde_json::to_value(request)?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse prepared token transfer request")
     }
 }
 

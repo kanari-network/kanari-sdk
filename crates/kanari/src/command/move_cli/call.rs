@@ -5,70 +5,40 @@ use crate::command::common::{
     build_blocking_client, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
     resolve_sender, resolve_transaction_gas,
 };
-use crate::command::gas_and_coin_selection::build_native_gas_payment;
 use crate::command::rpc_helpers::{
-    get_owner_info, should_wait_for_commit, wait_for_transaction_commit_blocking,
+    render_transaction_submission, sign_call_function_request, submit_blocking_rpc,
 };
-use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Context, Result};
 use clap::*;
-use kanari_rpc_api::{CallFunctionRequest, ObjectInfo, RpcRequest, RpcResponse, methods};
+use kanari_rpc_api::{BuildCallFunctionRequest, CallFunctionRequest, methods};
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
-use kanari_types::transaction::{
-    ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
-};
 use kanari_types::{GasEstimate, GasOperation};
-use log::error;
 use move_core_types::{account_address::AccountAddress, parser, runtime_value::MoveValue};
-use std::collections::BTreeMap;
-use std::time::Duration;
 
 /// Call a Move function on the blockchain
 #[derive(Parser)]
 #[clap(
     name = "call",
     about = "Call a Move function on the blockchain",
-    after_help = "Examples:\n  kanari call --package 0x1 --module coin --function transfer --args 0x2 1000 --sender 0x1\n"
+    after_help = "Examples:\n  kanari call --package 0x1 --module coin --function transfer --args 0x2 1000\n  kanari call --package 0x1 --module nft --function mutate --args 0xabc \"new name\"\n"
 )]
 pub struct Call {
-    /// Package address (hex)
-    /// Example: 0x840512ff... (use `--module <NAME>` separately)
     #[clap(long = "package")]
     pub package: String,
-
-    /// Module name (required). Use `--module <NAME>` with `--package <ADDRESS>`.
     #[clap(long = "module", value_name = "MODULE")]
     pub module: String,
-
-    /// Function name in module
     #[clap(long = "function")]
     pub function: String,
-
-    /// Type arguments to the generic function being called.
-    /// All must be specified, or the call will fail.
-    /// Example: 0x1::coin::KANARI
     #[clap(long = "type-args")]
     pub type_args: Vec<String>,
-
-    /// Simplified ordered args like in the function syntax.
-    /// ObjectIDs, Addresses must be hex strings.
-    /// Example: 0x123 1000 true
     #[clap(long = "args", num_args = 0..)]
     pub args: Vec<String>,
-
-    /// Gas limit for the transaction
     #[clap(long = "gas-limit")]
     pub gas_limit: Option<u64>,
-
-    /// Gas price in Mist
     #[clap(long = "gas-price")]
     pub gas_price: Option<u64>,
-
-    /// RPC endpoint
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
-    // `immediate` execution option removed — always submit normally.
 }
 
 impl Call {
@@ -76,41 +46,33 @@ impl Call {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
         let (gas_limit, gas_price) = resolve_transaction_gas(self.gas_limit, self.gas_price);
 
-        eprintln!("Preparing function call...");
-
-        // Normalize and validate addresses
-
-        // Expect separate flags: `--package <ADDRESS>` and `--module <MODULE>`.
         if self.package.contains("::") {
             anyhow::bail!(
                 "Combined form `address::module` is not supported. Use `--package <ADDRESS> --module <MODULE>` instead."
             );
         }
 
-        let package_str = &self.package;
-        let module_name = &self.module;
+        eprintln!("Preparing function call...");
 
         let sender_normalized = resolve_sender(None)?;
-        let package_normalized = normalize_addr(package_str)
-            .with_context(|| format!("Invalid package address: {}", package_str))?;
+        let package_normalized = normalize_addr(&self.package)
+            .with_context(|| format!("Invalid package address: {}", self.package))?;
+        let client = build_blocking_client(30)?;
 
         eprintln!("Call Details:");
-        eprintln!("   Package: {}::{}", package_normalized, module_name);
+        eprintln!("   Package: {}::{}", package_normalized, self.module);
         eprintln!("   Function: {}", self.function);
         eprintln!("   Sender: {}", sender_normalized);
         eprintln!("   Gas Limit: {}", gas_limit);
         eprintln!("   Gas Price: {}", gas_price);
 
-        // Load wallet (signing is required).
         let wallet = load_wallet_for(&sender_normalized, None)?;
         eprintln!(
             "   Wallet loaded: {} (curve: {})",
             sender_normalized, wallet.curve_type
         );
-
         let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
-        // Parse and validate type arguments (keep original string values for RPC but validate them)
         if !self.type_args.is_empty() {
             for type_arg in &self.type_args {
                 parser::parse_type_tag(type_arg.trim())
@@ -118,22 +80,18 @@ impl Call {
             }
             eprintln!("   Type Args: {}", self.type_args.join(", "));
         }
-        let parsed_type_args = self.type_args.clone();
 
-        // Parse arguments (support typed args and JSON arrays).
         let parsed_args: Vec<Vec<u8>> = self
             .args
             .iter()
             .map(|arg| self.parse_arg_flexible(arg))
             .collect::<Result<_>>()?;
-
         if !parsed_args.is_empty() {
             eprintln!("   Arguments: {} args provided", parsed_args.len());
         }
 
-        // Estimate gas using runtime `ExecuteFunction`
-        let operation = GasOperation::ExecuteFunction { complexity: 1 };
-        let estimate = GasEstimate::from_operation(operation, gas_price);
+        let estimate =
+            GasEstimate::from_operation(GasOperation::ExecuteFunction { complexity: 1 }, gas_price);
         eprintln!("Gas estimation:");
         eprintln!("   Estimated: {} units", estimate.gas_units);
         eprintln!("   Limit: {} units", gas_limit);
@@ -142,227 +100,78 @@ impl Call {
             estimate.total_cost_mist, estimate.total_cost_kanari
         );
 
-        // Create transaction
-        eprintln!("Creating transaction...");
+        eprintln!("Creating transaction via API...");
+        let prepared = submit_blocking_rpc(
+            &client,
+            &rpc,
+            methods::BUILD_CALL_FUNCTION,
+            serde_json::to_value(BuildCallFunctionRequest {
+                sender: sender_for_tx.clone(),
+                package: package_normalized,
+                module: self.module.clone(),
+                function: self.function.clone(),
+                type_args: self.type_args.clone(),
+                args: parsed_args,
+                gas_limit,
+                gas_price,
+                execute_immediate: None,
+            })
+            .context("Failed to serialize build call request")?,
+        )?;
+        let prepared: CallFunctionRequest = serde_json::from_value(
+            prepared
+                .result
+                .context("RPC did not return prepared call request")?,
+        )
+        .context("Failed to decode prepared call request")?;
 
-        // Query owner info so signature/RPC include sequence number and gas payment object.
-        let client = build_blocking_client(30)?;
-        let owner_info = get_owner_info(&client, &rpc, &sender_normalized)?;
-        let seq_num = owner_info.sequence_number;
-        let owned_objects = owner_info
-            .owned_objects
-            .as_ref()
-            .context("Sender owner state has no owned object list from RPC")?;
-        let object_inputs = self.resolve_object_inputs(owned_objects)?;
-        if !object_inputs.is_empty() {
+        if let Some(object_inputs) = &prepared.object_inputs
+            && !object_inputs.is_empty()
+        {
             eprintln!(
-                "   Object Inputs: {} inferred object ref(s)",
+                "   Object Inputs: {} API-resolved object ref(s)",
                 object_inputs.len()
             );
         }
-        let (selected_gas_coin, gas_payment) =
-            build_native_gas_payment(owned_objects, &sender_for_tx, gas_limit, gas_price, &[])
-                .with_context(|| {
-                    format!(
-                        "No spendable Coin<{}> object found for gas payment for {}",
-                        KANARI_TOKEN_TYPE, sender_normalized
-                    )
-                })?;
-        eprintln!(
-            "   Gas payment object: {}",
-            selected_gas_coin.coin_object_id
-        );
-        eprintln!(
-            "   Gas coin balance: {} Mist",
-            selected_gas_coin.selected_balance
-        );
+        if let Some(gas_payment) = &prepared.gas_payment
+            && let Some(gas_object) = gas_payment.payment_objects.first()
+        {
+            eprintln!("   Gas payment object: {}", gas_object.object_id);
+        }
 
-        // Sign transaction using the loaded wallet via SignedTransaction
-        let signed_tx = {
-            // Format module as "address::module_name" for runtime compatibility
-            let module_full = format!("{}::{}", package_normalized, module_name);
-
-            // Create proper Transaction to match server's expectation (use parsed args/type_args)
-            let transaction = Transaction::ExecuteFunction {
-                sender: sender_for_tx.clone(),
-                module: module_full.clone(),
-                function: self.function.clone(),
-                type_args: parsed_type_args.clone(),
-                args: parsed_args.clone(),
-                object_inputs: object_inputs.clone(),
-                gas_payment: Some(gas_payment.clone()),
-                gas_limit,
-                gas_price,
-                sequence_number: seq_num,
-            };
-
-            // Wrap and sign using SignedTransaction helper
-            let mut stx = SignedTransaction::new(transaction);
-            stx.sign(&wallet.private_key, wallet.curve_type)
-                .require("Failed to sign transaction")?;
-            eprintln!("   Transaction signed (curve: {})", wallet.curve_type);
-            stx
-        };
-
-        let call_req = CallFunctionRequest {
-            sender: sender_for_tx.clone(),
-            package: package_normalized.clone(),
-            module: module_name.clone(),
-            function: self.function.clone(),
-            type_args: parsed_type_args.clone(),
-            args: parsed_args.clone(),
-            object_inputs: Some(object_inputs),
-            gas_limit,
-            gas_price,
-            sequence_number: seq_num,
-            gas_payment: Some(gas_payment),
-            signature: Some(signed_tx.signature.clone()),
-            execute_immediate: Some(true),
-        };
-
-        let rpc_request = RpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: methods::CALL_FUNCTION.to_string(),
-            params: serde_json::to_value(call_req).context("Failed to serialize call request")?,
-            id: 1,
-        };
+        let signed = sign_call_function_request(prepared, &wallet)?;
+        eprintln!("   Transaction signed (curve: {})", wallet.curve_type);
 
         eprintln!("Sending RPC request to {}...", rpc);
-
-        let client = build_blocking_client(30)?;
-        match client.post(&rpc).json(&rpc_request).send() {
-            Ok(resp) => match resp.json::<RpcResponse>() {
-                Ok(rpc_resp) => {
-                    if let Some(err) = rpc_resp.error {
-                        print_rpc_error("", &err);
-                    } else if let Some(result) = rpc_resp.result {
-                        // Parse result as `TransactionResult` if possible to print summary
-                        if let Ok(tx_result) = serde_json::from_value::<
-                            kanari_rpc_api::TransactionResult,
-                        >(result.clone())
-                        {
-                            print_transaction_result("", &tx_result);
-                            if !tx_result.success {
-                                anyhow::bail!(
-                                    "Move call failed: {}",
-                                    tx_result
-                                        .error_message
-                                        .clone()
-                                        .unwrap_or_else(|| tx_result.status.clone())
-                                );
-                            }
-
-                            if should_wait_for_commit(
-                                tx_result.success,
-                                tx_result.previewed,
-                                tx_result.submitted,
-                                tx_result.committed,
-                            ) {
-                                eprintln!("Waiting for transaction commit...");
-                                let committed = wait_for_transaction_commit_blocking(
-                                    &client,
-                                    &rpc,
-                                    &tx_result.hash,
-                                    Duration::from_secs(20),
-                                    Duration::from_millis(400),
-                                )?;
-                                eprintln!(
-                                    "Final status: {} success={} previewed={} submitted={} committed={}",
-                                    committed.status,
-                                    committed.success,
-                                    committed.previewed,
-                                    committed.submitted,
-                                    committed.committed
-                                );
-                            }
-                        }
-                        print_json_value("", "RPC result", &result);
-                    } else {
-                        eprintln!("RPC response has no result and no error");
-                    }
-                }
-                Err(e) => error!("Failed to parse RPC response: {}", e),
-            },
-            Err(e) => error!("Failed to send RPC request: {}", e),
-        }
-
-        eprintln!("Function call prepared and RPC sent.");
-        eprintln!("Next steps:");
-        eprintln!(" - Check transaction status");
-        eprintln!(" - View execution results on explorer");
-
+        let rpc_response = submit_blocking_rpc(
+            &client,
+            &rpc,
+            methods::CALL_FUNCTION,
+            serde_json::to_value(signed).context("Failed to serialize call request")?,
+        )?;
+        render_transaction_submission(&client, &rpc, rpc_response, "", true)?;
         Ok(())
-    }
-
-    /// 🛠️ Flexible Deserialization Fix Function
-    fn resolve_object_inputs(&self, owned_objects: &[ObjectInfo]) -> Result<Vec<ObjectInput>> {
-        let object_index: BTreeMap<String, &ObjectInfo> = owned_objects
-            .iter()
-            .map(|object| {
-                (
-                    normalize_addr(&object.id).unwrap_or_else(|_| object.id.clone()),
-                    object,
-                )
-            })
-            .collect();
-
-        let mut inputs = Vec::new();
-        for arg in &self.args {
-            let Ok(normalized) = normalize_addr(arg) else {
-                continue;
-            };
-            let Some(object) = object_index.get(&normalized) else {
-                continue;
-            };
-
-            let owner = match &object.owner_kind {
-                ObjectOwnerKind::AddressOwner(address) => {
-                    Some(ObjectOwnerKind::AddressOwner(address.clone()))
-                }
-                ObjectOwnerKind::Shared => Some(ObjectOwnerKind::Shared),
-                ObjectOwnerKind::Immutable => Some(ObjectOwnerKind::Immutable),
-            };
-
-            inputs.push(ObjectInput {
-                object_ref: ObjectRef::new(
-                    object.id.clone(),
-                    Some(object.version),
-                    object.digest.clone(),
-                ),
-                owner,
-                mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
-            });
-        }
-
-        Ok(inputs)
     }
 
     fn parse_arg_flexible(&self, arg: &str) -> Result<Vec<u8>> {
         let s = arg.trim();
 
-        // 1. Handle Vector (for NFT Attributes: vector<String>)
         if s.starts_with('[') && s.ends_with(']') {
             let inner = s[1..s.len() - 1].trim();
             let mut elements = Vec::new();
             if !inner.is_empty() {
                 for part in inner.split(',') {
                     let clean = part.trim().trim_matches('"').trim_matches('\'');
-                    // Convert to vector<u8> (BCS of String) and push into outer Vector
                     elements.push(MoveValue::Vector(
                         clean.as_bytes().iter().map(|&b| MoveValue::U8(b)).collect(),
                     ));
                 }
             }
-            // Result is vector<vector<u8>> which matches vector<String> in Move
             return MoveValue::Vector(elements)
                 .simple_serialize()
                 .require("Fail to serialize vector<String>");
         }
 
-        // 2. Handle Object IDs (Kanari convention for passing object references)
-        // Supports both formats:
-        //   - x<hex_64_chars> (Kanari-specific prefix)
-        //   - 0x<hex_64_chars> (Standard format)
         let hex_part = if let Some(stripped) = s.strip_prefix('x') {
             if !stripped.starts_with("0x") {
                 Some(stripped)
@@ -374,22 +183,16 @@ impl Call {
         };
 
         if let Some(raw_hex) = hex_part {
-            // Check if it's a 32-byte object ID (64 hex chars)
             if raw_hex.len() == AccountAddress::LENGTH * 2
                 && raw_hex.chars().all(|c| c.is_ascii_hexdigit())
             {
-                // Convert to AccountAddress
                 let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
                     .require("Invalid object ID format")?;
-
-                eprintln!("[CLI] 📦 Detected Object ID: 0x{}", raw_hex);
-
-                // Return raw 32-byte address for runtime object resolution
+                eprintln!("[CLI] object-id argument detected: 0x{}", raw_hex);
                 return Ok(obj_id.to_vec());
             }
         }
 
-        // 3. Handle Address (Hex 0x...) - for non-object addresses
         if s.starts_with("0x")
             && s.len() > 10
             && let Ok(addr) = parser::parse_transaction_argument(s)
@@ -399,17 +202,12 @@ impl Call {
                 .context("addr fail");
         }
 
-        // 4. Handle Numbers (u64)
-        // Filter out "001" to become String (Fallback)
         if (!s.starts_with('0') || s == "0")
             && let Ok(val) = s.parse::<u64>()
         {
             return MoveValue::U64(val).simple_serialize().context("u64 fail");
         }
 
-        // 5. Fallback: Treat everything else as vector<u8> (Move String)
-        // Examples: "test #1", "First NFT", "001", "https://..."
-        let bytes = s.as_bytes().to_vec();
-        Ok(bcs::to_bytes(&bytes)?)
+        Ok(bcs::to_bytes(&s.as_bytes().to_vec())?)
     }
 }

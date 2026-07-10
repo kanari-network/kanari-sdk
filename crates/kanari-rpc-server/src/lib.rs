@@ -33,8 +33,9 @@ use crate::{
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
-        handle_call_function, handle_get_transaction, handle_publish_module,
-        handle_submit_object_transfer, handle_view_function,
+        handle_build_call_function, handle_build_native_transfer, handle_build_publish_module,
+        handle_build_token_transfer, handle_call_function, handle_get_transaction,
+        handle_publish_module, handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -183,6 +184,7 @@ async fn handle_rpc(
         }
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
+        methods::BUILD_NATIVE_TRANSFER => handle_build_native_transfer(&state, &request).await,
         methods::SUBMIT_OBJECT_TRANSFER => handle_submit_object_transfer(&state, &request).await,
 
         // Health
@@ -190,12 +192,15 @@ async fn handle_rpc(
         methods::GET_NETWORK_STATUS => handle_network_status(&state, &request).await,
 
         // Module operations
+        methods::BUILD_PUBLISH_MODULE => handle_build_publish_module(&state, &request).await,
         methods::PUBLISH_MODULE => handle_publish_module(&state, &request).await,
         methods::GET_MODULE => handle_get_module(&state, &request).await,
         methods::LIST_MODULES => handle_list_modules(&state, &request).await,
         methods::VERIFY_MODULE => handle_verify_module(&state, &request).await,
 
         // Function calls
+        methods::BUILD_CALL_FUNCTION => handle_build_call_function(&state, &request).await,
+        methods::BUILD_TOKEN_TRANSFER => handle_build_token_transfer(&state, &request).await,
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 

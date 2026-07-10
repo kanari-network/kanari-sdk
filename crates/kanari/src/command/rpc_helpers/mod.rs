@@ -1,19 +1,23 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use kanari_crypto::wallet::Wallet;
 use kanari_rpc_api::{
-    CallFunctionRequest, OwnerInfo, RpcRequest, RpcResponse, TransactionDetails,
+    CallFunctionRequest, GetObjectRequest, ObjectInfo, ObjectTransferData, OwnerInfo,
+    PublishModuleRequest, RpcRequest, RpcResponse, TransactionDetails, TransactionResult,
     TransactionStatus, methods,
 };
 use kanari_rpc_client::RpcClient;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{
+    ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+};
 use reqwest::blocking::Client;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use crate::command::tx_output::print_rpc_error;
+use crate::command::common::normalize_addr;
+use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 
 pub fn should_wait_for_commit(
     success: bool,
@@ -28,6 +32,14 @@ pub fn sign_call_function_request(
     mut request: CallFunctionRequest,
     wallet: &Wallet,
 ) -> Result<CallFunctionRequest> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing call-function signature"
+    );
     let transaction = Transaction::ExecuteFunction {
         sender: request.sender.clone(),
         module: format!("{}::{}", request.package, request.module),
@@ -47,6 +59,167 @@ pub fn sign_call_function_request(
         .context("Failed to sign transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
+}
+
+pub fn sign_publish_module_request(
+    mut request: PublishModuleRequest,
+    wallet: &Wallet,
+) -> Result<PublishModuleRequest> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing publish-module signature"
+    );
+    let transaction = Transaction::PublishModule {
+        sender: request.sender.clone(),
+        module_bytes: request.module_bytes.clone(),
+        module_name: request.module_name.clone(),
+        gas_payment: request.gas_payment.clone(),
+        gas_limit: request.gas_limit,
+        gas_price: request.gas_price,
+        sequence_number: request.sequence_number,
+    };
+
+    let mut signed_tx = SignedTransaction::new(transaction);
+    signed_tx
+        .sign(&wallet.private_key, wallet.curve_type)
+        .context("Failed to sign module transaction")?;
+    request.signature = Some(signed_tx.signature);
+    Ok(request)
+}
+
+pub fn sign_object_transfer_request(
+    mut request: ObjectTransferData,
+    wallet: &Wallet,
+) -> Result<ObjectTransferData> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing object-transfer signature"
+    );
+    let coin_object_ref = request
+        .coin_object_ref
+        .clone()
+        .context("coin_object_ref is required to sign object transfer transaction")?;
+
+    let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
+        request.sender.clone(),
+        coin_object_ref,
+        request.recipient.clone(),
+        request.amount,
+        request.sequence_number,
+        request.gas_limit,
+        request.gas_price,
+    );
+    if let Transaction::ExecuteFunction { gas_payment, .. } = &mut transaction
+        && request.gas_payment.is_some()
+    {
+        *gas_payment = request.gas_payment.clone();
+    }
+
+    let mut signed_tx = SignedTransaction::new(transaction);
+    signed_tx
+        .sign(&wallet.private_key, wallet.curve_type)
+        .context("Failed to sign object transfer transaction")?;
+    request.signature = Some(signed_tx.signature);
+    Ok(request)
+}
+
+pub fn submit_blocking_rpc(
+    client: &Client,
+    rpc_endpoint: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<RpcResponse> {
+    let rpc_request = RpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: method.to_string(),
+        params,
+        id: 1,
+    };
+
+    client
+        .post(rpc_endpoint)
+        .json(&rpc_request)
+        .send()
+        .context("Failed to send RPC request")?
+        .error_for_status()
+        .context("RPC server returned HTTP error status")?
+        .json::<RpcResponse>()
+        .context("Failed to parse RPC response")
+}
+
+pub fn render_transaction_submission(
+    client: &Client,
+    rpc_endpoint: &str,
+    rpc_response: RpcResponse,
+    prefix: &str,
+    fail_on_transaction_failure: bool,
+) -> Result<bool> {
+    if let Some(err) = rpc_response.error {
+        print_rpc_error(prefix, &err);
+        bail!("RPC returned transaction error: {}", err.message);
+    }
+
+    let Some(result) = rpc_response.result else {
+        bail!("RPC response has no result and no error");
+    };
+
+    let tx_result: TransactionResult = serde_json::from_value(result.clone())
+        .context("RPC returned unexpected transaction result payload")?;
+    print_transaction_result(prefix, &tx_result);
+    if !tx_result.success {
+        if fail_on_transaction_failure {
+            bail!(
+                "Transaction failed: {}",
+                tx_result
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| tx_result.status.clone())
+            );
+        }
+        print_json_value(prefix, "RPC result", &result);
+        return Ok(false);
+    }
+
+    if should_wait_for_commit(
+        tx_result.success,
+        tx_result.previewed,
+        tx_result.submitted,
+        tx_result.committed,
+    ) {
+        eprintln!("{prefix}Waiting for transaction commit...");
+        let committed = wait_for_transaction_commit_blocking(
+            client,
+            rpc_endpoint,
+            &tx_result.hash,
+            Duration::from_secs(20),
+            Duration::from_millis(400),
+        )?;
+        eprintln!(
+            "{prefix}Final status: {} success={} previewed={} submitted={} committed={}",
+            committed.status,
+            committed.success,
+            committed.previewed,
+            committed.submitted,
+            committed.committed
+        );
+        if fail_on_transaction_failure && !committed.success {
+            bail!(
+                "Committed transaction failed with status {}",
+                committed.status
+            );
+        }
+    }
+
+    print_json_value(prefix, "RPC result", &result);
+    Ok(true)
 }
 
 pub async fn sign_and_call_function(
@@ -72,6 +245,57 @@ pub async fn sign_and_call_function(
     }
 
     Ok(status)
+}
+
+pub fn object_input_from_info(
+    object: &ObjectInfo,
+    expected_sender: Option<&str>,
+) -> Result<ObjectInput> {
+    let owner = match &object.owner_kind {
+        ObjectOwnerKind::AddressOwner(address) => {
+            if let Some(sender) = expected_sender {
+                let object_owner = normalize_addr(address)
+                    .unwrap_or_else(|_| address.clone())
+                    .to_lowercase();
+                let sender = normalize_addr(sender)
+                    .unwrap_or_else(|_| sender.to_string())
+                    .to_lowercase();
+                if object_owner != sender {
+                    bail!(
+                        "Object input {} is owned by {}, not sender {}",
+                        object.id,
+                        address,
+                        sender
+                    );
+                }
+            }
+            Some(ObjectOwnerKind::AddressOwner(address.clone()))
+        }
+        ObjectOwnerKind::Shared => Some(ObjectOwnerKind::Shared),
+        ObjectOwnerKind::Immutable => Some(ObjectOwnerKind::Immutable),
+    };
+
+    Ok(ObjectInput {
+        object_ref: ObjectRef::new(
+            object.id.clone(),
+            Some(object.version),
+            object.digest.clone(),
+        ),
+        owner,
+        mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
+    })
+}
+
+pub async fn object_input_from_object_id(
+    client: &RpcClient,
+    object_id: &str,
+    expected_sender: Option<&str>,
+) -> Result<ObjectInput> {
+    let object = client
+        .get_object(object_id)
+        .await
+        .with_context(|| format!("Failed to fetch object {}", object_id))?;
+    object_input_from_info(&object, expected_sender)
 }
 
 fn status_from_details(details: TransactionDetails) -> TransactionStatus {
@@ -207,6 +431,36 @@ pub fn get_owner_info(
         .result
         .context("RPC did not return owner info for sender")?;
     serde_json::from_value(result).context("Failed to decode owner info from RPC")
+}
+
+pub fn get_object_info(client: &Client, rpc_endpoint: &str, object_id: &str) -> Result<ObjectInfo> {
+    let object_req = RpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: methods::GET_OBJECT.to_string(),
+        params: serde_json::to_value(GetObjectRequest {
+            object_id: object_id.to_string(),
+        })
+        .context("Failed to serialize object id for RPC")?,
+        id: 1,
+    };
+
+    let resp = client
+        .post(rpc_endpoint)
+        .json(&object_req)
+        .send()
+        .with_context(|| format!("Failed to query object info for {}", object_id))?;
+
+    let rpc_resp: RpcResponse = resp.json().context("Failed to parse object RPC response")?;
+
+    if let Some(error) = rpc_resp.error {
+        print_rpc_error("", &error);
+        bail!("RPC did not return object info for {}", object_id);
+    }
+
+    let result = rpc_resp
+        .result
+        .with_context(|| format!("RPC did not return object info for {}", object_id))?;
+    serde_json::from_value(result).context("Failed to decode object info from RPC")
 }
 
 pub fn get_owner_sequence(

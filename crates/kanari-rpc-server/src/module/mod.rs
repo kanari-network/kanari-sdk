@@ -319,10 +319,7 @@ pub async fn handle_get_objects(state: &RpcServerState, request: &RpcRequest) ->
     )
 }
 
-pub async fn handle_get_object_by_ref(
-    state: &RpcServerState,
-    request: &RpcRequest,
-) -> RpcResponse {
+pub async fn handle_get_object_by_ref(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req: GetObjectByRefRequest = match parse_params(request.id, &request.params) {
         Ok(r) => r,
         Err(response) => return *response,
@@ -338,9 +335,8 @@ pub async fn handle_get_object_by_ref(
     match state.engine.get_object_by_ref(&req.object_ref) {
         Ok(Some(object)) => respond_with_serialize(request.id, object),
         Ok(None) => internal_error_response(request.id, "Object ref not found"),
-        Err(e) => internal_error_response(
-            request.id,
-            format!("Failed to resolve object ref: {}", e),
-        ),
+        Err(e) => {
+            internal_error_response(request.id, format!("Failed to resolve object ref: {}", e))
+        }
     }
 }

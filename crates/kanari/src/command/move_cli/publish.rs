@@ -6,21 +6,15 @@ use crate::command::common::{
     build_blocking_client, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
     resolve_sender, resolve_transaction_gas,
 };
-use crate::command::gas_and_coin_selection::build_native_gas_payment;
 use crate::command::rpc_helpers::{
-    get_owner_info, should_wait_for_commit, wait_for_transaction_commit_blocking,
+    render_transaction_submission, sign_publish_module_request, submit_blocking_rpc,
 };
-use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::*;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
-use kanari_types::error::KanariUnwrapExt;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_rpc_api::{BuildPublishModuleRequest, PublishModuleRequest, methods};
 use kanari_types::{GasEstimate, GasOperation};
-use log::error;
 use move_package::BuildConfig;
 use std::path::PathBuf;
-use std::time::Duration;
 
 /// Publish the Move module to the blockchain
 #[derive(Parser, Clone)]
@@ -28,69 +22,58 @@ use std::time::Duration;
 pub struct Publish {
     #[clap(flatten)]
     pub build_config: BuildConfig,
-    /// Path to the Move package (defaults to current directory)
     #[clap(long = "package-path")]
     pub package_path: Option<PathBuf>,
-
-    /// Gas limit for the transaction
     #[clap(long = "gas-limit")]
     pub gas_limit: Option<u64>,
-
-    /// Gas price in Mist
     #[clap(long = "gas-price")]
     pub gas_price: Option<u64>,
-
-    /// RPC endpoint
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
-    // `immediate` execution option removed — always submit normally.
 }
 
 impl Publish {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> Result<()> {
         let rerooted_path = reroot_path(path.or(self.package_path.clone()))?;
         let (gas_limit, gas_price) = resolve_transaction_gas(self.gas_limit, self.gas_price);
-
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
-
-        // Normalize and validate sender address
         let sender_normalized = resolve_sender(None)?;
 
         eprintln!("Building Move package...");
-
-        // Build the package
         let compiled_package = config.compile_package(&rerooted_path, &mut std::io::stderr())?;
-
-        // Get compiled modules (collect once to avoid double iteration)
         let modules: Vec<_> = compiled_package.all_modules().collect();
+        if modules.is_empty() {
+            bail!("No modules found in package");
+        }
+
         eprintln!("Package compiled successfully!");
         eprintln!("   Modules: {}", modules.len());
 
-        // Build a blocking HTTP client with a timeout to avoid hanging RPC calls
         let client = build_blocking_client(30)?;
-
-        // Precompute modules that actually belong to the sender (will be published)
         let modules_to_publish: Vec<_> = modules
             .iter()
             .filter(|module_unit| {
                 let module_address = module_unit.unit.module.self_id().address().to_string();
                 let module_addr_normalized =
                     normalize_addr(&module_address).unwrap_or(module_address);
-                module_addr_normalized.to_lowercase() == sender_normalized.to_lowercase()
+                module_addr_normalized.eq_ignore_ascii_case(&sender_normalized)
             })
             .collect();
 
-        // Optionally show total estimated gas for all modules that will be published
-        let mut total_estimated_gas: u64 = 0;
-        for mu in &modules_to_publish {
-            let mut bytes = vec![];
-            mu.unit.module.serialize(&mut bytes)?;
-            let op = GasOperation::PublishModule {
-                module_size: bytes.len(),
-            };
-            let est = GasEstimate::from_operation(op, gas_price);
-            total_estimated_gas = total_estimated_gas.saturating_add(est.gas_units);
-        }
+        let total_estimated_gas =
+            modules_to_publish
+                .iter()
+                .try_fold(0u64, |acc, module_unit| -> Result<u64> {
+                    let mut bytes = vec![];
+                    module_unit.unit.module.serialize(&mut bytes)?;
+                    let estimate = GasEstimate::from_operation(
+                        GasOperation::PublishModule {
+                            module_size: bytes.len(),
+                        },
+                        gas_price,
+                    );
+                    Ok(acc.saturating_add(estimate.gas_units))
+                })?;
         if modules_to_publish.len() > 1 {
             eprintln!(
                 "Total estimated gas for all modules: {}",
@@ -98,22 +81,11 @@ impl Publish {
             );
         }
 
-        if modules.is_empty() {
-            bail!("No modules found in package");
-        }
-
-        // Load wallet (signing is required).
-        let wallet = {
-            let w = load_wallet_for(&sender_normalized, None)?;
-            eprintln!(
-                "   Wallet loaded: {} (curve: {})",
-                sender_normalized, w.curve_type
-            );
-            w
-        };
-
-        // If it's a PQC or Hybrid wallet, use the tagged address (Curve:PublicKey)
-        // for signing and sender identity to ensure the RPC server can verify it.
+        let wallet = load_wallet_for(&sender_normalized, None)?;
+        eprintln!(
+            "   Wallet loaded: {} (curve: {})",
+            sender_normalized, wallet.curve_type
+        );
         let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
         eprintln!("Publishing modules to blockchain...");
@@ -123,23 +95,13 @@ impl Publish {
         let mut published_count = 0;
         let mut skipped_count = 0;
 
-        // === Fetch owner info once to avoid race conditions ===
-        let base_seq: u64 = get_owner_info(&client, &rpc, &sender_for_tx)?.sequence_number;
-
-        // Next sequence to use for publishing modules (increment only when a module is actually published)
-        let mut next_seq = base_seq;
-
         for module_unit in &modules {
             let module = &module_unit.unit.module;
             let module_name = module.self_id().name().to_string();
             let module_address = module.self_id().address().to_string();
-
-            // Normalize module address for comparison
             let module_addr_normalized = normalize_addr(&module_address).unwrap_or(module_address);
 
-            // Only publish modules where the module address matches the sender
-            if module_addr_normalized.to_lowercase() != sender_normalized.to_lowercase() {
-                // Quietly skip dependency modules that don't belong to the sender.
+            if !module_addr_normalized.eq_ignore_ascii_case(&sender_normalized) {
                 skipped_count += 1;
                 continue;
             }
@@ -149,17 +111,17 @@ impl Publish {
                 module.serialize(&mut bytes)?;
                 bytes
             };
+            let estimate = GasEstimate::from_operation(
+                GasOperation::PublishModule {
+                    module_size: module_bytecode.len(),
+                },
+                gas_price,
+            );
 
             eprintln!("   Module: {}", module_name);
             eprintln!("     Size: {} bytes", module_bytecode.len());
             eprintln!("     Address: {}", module.self_id().address());
             eprintln!("     Functions: {}", module.function_defs.len());
-
-            // Estimate gas using runtime GasOperation::PublishModule and GasEstimate
-            let operation = GasOperation::PublishModule {
-                module_size: module_bytecode.len(),
-            };
-            let estimate = GasEstimate::from_operation(operation, gas_price);
             eprintln!("   Estimated: {} units", estimate.gas_units);
             eprintln!("   Limit: {} units", gas_limit);
             eprintln!(
@@ -167,138 +129,53 @@ impl Publish {
                 estimate.total_cost_mist, estimate.total_cost_kanari
             );
 
-            let owner_info = get_owner_info(&client, &rpc, &sender_for_tx)?;
-            let owned_objects = owner_info.owned_objects.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("Sender owner state has no owned object list from RPC")
-            })?;
-            let (selected_gas_coin, gas_payment) =
-                build_native_gas_payment(owned_objects, &sender_for_tx, gas_limit, gas_price, &[])
-                    .map_err(|e| {
-                        anyhow::anyhow!(
-                            "No spendable Coin<{}> object found for gas payment for {}: {}",
-                            KANARI_TOKEN_TYPE,
-                            sender_normalized,
-                            e
-                        )
-                    })?;
-            eprintln!("   Gas payment object: {}", selected_gas_coin.coin_object_id);
-            eprintln!(
-                "   Gas coin balance: {} Mist",
-                selected_gas_coin.selected_balance
-            );
-
-            // Create PublishModuleRequest and submit to RPC endpoint
-            use kanari_rpc_api::{PublishModuleRequest, RpcRequest, RpcResponse, methods};
-
-            // Use a monotonic sequence number reserved from base_seq for this publish
-            let seq_num = next_seq;
-
-            // Wrap and sign transaction using SignedTransaction (fatal on failure)
-            let signed_tx = {
-                let transaction = Transaction::PublishModule {
+            let prepared = submit_blocking_rpc(
+                &client,
+                &rpc,
+                methods::BUILD_PUBLISH_MODULE,
+                serde_json::to_value(BuildPublishModuleRequest {
                     sender: sender_for_tx.clone(),
-                    module_bytes: module_bytecode.clone(),
-                    module_name: module_name.clone(),
-                    gas_payment: Some(gas_payment.clone()),
+                    module_bytes: module_bytecode,
+                    module_name,
                     gas_limit,
                     gas_price,
-                    sequence_number: seq_num,
-                };
+                    execute_immediate: None,
+                })
+                .context("Failed to serialize build publish request")?,
+            )?;
+            let prepared: PublishModuleRequest = serde_json::from_value(
+                prepared
+                    .result
+                    .context("RPC did not return prepared publish request")?,
+            )
+            .context("Failed to decode prepared publish request")?;
 
-                let mut stx = SignedTransaction::new(transaction);
-                stx.sign(&wallet.private_key, wallet.curve_type)
-                    .require("Failed to sign module")?;
-                stx
-            };
+            if let Some(gas_payment) = &prepared.gas_payment
+                && let Some(gas_object) = gas_payment.payment_objects.first()
+            {
+                eprintln!("   Gas payment object: {}", gas_object.object_id);
+            }
 
-            let pub_req = PublishModuleRequest {
-                sender: sender_for_tx.clone(),
-                module_bytes: module_bytecode.clone(),
-                module_name: module_name.clone(),
-                gas_limit,
-                gas_price,
-                sequence_number: seq_num,
-                gas_payment: Some(gas_payment),
-                signature: Some(signed_tx.signature.clone()),
-                execute_immediate: Some(true),
-            };
-
-            let rpc_request = RpcRequest {
-                jsonrpc: "2.0".to_string(),
-                method: methods::PUBLISH_MODULE.to_string(),
-                params: serde_json::to_value(pub_req)
-                    .require("Failed to serialize publish request")?,
-                id: 1,
-            };
-
+            let request = sign_publish_module_request(prepared, &wallet)?;
             eprintln!("     Sending publish RPC to {}...", rpc);
-            match client.post(&rpc).json(&rpc_request).send() {
-                Ok(resp) => match resp.json::<RpcResponse>() {
-                    Ok(rpc_resp) => {
-                        if let Some(err) = rpc_resp.error {
-                            print_rpc_error("     ", &err);
-                        } else {
-                            // No RPC error -> consider request accepted by node
-                            if let Some(result) = rpc_resp.result {
-                                // Try to parse as TransactionResult
-                                if let Ok(tx_result) =
-                                    serde_json::from_value::<kanari_rpc_api::TransactionResult>(
-                                        result.clone(),
-                                    )
-                                {
-                                    print_transaction_result("     ", &tx_result);
-                                    if should_wait_for_commit(
-                                        tx_result.success,
-                                        tx_result.previewed,
-                                        tx_result.submitted,
-                                        tx_result.committed,
-                                    ) {
-                                        eprintln!("     Waiting for transaction commit...");
-                                        let committed = wait_for_transaction_commit_blocking(
-                                            &client,
-                                            &rpc,
-                                            &tx_result.hash,
-                                            Duration::from_secs(20),
-                                            Duration::from_millis(400),
-                                        )?;
-                                        eprintln!(
-                                            "     Final status: {} success={} previewed={} submitted={} committed={}",
-                                            committed.status,
-                                            committed.success,
-                                            committed.previewed,
-                                            committed.submitted,
-                                            committed.committed
-                                        );
-                                    }
-                                }
-
-                                // Always print the RPC result to show any side effects (like created objects)
-                                print_json_value("     ", "RPC result", &result);
-                            } else {
-                                eprintln!("     RPC response has no result and no error");
-                            }
-
-                            // RPC accepted request: advance sequence and published count
-                            published_count += 1;
-                            next_seq = next_seq.wrapping_add(1);
-                        }
-                    }
-                    Err(e) => error!("     Failed to parse RPC response: {}", e),
-                },
-                Err(e) => error!("     Failed to send RPC request: {}", e),
+            let rpc_response = submit_blocking_rpc(
+                &client,
+                &rpc,
+                methods::PUBLISH_MODULE,
+                serde_json::to_value(request)?,
+            )?;
+            if render_transaction_submission(&client, &rpc, rpc_response, "     ", false)? {
+                published_count += 1;
             }
         }
 
         if published_count == 0 {
-            error!(
-                "⚠️  Warning: No modules were published. All modules were skipped (likely dependencies)."
-            );
+            eprintln!("Warning: No modules were published. All modules were skipped or rejected.");
         }
 
         eprintln!("Package build and validation complete!");
         eprintln!("   Published: {} modules", published_count);
         eprintln!("   Skipped: {} dependency modules", skipped_count);
-
         Ok(())
     }
 }
