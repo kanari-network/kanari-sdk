@@ -15,8 +15,8 @@ use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
 use kanari_types::transaction::{
-    ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef, SignedTransaction,
-    Transaction, TransactionEffects,
+    NativeCall, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef,
+    SignedTransaction, Transaction, TransactionEffects,
 };
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
@@ -31,6 +31,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
@@ -84,6 +85,7 @@ pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
     mempool: Arc<RwLock<MempoolState>>,
+    invalid_pending_drop_count: Arc<AtomicU64>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
@@ -824,8 +826,15 @@ impl BlockchainEngine {
                 let mut wave_changeset = ChangeSet::new();
                 let mut wave_executed = 0usize;
 
-                for res in results {
-                    let cs = res.require("Execution failed")?;
+                for (signed_tx, res) in wave.iter().zip(results.into_iter()) {
+                    let cs = res.with_context(|| {
+                        format!(
+                            "Execution failed for tx {} (sender={}, seq={})",
+                            hex::encode(signed_tx.transaction_hash()),
+                            signed_tx.transaction.sender_address(),
+                            signed_tx.transaction.sequence_number()
+                        )
+                    })?;
 
                     if persist_objects {
                         let runtime = &self.runtime_pool[0];
@@ -938,6 +947,13 @@ impl BlockchainEngine {
     ) -> Result<ChangeSet> {
         self.execute_transaction_with_runtime_internal(
             tx, runtime, state_arc, true, timestamp, false,
+        )
+    }
+
+    fn allows_native_transfer_gas_overlap(tx: &Transaction, payment_object_id: &str) -> bool {
+        matches!(
+            tx.native_call(),
+            Some(NativeCall::Transfer { coin_object_id, .. }) if coin_object_id == payment_object_id
         )
     }
 
@@ -1294,7 +1310,8 @@ impl BlockchainEngine {
                     anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
                 }
                 ensure!(
-                    !mutable_input_ids.contains(&payment.object_id),
+                    !mutable_input_ids.contains(&payment.object_id)
+                        || Self::allows_native_transfer_gas_overlap(tx, &payment.object_id),
                     "Gas payment object {} cannot overlap with a mutable object input",
                     payment.object_id
                 );
@@ -1401,6 +1418,7 @@ impl BlockchainEngine {
             blockchain: self.blockchain.clone(),
             state: self.state.clone(),
             mempool: self.mempool.clone(),
+            invalid_pending_drop_count: self.invalid_pending_drop_count.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),
@@ -1485,6 +1503,7 @@ impl BlockchainEngine {
     }
 
     pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
+        let invalid_pending_drop_count = self.invalid_pending_drop_count.load(Ordering::Relaxed);
         let dag_engine_guard = match self.dag_engine.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -1494,10 +1513,26 @@ impl BlockchainEngine {
         };
 
         if let Some(dag_engine) = dag_engine_guard.as_ref() {
-            return Ok(dag_engine.metrics_prometheus());
+            return Ok(format!(
+                "{}# HELP dropped_invalid_pending_tx_total Total invalid pending transactions dropped after deterministic execution failure\n\
+                 # TYPE dropped_invalid_pending_tx_total counter\n\
+                 dropped_invalid_pending_tx_total {}\n",
+                dag_engine.metrics_prometheus(),
+                invalid_pending_drop_count,
+            ));
         }
 
-        Ok(String::new())
+        Ok(format!(
+            "# HELP dropped_invalid_pending_tx_total Total invalid pending transactions dropped after deterministic execution failure\n\
+             # TYPE dropped_invalid_pending_tx_total counter\n\
+             dropped_invalid_pending_tx_total {}\n",
+            invalid_pending_drop_count,
+        ))
+    }
+
+    pub(crate) fn record_invalid_pending_drop(&self, removed: usize) {
+        self.invalid_pending_drop_count
+            .fetch_add(removed as u64, Ordering::Relaxed);
     }
 }
 
@@ -1937,15 +1972,27 @@ mod tests {
             let sender = generate_keypair(CurveType::Ed25519).unwrap();
             let recipient = generate_keypair(CurveType::Ed25519).unwrap();
             let coin_object_id = format!("0x{:0>64x}", i + 1);
+            let gas_object_id = format!("0x{:0>64x}", i + 101);
             fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
+            fund_sender_with_coin(&engine, &sender.address, &gas_object_id, 1_000_000);
 
-            let tx = Transaction::new_transfer_with_object_ref(
+            let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
                 sender.tagged_address(),
                 native_coin_object_ref(&coin_object_id, 1_000_000),
                 recipient.address.clone(),
                 1,
                 0,
+                100_000,
+                1_000,
             );
+            if let Transaction::ExecuteFunction {
+                gas_payment: Some(gas_payment),
+                ..
+            } = &mut tx
+            {
+                gas_payment.payment_objects =
+                    vec![native_coin_object_ref(&gas_object_id, 1_000_000)];
+            }
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)
@@ -2040,7 +2087,7 @@ mod tests {
             args: vec![bcs::to_bytes(&1u64).unwrap()],
             object_inputs: vec![],
             gas_payment: Some(GasPayment {
-                payment_objects: vec![ObjectRef::new("0xaaaa", None, None)],
+                payment_objects: vec![native_coin_object_ref("0xaaaa", 1_000_000)],
                 owner: sender.address.clone(),
                 budget: 100_000,
                 price: 1,
@@ -2059,7 +2106,7 @@ mod tests {
     }
 
     #[test]
-    fn gas_payment_object_cannot_overlap_mutable_object_input() {
+    fn native_transfer_allows_gas_payment_overlap_with_transfer_coin() {
         let engine = BlockchainEngine::new_in_memory().unwrap();
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
@@ -2071,6 +2118,49 @@ mod tests {
             1,
             0,
         );
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+
+        let (tx_hash, changeset) = engine.execute_transaction_immediate(signed_tx).unwrap();
+        assert!(!tx_hash.is_empty());
+        assert!(
+            !changeset.owner_deltas.is_empty()
+                || !changeset.created_objects.is_empty()
+                || !changeset.deleted_objects.is_empty()
+                || !changeset.explicit_object_changes.is_empty(),
+            "native transfer should produce object changes"
+        );
+    }
+
+    #[test]
+    fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+
+        let tx = Transaction::ExecuteFunction {
+            sender: sender.tagged_address(),
+            module: "0x2::coin".to_string(),
+            function: "join_entry".to_string(),
+            type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+            args: vec![],
+            object_inputs: vec![ObjectInput {
+                object_ref: native_coin_object_ref("0xaaaa", 1_000_000),
+                owner: Some(ObjectOwnerKind::AddressOwner(sender.address.clone())),
+                mutable: true,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![native_coin_object_ref("0xaaaa", 1_000_000)],
+                owner: sender.address.clone(),
+                budget: 100_000,
+                price: 1,
+            }),
+            gas_limit: 100_000,
+            gas_price: 1,
+            sequence_number: 0,
+        };
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx
             .sign(&sender.private_key, sender.curve_type)

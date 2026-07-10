@@ -111,6 +111,7 @@ impl BlockchainEngine {
             blockchain,
             state,
             mempool,
+            invalid_pending_drop_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             persistent_store,
             runtime_pool,
             proof_cache,

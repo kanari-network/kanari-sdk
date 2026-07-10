@@ -3,7 +3,11 @@
 
 use anyhow::{Context, Result};
 use kanari_crypto::wallet::load_wallet;
-use kanari_rpc_client::RpcClient;
+use kanari_rpc_api::{NativeTransferPolicyContract, TransactionErrorReason};
+use kanari_rpc_client::{
+    RpcClient, transaction_error_details as rpc_transaction_error_details,
+    transaction_error_reason as rpc_transaction_error_reason,
+};
 use kanari_types::GasConfig;
 use kanari_types::address::Address;
 use log::error;
@@ -22,6 +26,20 @@ pub use crate::command::tx_output::{
     print_json_value, print_rpc_error, print_transaction_result, print_transaction_status,
     rpc_error_reason,
 };
+
+pub fn transaction_error_reason(error: &anyhow::Error) -> Option<TransactionErrorReason> {
+    rpc_transaction_error_reason(error)
+}
+
+pub fn native_transfer_policy_contract(
+    error: &anyhow::Error,
+) -> Option<NativeTransferPolicyContract> {
+    rpc_transaction_error_details(error).and_then(|details| details.native_transfer_policy)
+}
+
+pub fn native_transfer_policy_hint(error: &anyhow::Error) -> Option<String> {
+    native_transfer_policy_contract(error).map(|policy| policy.summary().to_string())
+}
 
 /// Normalize and validate an address string to a 0x-prefixed 64-hex format
 pub fn normalize_addr(a: &str) -> Result<String> {

@@ -779,13 +779,7 @@ impl StateManager {
     }
 
     pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<(String, CreatedObject)>> {
-        self.query_objects(
-            None,
-            None,
-            Some(object_type),
-            None,
-            None,
-        )
+        self.query_objects(None, None, Some(object_type), None, None)
     }
 
     pub fn query_objects(

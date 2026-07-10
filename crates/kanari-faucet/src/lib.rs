@@ -6,104 +6,79 @@
 //! Exposes an async function `request_from_dev` that other crates (for example
 //! the `kanari` binary) can call to request tokens from the Dev wallet.
 
-use anyhow::Context;
+use anyhow::{Context, ensure};
 use kanari_common::get_main_wallet;
-use kanari_rpc_api::{CallFunctionRequest, TransactionStatus};
-use kanari_rpc_client::RpcClient;
+use kanari_crypto::wallet::Wallet;
+use kanari_rpc_api::{
+    BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest, CallFunctionRequest,
+    ObjectTransferData, TransactionErrorReason, TransactionStatus,
+};
+use kanari_rpc_client::{
+    RpcClient, transaction_error_details as rpc_transaction_error_details,
+    transaction_error_reason as rpc_transaction_error_reason,
+};
 use kanari_types::{
     address::Address,
-    kanari::KANARI_TOKEN_TYPE,
-    transaction::{
-        GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
-    },
+    transaction::{SignedTransaction, Transaction},
 };
 use std::env;
+use std::thread;
+use std::time::Duration;
 
-fn read_coin_balance(data: &[u8]) -> Option<u64> {
-    if data.len() < 40 {
-        return None;
+fn sign_object_transfer_request(
+    mut request: ObjectTransferData,
+    wallet: &Wallet,
+) -> anyhow::Result<ObjectTransferData> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing object-transfer signature"
+    );
+
+    let coin_object_ref = request
+        .coin_object_ref
+        .clone()
+        .context("coin_object_ref is required to sign faucet transfer transaction")?;
+
+    let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
+        request.sender.clone(),
+        coin_object_ref,
+        request.recipient.clone(),
+        request.amount,
+        request.sequence_number,
+        request.gas_limit,
+        request.gas_price,
+    );
+    if let Transaction::ExecuteFunction { gas_payment, .. } = &mut transaction
+        && request.gas_payment.is_some()
+    {
+        *gas_payment = request.gas_payment.clone();
     }
 
-    let mut amount_bytes = [0u8; 8];
-    amount_bytes.copy_from_slice(&data[32..40]);
-    Some(u64::from_le_bytes(amount_bytes))
-}
-
-fn select_native_coin_object(
-    owned_objects: &[kanari_rpc_api::ObjectInfo],
-    required_amount: u64,
-) -> Option<(ObjectRef, u64, u64)> {
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
-    let mut total_balance = 0u64;
-    let mut smallest_sufficient: Option<(ObjectRef, u64)> = None;
-    let mut largest_available: Option<(ObjectRef, u64)> = None;
-
-    for obj in owned_objects {
-        if obj.type_ != coin_type {
-            continue;
-        }
-
-        let Some(balance) = read_coin_balance(&obj.data) else {
-            continue;
-        };
-        if balance == 0 {
-            continue;
-        }
-
-        total_balance = total_balance.saturating_add(balance);
-
-        if balance >= required_amount {
-            match &smallest_sufficient {
-                Some((_, current)) if *current <= balance => {}
-                _ => {
-                    smallest_sufficient = Some((
-                        ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
-                        balance,
-                    ))
-                }
-            }
-        }
-
-        match &largest_available {
-            Some((_, current)) if *current >= balance => {}
-            _ => {
-                largest_available = Some((
-                    ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
-                    balance,
-                ))
-            }
-        }
-    }
-
-    smallest_sufficient
-        .or(largest_available)
-        .map(|(object_ref, balance)| (object_ref, balance, total_balance))
-}
-
-fn object_call_context(
-    sender: &str,
-    primary_object_ref: ObjectRef,
-    gas_limit: u64,
-    gas_price: u64,
-) -> (Vec<ObjectInput>, GasPayment) {
-    let object_inputs = vec![ObjectInput {
-        object_ref: primary_object_ref.clone(),
-        owner: Some(ObjectOwnerKind::AddressOwner(sender.to_string())),
-        mutable: true,
-    }];
-    let gas_payment = GasPayment {
-        payment_objects: vec![primary_object_ref],
-        owner: sender.to_string(),
-        budget: gas_limit,
-        price: gas_price,
-    };
-    (object_inputs, gas_payment)
+    let mut signed_tx = SignedTransaction::new(transaction);
+    signed_tx
+        .sign(&wallet.private_key, wallet.curve_type)
+        .context("Failed to sign faucet transfer transaction")?;
+    request.signature = Some(signed_tx.signature);
+    Ok(request)
 }
 
 fn sign_call_function_request(
     mut request: CallFunctionRequest,
-    wallet: &kanari_crypto::wallet::Wallet,
+    wallet: &Wallet,
 ) -> anyhow::Result<CallFunctionRequest> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing call-function signature"
+    );
+
     let transaction = Transaction::ExecuteFunction {
         sender: request.sender.clone(),
         module: format!("{}::{}", request.package, request.module),
@@ -120,99 +95,72 @@ fn sign_call_function_request(
     let mut signed_tx = SignedTransaction::new(transaction);
     signed_tx
         .sign(&wallet.private_key, wallet.curve_type)
-        .context("Failed to sign function call")?;
+        .context("Failed to sign faucet call-function transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
 }
 
 async fn sign_and_call_function(
     client: &RpcClient,
-    wallet: &kanari_crypto::wallet::Wallet,
+    wallet: &Wallet,
     request: CallFunctionRequest,
 ) -> anyhow::Result<TransactionStatus> {
     let signed_request = sign_call_function_request(request, wallet)?;
     client
         .call_function(signed_request)
         .await
-        .context("Failed to submit function call")
+        .context("Failed to submit faucet call-function transaction")
 }
 
-async fn consolidate_native_coins(
+async fn wait_for_transaction_commit(
     client: &RpcClient,
-    wallet: &kanari_crypto::wallet::Wallet,
-    sender_tagged: &str,
-    owned_objects: &[kanari_rpc_api::ObjectInfo],
-    required_amount: u64,
-    starting_sequence: u64,
-    gas_limit: u64,
-    gas_price: u64,
-) -> anyhow::Result<(ObjectRef, u64, u64, u64)> {
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
-    let mut coins: Vec<(ObjectRef, u64)> = owned_objects
-        .iter()
-        .filter(|obj| obj.type_ == coin_type)
-        .filter_map(|obj| {
-            read_coin_balance(&obj.data).map(|balance| {
-                (
-                    ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()),
-                    balance,
-                )
-            })
-        })
-        .filter(|(_, balance)| *balance > 0)
-        .collect();
-    coins.sort_by(|a, b| b.1.cmp(&a.1));
-
-    let Some((primary_ref, primary_balance)) = coins.first().cloned() else {
-        anyhow::bail!("No spendable native coin object found in dev wallet");
-    };
-
-    let total_balance = coins
-        .iter()
-        .fold(0u64, |sum, (_, balance)| sum.saturating_add(*balance));
-    let mut accumulated = primary_balance;
-    let mut sequence_number = starting_sequence;
-
-    for (coin_ref, balance) in coins.iter().skip(1) {
-        if accumulated >= required_amount {
-            break;
+    tx_hash: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> anyhow::Result<TransactionStatus> {
+    let start = std::time::Instant::now();
+    loop {
+        let status = client.get_transaction(tx_hash).await?;
+        if status.committed || status.status.eq_ignore_ascii_case("committed") {
+            return Ok(TransactionStatus {
+                hash: status.hash,
+                status: status.status,
+                block_height: status.block_height,
+                gas_used: status.gas_used,
+                success: status.success,
+                previewed: status.previewed,
+                submitted: status.submitted,
+                committed: status.committed,
+            });
         }
 
-        let (object_inputs, gas_payment) =
-            object_call_context(sender_tagged, primary_ref.clone(), gas_limit, gas_price);
+        if start.elapsed() >= timeout {
+            anyhow::bail!(
+                "Timed out waiting for faucet transaction {} to commit",
+                tx_hash
+            );
+        }
 
-        let join_req = CallFunctionRequest {
-            sender: sender_tagged.to_string(),
-            package: "0x2".to_string(),
-            module: "coin".to_string(),
-            function: "join_entry".to_string(),
-            type_args: vec![KANARI_TOKEN_TYPE.to_string()],
-            args: vec![
-                Address::from_hex_literal(&primary_ref.object_id)
-                    .context("Invalid primary coin object ID")?
-                    .to_vec(),
-                Address::from_hex_literal(&coin_ref.object_id)
-                    .context("Invalid merge coin object ID")?
-                    .to_vec(),
-            ],
-            object_inputs: Some(object_inputs),
-            gas_limit,
-            gas_price,
-            sequence_number,
-            gas_payment: Some(gas_payment),
-            signature: None,
-            execute_immediate: Some(true),
-        };
-        let status = sign_and_call_function(client, wallet, join_req).await?;
-        eprintln!(
-            "  Consolidated coin {} into {} (tx: {})",
-            coin_ref.object_id, primary_ref.object_id, status.hash
-        );
-        sequence_number = sequence_number.saturating_add(1);
-        accumulated = accumulated.saturating_add(*balance);
+        thread::sleep(poll_interval);
     }
+}
 
-    Ok((primary_ref, accumulated, total_balance, sequence_number))
+fn should_attempt_native_consolidation(error: &anyhow::Error) -> bool {
+    matches!(
+        rpc_transaction_error_reason(error),
+        Some(
+            TransactionErrorReason::InsufficientNativeCoinObjects
+                | TransactionErrorReason::InsufficientTransferCoinBalance
+                | TransactionErrorReason::InsufficientGasCoinBalance
+                | TransactionErrorReason::NativeTransferPolicyNotSatisfied
+        )
+    )
+}
+
+fn native_transfer_policy_summary(error: &anyhow::Error) -> Option<String> {
+    rpc_transaction_error_details(error)
+        .and_then(|details| details.native_transfer_policy)
+        .map(|policy| policy.summary().to_string())
 }
 
 /// Request KANARI tokens from the Dev wallet.
@@ -223,7 +171,6 @@ async fn consolidate_native_coins(
 /// - `to`: optional recipient address; if None this function will use `active_address` from kanari config.
 /// - `amount`: amount in KANARI (not Mist).
 /// - `rpc_url`: RPC server URL.
-/// - `wait_for_confirmation`: optional flag to wait for transaction confirmation (default: false).
 ///
 /// Returns the `TransactionStatus` returned by the RPC server on success.
 pub async fn request_from_dev(
@@ -232,20 +179,16 @@ pub async fn request_from_dev(
     to: Option<&str>,
     amount: f64,
     rpc_url: &str,
-) -> anyhow::Result<kanari_rpc_api::TransactionStatus> {
-    // Determine dev address
+) -> anyhow::Result<TransactionStatus> {
     let dev_address = dev_address
         .map(|s| s.to_string())
         .unwrap_or_else(|| Address::DEV_ADDRESS.to_string());
 
-    // Try loading workspace-local faucet .env first (useful when called from kanari root),
-    // then fall back to normal dotenv search.
     if std::path::Path::new("crates/kanari-faucet/.env").exists() {
         let _ = dotenvy::from_filename("crates/kanari-faucet/.env");
     }
     dotenvy::dotenv().ok();
 
-    // Determine password: prefer provided, else env var
     let password = if let Some(p) = dev_password {
         p.to_string()
     } else if let Ok(envp) = env::var("KANARI_PASSWORD") {
@@ -254,9 +197,7 @@ pub async fn request_from_dev(
         anyhow::bail!("Dev password not provided to library and KANARI_PASSWORD not set")
     };
 
-    // Determine recipient with validation
     let recipient = if let Some(r) = to {
-        // Validate recipient address format
         if !r.starts_with("0x") || r.len() != 66 {
             anyhow::bail!(
                 "Invalid recipient address format: {}. Expected 0x-prefixed 64 hex characters",
@@ -270,140 +211,138 @@ pub async fn request_from_dev(
         anyhow::bail!("No recipient specified and no active_address configured")
     };
 
-    // Load wallet
     let wallet = kanari_crypto::wallet::load_wallet(&dev_address, &password)
         .context("Failed to load Dev wallet; check address and password")?;
 
-    // RPC client
     let client = RpcClient::new(rpc_url);
     client
         .get_block_height()
         .await
         .context("Cannot connect to RPC server")?;
 
-    // Check if dev account exists on-chain
-    let owner = match client.get_owner(&dev_address).await {
-        Ok(acct) => acct,
-        Err(e) => {
-            anyhow::bail!(
-                "Dev wallet owner state not found on-chain: {}\n\
-                 The dev wallet must be initialized first by receiving a transaction.\n\
-                 Error: {}",
-                dev_address,
-                e
-            );
-        }
-    };
-
-    // Check dev wallet balance before transfer
     const MIST_PER_KANARI: f64 = 1_000_000_000.0;
     let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
 
-    // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
-    let estimated_gas_cost = 100_000 * 1000;
-    let total_required = amount_mist + estimated_gas_cost;
-    let native_balance = owner.balances.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
-
-    if native_balance < total_required {
-        anyhow::bail!(
-            "Insufficient balance in dev wallet: {} KANARI (required: {} KANARI)\n\
-             Available: {:.9} KANARI\n\
-             Required: {:.9} KANARI (transfer: {:.9} + gas: {:.9})",
-            native_balance as f64 / MIST_PER_KANARI,
-            total_required as f64 / MIST_PER_KANARI,
-            native_balance as f64 / MIST_PER_KANARI,
-            total_required as f64 / MIST_PER_KANARI,
-            amount_mist as f64 / MIST_PER_KANARI,
-            estimated_gas_cost as f64 / MIST_PER_KANARI
-        );
-    }
-
-    // Re-derive keypair from private key to get the tagged address format
-    // Tagged addresses are required for signature verification
     let keypair =
         kanari_crypto::keys::keypair_from_private_key(&wallet.private_key, wallet.curve_type)
             .context("Failed to derive public key from wallet")?;
     let sender_for_tx = keypair.tagged_address();
+    let gas_limit = 100_000;
+    let gas_price = 1_000;
 
-    let owned_objects = owner
-        .owned_objects
-        .as_ref()
-        .context("Dev wallet owner state has no owned object list from RPC")?;
-    let mut selected_coin = select_native_coin_object(owned_objects, total_required)
-        .context("No spendable native coin object found in dev wallet")?;
-    let mut next_sequence = owner.sequence_number;
-    if selected_coin.1 < total_required {
-        if selected_coin.2 < total_required {
-            anyhow::bail!(
-                "No single native coin object in the dev wallet can cover this faucet transfer: required {} Mist, best coin object {} Mist, total object-backed balance {} Mist",
-                total_required,
-                selected_coin.1,
-                selected_coin.2
+    let prepared = {
+        let mut last_build_error = None;
+        let mut built_transfer = None;
+
+        for step in 0..8 {
+            match client
+                .build_native_transfer(BuildNativeTransferRequest {
+                    sender: sender_for_tx.clone(),
+                    recipient: recipient.clone(),
+                    amount: amount_mist,
+                    gas_limit,
+                    gas_price,
+                    execute_immediate: Some(false),
+                })
+                .await
+            {
+                Ok(prepared) => {
+                    built_transfer = Some(prepared);
+                    break;
+                }
+                Err(error) => {
+                    if !should_attempt_native_consolidation(&error) {
+                        let policy_suffix = native_transfer_policy_summary(&error)
+                            .map(|summary| format!(" Policy: {}.", summary))
+                            .unwrap_or_default();
+                        return Err(anyhow::anyhow!(
+                            "Failed to build faucet transfer for sender {}: {:#}{}",
+                            dev_address,
+                            error,
+                            policy_suffix
+                        ));
+                    }
+                    last_build_error = Some(error);
+                }
+            }
+
+            let consolidate_request = BuildNativeCoinConsolidationRequest {
+                sender: sender_for_tx.clone(),
+                required_amount: amount_mist,
+                gas_limit,
+                gas_price,
+                execute_immediate: Some(false),
+            };
+            let join_request = match client
+                .build_native_coin_consolidation(consolidate_request)
+                .await
+            {
+                Ok(request) => request,
+                Err(join_error) => {
+                    let build_error = last_build_error
+                        .take()
+                        .context("missing previous native transfer build failure")?;
+                    let policy_suffix = native_transfer_policy_summary(&build_error)
+                        .map(|summary| format!(" Policy: {}.", summary))
+                        .unwrap_or_default();
+                    return Err(anyhow::anyhow!(
+                        "Failed to build faucet transfer for sender {}. API reported a native-transfer coin-layout issue and no safe consolidation step is available: {:#}; consolidation error: {:#}{}",
+                        dev_address,
+                        build_error,
+                        join_error,
+                        policy_suffix
+                    ));
+                }
+            };
+
+            eprintln!(
+                "  Consolidation step {}/8: joining native coin objects via API...",
+                step + 1
             );
+            let status = sign_and_call_function(&client, &wallet, join_request).await?;
+            eprintln!("    Join tx hash: {}", status.hash);
+            let _ = wait_for_transaction_commit(
+                &client,
+                &status.hash,
+                Duration::from_secs(20),
+                Duration::from_millis(400),
+            )
+            .await?;
         }
 
-        eprintln!("  Consolidating dev wallet coin objects before faucet transfer...");
-        selected_coin = consolidate_native_coins(
-            &client,
-            &wallet,
-            &sender_for_tx,
-            owned_objects,
-            total_required,
-            owner.sequence_number,
-            100_000,
-            1_000,
-        )
-        .await
-        .map(|(object_ref, selected_balance, total_balance, sequence)| {
-            next_sequence = sequence;
-            (object_ref, selected_balance, total_balance)
-        })?;
-    }
-    let (coin_object_ref, selected_coin_balance, _total_coin_balance) = selected_coin;
-
-    let (object_inputs, gas_payment) =
-        object_call_context(&sender_for_tx, coin_object_ref.clone(), 100_000, 1_000);
-
-    let call_req = CallFunctionRequest {
-        sender: sender_for_tx,
-        package: "0x2".to_string(),
-        module: "kanari".to_string(),
-        function: "transfer".to_string(),
-        type_args: vec![],
-        args: vec![
-            move_core_types::account_address::AccountAddress::from_hex_literal(
-                &coin_object_ref.object_id,
-            )
-            .context("Invalid coin object ID")?
-            .to_vec(),
-            bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
-            bcs::to_bytes(
-                &move_core_types::account_address::AccountAddress::from_hex_literal(&recipient)?,
-            )
-            .context("Failed to serialize recipient address")?,
-        ],
-        object_inputs: Some(object_inputs),
-        gas_limit: 100_000,
-        gas_price: 1_000,
-        sequence_number: next_sequence,
-        gas_payment: Some(gas_payment),
-        signature: None,
-        execute_immediate: Some(false),
+        built_transfer.ok_or_else(|| {
+            let message = if let Some(error) = last_build_error {
+                format!(
+                    "Failed to build faucet transfer after API-driven coin-shape preparation attempts: {:#}",
+                    error
+                )
+            } else {
+                "Failed to build faucet transfer after API-driven coin-shape preparation attempts"
+                    .to_string()
+            };
+            anyhow::anyhow!(message)
+        })?
     };
 
     eprintln!("Submitting faucet transaction...");
     eprintln!("  From: {}", dev_address);
     eprintln!("  To: {}", recipient);
-    eprintln!("  Coin Object: {}", coin_object_ref.object_id);
-    eprintln!("  Selected Coin Balance: {} Mist", selected_coin_balance);
+    eprintln!("  Coin Object: {}", prepared.coin_object_id);
+    if let Some(gas_payment) = &prepared.gas_payment
+        && let Some(gas_object) = gas_payment.payment_objects.first()
+    {
+        eprintln!("  Gas payment object: {}", gas_object.object_id);
+    }
     eprintln!(
         "  Amount: {:.9} KANARI",
         amount_mist as f64 / MIST_PER_KANARI
     );
 
-    let status = sign_and_call_function(&client, &wallet, call_req)
+    let signed = sign_object_transfer_request(prepared, &wallet)?;
+    let status = client
+        .submit_object_transfer(signed)
         .await
-        .context("Failed to submit transaction to RPC")?;
+        .context("Failed to submit faucet transaction to RPC")?;
 
     eprintln!("  Transaction hash: {}", status.hash);
     eprintln!("  Status: {}", status.status);

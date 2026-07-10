@@ -757,8 +757,18 @@ h1, h2, h3, p { margin-top: 0; }
 
 .block-summary { padding: 22px 24px; display: grid; gap: 20px; }
 .block-summary__top { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.block-summary__top--triple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .block-summary__height { color: var(--ink); font-size: 32px; line-height: 1; }
 .block-summary__hash { margin: 0; line-height: 1.55; }
+.checkpoint-card-actions { padding: 0 24px 24px; }
+.checkpoint-card-actions__link,
+.checkpoint-graph-page__back { width: fit-content; }
+.checkpoint-graph-page { padding-bottom: 80px; }
+.checkpoint-graph-page__grid { align-items: start; }
+.checkpoint-graph-page__effects { margin-top: 18px; }
+.checkpoint-graph-page__root { display: block; overflow-wrap: anywhere; word-break: break-word; font-size: 14px; line-height: 1.45; }
+.checkpoint-graph-callout { padding: 22px 24px; }
+.checkpoint-graph-callout p { max-width: 46ch; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 
 .empty-state { padding: 72px 24px; color: var(--muted); text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
 .spinner { width: 34px; height: 34px; margin: 0 auto 16px; border: 4px solid color-mix(in srgb, var(--lime) 20%, transparent); border-top-color: var(--lime); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -1014,6 +1024,7 @@ h1, h2, h3, p { margin-top: 0; }
   .search-box .button { width: auto; min-width: 108px; padding-inline: 16px; }
   .explorer-stat-grid, .nft-grid, .route-list, .tx-detail-grid, .tx-summary-grid { grid-template-columns: 1fr; }
   .graph-lane__items, .graph-change-group__items, .checkpoint-effect-strip, .checkpoint-effect-card__grid { grid-template-columns: 1fr; }
+  .block-summary__top--triple { grid-template-columns: 1fr; }
   .panel > .data-list,
   .panel > .module-list {
     grid-template-columns: 1fr;

@@ -60,6 +60,7 @@ export function SiteHeader() {
           <Link href="/coins" onClick={() => setMenuOpen(false)}>Tokens</Link>
           <Link href="/modules" onClick={() => setMenuOpen(false)}>Modules</Link>
           <Link href="/account" onClick={() => setMenuOpen(false)}>Accounts</Link>
+          <Link href="/checkpoint-object-graph" onClick={() => setMenuOpen(false)}>Checkpoint Graph</Link>
           <Link href="/nft" onClick={() => setMenuOpen(false)}>NFTs</Link>
         </nav>
         <div className="site-header__actions">

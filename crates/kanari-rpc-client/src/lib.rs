@@ -11,6 +11,55 @@ use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::ObjectRef;
 use reqwest::Client;
 use std::sync::atomic::{AtomicU64, Ordering};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+pub struct RpcClientError {
+    rpc_error: RpcError,
+    message: String,
+}
+
+impl RpcClientError {
+    pub fn new(rpc_error: RpcError) -> Self {
+        let message = if let Some(reason) = rpc_error.transaction_error_reason() {
+            format!(
+                "RPC error: {} (code: {}, reason: {})",
+                rpc_error.message, rpc_error.code, reason
+            )
+        } else {
+            format!(
+                "RPC error: {} (code: {})",
+                rpc_error.message, rpc_error.code
+            )
+        };
+        Self { rpc_error, message }
+    }
+
+    pub fn rpc_error(&self) -> &RpcError {
+        &self.rpc_error
+    }
+
+    pub fn transaction_error_details(&self) -> Option<TransactionErrorData> {
+        self.rpc_error.transaction_error_details()
+    }
+
+    pub fn transaction_error_reason(&self) -> Option<TransactionErrorReason> {
+        self.rpc_error.transaction_error_reason()
+    }
+}
+
+pub fn as_rpc_client_error(error: &anyhow::Error) -> Option<&RpcClientError> {
+    error.downcast_ref::<RpcClientError>()
+}
+
+pub fn transaction_error_details(error: &anyhow::Error) -> Option<TransactionErrorData> {
+    as_rpc_client_error(error).and_then(|error| error.transaction_error_details())
+}
+
+pub fn transaction_error_reason(error: &anyhow::Error) -> Option<TransactionErrorReason> {
+    as_rpc_client_error(error).and_then(|error| error.transaction_error_reason())
+}
 
 /// RPC client
 pub struct RpcClient {
@@ -55,20 +104,7 @@ impl RpcClient {
             response.json().await.context("Failed to parse response")?;
 
         if let Some(error) = rpc_response.error {
-            let reason = error
-                .data
-                .as_ref()
-                .and_then(|data| data.get("reason"))
-                .and_then(|value| value.as_str());
-            if let Some(reason) = reason {
-                anyhow::bail!(
-                    "RPC error: {} (code: {}, reason: {})",
-                    error.message,
-                    error.code,
-                    reason
-                );
-            }
-            anyhow::bail!("RPC error: {} (code: {})", error.message, error.code);
+            return Err(RpcClientError::new(error).into());
         }
 
         Ok(rpc_response)
@@ -235,6 +271,22 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse prepared native transfer")
     }
 
+    pub async fn build_native_coin_consolidation(
+        &self,
+        request: BuildNativeCoinConsolidationRequest,
+    ) -> Result<CallFunctionRequest> {
+        let response = self
+            .request(
+                methods::BUILD_NATIVE_COIN_CONSOLIDATION,
+                serde_json::to_value(request)?,
+            )
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result)
+            .context("Failed to parse prepared native coin consolidation step")
+    }
+
     /// Publish Move module
     pub async fn publish_module(&self, request: PublishModuleRequest) -> Result<TransactionStatus> {
         let response = self
@@ -348,5 +400,25 @@ mod tests {
     async fn test_client_creation() {
         let client = RpcClient::new("http://localhost:19001");
         assert_eq!(client.url, "http://localhost:19001");
+    }
+
+    #[test]
+    fn rpc_client_error_preserves_structured_transaction_reason() {
+        let error = RpcClientError::new(RpcError::transaction_error_structured(
+            "Native transfer policy not satisfied",
+            TransactionErrorData::with_native_transfer_policy(
+                TransactionErrorReason::NativeTransferPolicyNotSatisfied,
+            ),
+        ));
+        let anyhow_error = anyhow::Error::new(error);
+        assert_eq!(
+            transaction_error_reason(&anyhow_error),
+            Some(TransactionErrorReason::NativeTransferPolicyNotSatisfied)
+        );
+        assert!(
+            transaction_error_details(&anyhow_error)
+                .and_then(|details| details.native_transfer_policy)
+                .is_some()
+        );
     }
 }

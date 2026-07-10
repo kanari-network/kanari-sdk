@@ -358,4 +358,43 @@ impl BlockchainEngine {
             }
         }
     }
+
+    pub fn remove_pending_transactions_by_hashes(
+        &self,
+        hashes: &[Vec<u8>],
+    ) -> Vec<PendingTransactionRecord> {
+        if hashes.is_empty() {
+            return Vec::new();
+        }
+
+        let target_hashes = hashes.iter().cloned().collect::<AHashSet<_>>();
+        let mut mempool = self.mempool_write();
+        let removed_transactions = mempool
+            .pending_txs
+            .iter()
+            .filter(|tx| target_hashes.contains(tx.signed_tx.transaction_hash()))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if removed_transactions.is_empty() {
+            return Vec::new();
+        }
+
+        mempool
+            .pending_txs
+            .retain(|tx| !target_hashes.contains(tx.signed_tx.transaction_hash()));
+        mempool
+            .pending_tx_hashes
+            .retain(|hash| !target_hashes.contains(hash));
+        Self::remove_pending_sender_counts(
+            &mut mempool.pending_sender_counts,
+            &removed_transactions,
+        );
+        Self::remove_pending_access_counts(
+            &mut mempool.pending_access_counts,
+            &removed_transactions,
+        );
+        self.record_invalid_pending_drop(removed_transactions.len());
+        removed_transactions
+    }
 }

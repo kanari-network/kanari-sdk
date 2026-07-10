@@ -1051,6 +1051,74 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
 }
 
 #[test]
+fn native_transfer_recompute_uses_object_backed_balance_not_gas_only_delta() -> Result<()> {
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let bob = AccountAddress::from_hex_literal("0x2222")?;
+    let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
+    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+
+    state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
+    state.save_owner_state(&OwnerState::with_native_balance(bob, 0))?;
+    set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
+    state.global_token_supplies.insert(
+        KANARI_TOKEN_TYPE.to_string(),
+        base.wallet_visible_supply + 1_000,
+    );
+
+    let mut sender_coin_after = vec![0u8; UID_SIZE + U64_SIZE];
+    sender_coin_after[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
+    sender_coin_after[UID_SIZE..].copy_from_slice(&790u64.to_le_bytes());
+
+    let mut recipient_coin = vec![0u8; UID_SIZE + U64_SIZE];
+    recipient_coin[..UID_SIZE].copy_from_slice(&[0xBB; UID_SIZE]);
+    recipient_coin[UID_SIZE..].copy_from_slice(&200u64.to_le_bytes());
+
+    let mut transfer = ChangeSet::new();
+    transfer.get_or_create_owner_delta(alice).debit(10);
+    transfer.collect_gas(gas_collector, 10);
+    transfer.created_objects.push((
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: sender_coin_after,
+            version: 2,
+        },
+    ));
+    transfer.created_objects.push((
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: recipient_coin,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&transfer)?;
+
+    assert_eq!(
+        state.resolve_owner_native_balance(alice)?,
+        790,
+        "sender must lose transfer amount plus gas based on canonical coin objects"
+    );
+    assert_eq!(
+        state.resolve_owner_native_balance(bob)?,
+        200,
+        "recipient must receive the transferred native coin amount"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
     let token_type = "0x2::usdc::USDC";

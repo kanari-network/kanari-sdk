@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::common::{
-    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    resolve_sender, resolve_transaction_gas,
+    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for,
+    native_transfer_policy_hint, normalize_addr, resolve_sender, resolve_transaction_gas,
 };
 use crate::command::rpc_helpers::{
     should_wait_for_commit, sign_object_transfer_request, wait_for_transaction_commit,
@@ -60,7 +60,17 @@ impl Transfer {
                 execute_immediate: None,
             })
             .await
-            .context("Failed to build native transfer transaction")?;
+            .map_err(|error| {
+                let policy_suffix = native_transfer_policy_hint(&error)
+                    .map(|summary| format!(" Policy: {}.", summary))
+                    .unwrap_or_default();
+                anyhow::anyhow!(
+                    "Failed to build native transfer transaction for sender {}: {:#}{}",
+                    from_addr,
+                    error,
+                    policy_suffix
+                )
+            })?;
 
         eprintln!("  Using coin object: {}", prepared.coin_object_id);
         if let Some(gas_payment) = &prepared.gas_payment

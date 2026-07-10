@@ -81,6 +81,7 @@ fn object_id_hex_from_data(
     obj_data: &[u8],
     has_full_serialized_data: bool,
     hash_prefix: Option<&[u8]>,
+    fallback_ordinal: u64,
 ) -> String {
     if has_full_serialized_data && obj_data.len() >= AccountAddress::LENGTH {
         let uid_bytes = &obj_data[..AccountAddress::LENGTH];
@@ -97,9 +98,17 @@ fn object_id_hex_from_data(
     }
     input.extend_from_slice(type_str.as_bytes());
     input.extend_from_slice(obj_data);
+    input.extend_from_slice(&fallback_ordinal.to_le_bytes());
 
     let hash = hash_data_blake3(&input);
     format!("0x{}", hex::encode(&hash[..AccountAddress::LENGTH]))
+}
+
+fn current_transferred_object_count(context: &mut NativeContext) -> u64 {
+    crate::native_ext::with_ext_mut_or_default::<TransferredObjectsExt, _>(context, |ext| {
+        ext.objects.len() as u64
+    })
+    .unwrap_or(0)
 }
 
 fn record_transferred_object(context: &mut NativeContext, obj: TransferredObject) {
@@ -207,12 +216,14 @@ fn native_transfer_with_uid(
     // In Kanari/Sui Move, objects with `key` have `UID` as the first field.
     // `UID` -> `ID` -> `address` (32 bytes).
     // So the first 32 bytes of the BCS serialized data represent the Object ID.
+    let fallback_ordinal = current_transferred_object_count(context);
     let object_id_hex = object_id_hex_from_data(
         recipient,
         &type_str,
         &obj_data,
         has_full_serialized_data,
         None,
+        fallback_ordinal,
     );
 
     // Store transfer in the transaction-local native context extension
@@ -270,12 +281,14 @@ fn native_freeze_object(
 
     // Extract real UID from object data (first 32 bytes)
     // Objects with `key` have `UID` as the first field.
+    let fallback_ordinal = current_transferred_object_count(context);
     let object_id_hex = object_id_hex_from_data(
         AccountAddress::ZERO,
         &type_str,
         &obj_data,
         has_full_serialized_data,
         Some(b"Immutable"),
+        fallback_ordinal,
     );
 
     let obj = TransferredObject {

@@ -18,3 +18,4 @@ reqwest = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
+thiserror = { workspace = true }

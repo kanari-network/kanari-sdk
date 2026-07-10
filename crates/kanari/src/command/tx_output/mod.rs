@@ -1,15 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_rpc_api::{RpcError, TransactionResult, TransactionStatus};
+use kanari_rpc_api::{RpcError, TransactionErrorReason, TransactionResult, TransactionStatus};
 use log::error;
 
-pub fn rpc_error_reason(error: &RpcError) -> Option<&str> {
-    error
-        .data
-        .as_ref()
-        .and_then(|data| data.get("reason"))
-        .and_then(|value| value.as_str())
+pub fn rpc_error_reason(error: &RpcError) -> Option<TransactionErrorReason> {
+    error.transaction_error_reason()
 }
 
 pub fn print_rpc_error(prefix: &str, error: &RpcError) {
@@ -35,7 +31,11 @@ pub fn print_transaction_status(prefix: &str, status: &TransactionStatus) {
 pub fn print_transaction_result(prefix: &str, result: &TransactionResult) {
     eprintln!("{}Transaction: {}", prefix, result.hash);
     eprintln!("{}Status: {}", prefix, result.status);
-    eprintln!("{}Gas used: {} Mist", prefix, result.gas_used);
+    if let Some(gas_used) = result.gas_used {
+        eprintln!("{}Gas used: {} Mist", prefix, gas_used);
+    } else {
+        eprintln!("{}Gas used: pending", prefix);
+    }
     eprintln!(
         "{}Outcome: success={} previewed={} submitted={} committed={}",
         prefix, result.success, result.previewed, result.submitted, result.committed

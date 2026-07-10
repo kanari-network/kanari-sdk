@@ -5,8 +5,8 @@ use kanari_rpc_api::ObjectInfo;
 use kanari_rpc_api::{
     BlockData, BlockchainStats, FullBlockData, OwnerInfo, RpcObjectOwnerKindFilter,
 };
-use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use log::{info, warn};
 
 use super::*;
@@ -398,9 +398,18 @@ mod tests {
     fn signed_transfer(sequence_number: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let mut coin_data = vec![0u8; 40];
+        coin_data[32..40].copy_from_slice(&1_000_000u64.to_le_bytes());
         let tx = Transaction::new_transfer_with_object_ref(
             sender.tagged_address(),
-            ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
+            ObjectRef::new(
+                "0xaaaa",
+                Some(1),
+                Some(format!(
+                    "0x{}",
+                    hex::encode(kanari_crypto::hash_data_blake3(&coin_data))
+                )),
+            ),
             recipient.address,
             1,
             sequence_number,

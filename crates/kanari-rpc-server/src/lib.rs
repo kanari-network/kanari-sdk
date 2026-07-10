@@ -33,9 +33,10 @@ use crate::{
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
-        handle_build_call_function, handle_build_native_transfer, handle_build_publish_module,
-        handle_build_token_transfer, handle_call_function, handle_get_transaction,
-        handle_publish_module, handle_submit_object_transfer, handle_view_function,
+        handle_build_call_function, handle_build_native_coin_consolidation,
+        handle_build_native_transfer, handle_build_publish_module, handle_build_token_transfer,
+        handle_call_function, handle_get_transaction, handle_publish_module,
+        handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -185,6 +186,9 @@ async fn handle_rpc(
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::BUILD_NATIVE_TRANSFER => handle_build_native_transfer(&state, &request).await,
+        methods::BUILD_NATIVE_COIN_CONSOLIDATION => {
+            handle_build_native_coin_consolidation(&state, &request).await
+        }
         methods::SUBMIT_OBJECT_TRANSFER => handle_submit_object_transfer(&state, &request).await,
 
         // Health
@@ -614,8 +618,8 @@ mod tests {
             .await
             .invariant("rpc body bytes");
         let text = String::from_utf8(body.to_vec()).invariant("metrics text utf8");
-        assert!(text.contains("# HELP dag_vertices_created_total"));
-        assert!(text.contains("# TYPE dag_active_vertices gauge"));
+        assert!(text.contains("# HELP dropped_invalid_pending_tx_total"));
+        assert!(text.contains("dropped_invalid_pending_tx_total"));
         drop(guard);
     }
 
@@ -627,9 +631,12 @@ mod tests {
         let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
         let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
         let sender_tagged = sender.tagged_address();
-        let recipient_address = recipient.address.clone();
+        let recipient_address =
+            move_core_types::account_address::AccountAddress::from_hex_literal(&recipient.address)
+                .invariant("recipient account address")
+                .to_hex_literal();
 
-        let mut transaction = Transaction::new_transfer_with_object_ref(
+        let transaction = Transaction::new_transfer_with_object_ref_and_gas(
             sender_tagged.clone(),
             kanari_types::transaction::ObjectRef::new(
                 "0xaaaa",
@@ -639,16 +646,9 @@ mod tests {
             recipient_address.clone(),
             1,
             0,
+            1_000_000,
+            1,
         );
-        if let Transaction::ExecuteFunction {
-            gas_limit,
-            gas_price,
-            ..
-        } = &mut transaction
-        {
-            *gas_limit = 1_000_000;
-            *gas_price = 1;
-        }
         let mut signed_tx = SignedTransaction::new(transaction);
         signed_tx
             .sign(&sender.private_key, sender.curve_type)

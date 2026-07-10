@@ -9,19 +9,26 @@
 //! ```
 
 use crate::command::common::{
-    get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr, resolve_sender,
+    get_rpc_endpoint, get_sender_for_tx, load_wallet_for, native_transfer_policy_hint,
+    normalize_addr, resolve_sender, resolve_transaction_gas, transaction_error_reason,
 };
-use crate::command::gas_and_coin_selection::{
-    build_native_gas_payment, consolidate_coin_objects, object_call_context,
-    select_native_coin_object, spendable_coin_objects,
-};
-use crate::command::rpc_helpers::sign_and_call_function;
-use anyhow::{Context, Result};
+use crate::command::rpc_helpers::sign_object_transfer_request;
+use anyhow::{Context, Result, bail};
 use clap::Parser;
-use kanari_rpc_api::CallFunctionRequest;
+use kanari_rpc_api::BuildNativeTransferRequest;
 use kanari_rpc_client::RpcClient;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use std::time::Instant;
+
+fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
+    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    owner.owned_objects.as_ref().map_or(0, |objects| {
+        objects
+            .iter()
+            .filter(|object| object.type_ == native_coin_type)
+            .count()
+    })
+}
 
 #[derive(Parser, Debug)]
 pub struct StressTest {
@@ -72,11 +79,12 @@ impl StressTest {
         let from_addr = resolve_sender(self.from.clone())?;
         let to_addr = normalize_addr(&self.to)?;
         let wallet = load_wallet_for(&from_addr, Some(self.password.clone()))?;
+        let (gas_limit, gas_price) = resolve_transaction_gas(None, None);
 
         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
         let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
         if amount_mist == 0 {
-            anyhow::bail!("--amount is too small; it rounds to 0 Mist");
+            bail!("--amount is too small; it rounds to 0 Mist");
         }
 
         eprintln!("=== Kanari Stress Test ===");
@@ -84,10 +92,13 @@ impl StressTest {
         eprintln!("  To:       {}", to_addr);
         eprintln!("  Per-tx:   {} KANARI ({} Mist)", self.amount, amount_mist);
         eprintln!("  Count:    {} transactions", self.count);
+        eprintln!(
+            "  Gas:      limit={} price={} Mist/gas",
+            gas_limit, gas_price
+        );
 
         let client = RpcClient::new(&rpc);
 
-        // ── Step 1: Check node connection ──
         {
             let height = client
                 .get_block_height()
@@ -96,10 +107,7 @@ impl StressTest {
             eprintln!("  Node height: {}", height);
         }
 
-        // ── Step 2: Faucet (fund sender) ──
         if self.faucet {
-            // Give a generous 10x cushion — 2x barely covers gas + amount
-            // for a single run, and leftover is needed for subsequent runs.
             let faucet_amt = self
                 .faucet_amount
                 .unwrap_or((self.amount * self.count as f64) * 10.0);
@@ -124,17 +132,14 @@ impl StressTest {
             }
         }
 
-        // ── Step 3: Get current owner state ──
         let owner = client
             .get_owner(&from_addr)
             .await
             .context("Failed to get sender owner state")?;
 
-        // Check balance before starting
         let native_balance = owner.balances.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
         let total_needed = amount_mist.saturating_mul(self.count);
-        // Rough gas estimate: ~100k gas * 1000 price = 100M Mist per tx
-        let gas_per_tx: u64 = 100_000 * 1000;
+        let gas_per_tx = gas_limit.saturating_mul(gas_price);
         let total_gas = gas_per_tx.saturating_mul(self.count);
         let total_required = total_needed.saturating_add(total_gas);
 
@@ -156,9 +161,13 @@ impl StressTest {
             "  Required:       {:.9} KANARI",
             total_required as f64 / MIST_PER_KANARI
         );
+        eprintln!(
+            "  Native coins:   {} object(s)",
+            native_coin_object_count(&owner)
+        );
 
         if native_balance < total_required {
-            anyhow::bail!(
+            bail!(
                 "Insufficient balance: have {:.9} KANARI, need {:.9} KANARI\n\
                  Use --faucet or request more tokens.",
                 native_balance as f64 / MIST_PER_KANARI,
@@ -167,116 +176,82 @@ impl StressTest {
         }
 
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
-        let owned_objects = owner
-            .owned_objects
-            .as_ref()
-            .context("Sender owner state has no owned object list from RPC")?;
-        let mut selected_coin = select_native_coin_object(owned_objects, total_required)
-            .context("Sender owner state has no spendable native coin object from RPC")?;
-        let mut seq = owner.sequence_number;
-        if selected_coin.selected_balance < total_required {
-            if selected_coin.total_balance < total_required {
-                anyhow::bail!(
-                    "Insufficient object-backed native balance for stress-test.\n\
-                     Required: {:.9} KANARI\n\
-                     Best coin object: {:.9} KANARI\n\
-                     Total spendable across coin objects: {:.9} KANARI",
-                    total_required as f64 / MIST_PER_KANARI,
-                    selected_coin.selected_balance as f64 / MIST_PER_KANARI,
-                    selected_coin.total_balance as f64 / MIST_PER_KANARI,
-                );
-            }
 
-            eprintln!("  Consolidating coin objects before stress-test...");
-            let consolidation = consolidate_coin_objects(
-                &client,
-                &wallet,
-                &sender_tagged,
-                KANARI_TOKEN_TYPE,
-                &spendable_coin_objects(owned_objects, KANARI_TOKEN_TYPE),
-                total_required,
-                owner.sequence_number,
-                100_000,
-                1_000,
-            )
-            .await?;
-            selected_coin = consolidation.0;
-            seq = consolidation.1;
-        }
-
-        eprintln!("  Using coin object: {}", selected_coin.coin_object_id);
-        eprintln!(
-            "  Selected coin balance: {:.9} KANARI",
-            selected_coin.selected_balance as f64 / MIST_PER_KANARI
-        );
-        let (gas_coin, explicit_gas_payment) = build_native_gas_payment(
-            owned_objects,
-            &sender_tagged,
-            100_000,
-            1,
-            &[selected_coin.coin_object_id.as_str()],
-        )
-        .unwrap_or_else(|_| {
-            let (_, gas_payment) = object_call_context(
-                &sender_tagged,
-                selected_coin.coin_object_ref.clone(),
-                100_000,
-                1,
-            );
-            (selected_coin.clone(), gas_payment)
-        });
-        eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);
-
-        // ── Step 4: Send N transactions ──
         eprintln!();
         eprintln!("--- Sending {} transactions ---", self.count);
 
         let mut success_count = 0u64;
         let mut fail_count = 0u64;
         let start_time = Instant::now();
-        let report_interval = (self.count / 20).max(1); // ~5% progress report
+        let report_interval = (self.count / 20).max(1);
 
         for i in 0..self.count {
-            let (object_inputs, _) = object_call_context(
-                &sender_tagged,
-                selected_coin.coin_object_ref.clone(),
-                100_000,
-                1,
-            );
-            let call_req = CallFunctionRequest {
-                sender: sender_tagged.clone(),
-                package: "0x2".to_string(),
-                module: "kanari".to_string(),
-                function: "transfer".to_string(),
-                type_args: vec![],
-                args: vec![
-                    move_core_types::account_address::AccountAddress::from_hex_literal(
-                        &selected_coin.coin_object_id,
-                    )
-                    .context("Invalid coin object ID")?
-                    .to_vec(),
-                    bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
-                    bcs::to_bytes(
-                        &move_core_types::account_address::AccountAddress::from_hex_literal(
-                            &to_addr,
-                        )?,
-                    )
-                    .context("Failed to serialize recipient address")?,
-                ],
-                object_inputs: Some(object_inputs),
-                gas_limit: 100_000,
-                gas_price: 1,
-                sequence_number: seq,
-                gas_payment: Some(explicit_gas_payment.clone()),
-                signature: None,
-                // false = go through mempool -> DAG -> P2P gossip to all nodes
-                // false = go through mempool → DAG → P2P gossip to all nodes
-                execute_immediate: Some(false),
-            };
+            let result = async {
+                let prepared = client
+                    .build_native_transfer(BuildNativeTransferRequest {
+                        sender: sender_tagged.clone(),
+                        recipient: to_addr.clone(),
+                        amount: amount_mist,
+                        gas_limit,
+                        gas_price,
+                        execute_immediate: Some(false),
+                    })
+                    .await
+                    .map_err(|error| {
+                        let policy_suffix = native_transfer_policy_hint(&error)
+                            .map(|summary| format!(" Policy: {}.", summary))
+                            .unwrap_or_default();
+                        anyhow::anyhow!(
+                            "Failed to build native transfer transaction for sender {}: {:#}{}",
+                            from_addr,
+                            error,
+                            policy_suffix
+                        )
+                    })?;
 
-            match sign_and_call_function(&client, &wallet, call_req).await {
-                Ok(status) => {
+                let tx_seq = prepared.sequence_number;
+                let coin_object_id = prepared.coin_object_id.clone();
+                let gas_object_id = prepared
+                    .gas_payment
+                    .as_ref()
+                    .and_then(|gas| gas.payment_objects.first())
+                    .map(|obj| obj.object_id.clone());
+
+                let signed = sign_object_transfer_request(prepared, &wallet)?;
+                let status = client
+                    .submit_object_transfer(signed)
+                    .await
+                    .context("Failed to submit transaction")?;
+
+                Ok::<_, anyhow::Error>((tx_seq, coin_object_id, gas_object_id, status))
+            }
+            .await;
+
+            match result {
+                Ok((tx_seq, coin_object_id, gas_object_id, status)) => {
+                    if !status.success || (!status.submitted && !status.committed) {
+                        fail_count += 1;
+                        eprintln!(
+                            "  [{}/{}] FAILED seq={} status={} submitted={} committed={} previewed={} hash={}",
+                            i + 1,
+                            self.count,
+                            tx_seq,
+                            status.status,
+                            status.submitted,
+                            status.committed,
+                            status.previewed,
+                            status.hash
+                        );
+                        continue;
+                    }
+
                     success_count += 1;
+                    if i == 0 {
+                        eprintln!("  First coin object: {}", coin_object_id);
+                        if let Some(gas_object_id) = gas_object_id {
+                            eprintln!("  First gas object:  {}", gas_object_id);
+                        }
+                    }
                     if (i + 1) % report_interval == 0 || i + 1 == self.count {
                         let elapsed = start_time.elapsed();
                         let tps = if elapsed.as_secs_f64() > 0.0 {
@@ -289,50 +264,51 @@ impl StressTest {
                             i + 1,
                             self.count,
                             &status.hash[..16.min(status.hash.len())],
-                            seq,
+                            tx_seq,
                             tps,
                         );
                     }
                 }
                 Err(e) => {
                     fail_count += 1;
-                    eprintln!("  [{}/{}] FAILED seq={}: {}", i + 1, self.count, seq, e);
-                    // On first failure, try refreshing sequence number
-                    if fail_count == 1 {
-                        eprintln!("  Refreshing sequence number after failure...");
-                        if let Ok(owner_state) = client.get_owner(&from_addr).await {
-                            if owner_state.sequence_number > seq {
-                                seq = owner_state.sequence_number;
-                                eprintln!("  Sequence bumped to {}", seq);
-                                continue; // retry this transaction
-                            }
+                    eprintln!("  [{}/{}] FAILED: {:#}", i + 1, self.count, e);
+                    if i == 0 {
+                        if let Some(reason) = transaction_error_reason(&e) {
+                            eprintln!("           RPC reason: {}", reason);
+                        }
+                        if let Some(summary) = native_transfer_policy_hint(&e) {
+                            eprintln!("           Policy: {}", summary);
+                        } else {
+                            eprintln!(
+                                "           Hint: native transfer needs either one Coin<{}> large enough for amount+gas",
+                                KANARI_TOKEN_TYPE
+                            );
+                            eprintln!(
+                                "                 or two distinct native coin objects: one transfer coin and one gas coin"
+                            );
                         }
                     }
                 }
             }
-
-            seq += 1;
         }
 
         let total_elapsed = start_time.elapsed();
-        let total_ok = success_count;
-        let total_fail = fail_count;
 
         eprintln!();
         eprintln!("=== Stress Test Complete ===");
         eprintln!("  Total:    {} tx", self.count);
-        eprintln!("  Success:  {}", total_ok);
-        eprintln!("  Failed:   {}", total_fail);
+        eprintln!("  Success:  {}", success_count);
+        eprintln!("  Failed:   {}", fail_count);
         eprintln!("  Duration: {:.2?}", total_elapsed);
         if total_elapsed.as_secs_f64() > 0.0 {
             eprintln!(
                 "  TPS:      {:.1}",
-                total_ok as f64 / total_elapsed.as_secs_f64()
+                success_count as f64 / total_elapsed.as_secs_f64()
             );
         }
 
-        if total_fail > 0 {
-            anyhow::bail!("{} of {} transactions failed", total_fail, self.count);
+        if fail_count > 0 {
+            bail!("{} of {} transactions failed", fail_count, self.count);
         }
 
         Ok(())

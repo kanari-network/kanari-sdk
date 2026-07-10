@@ -558,6 +558,8 @@ impl super::MoveRuntime {
 
 /// Public API: Load and sort system modules from a directory
 pub(crate) fn load_system_modules_from_dir(modules_dir: &Path) -> Result<Vec<DiscoveredModule>> {
+    ensure_production_build_artifacts(modules_dir)?;
+
     let system_addr = KanariAddress::kanari_system_account_address();
     let move_system_addr = AccountAddress::from_hex_literal(system_addr.to_hex_literal().as_str())?;
 

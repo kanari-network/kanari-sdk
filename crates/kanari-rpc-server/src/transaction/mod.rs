@@ -7,9 +7,10 @@ use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
-    BuildCallFunctionRequest, BuildNativeTransferRequest, BuildPublishModuleRequest,
-    BuildTokenTransferRequest, CallFunctionRequest, ObjectTransferData, PublishModuleRequest,
-    TransactionDetails, ViewFunctionRequest,
+    BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
+    BuildPublishModuleRequest, BuildTokenTransferRequest, CallFunctionRequest, ObjectTransferData,
+    PublishModuleRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
+    ViewFunctionRequest,
 };
 use kanari_types::address::Address;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -239,6 +240,200 @@ fn select_native_gas_payment(
         budget: gas_limit,
         price: gas_price,
     })
+}
+
+fn select_native_transfer_and_gas_payment(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    sender: &str,
+    transfer_amount: u64,
+    gas_limit: u64,
+    gas_price: u64,
+) -> anyhow::Result<(ObjectRef, GasPayment)> {
+    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let required_gas = gas_limit.saturating_mul(gas_price);
+    let mut native_coins: Vec<(ObjectRef, u64)> = owned_objects
+        .iter()
+        .filter(|object| object.type_ == native_coin_type)
+        .filter_map(|object| {
+            read_coin_balance(&object.data).map(|balance| {
+                (
+                    ObjectRef::new(
+                        object.id.clone(),
+                        Some(object.version),
+                        object.digest.clone(),
+                    ),
+                    balance,
+                )
+            })
+        })
+        .collect();
+
+    native_coins.sort_by_key(|(_, balance)| *balance);
+
+    let mut best_pair: Option<((ObjectRef, u64), (ObjectRef, u64))> = None;
+    for (transfer_ref, transfer_balance) in native_coins
+        .iter()
+        .filter(|(_, balance)| *balance >= transfer_amount)
+    {
+        let Some((gas_ref, gas_balance)) = native_coins
+            .iter()
+            .filter(|(gas_ref, gas_balance)| {
+                gas_ref.object_id != transfer_ref.object_id && *gas_balance >= required_gas
+            })
+            .min_by_key(|(_, gas_balance)| *gas_balance)
+            .cloned()
+        else {
+            continue;
+        };
+
+        let candidate = (
+            (transfer_ref.clone(), *transfer_balance),
+            (gas_ref, gas_balance),
+        );
+        match &best_pair {
+            Some(((best_transfer_ref, best_transfer_balance), (_, best_gas_balance)))
+                if (
+                    *best_transfer_balance,
+                    *best_gas_balance,
+                    &best_transfer_ref.object_id,
+                ) <= (candidate.0.1, candidate.1.1, &candidate.0.0.object_id) => {}
+            _ => best_pair = Some(candidate),
+        }
+    }
+
+    if let Some(((coin_object_ref, _), (gas_object_ref, _))) = best_pair {
+        return Ok((
+            coin_object_ref,
+            GasPayment {
+                payment_objects: vec![gas_object_ref],
+                owner: sender.to_string(),
+                budget: gas_limit,
+                price: gas_price,
+            },
+        ));
+    }
+
+    if let Some((coin_object_ref, _balance)) = native_coins
+        .iter()
+        .filter(|(_, balance)| *balance >= transfer_amount.saturating_add(required_gas))
+        .min_by_key(|(_, balance)| *balance)
+        .cloned()
+    {
+        return Ok((
+            coin_object_ref.clone(),
+            GasPayment {
+                payment_objects: vec![coin_object_ref],
+                owner: sender.to_string(),
+                budget: gas_limit,
+                price: gas_price,
+            },
+        ));
+    }
+
+    let has_transfer_coin = native_coins
+        .iter()
+        .any(|(_, balance)| *balance >= transfer_amount);
+    if !has_transfer_coin {
+        anyhow::bail!(
+            "No single Coin<{}> object can cover requested amount {}",
+            KANARI_TOKEN_TYPE,
+            transfer_amount
+        );
+    }
+
+    let has_distinct_gas_coin = native_coins
+        .iter()
+        .any(|(_, balance)| *balance >= required_gas);
+    if !has_distinct_gas_coin {
+        anyhow::bail!(
+            "No spendable native gas coin object found with at least {} Mist",
+            required_gas
+        );
+    }
+
+    anyhow::bail!(
+        "Native transfer requires either two distinct Coin<{}> objects or one Coin<{}> object large enough to cover both transfer amount and gas",
+        KANARI_TOKEN_TYPE,
+        KANARI_TOKEN_TYPE
+    )
+}
+
+fn select_native_coin_consolidation_step(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    sender: &str,
+    required_amount: u64,
+    gas_limit: u64,
+    gas_price: u64,
+) -> anyhow::Result<(
+    kanari_rpc_api::ObjectInfo,
+    kanari_rpc_api::ObjectInfo,
+    GasPayment,
+)> {
+    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let required_gas = gas_limit.saturating_mul(gas_price);
+    let native_coins: Vec<(kanari_rpc_api::ObjectInfo, u64)> = owned_objects
+        .iter()
+        .filter(|object| object.type_ == native_coin_type)
+        .filter_map(|object| {
+            read_coin_balance(&object.data).map(|balance| (object.clone(), balance))
+        })
+        .filter(|(_, balance)| *balance > 0)
+        .collect();
+
+    if native_coins.len() < 2 {
+        anyhow::bail!(
+            "Native coin consolidation requires at least two spendable Coin<{}> objects; found {}",
+            KANARI_TOKEN_TYPE,
+            native_coins.len()
+        );
+    }
+
+    let mut gas_candidates: Vec<(kanari_rpc_api::ObjectInfo, u64)> = native_coins
+        .iter()
+        .filter(|(_, balance)| *balance >= required_gas)
+        .cloned()
+        .collect();
+    gas_candidates.sort_by_key(|(_, balance)| *balance);
+
+    for (gas_object, _) in gas_candidates {
+        let mut remaining: Vec<(kanari_rpc_api::ObjectInfo, u64)> = native_coins
+            .iter()
+            .filter(|(object, _)| object.id != gas_object.id)
+            .cloned()
+            .collect();
+
+        let remaining_total = remaining
+            .iter()
+            .fold(0u64, |sum, (_, balance)| sum.saturating_add(*balance));
+        if remaining_total < required_amount || remaining.len() < 2 {
+            continue;
+        }
+
+        remaining.sort_by(|a, b| b.1.cmp(&a.1));
+        let (primary_object, primary_balance) = remaining[0].clone();
+        if primary_balance >= required_amount {
+            continue;
+        }
+        let (merge_object, _) = remaining[1].clone();
+
+        let gas_payment = GasPayment {
+            payment_objects: vec![ObjectRef::new(
+                gas_object.id.clone(),
+                Some(gas_object.version),
+                gas_object.digest.clone(),
+            )],
+            owner: sender.to_string(),
+            budget: gas_limit,
+            price: gas_price,
+        };
+
+        return Ok((primary_object, merge_object, gas_payment));
+    }
+
+    anyhow::bail!(
+        "Native coin consolidation could not reserve a separate gas coin while preserving enough non-gas balance to reach {} Mist",
+        required_amount
+    )
 }
 
 fn select_coin_object_for_token(
@@ -650,32 +845,53 @@ fn maybe_attach_signature(signed_tx: &mut SignedTransaction, signature: Option<V
     }
 }
 
-fn classify_transaction_error_data(message: &str) -> Option<serde_json::Value> {
-    let reason = if message.contains("must be Coin<") {
-        "invalid_gas_payment_type"
+fn classify_transaction_error_data(message: &str) -> Option<TransactionErrorData> {
+    let data = if message.contains("must be Coin<") {
+        TransactionErrorData::new(TransactionErrorReason::InvalidGasPaymentType)
     } else if message.contains("cannot overlap with a mutable object input") {
-        "gas_payment_object_overlap"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentObjectOverlap)
     } else if message.contains("Gas payment object") && message.contains("does not exist") {
-        "gas_payment_object_not_found"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentObjectNotFound)
     } else if message.contains("Gas payment object") && message.contains("is not owned by sender") {
-        "gas_payment_owner_mismatch"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentOwnerMismatch)
     } else if message.contains("Gas payment owner must match sender") {
-        "gas_payment_owner_mismatch"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentOwnerMismatch)
     } else if message.contains("Gas payment version mismatch") {
-        "gas_payment_version_mismatch"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentVersionMismatch)
     } else if message.contains("Gas payment digest mismatch") {
-        "gas_payment_digest_mismatch"
+        TransactionErrorData::new(TransactionErrorReason::GasPaymentDigestMismatch)
+    } else if message.contains("requires at least two spendable Coin<") {
+        TransactionErrorData::with_native_transfer_policy(
+            TransactionErrorReason::InsufficientNativeCoinObjects,
+        )
+    } else if message.contains("could not reserve a separate gas coin") {
+        TransactionErrorData::with_native_transfer_policy(
+            TransactionErrorReason::NativeCoinConsolidationBlocked,
+        )
+    } else if message.contains("No single Coin<") && message.contains("can cover requested amount")
+    {
+        TransactionErrorData::with_native_transfer_policy(
+            TransactionErrorReason::InsufficientTransferCoinBalance,
+        )
+    } else if message.contains("No spendable native gas coin object found with at least") {
+        TransactionErrorData::with_native_transfer_policy(
+            TransactionErrorReason::InsufficientGasCoinBalance,
+        )
+    } else if message.contains("Native transfer requires either two distinct Coin<") {
+        TransactionErrorData::with_native_transfer_policy(
+            TransactionErrorReason::NativeTransferPolicyNotSatisfied,
+        )
     } else {
         return None;
     };
 
-    Some(serde_json::json!({ "reason": reason }))
+    Some(data)
 }
 
 fn transaction_error_with_reason(message: impl Into<String>) -> RpcError {
     let message = message.into();
     if let Some(data) = classify_transaction_error_data(&message) {
-        RpcError::transaction_error_with_data(message, data)
+        RpcError::transaction_error_structured(message, data)
     } else {
         RpcError::transaction_error(message)
     }
@@ -781,7 +997,7 @@ async fn execute_or_submit_response(
                     kanari_rpc_api::TransactionResult {
                         hash: tx_hash_hex,
                         status: "failed".to_string(),
-                        gas_used: changeset.gas_used,
+                        gas_used: Some(changeset.gas_used),
                         success: false,
                         previewed: true,
                         submitted: false,
@@ -827,7 +1043,7 @@ async fn execute_or_submit_response(
                 kanari_rpc_api::TransactionResult {
                     hash: tx_hash_hex,
                     status: "simulated_pending".to_string(),
-                    gas_used: changeset.gas_used,
+                    gas_used: Some(changeset.gas_used),
                     success: true,
                     previewed: true,
                     submitted: true,
@@ -932,35 +1148,25 @@ pub async fn handle_build_native_transfer(
         return internal_error_response(request.id, "Owner has no owned object list");
     };
 
-    let required_balance = build_data
-        .amount
-        .saturating_add(build_data.gas_limit.saturating_mul(build_data.gas_price));
-    let coin_object_ref =
-        match select_coin_object_for_token(&owned_objects, KANARI_TOKEN_TYPE, required_balance) {
-            Ok(selected) => selected,
-            Err(e) => {
-                return RpcResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(transaction_error_with_reason(e.to_string())),
-                    id: request.id,
-                };
-            }
-        };
-    let gas_payment = match select_native_gas_payment(
+    let (coin_object_ref, gas_payment) = match select_native_transfer_and_gas_payment(
         &owned_objects,
         &build_data.sender,
+        build_data.amount,
         build_data.gas_limit,
         build_data.gas_price,
-        std::slice::from_ref(&coin_object_ref.object_id),
     ) {
         Ok(payment) => payment,
-        Err(_) => GasPayment {
-            payment_objects: vec![coin_object_ref.clone()],
-            owner: build_data.sender.clone(),
-            budget: build_data.gas_limit,
-            price: build_data.gas_price,
-        },
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(format!(
+                    "{}. Native transfer is only built when API can prove the gas object does not overlap the mutable transfer input.",
+                    e
+                ))),
+                id: request.id,
+            };
+        }
     };
 
     respond_with_serialize(
@@ -971,6 +1177,98 @@ pub async fn handle_build_native_transfer(
             coin_object_ref: Some(coin_object_ref),
             recipient: build_data.recipient,
             amount: build_data.amount,
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            sequence_number: owner_info.sequence_number,
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+pub async fn handle_build_native_coin_consolidation(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildNativeCoinConsolidationRequest = match parse_labeled_params(
+        request.id,
+        &request.params,
+        "build native coin consolidation data",
+    ) {
+        Ok(data) => data,
+        Err(response) => return *response,
+    };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let (primary_object, merge_object, gas_payment) = match select_native_coin_consolidation_step(
+        &owned_objects,
+        &build_data.sender,
+        build_data.required_amount,
+        build_data.gas_limit,
+        build_data.gas_price,
+    ) {
+        Ok(selection) => selection,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    let primary_input = match build_object_input(&primary_object, &build_data.sender) {
+        Ok(input) => input,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+    let merge_input = match build_object_input(&merge_object, &build_data.sender) {
+        Ok(input) => input,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    respond_with_serialize(
+        request.id,
+        CallFunctionRequest {
+            sender: build_data.sender,
+            package: "0x2".to_string(),
+            module: "coin".to_string(),
+            function: "join_entry".to_string(),
+            type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+            args: vec![
+                Address::from_hex_literal(&primary_object.id)
+                    .map(|addr| addr.to_vec())
+                    .unwrap_or_default(),
+                Address::from_hex_literal(&merge_object.id)
+                    .map(|addr| addr.to_vec())
+                    .unwrap_or_default(),
+            ],
+            object_inputs: Some(vec![primary_input, merge_input]),
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
             sequence_number: owner_info.sequence_number,
@@ -1150,7 +1448,7 @@ pub async fn handle_build_token_transfer(
             sender: build_data.sender,
             package: module_parts[0].to_string(),
             module: module_parts[1].to_string(),
-            function: "transfer_amount".to_string(),
+            function: "transfer".to_string(),
             type_args: vec![],
             args: vec![
                 move_core_types::account_address::AccountAddress::from_hex_literal(
@@ -1568,8 +1866,11 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
 mod tests {
     use super::{
         classify_transaction_error_data, derive_transaction_state_flags,
+        select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
         transaction_error_with_reason,
     };
+    use kanari_rpc_api::TransactionErrorReason;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
     #[test]
     fn transaction_state_flags_match_pending_status() {
@@ -1606,7 +1907,7 @@ mod tests {
             "Immediate execution failed: Gas payment object 0xabc must be Coin<0x2::kanari::KANARI>, found 0x2::coin::Coin<0x2::foo::BAR>",
         )
         .expect("classification should exist");
-        assert_eq!(data["reason"], "invalid_gas_payment_type");
+        assert_eq!(data.reason, TransactionErrorReason::InvalidGasPaymentType);
     }
 
     #[test]
@@ -1615,7 +1916,7 @@ mod tests {
             "Submission failed: Gas payment object 0xabc cannot overlap with a mutable object input",
         )
         .expect("classification should exist");
-        assert_eq!(data["reason"], "gas_payment_object_overlap");
+        assert_eq!(data.reason, TransactionErrorReason::GasPaymentObjectOverlap);
     }
 
     #[test]
@@ -1625,8 +1926,143 @@ mod tests {
         );
         assert_eq!(error.code, -32002);
         assert_eq!(
-            error.data.as_ref().and_then(|data| data.get("reason")),
-            Some(&serde_json::json!("gas_payment_object_overlap"))
+            error.transaction_error_reason(),
+            Some(TransactionErrorReason::GasPaymentObjectOverlap)
         );
+    }
+
+    #[test]
+    fn structured_transaction_error_attaches_native_transfer_policy() {
+        let error = transaction_error_with_reason(
+            "Transaction error: Native transfer requires either two distinct Coin<0x2::kanari::KANARI> objects or one Coin<0x2::kanari::KANARI> object large enough to cover both transfer amount and gas",
+        );
+        let details = error
+            .transaction_error_details()
+            .expect("structured transaction details should exist");
+        assert_eq!(
+            details.reason,
+            TransactionErrorReason::NativeTransferPolicyNotSatisfied
+        );
+        assert!(details.native_transfer_policy.is_some());
+    }
+
+    #[test]
+    fn selects_distinct_native_transfer_and_gas_objects() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let owned_objects = vec![
+            ObjectInfo {
+                id: "0x1".to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some("d1".to_string()),
+            },
+            ObjectInfo {
+                id: "0x2".to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&50u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some("d2".to_string()),
+            },
+        ];
+
+        let (coin, gas) =
+            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap();
+        assert_eq!(coin.object_id, "0x1");
+        assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
+        assert_eq!(gas.payment_objects[0].object_id, "0x2");
+    }
+
+    #[test]
+    fn allows_native_transfer_when_one_coin_covers_transfer_and_gas() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let owned_objects = vec![ObjectInfo {
+            id: "0x1".to_string(),
+            owner: "0xa".to_string(),
+            owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+            type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+            data: {
+                let mut bytes = vec![0u8; 40];
+                bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
+                bytes
+            },
+            version: 1,
+            digest: Some("d1".to_string()),
+        }];
+
+        let (coin, gas) =
+            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap();
+        assert_eq!(coin.object_id, "0x1");
+        assert_eq!(gas.payment_objects[0].object_id, "0x1");
+    }
+
+    #[test]
+    fn selects_native_coin_consolidation_step_with_reserved_gas_coin() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let owned_objects = vec![
+            ObjectInfo {
+                id: "0x1".to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&120u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some("d1".to_string()),
+            },
+            ObjectInfo {
+                id: "0x2".to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&90u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some("d2".to_string()),
+            },
+            ObjectInfo {
+                id: "0x3".to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&20u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some("d3".to_string()),
+            },
+        ];
+
+        let (primary, merge, gas) =
+            select_native_coin_consolidation_step(&owned_objects, "0xa", 180, 10, 1).unwrap();
+        assert_eq!(gas.payment_objects[0].object_id, "0x3");
+        assert_eq!(primary.id, "0x1");
+        assert_eq!(merge.id, "0x2");
     }
 }

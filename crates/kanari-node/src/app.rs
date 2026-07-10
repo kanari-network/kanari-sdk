@@ -215,6 +215,22 @@ fn current_chain_height(engine: &Arc<BlockchainEngine>) -> u64 {
         .height()
 }
 
+fn extract_failed_tx_hash(error_text: &str) -> Option<Vec<u8>> {
+    let marker = "Execution failed for tx ";
+    let start = error_text.find(marker)? + marker.len();
+    let rest = &error_text[start..];
+    let end = rest.find(' ')?;
+    hex::decode(&rest[..end]).ok()
+}
+
+fn should_drop_invalid_pending_transaction(error_text: &str) -> bool {
+    error_text.contains("cannot overlap with a mutable object input")
+        || error_text.contains("Gas payment object")
+        || error_text.contains("does not exist")
+        || error_text.contains("version mismatch")
+        || error_text.contains("digest mismatch")
+}
+
 pub async fn run_node(
     engine: Arc<BlockchainEngine>,
     network: String,
@@ -526,7 +542,7 @@ pub async fn run_node(
                     }
                 }
                 Err(e) => {
-                    let error_text = e.to_string();
+                    let error_text = format!("{:#}", e);
                     if error_text.contains("DAG_WAITING")
                         || error_text.contains("SYNC_WAITING")
                         || error_text.contains("Not enough parents for quorum")
@@ -537,6 +553,26 @@ pub async fn run_node(
                         }
                         sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                         sync_manager.request_dag_vertices_for_quorum().await;
+                    } else if should_drop_invalid_pending_transaction(&error_text) {
+                        if let Some(tx_hash) = extract_failed_tx_hash(&error_text) {
+                            let removed =
+                                engine.remove_pending_transactions_by_hashes(&[tx_hash.clone()]);
+                            if !removed.is_empty() {
+                                for tx in &removed {
+                                    tracing::warn!(
+                                        tx_hash = %hex::encode(tx.signed_tx.transaction_hash()),
+                                        sender = %tx.signed_tx.transaction.sender_address(),
+                                        sequence = tx.signed_tx.transaction.sequence_number(),
+                                        "Dropped invalid pending transaction after deterministic execution failure"
+                                    );
+                                }
+                                idle_delay = Duration::from_millis(10);
+                            } else {
+                                tracing::error!("Checkpoint production failed: {:#}", e);
+                            }
+                        } else {
+                            tracing::error!("Checkpoint production failed: {:#}", e);
+                        }
                     } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Checkpoint production failed: {:#}", e);
                     }

@@ -292,6 +292,7 @@ export function RouteList() {
     ["Token Registry", "/coins"],
     ["System Modules", "/modules"],
     ["Account Lookup", "/account"],
+    ["Checkpoint Graph", "/checkpoint-object-graph"],
     ["NFT Collections", "/nft"],
   ];
 

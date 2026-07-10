@@ -10,6 +10,7 @@ use kanari_types::transaction::{
     SignedTransaction, TransactionEffects,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// RPC request wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,110 @@ pub struct RpcError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+}
+
+/// Structured transaction error reasons that clients can rely on instead of parsing text.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionErrorReason {
+    InvalidGasPaymentType,
+    GasPaymentObjectOverlap,
+    GasPaymentObjectNotFound,
+    GasPaymentOwnerMismatch,
+    GasPaymentVersionMismatch,
+    GasPaymentDigestMismatch,
+    InsufficientNativeCoinObjects,
+    NativeCoinConsolidationBlocked,
+    InsufficientTransferCoinBalance,
+    InsufficientGasCoinBalance,
+    NativeTransferPolicyNotSatisfied,
+}
+
+impl TransactionErrorReason {
+    pub fn uses_native_transfer_policy(self) -> bool {
+        matches!(
+            self,
+            Self::InsufficientNativeCoinObjects
+                | Self::NativeCoinConsolidationBlocked
+                | Self::InsufficientTransferCoinBalance
+                | Self::InsufficientGasCoinBalance
+                | Self::NativeTransferPolicyNotSatisfied
+        )
+    }
+}
+
+impl fmt::Display for TransactionErrorReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::InvalidGasPaymentType => "invalid_gas_payment_type",
+            Self::GasPaymentObjectOverlap => "gas_payment_object_overlap",
+            Self::GasPaymentObjectNotFound => "gas_payment_object_not_found",
+            Self::GasPaymentOwnerMismatch => "gas_payment_owner_mismatch",
+            Self::GasPaymentVersionMismatch => "gas_payment_version_mismatch",
+            Self::GasPaymentDigestMismatch => "gas_payment_digest_mismatch",
+            Self::InsufficientNativeCoinObjects => "insufficient_native_coin_objects",
+            Self::NativeCoinConsolidationBlocked => "native_coin_consolidation_blocked",
+            Self::InsufficientTransferCoinBalance => "insufficient_transfer_coin_balance",
+            Self::InsufficientGasCoinBalance => "insufficient_gas_coin_balance",
+            Self::NativeTransferPolicyNotSatisfied => "native_transfer_policy_not_satisfied",
+        };
+        f.write_str(label)
+    }
+}
+
+/// Canonical native-transfer policy shared across RPC server, CLI, and faucet tooling.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NativeTransferPolicyContract {
+    /// The backend selects canonical object refs and gas payment objects for clients.
+    pub api_selects_objects: bool,
+    /// Prepared objects must include canonical version and digest metadata.
+    pub canonical_object_refs_required: bool,
+    /// Gas payment objects must be native `Coin<0x2::kanari::KANARI>` objects.
+    pub gas_payment_must_be_native_kanari: bool,
+    /// A single native coin may be reused for both transfer and gas when it covers `amount + gas`.
+    pub allows_single_coin_for_transfer_and_gas: bool,
+    /// Distinct native transfer/gas objects are also valid when the gas object is separate.
+    pub allows_distinct_transfer_and_gas_objects: bool,
+}
+
+impl NativeTransferPolicyContract {
+    pub fn kanari_native() -> Self {
+        Self {
+            api_selects_objects: true,
+            canonical_object_refs_required: true,
+            gas_payment_must_be_native_kanari: true,
+            allows_single_coin_for_transfer_and_gas: true,
+            allows_distinct_transfer_and_gas_objects: true,
+        }
+    }
+
+    pub fn summary(&self) -> &'static str {
+        "one Coin<0x2::kanari::KANARI> large enough to cover transfer amount plus gas, or two distinct Coin<0x2::kanari::KANARI> objects with separate transfer and gas roles"
+    }
+}
+
+/// Structured transaction error payload carried in `RpcError.data`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransactionErrorData {
+    pub reason: TransactionErrorReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_transfer_policy: Option<NativeTransferPolicyContract>,
+}
+
+impl TransactionErrorData {
+    pub fn new(reason: TransactionErrorReason) -> Self {
+        Self {
+            reason,
+            native_transfer_policy: None,
+        }
+    }
+
+    pub fn with_native_transfer_policy(reason: TransactionErrorReason) -> Self {
+        Self {
+            reason,
+            native_transfer_policy: Some(NativeTransferPolicyContract::kanari_native()),
+        }
+    }
 }
 
 impl RpcError {
@@ -103,6 +208,26 @@ impl RpcError {
             message: format!("Transaction error: {}", msg.into()),
             data: Some(data),
         }
+    }
+
+    pub fn transaction_error_structured(
+        msg: impl Into<String>,
+        data: TransactionErrorData,
+    ) -> Self {
+        Self::transaction_error_with_data(
+            msg,
+            serde_json::to_value(data).unwrap_or_else(|_| serde_json::json!({})),
+        )
+    }
+
+    pub fn transaction_error_details(&self) -> Option<TransactionErrorData> {
+        self.data
+            .clone()
+            .and_then(|data| serde_json::from_value(data).ok())
+    }
+
+    pub fn transaction_error_reason(&self) -> Option<TransactionErrorReason> {
+        self.transaction_error_details().map(|data| data.reason)
     }
 }
 
@@ -295,7 +420,8 @@ pub struct TransactionDetails {
 pub struct TransactionResult {
     pub hash: String,
     pub status: String,
-    pub gas_used: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_used: Option<u64>,
     #[serde(default)]
     pub success: bool,
     #[serde(default)]
@@ -316,12 +442,28 @@ pub struct SubmitObjectTransferRequest {
     pub transaction: ObjectTransferData,
 }
 
-/// Build native transfer request
+/// Build native transfer request.
+///
+/// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
+/// the backend chooses canonical object refs and accepts either
+/// 1. one native coin large enough for `amount + gas`, or
+/// 2. distinct native transfer/gas coin objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNativeTransferRequest {
     pub sender: String,
     pub recipient: String,
     pub amount: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
+/// Build one native coin consolidation step that joins another native coin into a primary coin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildNativeCoinConsolidationRequest {
+    pub sender: String,
+    pub required_amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -708,12 +850,20 @@ pub mod methods {
     pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
     #[open_rpc_method(
         summary = "Build native transfer transaction",
-        description = "Selects a native coin object, gas payment, and sequence number for a transfer and returns a canonical unsigned transfer payload.",
+        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and sequence number, then returns a canonical unsigned transfer payload. Valid layouts are either one coin large enough for amount plus gas or distinct transfer/gas coin objects.",
         params = [("transaction", "Unsigned native transfer payload.", true, schema_object())],
         result = ("transaction", "Prepared object-transfer request.", schema_object()),
         tags = ["transaction"]
     )]
     pub const BUILD_NATIVE_TRANSFER: &str = "kanari_buildNativeTransfer";
+    #[open_rpc_method(
+        summary = "Build native coin consolidation step",
+        description = "Builds one backend-approved coin::join_entry step when NativeTransferPolicyContract cannot yet be satisfied by current native coin layout.",
+        params = [("transaction", "Unsigned native coin consolidation payload.", true, schema_object())],
+        result = ("call", "Prepared call-function request for one native coin join step.", schema_object()),
+        tags = ["transaction"]
+    )]
+    pub const BUILD_NATIVE_COIN_CONSOLIDATION: &str = "kanari_buildNativeCoinConsolidation";
 
     // Stats & Info
     #[open_rpc_method(

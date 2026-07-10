@@ -478,7 +478,10 @@ impl Transaction {
     }
 
     pub fn requires_strict_object_metadata(&self) -> bool {
-        matches!(self, Transaction::ExecuteFunction { .. } | Transaction::PublishModule { .. })
+        matches!(
+            self,
+            Transaction::ExecuteFunction { .. } | Transaction::PublishModule { .. }
+        )
     }
 
     pub fn object_access_keys(&self) -> Vec<String> {
