@@ -17,7 +17,7 @@ use k256::ecdsa::{
     Signature as K256Signature, VerifyingKey as K256VerifyingKey,
     signature::hazmat::PrehashVerifier as K256PrehashVerifier,
 };
-use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::elliptic_curve::sec1::ToSec1Point;
 use secp256k1::{
     Message as SecpMessage, Secp256k1, XOnlyPublicKey,
     ecdsa::RecoverableSignature as SecpRecoverableSignature, ecdsa::RecoveryId as SecpRecoveryId,
@@ -166,7 +166,7 @@ pub fn make_decompress_pubkey_native(gas_cost: InternalGas) -> NativeFunction {
             };
 
             // Convert to uncompressed format (65 bytes)
-            let ep = pk.to_encoded_point(false);
+            let ep = pk.to_sec1_point(false);
             let out = ep.as_bytes().to_vec();
 
             Ok(NR::ok(context.gas_used(), smallvec![Value::vector_u8(out)]))

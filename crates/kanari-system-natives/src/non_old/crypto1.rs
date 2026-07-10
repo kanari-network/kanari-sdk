@@ -20,7 +20,7 @@ use k256::ecdsa::{
     Signature as K256Signature, VerifyingKey as K256VerifyingKey,
     signature::Verifier as K256Verifier, signature::hazmat::PrehashVerifier as K256PrehashVerifier,
 };
-use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::elliptic_curve::sec1::ToSec1Point;
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use secp256k1::{
     Message as SecpMessage, Secp256k1, ecdsa::RecoverableSignature as SecpRecoverableSignature,
@@ -214,7 +214,7 @@ fn all_natives_with_gas(
                 Ok(p) => p,
                 Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY)),
             };
-            let ep = pk.to_encoded_point(false);
+            let ep = pk.to_sec1_point(false);
             let out = ep.as_bytes().to_vec();
             Ok(NR::ok(context.gas_used(), smallvec![Value::vector_u8(out)]))
         },
@@ -551,7 +551,7 @@ mod tests {
 
         // Decompress using k256
         let decompressed = K256PublicKey::from_sec1_bytes(&compressed_pk).unwrap();
-        let uncompressed = decompressed.to_encoded_point(false);
+        let uncompressed = decompressed.to_sec1_point(false);
         assert_eq!(uncompressed.as_bytes().len(), 65);
 
         // Test verify with SHA256
@@ -998,8 +998,8 @@ mod tests {
         let signature: P256Signature = signing_key.sign(msg);
         let sig_bytes = signature.to_bytes();
 
-        // Get compressed public key (33 bytes) - using to_encoded_point with compress=true
-        let encoded = public_key.to_encoded_point(true); // true = compressed
+        // Get compressed public key (33 bytes) - using to_sec1_point with compress=true
+        let encoded = public_key.to_sec1_point(true); // true = compressed
         let compressed_pk = encoded.as_bytes();
 
         println!("\n=== P-256 (ECDSA R1) Test Vectors ===");

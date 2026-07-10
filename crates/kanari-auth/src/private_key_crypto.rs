@@ -1,6 +1,6 @@
 use aes_gcm::{
-    Aes256Gcm, KeyInit,
-    aead::{Aead, AeadCore, OsRng, Payload},
+    Aes256Gcm, KeyInit, Nonce,
+    aead::{Aead, Payload},
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose};
@@ -105,7 +105,8 @@ pub fn encrypt_private_key(private_key: &str, password: &str) -> AuthResult<Stri
     let key = derive_argon2id_key(password.as_bytes(), &salt, policy)?;
     let cipher = Aes256Gcm::new_from_slice(key.as_ref())
         .map_err(|e| AuthError::CryptoError(format!("Failed to create cipher: {e}")))?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce_arr: [u8; 12] = rand::random();
+    let nonce = Nonce::try_from(&nonce_arr[..]).expect("nonce is exactly 12 bytes");
     let aad = argon2_aad(policy);
 
     let ciphertext = cipher
@@ -200,7 +201,7 @@ pub fn decrypt_private_key_with_migration(
         .map_err(|e| AuthError::CryptoError(format!("Failed to create cipher: {e}")))?;
     let decrypted = cipher
         .decrypt(
-            aes_gcm::Nonce::from_slice(&nonce),
+            &aes_gcm::Nonce::try_from(nonce.as_slice()).expect("nonce length already validated"),
             Payload {
                 msg: ciphertext.as_ref(),
                 aad: &aad,
@@ -309,11 +310,9 @@ fn validate_encoded_field(name: &str, value: &str) -> AuthResult<()> {
 }
 
 fn random_bytes(len: usize) -> AuthResult<Vec<u8>> {
-    use aes_gcm::aead::rand_core::RngCore;
+    use rand::Rng;
     let mut bytes = vec![0u8; len];
-    OsRng
-        .try_fill_bytes(&mut bytes)
-        .map_err(|e| AuthError::CryptoError(format!("OS randomness unavailable: {e}")))?;
+    rand::rng().fill_bytes(&mut bytes);
     Ok(bytes)
 }
 

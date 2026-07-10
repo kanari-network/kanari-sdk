@@ -59,7 +59,7 @@ use k256::ecdsa::signature::hazmat::PrehashVerifier;
 use k256::{
     PublicKey as K256PublicKey,
     ecdsa::{Signature as K256Signature, VerifyingKey as K256VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
+    elliptic_curve::sec1::ToSec1Point,
 };
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
@@ -112,7 +112,7 @@ fn test_secp256k1_ecrecover_and_verify() {
 
     // Decompress using k256
     let decompressed = K256PublicKey::from_sec1_bytes(&compressed_pk).unwrap();
-    let uncompressed = decompressed.to_encoded_point(false);
+    let uncompressed = decompressed.to_sec1_point(false);
     assert_eq!(uncompressed.as_bytes().len(), 65);
 
     // Test verify with SHA256
@@ -555,8 +555,8 @@ fn generate_p256_test_vectors() {
     let signature: P256Signature = signing_key.sign(msg);
     let sig_bytes = signature.to_bytes();
 
-    // Get compressed public key (33 bytes) - using to_encoded_point with compress=true
-    let encoded = public_key.to_encoded_point(true); // true = compressed
+    // Get compressed public key (33 bytes) - using to_sec1_point with compress=true
+    let encoded = public_key.to_sec1_point(true); // true = compressed
     let compressed_pk = encoded.as_bytes();
 
     println!("\n=== P-256 (ECDSA R1) Test Vectors ===");

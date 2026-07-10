@@ -55,7 +55,7 @@ use zeroize::{Zeroize, Zeroizing};
 use k256::{
     PublicKey as K256PublicKey, SecretKey as K256SecretKey,
     ecdsa::{SigningKey as K256SigningKey, VerifyingKey as K256VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
+    elliptic_curve::sec1::ToSec1Point,
 };
 
 use p256::{
@@ -398,7 +398,7 @@ fn generate_k256_keypair() -> Result<KeyPair, KeyError> {
     let public_key = K256PublicKey::from(verifying_key);
 
     // Get encoded public key and format (skip uncompressed prefix safely)
-    let encoded_point = public_key.to_encoded_point(false);
+    let encoded_point = public_key.to_sec1_point(false);
     let slice = skip_uncompressed_point_prefix(encoded_point.as_bytes());
     let full_pub_hex = hex::encode(slice);
     // Address: SHA3-256 of public key hex (full 32-byte hash)
@@ -441,7 +441,7 @@ fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
 
     let signing_key = SigningKey::from(&secret_key);
     let verifying_key = VerifyingKey::from(&signing_key);
-    let public_key = verifying_key.to_encoded_point(false);
+    let public_key = verifying_key.to_sec1_point(false);
 
     // Get raw bytes and encode securely
     let secret_bytes = secret_key.to_bytes();
@@ -719,7 +719,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             let verifying_key = K256VerifyingKey::from(&signing_key);
             let public_key = K256PublicKey::from(verifying_key);
 
-            let encoded_point = public_key.to_encoded_point(false);
+            let encoded_point = public_key.to_sec1_point(false);
             let slice = skip_uncompressed_point_prefix(encoded_point.as_bytes());
             let full_pub_hex = hex::encode(slice);
             let mut hasher = Sha3_256::default();
@@ -742,7 +742,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             let secret_key = P256SecretKey::from_slice(bytes).map_err(|_e| KeyError::InvalidPrivateKey)?;
             let signing_key = SigningKey::from(secret_key);
             let verifying_key = VerifyingKey::from(&signing_key);
-            let public_key = verifying_key.to_encoded_point(false);
+            let public_key = verifying_key.to_sec1_point(false);
 
             let pub_bytes = skip_uncompressed_point_prefix(public_key.as_bytes());
             let full_pub_hex = hex::encode(pub_bytes);
@@ -824,7 +824,7 @@ pub fn keypair_from_private_key(
             let verifying_key = K256VerifyingKey::from(&signing_key);
             let public_key = K256PublicKey::from(verifying_key);
 
-            let encoded_point = public_key.to_encoded_point(false);
+            let encoded_point = public_key.to_sec1_point(false);
             let slice = skip_uncompressed_point_prefix(encoded_point.as_bytes());
             let hex_encoded = hex::encode(slice);
 
@@ -861,7 +861,7 @@ pub fn keypair_from_private_key(
 
             let signing_key = SigningKey::from(secret_key);
             let verifying_key = VerifyingKey::from(&signing_key);
-            let public_key = verifying_key.to_encoded_point(false);
+            let public_key = verifying_key.to_sec1_point(false);
 
             let slice = skip_uncompressed_point_prefix(public_key.as_bytes());
             let hex_encoded = hex::encode(slice);
@@ -1037,7 +1037,7 @@ pub fn keypair_from_private_key(
                     let signing_key = K256SigningKey::from(secret_key);
                     let verifying_key = K256VerifyingKey::from(&signing_key);
                     let public_key = K256PublicKey::from(verifying_key);
-                    let encoded_point = public_key.to_encoded_point(false);
+                    let encoded_point = public_key.to_sec1_point(false);
                     // Use skip_uncompressed_point_prefix for consistency with generation function
                     let slice = skip_uncompressed_point_prefix(encoded_point.as_bytes());
                     hex::encode(slice)

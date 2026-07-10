@@ -8,8 +8,8 @@
 //! **Classical**: AES-256-GCM with Argon2 key derivation
 
 use aes_gcm::{
-    Aes256Gcm, Key,
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, KeyInit},
 };
 use argon2::{
     Algorithm, Argon2, Version,
@@ -17,6 +17,8 @@ use argon2::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
+// OsRng from bip39's rand (v0.8) is compatible with password-hash's rand_core v0.6
+use bip39::rand::rngs::OsRng;
 use std::fmt;
 use std::string::ToString;
 use thiserror::Error;
@@ -198,23 +200,24 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, Encryp
     let key_bytes_vec = zeroize::Zeroizing::new(hash.as_bytes().to_vec());
 
     // Argon2 is configured to produce a 32-byte output; use it directly as AES key
-    let key_owned = *Key::<Aes256Gcm>::from_slice(&key_bytes_vec);
+    let key_owned =
+        Key::<Aes256Gcm>::try_from(key_bytes_vec.as_slice()).expect("Argon2 produces 32-byte key");
 
     // Generate a random nonce for AES-GCM
-    let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce_arr: [u8; 12] = rand::random();
+    let nonce = Nonce::try_from(&nonce_arr[..]).expect("nonce is exactly 12 bytes");
 
     // Create the cipher for encryption
     let cipher = Aes256Gcm::new(&key_owned);
 
     // Encrypt the data
     let ciphertext = cipher
-        .encrypt(&nonce_bytes, data)
+        .encrypt(&nonce, data)
         .map_err(|e| EncryptionError::AeadError(e.to_string()))?;
 
     // Store values in a more compact base64 representation
     let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
-    let nonce_slice: &[u8] = nonce_bytes.as_ref();
-    let nonce_b64 = general_purpose::STANDARD.encode(nonce_slice);
+    let nonce_b64 = general_purpose::STANDARD.encode(nonce_arr);
 
     // Zeroize intermediate derived key material as soon as possible
     drop(key_bytes_vec);
@@ -272,7 +275,8 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
 
     let key_bytes_vec = zeroize::Zeroizing::new(hash.as_bytes().to_vec());
     // Argon2 produces a 32-byte output; use it directly as AES key
-    let key_owned = *Key::<Aes256Gcm>::from_slice(&key_bytes_vec);
+    let key_owned =
+        Key::<Aes256Gcm>::try_from(key_bytes_vec.as_slice()).expect("Argon2 produces 32-byte key");
 
     // We already decoded ciphertext above; get the nonce bytes now
     let nonce_bytes = encrypted.get_nonce()?;
@@ -283,7 +287,8 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
             "Invalid nonce length".to_string(),
         ));
     }
-    let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
+    let nonce = aes_gcm::Nonce::try_from(nonce_bytes.as_slice())
+        .expect("nonce length already validated as 12 bytes");
 
     // Create cipher for decryption (uses owned key)
     let cipher = Aes256Gcm::new(&key_owned);
@@ -293,7 +298,7 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
 
     // Decrypt the data
     cipher
-        .decrypt(nonce, ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| EncryptionError::DecryptionError)
 }
 
