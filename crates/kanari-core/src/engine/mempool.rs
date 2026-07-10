@@ -4,6 +4,9 @@
 use super::*;
 use ahash::AHashSet;
 
+type VerifiedMempoolTx = (SignedTransaction, Vec<u8>, String, u64, String, Vec<String>);
+type MempoolTxMetadata = (Vec<u8>, String, u64, String, Vec<String>);
+
 /// Trait for normalizing address strings used across the engine.
 pub(crate) trait NormalizeAddr {
     fn normalize_addr(addr: &str) -> String;
@@ -68,31 +71,29 @@ impl BlockchainEngine {
         }
 
         // Hash, verify, and extract metadata in one parallel pass.
-        let mut verified_txs = signed_txs
+        let mut verified_txs: Vec<VerifiedMempoolTx> = signed_txs
             .into_par_iter()
-            .map(
-                |signed_tx| -> Result<(SignedTransaction, Vec<u8>, String, u64, String, Vec<String>)> {
-                    let verified = signed_tx.into_verified()?;
-                    let tx_hash = verified.hash().to_vec();
-                    let tx = verified.transaction();
-                    let sender = tx.sender_address();
-                    let normalized_sender = sender_cache
-                        .get(sender)
-                        .expect("sender cache must contain every batch sender")
-                        .clone();
-                    let sequence_number = tx.sequence_number();
-                    let primary_access_key = tx.primary_access_key();
-                    let access_keys = tx.object_access_keys();
-                    Ok((
-                        verified.into_signed_transaction(),
-                        tx_hash,
-                        normalized_sender,
-                        sequence_number,
-                        primary_access_key,
-                        access_keys,
-                    ))
-                },
-            )
+            .map(|signed_tx| -> Result<VerifiedMempoolTx> {
+                let verified = signed_tx.into_verified()?;
+                let tx_hash = verified.hash().to_vec();
+                let tx = verified.transaction();
+                let sender = tx.sender_address();
+                let normalized_sender = sender_cache
+                    .get(sender)
+                    .expect("sender cache must contain every batch sender")
+                    .clone();
+                let sequence_number = tx.sequence_number();
+                let primary_access_key = tx.primary_access_key();
+                let access_keys = tx.object_access_keys();
+                Ok((
+                    verified.into_signed_transaction(),
+                    tx_hash,
+                    normalized_sender,
+                    sequence_number,
+                    primary_access_key,
+                    access_keys,
+                ))
+            })
             .collect::<Result<Vec<_>>>()?;
 
         verified_txs.sort_by(|a, b| {
@@ -106,7 +107,7 @@ impl BlockchainEngine {
                 .then_with(|| a.1.cmp(&b.1))
         });
 
-        let batch_metadata: Vec<(Vec<u8>, String, u64, String, Vec<String>)> = verified_txs
+        let batch_metadata: Vec<MempoolTxMetadata> = verified_txs
             .iter()
             .map(|(_, hash, sender, sequence, primary_access, access_keys)| {
                 (

@@ -464,7 +464,7 @@ fn select_native_coin_consolidation_step(
             continue;
         }
 
-        remaining.sort_by(|a, b| b.1.cmp(&a.1));
+        remaining.sort_by_key(|(_, balance)| std::cmp::Reverse(*balance));
         let (primary_object, primary_balance) = remaining[0].clone();
         if primary_balance >= required_amount {
             continue;
@@ -858,12 +858,12 @@ fn validate_object_ref_completeness(
     id: u64,
     field: &str,
     object_ref: &ObjectRef,
-) -> Result<(), RpcResponse> {
+) -> Result<(), Box<RpcResponse>> {
     if object_ref.version.is_some() ^ object_ref.digest.is_some() {
-        return Err(invalid_params_response(
+        return Err(Box::new(invalid_params_response(
             id,
             format!("{field} must include both version and digest when either is provided"),
-        ));
+        )));
     }
     Ok(())
 }
@@ -872,7 +872,7 @@ fn validate_object_inputs_and_gas(
     id: u64,
     object_inputs: &[kanari_types::transaction::ObjectInput],
     gas_payment: Option<&kanari_types::transaction::GasPayment>,
-) -> Result<(), RpcResponse> {
+) -> Result<(), Box<RpcResponse>> {
     for (index, input) in object_inputs.iter().enumerate() {
         validate_object_ref_completeness(
             id,
@@ -898,27 +898,27 @@ fn validate_object_inputs_match_state(
     state: &RpcServerState,
     id: u64,
     object_inputs: &[kanari_types::transaction::ObjectInput],
-) -> Result<(), RpcResponse> {
+) -> Result<(), Box<RpcResponse>> {
     for input in object_inputs {
         match state.engine.get_object_by_ref(&input.object_ref) {
             Ok(Some(_)) => {}
             Ok(None) => {
-                return Err(invalid_params_response(
+                return Err(Box::new(invalid_params_response(
                     id,
                     format!(
                         "Object input {} does not match current state ref",
                         input.object_ref.object_id
                     ),
-                ));
+                )));
             }
             Err(err) => {
-                return Err(internal_error_response(
+                return Err(Box::new(internal_error_response(
                     id,
                     format!(
                         "Failed to validate object input {}: {}",
                         input.object_ref.object_id, err
                     ),
-                ));
+                )));
             }
         }
     }
@@ -939,9 +939,9 @@ fn classify_transaction_error_data(message: &str) -> Option<TransactionErrorData
         TransactionErrorData::new(TransactionErrorReason::GasPaymentObjectOverlap)
     } else if message.contains("Gas payment object") && message.contains("does not exist") {
         TransactionErrorData::new(TransactionErrorReason::GasPaymentObjectNotFound)
-    } else if message.contains("Gas payment object") && message.contains("is not owned by sender") {
-        TransactionErrorData::new(TransactionErrorReason::GasPaymentOwnerMismatch)
-    } else if message.contains("Gas payment owner must match sender") {
+    } else if (message.contains("Gas payment object") && message.contains("is not owned by sender"))
+        || message.contains("Gas payment owner must match sender")
+    {
         TransactionErrorData::new(TransactionErrorReason::GasPaymentOwnerMismatch)
     } else if message.contains("Gas payment version mismatch") {
         TransactionErrorData::new(TransactionErrorReason::GasPaymentVersionMismatch)
@@ -1619,7 +1619,7 @@ pub async fn handle_submit_object_transfer(
     if let Err(response) =
         validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref)
     {
-        return response;
+        return *response;
     }
     if !(coin_object_ref.version.is_some() && coin_object_ref.digest.is_some()) {
         return invalid_params_response(
@@ -1630,7 +1630,7 @@ pub async fn handle_submit_object_transfer(
     if let Err(response) =
         validate_object_inputs_and_gas(request.id, &[], tx_data.gas_payment.as_ref())
     {
-        return response;
+        return *response;
     }
 
     let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
@@ -1855,7 +1855,7 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
     if let Err(response) =
         validate_object_inputs_and_gas(request.id, &[], module_data.gas_payment.as_ref())
     {
-        return response;
+        return *response;
     }
 
     let execute_immediate = module_data.execute_immediate.unwrap_or(false);
@@ -1891,7 +1891,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
         call_data.object_inputs.as_deref().unwrap_or(&[]),
         call_data.gas_payment.as_ref(),
     ) {
-        return response;
+        return *response;
     }
 
     let execute_immediate = call_data.execute_immediate.unwrap_or(false);
@@ -1929,14 +1929,14 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         view_data.object_inputs.as_deref().unwrap_or(&[]),
         None,
     ) {
-        return response;
+        return *response;
     }
     if let Err(response) = validate_object_inputs_match_state(
         state,
         request.id,
         view_data.object_inputs.as_deref().unwrap_or(&[]),
     ) {
-        return response;
+        return *response;
     }
 
     info!(

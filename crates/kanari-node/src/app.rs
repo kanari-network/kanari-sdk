@@ -555,8 +555,9 @@ pub async fn run_node(
                         sync_manager.request_dag_vertices_for_quorum().await;
                     } else if should_drop_invalid_pending_transaction(&error_text) {
                         if let Some(tx_hash) = extract_failed_tx_hash(&error_text) {
-                            let removed =
-                                engine.remove_pending_transactions_by_hashes(&[tx_hash.clone()]);
+                            let removed = engine.remove_pending_transactions_by_hashes(
+                                std::slice::from_ref(&tx_hash),
+                            );
                             if !removed.is_empty() {
                                 for tx in &removed {
                                     tracing::warn!(

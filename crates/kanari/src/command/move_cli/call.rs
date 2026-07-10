@@ -182,15 +182,14 @@ impl Call {
             s.strip_prefix("0x")
         };
 
-        if let Some(raw_hex) = hex_part {
-            if raw_hex.len() == AccountAddress::LENGTH * 2
-                && raw_hex.chars().all(|c| c.is_ascii_hexdigit())
-            {
-                let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
-                    .require("Invalid object ID format")?;
-                eprintln!("[CLI] object-id argument detected: 0x{}", raw_hex);
-                return Ok(obj_id.to_vec());
-            }
+        if let Some(raw_hex) = hex_part
+            && raw_hex.len() == AccountAddress::LENGTH * 2
+            && raw_hex.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
+                .require("Invalid object ID format")?;
+            eprintln!("[CLI] object-id argument detected: 0x{}", raw_hex);
+            return Ok(obj_id.to_vec());
         }
 
         if s.starts_with("0x")

@@ -6,7 +6,7 @@ use crate::consensus::Checkpoint;
 use ahash::AHashMap;
 use anyhow::{Context, Result, ensure};
 use kanari_move_runtime_v1::changeset::ChangeSet;
-use kanari_move_runtime_v1::move_runtime::MoveRuntime;
+use kanari_move_runtime_v1::move_runtime::{EntryFunctionObjectContext, MoveRuntime};
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
@@ -826,7 +826,7 @@ impl BlockchainEngine {
                 let mut wave_changeset = ChangeSet::new();
                 let mut wave_executed = 0usize;
 
-                for (signed_tx, res) in wave.iter().zip(results.into_iter()) {
+                for (signed_tx, res) in wave.iter().zip(results) {
                     let cs = res.with_context(|| {
                         format!(
                             "Execution failed for tx {} (sender={}, seq={})",
@@ -1076,12 +1076,14 @@ impl BlockchainEngine {
                     function,
                     type_tags,
                     args.clone(),
-                    tx.object_inputs(),
-                    Some(sender_addr),
-                    None,
-                    timestamp,
-                    Some(tx.hash()),
-                    persist_runtime_state,
+                    EntryFunctionObjectContext {
+                        object_inputs: tx.object_inputs(),
+                        sender: Some(sender_addr),
+                        gas_info: None,
+                        timestamp,
+                        tx_hash: Some(tx.hash()),
+                        persist_runtime_state,
+                    },
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {

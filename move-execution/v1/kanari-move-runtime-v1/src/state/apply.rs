@@ -405,7 +405,7 @@ impl StateManager {
             })?;
         let next_total_supply = if supply_delta > 0 {
             let mint_amount = u64::try_from(supply_delta)
-                .expect("Native supply delta overflowed u64 total supply");
+                .require("Native supply delta overflowed u64 total supply")?;
             Some(
                 self.total_supply
                     .checked_add(mint_amount)
@@ -413,7 +413,7 @@ impl StateManager {
             )
         } else if supply_delta < 0 {
             let burn_amount = u64::try_from(supply_delta.unsigned_abs())
-                .expect("Native supply delta overflowed u64 total supply");
+                .require("Native supply delta overflowed u64 total supply")?;
             ensure!(
                 self.total_supply >= burn_amount,
                 "Native total supply underflow: tried to burn {} from {}",
@@ -430,7 +430,7 @@ impl StateManager {
                 continue;
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
-                .expect("Native debit overflowed u64 owner balance");
+                .require("Native debit overflowed u64 owner balance")?;
             let balance = self.resolve_owner_native_balance(*address)?;
             ensure!(
                 balance >= debit,
@@ -460,7 +460,7 @@ impl StateManager {
 
             if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
-                    .expect("Native credit overflowed u64 owner balance");
+                    .require("Native credit overflowed u64 owner balance")?;
                 let next = owner_state
                     .native_balance()
                     .checked_add(amount)
@@ -468,7 +468,7 @@ impl StateManager {
                 owner_state.set_token_balance_value(&native_token, next);
             } else if change.balance_delta < 0 {
                 let debit = u64::try_from(change.balance_delta.unsigned_abs())
-                    .expect("Native debit overflowed u64 owner balance");
+                    .require("Native debit overflowed u64 owner balance")?;
                 let next = owner_state.native_balance() - debit;
                 owner_state.set_token_balance_value(&native_token, next);
             }
@@ -621,8 +621,9 @@ impl StateManager {
                         .filter(|delta| *delta < 0)
                         .map(|delta| {
                             u64::try_from(delta.unsigned_abs())
-                                .expect("Native debit overflowed u64 object gas adjustment")
+                                .require("Native debit overflowed u64 object gas adjustment")
                         })
+                        .transpose()?
                         .unwrap_or(0);
                     let already_adjusted = native_object_gas_adjusted
                         .get(&existing.owner)
@@ -654,14 +655,14 @@ impl StateManager {
                     }
                 }
 
-                if existing.owner != new_obj.owner {
-                    if matches!(existing.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
-                        self.remove_owned_object_index_variants(
-                            existing.owner,
-                            obj_id,
-                            Some(&stored_id),
-                        )?;
-                    }
+                if existing.owner != new_obj.owner
+                    && matches!(existing.owner_kind, ObjectOwnerKind::AddressOwner(_))
+                {
+                    self.remove_owned_object_index_variants(
+                        existing.owner,
+                        obj_id,
+                        Some(&stored_id),
+                    )?;
                 }
                 if stored_id != *obj_id {
                     self.overlay.insert(object_key(&stored_id), None);

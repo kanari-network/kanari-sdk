@@ -170,7 +170,7 @@ pub async fn consolidate_coin_objects(
     gas_price: u64,
 ) -> Result<(SelectedCoinObject, u64)> {
     let mut coins = spendable_coins.to_vec();
-    coins.sort_by(|a, b| b.balance.cmp(&a.balance));
+    coins.sort_by_key(|coin| std::cmp::Reverse(coin.balance));
 
     let Some(primary) = coins.first().cloned() else {
         bail!("No spendable Coin<{}> object found", token_type);
