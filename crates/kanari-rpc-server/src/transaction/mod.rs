@@ -17,7 +17,7 @@ use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
 };
-use move_binary_format::CompiledModule;
+use move_binary_format::{CompiledModule, file_format::SignatureToken};
 use move_core_types::language_storage::TypeTag;
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -74,6 +74,55 @@ fn lookup_module_functions(state: &RpcServerState, module_str: &str) -> Option<V
     } else {
         Some(results)
     }
+}
+
+fn is_tx_context_token(module: &CompiledModule, token: &SignatureToken) -> bool {
+    let struct_idx = match token {
+        SignatureToken::Struct(idx) => *idx,
+        SignatureToken::StructInstantiation(instantiation) => instantiation.0,
+        _ => return false,
+    };
+    let struct_handle = module.struct_handle_at(struct_idx);
+    let module_handle = module.module_handle_at(struct_handle.module);
+    let address = module.address_identifier_at(module_handle.address);
+    let module_name = module.identifier_at(module_handle.name);
+    let struct_name = module.identifier_at(struct_handle.name);
+    *address == Address::kanari_system_account_address()
+        && module_name.as_str() == "tx_context"
+        && struct_name.as_str() == "TxContext"
+}
+
+fn function_object_ref_param_indices(
+    state: &RpcServerState,
+    package: &str,
+    module_name: &str,
+    function_name: &str,
+) -> Option<HashSet<usize>> {
+    let bytes = state.engine.get_module_bytecode(package, module_name)?;
+    let module = CompiledModule::deserialize_with_defaults(&bytes).ok()?;
+    let func_def = module.function_defs().iter().find(|func_def| {
+        let handle = module.function_handle_at(func_def.function);
+        module.identifier_at(handle.name).as_str() == function_name
+    })?;
+    let handle = module.function_handle_at(func_def.function);
+    let signature = module.signature_at(handle.parameters);
+    Some(
+        signature
+            .0
+            .iter()
+            .enumerate()
+            .filter_map(|(index, token)| match token {
+                SignatureToken::Reference(inner) | SignatureToken::MutableReference(inner) => {
+                    let is_struct_ref = matches!(
+                        inner.as_ref(),
+                        SignatureToken::Struct(_) | SignatureToken::StructInstantiation(_)
+                    );
+                    (is_struct_ref && !is_tx_context_token(&module, inner)).then_some(index)
+                }
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 // Normalize address strings for comparison (converts to raw hex address)
@@ -157,12 +206,18 @@ fn infer_object_inputs(
     state: &RpcServerState,
     sender: &str,
     args: &[Vec<u8>],
+    candidate_arg_indices: Option<&HashSet<usize>>,
 ) -> anyhow::Result<Vec<ObjectInput>> {
     let state_guard = state.engine.state_read();
     let mut seen = HashSet::new();
     let mut inputs = Vec::new();
 
-    for arg in args {
+    for (index, arg) in args.iter().enumerate() {
+        if let Some(indices) = candidate_arg_indices
+            && !indices.contains(&index)
+        {
+            continue;
+        }
         if arg.len() != 32 {
             continue;
         }
@@ -839,6 +894,38 @@ fn validate_object_inputs_and_gas(
     Ok(())
 }
 
+fn validate_object_inputs_match_state(
+    state: &RpcServerState,
+    id: u64,
+    object_inputs: &[kanari_types::transaction::ObjectInput],
+) -> Result<(), RpcResponse> {
+    for input in object_inputs {
+        match state.engine.get_object_by_ref(&input.object_ref) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return Err(invalid_params_response(
+                    id,
+                    format!(
+                        "Object input {} does not match current state ref",
+                        input.object_ref.object_id
+                    ),
+                ));
+            }
+            Err(err) => {
+                return Err(internal_error_response(
+                    id,
+                    format!(
+                        "Failed to validate object input {}: {}",
+                        input.object_ref.object_id, err
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn maybe_attach_signature(signed_tx: &mut SignedTransaction, signature: Option<Vec<u8>>) {
     if let Some(sig) = signature {
         signed_tx.signature = sig;
@@ -1303,7 +1390,18 @@ pub async fn handle_build_call_function(
         return internal_error_response(request.id, "Owner has no owned object list");
     };
 
-    let object_inputs = match infer_object_inputs(state, &build_data.sender, &build_data.args) {
+    let object_ref_arg_indices = function_object_ref_param_indices(
+        state,
+        &build_data.package,
+        &build_data.module,
+        &build_data.function,
+    );
+    let object_inputs = match infer_object_inputs(
+        state,
+        &build_data.sender,
+        &build_data.args,
+        object_ref_arg_indices.as_ref(),
+    ) {
         Ok(inputs) => inputs,
         Err(e) => {
             return RpcResponse {
@@ -1448,7 +1546,10 @@ pub async fn handle_build_token_transfer(
             sender: build_data.sender,
             package: module_parts[0].to_string(),
             module: module_parts[1].to_string(),
-            function: "transfer".to_string(),
+            // Token modules expose the amount-based transfer entry point.
+            // Keep the coin selection and gas policy in the RPC layer while
+            // passing only the canonical Move call to the client.
+            function: "transfer_amount".to_string(),
             type_args: vec![],
             args: vec![
                 move_core_types::account_address::AccountAddress::from_hex_literal(
@@ -1827,6 +1928,13 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         request.id,
         view_data.object_inputs.as_deref().unwrap_or(&[]),
         None,
+    ) {
+        return response;
+    }
+    if let Err(response) = validate_object_inputs_match_state(
+        state,
+        request.id,
+        view_data.object_inputs.as_deref().unwrap_or(&[]),
     ) {
         return response;
     }

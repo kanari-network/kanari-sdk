@@ -443,7 +443,7 @@ impl StateManager {
     }
 
     // Helper to read from overlay then store
-    pub(crate) fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
+    pub fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
         if let Some(val_opt) = self.overlay.get(key) {
             match val_opt {
                 Some(bytes) => return Ok(Some(bcs::from_bytes(bytes)?)),

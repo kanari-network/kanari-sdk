@@ -138,14 +138,37 @@ impl MoveRuntime {
             && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
     }
 
+    fn object_reference_mutability(param_type: &RuntimeType) -> Option<bool> {
+        match param_type {
+            RuntimeType::Reference(inner) if Self::is_runtime_struct_like(inner) => Some(false),
+            RuntimeType::MutableReference(inner) if Self::is_runtime_struct_like(inner) => {
+                Some(true)
+            }
+            _ => None,
+        }
+    }
+
+    fn is_runtime_struct_like(ty: &RuntimeType) -> bool {
+        matches!(
+            ty,
+            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
+        )
+    }
+
+    fn is_tx_context_param<F>(param_type: &RuntimeType, type_tag_for_param: F) -> bool
+    where
+        F: Fn(&RuntimeType) -> Option<TypeTag>,
+    {
+        matches!(
+            type_tag_for_param(param_type),
+            Some(TypeTag::Struct(struct_tag)) if Self::is_tx_context_struct(&struct_tag)
+        )
+    }
+
     fn validate_declared_object_input_bindings(
         object_inputs: &[ObjectInput],
         requirements: &[ObjectParamBindingRequirement],
     ) -> Result<()> {
-        if requirements.is_empty() {
-            return Ok(());
-        }
-
         if object_inputs.len() != requirements.len() {
             anyhow::bail!(
                 "Declared object_inputs count mismatch: function expects {} object reference params, got {}",
@@ -156,7 +179,7 @@ impl MoveRuntime {
 
         for (input, requirement) in object_inputs.iter().zip(requirements.iter()) {
             ensure!(
-                input.mutable == requirement.mutable,
+                !requirement.mutable || input.mutable,
                 "Object input {} mutability does not match function parameter {}",
                 input.object_ref.object_id,
                 requirement.param_index
@@ -1009,7 +1032,7 @@ impl MoveRuntime {
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
-        self.preload_objects_for_execution(&mut session, &args, &object_inputs)?;
+        self.preload_objects_for_execution(&mut session, &object_inputs)?;
 
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
@@ -1126,8 +1149,13 @@ impl MoveRuntime {
                 let is_potential_id = final_args[i].len() == 32;
 
                 if is_potential_id
-                    && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
+                    && Self::object_reference_mutability(param_type).is_some()
+                    && !Self::is_tx_context_param(param_type, type_tag_for_param)
                 {
+                    let struct_tag = match type_tag_for_param(param_type) {
+                        Some(TypeTag::Struct(struct_tag)) => Some(struct_tag),
+                        _ => None,
+                    };
                     let Ok(object_addr) = AccountAddress::from_bytes(final_args[i].as_slice())
                     else {
                         continue;
@@ -1151,10 +1179,12 @@ impl MoveRuntime {
                             }
                         }
 
-                        let is_coin = struct_tag.module.as_str() == "coin"
-                            && struct_tag.name.as_str() == "Coin";
+                        let is_coin = struct_tag.as_ref().is_some_and(|tag| {
+                            tag.module.as_str() == "coin" && tag.name.as_str() == "Coin"
+                        });
                         if is_coin
                             && let Some(s_addr) = sender
+                            && let Some(struct_tag) = struct_tag.as_ref()
                             && let Some(coin_t) = struct_tag.type_params.first()
                         {
                             let merge_key = format!("{:?}_{}", s_addr, coin_t);
@@ -1202,7 +1232,9 @@ impl MoveRuntime {
                                             address: KanariAddress::kanari_system_account_address(),
                                             module: Identifier::new("system_events")?,
                                             name: Identifier::new("AutoMergeReceipt")?,
-                                            type_params: vec![TypeTag::Struct(struct_tag.clone())],
+                                            type_params: vec![TypeTag::Struct(Box::new(
+                                                struct_tag.as_ref().clone(),
+                                            ))],
                                         }));
                                         synthetic_events.push((event_type, event_bytes));
                                     }
@@ -1501,8 +1533,8 @@ impl MoveRuntime {
         let vm_guard = self.read_vm();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
-        // Preload declared object refs first; only fall back to arg scanning when none are declared.
-        self.preload_objects_for_execution(&mut session, args, object_inputs)
+        // Preload only object refs explicitly declared by the request.
+        self.preload_objects_for_execution(&mut session, object_inputs)
             .require("Failed to preload objects")?;
 
         // Parse and load type arguments before invocation.
@@ -1518,6 +1550,60 @@ impl MoveRuntime {
         }
 
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
+        let mut final_args = args.to_vec();
+
+        if let Ok(func) = session.load_function(&module_id, ident, &ty_args_loaded) {
+            let type_tag_for_param = |param_type: &RuntimeType| {
+                session
+                    .get_type_tag(param_type)
+                    .ok()
+                    .or_else(|| match param_type {
+                        RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                            session.get_type_tag(inner).ok()
+                        }
+                        _ => None,
+                    })
+            };
+
+            let binding_requirements = func
+                .parameters
+                .iter()
+                .enumerate()
+                .filter_map(|(i, param_type)| {
+                    let mutable = Self::object_reference_mutability(param_type)?;
+                    if Self::is_tx_context_param(param_type, type_tag_for_param) {
+                        return None;
+                    }
+                    Some(ObjectParamBindingRequirement {
+                        param_index: i,
+                        mutable,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Self::validate_declared_object_input_bindings(object_inputs, &binding_requirements)?;
+
+            let mut explicit_object_bindings = object_inputs.iter();
+            for (i, param_type) in func.parameters.iter().enumerate() {
+                if Self::object_reference_mutability(param_type).is_some()
+                    && !Self::is_tx_context_param(param_type, type_tag_for_param)
+                    && let Some(explicit_input) = explicit_object_bindings.next()
+                {
+                    if final_args.len() <= i {
+                        final_args.resize_with(i + 1, Vec::new);
+                    }
+                    let stored_obj = self
+                        .object_storage
+                        .get_object(&explicit_input.object_ref.object_id)
+                        .with_context(|| {
+                            format!(
+                                "Declared object input {} for view parameter {} was not found",
+                                explicit_input.object_ref.object_id, i
+                            )
+                        })?;
+                    final_args[i] = stored_obj.data;
+                }
+            }
+        }
 
         // View calls run with the unmetered gas meter.
         let mut unmetered_gas = UnmeteredGasMeter;
@@ -1525,7 +1611,7 @@ impl MoveRuntime {
             &module_id,
             ident,
             ty_args_loaded,
-            args.to_vec(),
+            final_args,
             &mut unmetered_gas,
         );
 
@@ -1714,6 +1800,28 @@ mod binding_tests {
         .expect_err("mutability mismatch should fail");
 
         assert!(err.to_string().contains("mutability"));
+    }
+
+    #[test]
+    fn mutable_object_input_can_bind_immutable_reference_param() {
+        MoveRuntime::validate_declared_object_input_bindings(
+            &[ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    "0x1",
+                    Some(1),
+                    Some("d".to_string()),
+                ),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    "0x1".to_string(),
+                )),
+                mutable: true,
+            }],
+            &[ObjectParamBindingRequirement {
+                param_index: 0,
+                mutable: false,
+            }],
+        )
+        .expect("mutable input should satisfy immutable reference binding");
     }
 
     #[test]

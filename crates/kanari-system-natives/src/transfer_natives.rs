@@ -58,57 +58,38 @@ impl GasParameters {
     }
 }
 
-fn serialize_or_placeholder(
+fn serialize_object_data(
     context: &NativeContext,
     ty: &Type,
     val: &move_vm_types::values::Value,
-    placeholder: impl FnOnce(&mut Vec<u8>),
-) -> (Vec<u8>, bool) {
-    if let Ok(Some(layout)) = context.type_to_type_layout(ty)
-        && let Some(bytes) = val.simple_serialize(&layout)
-    {
-        return (bytes, true);
-    }
+) -> PartialVMResult<Vec<u8>> {
+    let layout = context.type_to_type_layout(ty)?.ok_or_else(|| {
+        PartialVMError::new(move_core_types::vm_status::StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message(
+                "Object type layout is unavailable; refusing to persist transfer".to_string(),
+            )
+    })?;
 
-    let mut data = Vec::new();
-    placeholder(&mut data);
-    (data, false)
-}
-
-fn object_id_hex_from_data(
-    recipient: AccountAddress,
-    type_str: &str,
-    obj_data: &[u8],
-    has_full_serialized_data: bool,
-    hash_prefix: Option<&[u8]>,
-    fallback_ordinal: u64,
-) -> String {
-    if has_full_serialized_data && obj_data.len() >= AccountAddress::LENGTH {
-        let uid_bytes = &obj_data[..AccountAddress::LENGTH];
-        return format!("0x{}", hex::encode(uid_bytes));
-    }
-
-    use kanari_crypto::hash_data_blake3;
-
-    let mut input = Vec::new();
-    if let Some(prefix) = hash_prefix {
-        input.extend_from_slice(prefix);
-    } else {
-        input.extend_from_slice(recipient.as_ref());
-    }
-    input.extend_from_slice(type_str.as_bytes());
-    input.extend_from_slice(obj_data);
-    input.extend_from_slice(&fallback_ordinal.to_le_bytes());
-
-    let hash = hash_data_blake3(&input);
-    format!("0x{}", hex::encode(&hash[..AccountAddress::LENGTH]))
-}
-
-fn current_transferred_object_count(context: &mut NativeContext) -> u64 {
-    crate::native_ext::with_ext_mut_or_default::<TransferredObjectsExt, _>(context, |ext| {
-        ext.objects.len() as u64
+    val.simple_serialize(&layout).ok_or_else(|| {
+        PartialVMError::new(move_core_types::vm_status::StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message("Object serialization failed; refusing to persist transfer".to_string())
     })
-    .unwrap_or(0)
+}
+
+fn object_id_hex_from_data(obj_data: &[u8]) -> PartialVMResult<String> {
+    if obj_data.len() < AccountAddress::LENGTH {
+        return Err(PartialVMError::new(
+            move_core_types::vm_status::StatusCode::INTERNAL_TYPE_ERROR,
+        )
+        .with_message(
+            "Transferred object has no valid UID; refusing to persist transfer".to_string(),
+        ));
+    }
+
+    Ok(format!(
+        "0x{}",
+        hex::encode(&obj_data[..AccountAddress::LENGTH])
+    ))
 }
 
 fn record_transferred_object(context: &mut NativeContext, obj: TransferredObject) {
@@ -194,19 +175,9 @@ fn native_transfer_with_uid(
 
     native_charge_gas_early_exit!(context, gas_params.base);
 
-    // We DO NOT generate random object IDs or serialize full object data here.
-    // Instead we record a deterministic identifier per-execution and leave full
-    // object data to be retrieved from the VM changeset / write-set by external systems.
-
-    // Attempt to serialize the transferred object value into BCS so external
-    // callers (CLI/RPC) can fetch the object's bytes and use them as function
-    // arguments. If serialization fails, fall back to a minimal placeholder
-    // (recipient + type) to preserve existing behavior.
-    let (obj_data, has_full_serialized_data) =
-        serialize_or_placeholder(context, ty, &obj_val, |d| {
-            d.extend_from_slice(recipient.as_ref());
-            d.extend_from_slice(type_str.as_bytes());
-        });
+    // Persist only fully serialized objects with a real UID.
+    // Object identity and state reconciliation must come from VM object bytes.
+    let obj_data = serialize_object_data(context, ty, &obj_val)?;
 
     // Capture data length for gas metering before moving obj_data
     let data_len = obj_data.len() as u64;
@@ -216,15 +187,7 @@ fn native_transfer_with_uid(
     // In Kanari/Sui Move, objects with `key` have `UID` as the first field.
     // `UID` -> `ID` -> `address` (32 bytes).
     // So the first 32 bytes of the BCS serialized data represent the Object ID.
-    let fallback_ordinal = current_transferred_object_count(context);
-    let object_id_hex = object_id_hex_from_data(
-        recipient,
-        &type_str,
-        &obj_data,
-        has_full_serialized_data,
-        None,
-        fallback_ordinal,
-    );
+    let object_id_hex = object_id_hex_from_data(&obj_data)?;
 
     // Store transfer in the transaction-local native context extension
     // Limit the mutable borrow of the extensions to a small scope to avoid
@@ -234,7 +197,7 @@ fn native_transfer_with_uid(
         object_type: type_str,
         recipient,
         data: obj_data,
-        should_persist: has_full_serialized_data,
+        should_persist: true,
         is_frozen: false,
     };
     record_transferred_object(context, obj);
@@ -271,32 +234,21 @@ fn native_freeze_object(
 
     native_charge_gas_early_exit!(context, gas_params.base);
 
-    let (obj_data, has_full_serialized_data) =
-        serialize_or_placeholder(context, ty, &obj_val, |d| {
-            d.extend_from_slice(type_str.as_bytes())
-        });
+    let obj_data = serialize_object_data(context, ty, &obj_val)?;
 
     let data_len = obj_data.len() as u64;
     native_charge_gas_early_exit!(context, gas_params.per_byte * NumBytes::new(data_len));
 
     // Extract real UID from object data (first 32 bytes)
     // Objects with `key` have `UID` as the first field.
-    let fallback_ordinal = current_transferred_object_count(context);
-    let object_id_hex = object_id_hex_from_data(
-        AccountAddress::ZERO,
-        &type_str,
-        &obj_data,
-        has_full_serialized_data,
-        Some(b"Immutable"),
-        fallback_ordinal,
-    );
+    let object_id_hex = object_id_hex_from_data(&obj_data)?;
 
     let obj = TransferredObject {
         object_id: object_id_hex,
         object_type: type_str,
         recipient: AccountAddress::ZERO, // Frozen objects don't have a specific owner
         data: obj_data,
-        should_persist: has_full_serialized_data,
+        should_persist: true,
         is_frozen: true,
     };
     record_transferred_object(context, obj);

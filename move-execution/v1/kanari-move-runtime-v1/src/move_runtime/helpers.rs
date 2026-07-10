@@ -7,7 +7,6 @@ use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
 use kanari_types::transaction::ObjectInput;
 
-use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 use std::sync::Arc;
 
@@ -52,7 +51,6 @@ impl super::MoveRuntime {
         session: &mut move_vm_runtime::session::Session<
             crate::storage::resolver::KanariMoveResolver,
         >,
-        args: &[Vec<u8>],
         object_inputs: &[ObjectInput],
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
@@ -71,33 +69,6 @@ impl super::MoveRuntime {
                     "[RUNTIME] Preloaded explicit object input {} into LoadedObjectsExt",
                     input.object_ref.object_id
                 );
-            }
-        }
-
-        if !object_inputs.is_empty() {
-            return Ok(());
-        }
-
-        // Legacy fallback: scan arguments only when the transaction did not
-        // declare object inputs explicitly.
-        for arg in args {
-            if arg.len() == 32 {
-                let Ok(object_addr) = AccountAddress::from_bytes(arg.as_slice()) else {
-                    continue;
-                };
-                let object_id = object_addr.to_hex_literal();
-
-                let stored_obj = self.object_storage.get_object(&object_id);
-
-                // Try to load object from storage
-                if let Some(stored_obj) = stored_obj {
-                    // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
-                    loaded_ext.insert(object_id.clone(), stored_obj.type_name, stored_obj.data);
-                    log::debug!(
-                        "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
-                        object_id
-                    );
-                }
             }
         }
 

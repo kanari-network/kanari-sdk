@@ -89,12 +89,18 @@ impl Objects {
                     let owner = obj.get("owner").and_then(|v| v.as_str()).unwrap_or("?");
                     let type_ = obj.get("type_").and_then(|v| v.as_str()).unwrap_or("?");
                     let version = obj.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let digest = obj.get("digest").and_then(|v| v.as_str());
 
                     eprintln!("Object #{}:", i + 1);
                     eprintln!("  ID: {}", id);
                     eprintln!("  Owner: {}", owner);
                     eprintln!("  Type: {}", format_token_type(type_));
                     eprintln!("  Version: {}", version);
+                    if self.detailed
+                        && let Some(digest) = digest
+                    {
+                        eprintln!("  Digest: {}", digest);
+                    }
 
                     if self.detailed
                         && let Some(data) = obj.get("data").and_then(|d| d.as_array())

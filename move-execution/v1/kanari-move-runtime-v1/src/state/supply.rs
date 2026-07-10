@@ -6,11 +6,11 @@ impl StateManager {
         owner: AccountAddress,
     ) -> Result<BTreeMap<String, u64>> {
         let owner_state = self.load_owner_state(&owner)?;
-        let native_balance_fallback = owner_state
+        let native_ledger_balance = owner_state
             .as_ref()
             .map(OwnerState::native_balance)
             .filter(|balance| *balance > 0);
-        let mut balances = self.compute_owned_token_balances(owner, native_balance_fallback)?;
+        let mut balances = self.compute_owned_token_balances(owner, native_ledger_balance)?;
 
         if let Some(owner_state) = owner_state {
             let native_balance = owner_state.native_balance();
@@ -44,7 +44,7 @@ impl StateManager {
     pub fn compute_owned_token_balances(
         &self,
         owner: AccountAddress,
-        native_balance_fallback: Option<u64>,
+        native_ledger_balance: Option<u64>,
     ) -> Result<BTreeMap<String, u64>> {
         let mut aggregated: BTreeMap<String, u64> = BTreeMap::new();
 
@@ -75,7 +75,7 @@ impl StateManager {
             *entry = entry.saturating_add(amount);
         }
 
-        if let Some(native_balance) = native_balance_fallback {
+        if let Some(native_balance) = native_ledger_balance {
             aggregated.insert(KANARI_TOKEN_TYPE.to_string(), native_balance);
         }
 

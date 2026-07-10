@@ -152,7 +152,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
         state_guard.global_token_supplies.keys().cloned().collect();
     token_types.insert(KANARI_TOKEN_TYPE.to_string());
 
-    if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
+    if let Ok(Some(keys)) = state_guard.load_internal::<Vec<String>>(b"treasury_index") {
         for key in keys {
             let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
             token_types.insert(token_type);
