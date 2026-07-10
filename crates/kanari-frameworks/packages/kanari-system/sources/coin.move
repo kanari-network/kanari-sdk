@@ -5,12 +5,18 @@ module kanari_system::coin {
     use std::option;
     use std::string;
     use std::ascii;
+    use std::vector;
     use kanari_system::url;
     use kanari_system::object;
     use kanari_system::balance::Balance;
     use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
     
+    /// Invalid arguments are passed to a function.
+    const EInvalidArg: u64 = 1;
+    /// Trying to split a coin more times than its balance allows.
+    const ENotEnough: u64 = 2;
+
     // --- Data Structures ---
 
     /// Coin resource wrapper with balance
@@ -224,6 +230,25 @@ module kanari_system::coin {
         let Coin { id: _, balance } = coin;
         assert!(kanari_system::balance::value(&balance) == 0, EZERO_AMOUNT);
         kanari_system::balance::destroy<T>(balance);
+    }
+
+
+    /// Split coin `self` into `n - 1` coins with equal balances. The remainder is left in
+    /// `self`. Return newly created coins.
+    public fun divide_into_n<T>(
+        self: &mut Coin<T>, n: u64, ctx: &mut TxContext
+    ): vector<Coin<T>> {
+        assert!(n > 0, EInvalidArg);
+        assert!(n <= value(self), ENotEnough);
+
+        let vec = vector::empty<Coin<T>>();
+        let i = 0;
+        let split_amount = value(self) / n;
+        while (i < n - 1) {
+            vector::push_back(&mut vec, split(self, split_amount, ctx));
+            i = i + 1;
+        };
+        vec
     }
 
 
