@@ -12,3 +12,4 @@ data
 **/.env
 !.env.example
 !**/.env.example
+.kanari-local
