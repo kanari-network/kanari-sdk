@@ -161,24 +161,14 @@ final objects = await rpcClient.getOwnedObjects(
 );
 print('Spendable coin objects: ${objects.length}');
 
-// Automatic coin selection + consolidation when needed
+// RPC builds the transfer and resolves coin/object inputs server-side
 final transfer = await rpcClient.transfer(
   wallet: wallet,
   recipient: '0xRecipient...',
   amount: 1000000,
 );
 
-print('Auto-selected transfer hash: ${transfer.hash}');
-
-// Explicit object-input flow
-final explicit = await rpcClient.transferWithCoinObject(
-  wallet: wallet,
-  coinObjectId: '0xCoinObjectId...',
-  recipient: '0xRecipient...',
-  amount: 1000000,
-);
-
-print('Explicit coin transfer hash: ${explicit.hash}');
+print('Transfer hash: ${transfer.hash}');
 ```
 
 ## Environment Configuration

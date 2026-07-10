@@ -10,8 +10,13 @@ class TransactionConstants {
   static const String nativeBurnAmountFunction = 'burn_amount';
 
   // RPC methods
+  static const String rpcBuildPublishModule = 'kanari_buildPublishModule';
+  static const String rpcBuildCallFunction = 'kanari_buildCallFunction';
+  static const String rpcBuildNativeTransfer = 'kanari_buildNativeTransfer';
+  static const String rpcBuildTokenTransfer = 'kanari_buildTokenTransfer';
   static const String rpcPublishModule = 'kanari_publishModule';
   static const String rpcCallFunction = 'kanari_callFunction';
+  static const String rpcSubmitObjectTransfer = 'kanari_submitObjectTransfer';
 
   // Default gas settings
   static const int defaultGasLimit = 100000;

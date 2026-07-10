@@ -22,7 +22,7 @@ class KanariClient {
   KanariClient(this.url, {http.Client? client})
     : _client = client ?? http.Client() {
     _queries = QueriesModule(url, _client);
-    _transactions = TransactionOperations(url, _queries, _client);
+    _transactions = TransactionOperations(url, _client);
   }
 
   factory KanariClient.fromEnvironment(
@@ -168,27 +168,6 @@ class KanariClient {
     );
   }
 
-  /// Transfer KANARI using an explicit Coin<KANARI> object input.
-  Future<TransactionResult> transferWithCoinObject({
-    required KanariWallet wallet,
-    required String coinObjectId,
-    required String recipient,
-    required int amount,
-    int gasLimit = TransactionConstants.defaultGasLimit,
-    int gasPrice = TransactionConstants.defaultGasPrice,
-    int? sequenceNumber,
-  }) {
-    return _transactions.transferWithCoinObject(
-      wallet: wallet,
-      coinObjectId: coinObjectId,
-      recipient: recipient,
-      amount: amount,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-      sequenceNumber: sequenceNumber,
-    );
-  }
-
   /// Execute a Move function
   Future<TransactionResult> executeFunction({
     required KanariWallet wallet,
@@ -248,47 +227,4 @@ class KanariClient {
     );
   }
 
-  /// Transfer a custom token using an explicit Coin<T> object input.
-  Future<TransactionResult> transferTokenWithCoinObject({
-    required KanariWallet wallet,
-    required String coinObjectId,
-    required String recipient,
-    required String tokenType,
-    required int amount,
-    int gasLimit = TransactionConstants.defaultGasLimit,
-    int gasPrice = TransactionConstants.defaultGasPrice,
-    int? sequenceNumber,
-  }) {
-    return _transactions.transferTokenWithCoinObject(
-      wallet: wallet,
-      coinObjectId: coinObjectId,
-      recipient: recipient,
-      tokenType: tokenType,
-      amount: amount,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-      sequenceNumber: sequenceNumber,
-    );
-  }
-
-  /// Merge one coin object into another using `0x2::coin::join_entry<T>`.
-  Future<TransactionResult> joinCoinObjects({
-    required KanariWallet wallet,
-    required String primaryCoinObjectId,
-    required String mergeCoinObjectId,
-    required String tokenType,
-    int gasLimit = TransactionConstants.defaultGasLimit,
-    int gasPrice = TransactionConstants.defaultGasPrice,
-    int? sequenceNumber,
-  }) {
-    return _transactions.joinCoinObjects(
-      wallet: wallet,
-      primaryCoinObjectId: primaryCoinObjectId,
-      mergeCoinObjectId: mergeCoinObjectId,
-      tokenType: tokenType,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-      sequenceNumber: sequenceNumber,
-    );
-  }
 }

@@ -61,7 +61,7 @@ lib/src/
 `KanariClient` acts as a facade that delegates to various modules:
 
 - **QueriesModule**: Handles owner-centric read operations (`getOwner`, balances, objects, blocks)
-- **TransactionOperations**: Handles object-input write operations (`transferWithCoinObject`, `joinCoinObjects`, etc.)
+- **TransactionOperations**: Handles RPC-built write operations (`transfer`, `transferToken`, `executeFunction`, etc.)
 
 ### 2. **Separation of Concerns**
 
@@ -71,7 +71,7 @@ lib/src/
 
 ### 3. **Backward Compatibility**
 
-Legacy-style facade methods still work, but they now compile down to owner/object-centric RPC calls.
+Facade methods still work, but write flows now delegate transaction building to RPC before local signing.
 
 ### 4. **Modular Extensibility**
 
@@ -79,7 +79,7 @@ Easy to add new features by creating new modules following available templates.
 
 ## 🎯 Usage Examples
 
-### Original Usage (Still Works)
+### Usage
 
 ```dart
 final client = KanariClient('http://localhost:3000');
@@ -96,13 +96,6 @@ final balances = await client.getAllBalances(address);
 // Transactions
 await client.transfer(
   wallet: wallet,
-  recipient: recipientAddress,
-  amount: 1000,
-);
-
-await client.transferWithCoinObject(
-  wallet: wallet,
-  coinObjectId: coinObjectId,
   recipient: recipientAddress,
   amount: 1000,
 );
@@ -130,13 +123,6 @@ await transactions.transfer(
   wallet: wallet,
   recipient: recipientAddress,
   amount: 1000,
-);
-
-await transactions.joinCoinObjects(
-  wallet: wallet,
-  primaryCoinObjectId: primaryCoinObjectId,
-  mergeCoinObjectId: mergeCoinObjectId,
-  tokenType: '0x2::kanari::KANARI',
 );
 
 // Use template modules (when implemented)
