@@ -210,6 +210,25 @@ Local endpoints:
 
 To expose RPC to the LAN, bind with `--rpc-host 0.0.0.0` or a specific machine IP. Only do this on a trusted network or behind firewall rules.
 
+## Check State Root Alignment
+
+Devnet and mainnet nodes verify checkpoint state roots strictly by default. If one node reports the same height but a different `state_root`, treat it as a stop-the-line divergence: stop that node and resync its data instead of continuing with a split root.
+
+```powershell
+$ports=@(19001,19011,19021,19031)
+foreach ($p in $ports) {
+  try {
+    $body=@{jsonrpc='2.0';method='kanari_getStats';params=@();id=1} | ConvertTo-Json -Compress
+    $r=Invoke-RestMethod -Uri "http://127.0.0.1:$p" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 2
+    "${p}: height=$($r.result.height) txs=$($r.result.total_transactions) pending=$($r.result.pending_transactions) owners=$($r.result.total_owners) root=$($r.result.state_root)"
+  } catch {
+    "${p}: ERROR $($_.Exception.Message)"
+  }
+}
+```
+
+For temporary local-only experiments you can opt out with `KANARI_STRICT_CHECKPOINT_ROOTS=0`, but do not run shared devnet, testnet, or mainnet validators with relaxed checkpoint roots.
+
 ## Long-Running Multi-Node Soak Test
 
 Use this flow before treating a branch as mainnet-ready. It exercises deterministic execution, object/gas invariants, consensus finality, and the RPC contract for several hours instead of only one happy-path transaction.

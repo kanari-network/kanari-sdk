@@ -261,6 +261,103 @@ fn production_runtime_transfer_native_can_trigger_out_of_gas() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let sender = kanari_types::address::Address::dev_account_address();
+    let recipient = AccountAddress::from_hex_literal(
+        "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3",
+    )?;
+    let coin_type = format!(
+        "0x2::coin::Coin<{}>",
+        kanari_types::kanari::KANARI_TOKEN_TYPE
+    );
+    let transfer_coin_id = "0x15fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a";
+    let gas_coin_id = "0xdfa10cddb4fb9b10fdb5083fe6bc1e03970cbdd891b1e31e894070c33462e672";
+    let owner_kind = ObjectOwnerKind::AddressOwner(sender.to_hex_literal());
+    let transfer_coin = StoredObject {
+        id: transfer_coin_id.to_string(),
+        owner: sender,
+        owner_kind: owner_kind.clone(),
+        type_name: coin_type.clone(),
+        data: coin_data(transfer_coin_id, 1_000_000_000)?,
+        version: 1,
+    };
+    let gas_coin = StoredObject {
+        id: gas_coin_id.to_string(),
+        owner: sender,
+        owner_kind: owner_kind.clone(),
+        type_name: coin_type,
+        data: coin_data(gas_coin_id, 10_000_000_000)?,
+        version: 1,
+    };
+    runtime.object_storage.store_object(transfer_coin.clone())?;
+    runtime.object_storage.store_object(gas_coin.clone())?;
+
+    let transfer_amount = 100_000_000u64;
+    let transfer_coin_before = coin_balance(&transfer_coin.data);
+
+    let changeset = runtime.execute_entry_function_with_object_context_and_persistence(
+        &kanari_types::kanari::KanariModule::get_module_id()?,
+        kanari_types::kanari::KanariModule::function_names().transfer,
+        vec![],
+        vec![
+            vec![],
+            bcs::to_bytes(&transfer_amount)?,
+            bcs::to_bytes(&recipient)?,
+        ],
+        EntryFunctionObjectContext {
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new(
+                    transfer_coin.id.clone(),
+                    Some(transfer_coin.version),
+                    None,
+                ),
+                owner: Some(ObjectOwnerKind::AddressOwner(sender.to_hex_literal())),
+                mutable: true,
+            }],
+            sender: Some(sender),
+            gas_info: Some((100_000, 1)),
+            timestamp: None,
+            tx_hash: Some(vec![9; 32]),
+            persist_runtime_state: false,
+        },
+    )?;
+
+    assert!(
+        !changeset.deleted_objects.contains(&gas_coin.id),
+        "runtime must not auto-merge and delete the separate gas coin"
+    );
+
+    let (_, updated_transfer_coin) = changeset
+        .created_objects
+        .iter()
+        .find(|(id, _)| id == &transfer_coin.id)
+        .context("transfer coin should be written back as a mutated object")?;
+    assert_eq!(
+        coin_balance(&updated_transfer_coin.data),
+        transfer_coin_before - transfer_amount,
+        "mutated transfer coin must only lose the requested split amount"
+    );
+
+    Ok(())
+}
+
+fn coin_balance(data: &[u8]) -> u64 {
+    if data.len() < 40 {
+        return 0;
+    }
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&data[32..40]);
+    u64::from_le_bytes(bytes)
+}
+
+fn coin_data(object_id: &str, balance: u64) -> Result<Vec<u8>> {
+    let mut data = AccountAddress::from_hex_literal(object_id)?.to_vec();
+    data.extend_from_slice(&balance.to_le_bytes());
+    Ok(data)
+}
+
 fn assert_out_of_gas(err: anyhow::Error) {
     let message = format!("{err:?}");
     assert!(

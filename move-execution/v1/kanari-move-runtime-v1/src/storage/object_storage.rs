@@ -6,7 +6,6 @@ use crate::storage::persistent_store::{PersistentStore, PersistentStoreError};
 use anyhow::Result;
 use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
-use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -52,12 +51,6 @@ pub trait ObjectStore: Send + Sync {
     #[cfg(test)]
     fn count(&self) -> usize;
     fn clear(&self) -> Result<(), ObjectStorageError>;
-
-    fn get_coins_by_type_and_owner(
-        &self,
-        owner: AccountAddress,
-        coin_type: &TypeTag,
-    ) -> Vec<StoredObject>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +64,7 @@ pub struct StoredObject {
 }
 
 impl StoredObject {
+    #[cfg(test)]
     pub fn owner_address(&self) -> Option<AccountAddress> {
         match self.owner_kind {
             ObjectOwnerKind::AddressOwner(_) => Some(self.owner),
@@ -179,45 +173,6 @@ impl Default for ObjectStorage {
 }
 
 impl ObjectStorage {
-    fn matches_coin_type(obj: &StoredObject, coin_type: &TypeTag) -> bool {
-        if let Ok(struct_tag) = obj
-            .type_name
-            .parse::<move_core_types::language_storage::StructTag>()
-            && struct_tag.module.as_str() == "coin"
-            && struct_tag.name.as_str() == "Coin"
-            && let Some(tag) = struct_tag.type_params.first()
-        {
-            return tag == coin_type;
-        }
-        false
-    }
-
-    fn get_coins_by_type_and_owner(
-        &self,
-        owner: AccountAddress,
-        coin_type: &move_core_types::language_storage::TypeTag,
-    ) -> Vec<StoredObject> {
-        let mut coins: Vec<_> = if let Some(store) = &self.persistent {
-            Self::load_owned_object_ids(store, &owner)
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|id| self.get_object(&id))
-                .filter(|obj| Self::matches_coin_type(obj, coin_type))
-                .collect()
-        } else {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-            state
-                .objects
-                .values()
-                .filter(|obj| obj.owner_address() == Some(owner))
-                .filter(|obj| Self::matches_coin_type(obj, coin_type))
-                .cloned()
-                .collect()
-        };
-        coins.sort_by(|a, b| a.id.cmp(&b.id));
-        coins
-    }
-
     pub(crate) fn new_with_store(store: Arc<PersistentStore>) -> Result<Self> {
         let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
 
@@ -411,14 +366,6 @@ impl ObjectStore for ObjectStorage {
 
     fn clear(&self) -> Result<(), ObjectStorageError> {
         ObjectStorage::clear(self)
-    }
-
-    fn get_coins_by_type_and_owner(
-        &self,
-        owner: AccountAddress,
-        coin_type: &TypeTag,
-    ) -> Vec<StoredObject> {
-        ObjectStorage::get_coins_by_type_and_owner(self, owner, coin_type)
     }
 }
 

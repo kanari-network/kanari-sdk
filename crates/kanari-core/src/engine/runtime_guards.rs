@@ -53,7 +53,10 @@ impl BlockchainEngine {
                     "1" | "true" | "yes" | "on"
                 )
             })
-            .unwrap_or_else(|_| Self::network_name().eq_ignore_ascii_case("mainnet"))
+            .unwrap_or_else(|_| {
+                let network = Self::network_name();
+                !(network.eq_ignore_ascii_case("local") || network.eq_ignore_ascii_case("test"))
+            })
     }
 
     pub fn fail_fast_supply_enabled() -> bool {

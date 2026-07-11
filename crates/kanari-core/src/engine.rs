@@ -1744,6 +1744,38 @@ mod tests {
     }
 
     #[test]
+    fn devnet_defaults_enable_strict_checkpoint_roots() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        unsafe {
+            std::env::set_var("KANARI_NETWORK", "devnet");
+            std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
+        }
+
+        assert!(BlockchainEngine::strict_checkpoint_roots_required());
+
+        unsafe {
+            std::env::remove_var("KANARI_NETWORK");
+        }
+    }
+
+    #[test]
+    fn local_network_defaults_allow_relaxed_checkpoint_roots() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        unsafe {
+            std::env::set_var("KANARI_NETWORK", "local");
+            std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
+        }
+
+        assert!(!BlockchainEngine::strict_checkpoint_roots_required());
+
+        unsafe {
+            std::env::remove_var("KANARI_NETWORK");
+        }
+    }
+
+    #[test]
     fn explicit_env_overrides_strict_runtime_guards() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
