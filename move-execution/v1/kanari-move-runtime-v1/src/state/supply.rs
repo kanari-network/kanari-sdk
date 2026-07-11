@@ -143,7 +143,7 @@ impl StateManager {
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         Ok(self
-            .load_owner_addresses()?
+            .owner_addresses()?
             .into_iter()
             .filter_map(|owner| self.resolve_owner_token_balance(owner, &token_type).ok())
             .fold(0u64, |acc, balance| acc.saturating_add(balance)))
@@ -189,7 +189,7 @@ impl StateManager {
 
         let mut excess = indexed_visible - max_wallet_visible;
         let mut accounts = self
-            .load_owner_addresses()?
+            .owner_addresses()?
             .into_iter()
             .filter_map(|address| self.load_owner_state(&address).ok().flatten())
             .filter(|account| account.native_balance() > 0)

@@ -3,7 +3,12 @@ use super::{
     respond_with_serialize,
 };
 use kanari_move_runtime_v1::state::StateManager;
-use kanari_rpc_api::{GetOwnerBalancesRequest, GetTokenBalanceRequest};
+use kanari_rpc_api::{
+    FungibleAssetHolder, FungibleAssetHoldersResponse, FungibleAssetInfo,
+    GetFungibleAssetHoldersRequest, GetFungibleAssetRequest, GetOwnerBalancesRequest,
+    GetTokenBalanceRequest,
+};
+use kanari_types::coin::CoinModule;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
@@ -65,6 +70,48 @@ fn build_balance_json(
         "description": description,
         "icon_url": icon_url
     })
+}
+
+fn collect_fungible_asset_holders(
+    state_guard: &StateManager,
+    token_type: &str,
+    limit: Option<usize>,
+) -> anyhow::Result<Vec<FungibleAssetHolder>> {
+    let token_type = normalize_token_type(token_type);
+    let coin_type = CoinModule::coin_type(&token_type);
+    let mut holders = Vec::new();
+
+    for owner in state_guard.owner_addresses()? {
+        let balance = state_guard.resolve_owner_token_balance(owner, &token_type)?;
+        if balance == 0 {
+            continue;
+        }
+
+        let mut coin_object_count = 0usize;
+        for object_id in state_guard.get_owned_objects(&owner)? {
+            if let Some(object) = state_guard.get_object(&object_id)?
+                && object.type_ == coin_type
+            {
+                coin_object_count += 1;
+            }
+        }
+
+        holders.push(FungibleAssetHolder {
+            owner: owner.to_hex_literal(),
+            balance,
+            coin_object_count,
+        });
+    }
+
+    holders.sort_by(|a, b| {
+        b.balance
+            .cmp(&a.balance)
+            .then_with(|| a.owner.cmp(&b.owner))
+    });
+    if let Some(limit) = limit {
+        holders.truncate(limit);
+    }
+    Ok(holders)
 }
 
 /// Handle get owner request
@@ -197,4 +244,82 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
         .collect();
 
     respond_with_serialize(request.id, vals)
+}
+
+pub async fn handle_get_fungible_asset(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req_data: GetFungibleAssetRequest = match parse_params(request.id, &request.params) {
+        Ok(data) => data,
+        Err(response) => return *response,
+    };
+
+    let state_guard = state.engine.state_read();
+    let token_type = normalize_token_type(&req_data.token_type);
+    let summary = match state_guard.token_supply_summary(&token_type) {
+        Ok(summary) => summary,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+    let holders_count =
+        match collect_fungible_asset_holders(&state_guard, &token_type, None).map(|h| h.len()) {
+            Ok(count) => count,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
+
+    let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
+    let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
+    let name = state_guard
+        .get_token_name(&token_type)
+        .unwrap_or(None)
+        .unwrap_or_else(|| symbol.clone());
+    let description = state_guard
+        .get_token_description(&token_type)
+        .unwrap_or(None);
+    let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
+
+    respond_with_serialize(
+        request.id,
+        FungibleAssetInfo {
+            token_type: summary.token_type,
+            name,
+            symbol,
+            decimals: get_token_decimals(&state_guard, &token_type),
+            description,
+            icon_url,
+            total_supply: summary.total_supply,
+            wallet_visible_supply: summary.wallet_visible_supply,
+            circulating_supply: summary.wallet_visible_supply,
+            object_locked_supply: summary.object_locked_supply,
+            accounted_supply: summary.accounted_supply,
+            untracked_supply: summary.untracked_supply,
+            holders_count,
+            verified: token_type == KANARI_TOKEN_TYPE,
+        },
+    )
+}
+
+pub async fn handle_get_fungible_asset_holders(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req_data: GetFungibleAssetHoldersRequest = match parse_params(request.id, &request.params) {
+        Ok(data) => data,
+        Err(response) => return *response,
+    };
+
+    let state_guard = state.engine.state_read();
+    let token_type = normalize_token_type(&req_data.token_type);
+    let holders = match collect_fungible_asset_holders(&state_guard, &token_type, req_data.limit) {
+        Ok(holders) => holders,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+
+    respond_with_serialize(
+        request.id,
+        FungibleAssetHoldersResponse {
+            token_type,
+            holders,
+        },
+    )
 }

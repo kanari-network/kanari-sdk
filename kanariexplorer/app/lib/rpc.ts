@@ -1,5 +1,7 @@
 // app/lib/rpc.ts
 
+import { asArray } from "../components/ExplorerUI";
+
 // ตั้งค่า URL ให้ชี้ไปที่ RPC Server ของ Kanari (ค่าเริ่มต้น 127.0.0.1 พอร์ต 19001)
 const DEFAULT_RPC_URL = "http://192.168.1.101:19001";
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_RPC_URL;
@@ -8,6 +10,9 @@ export const RPC_METHODS = {
   GET_ACCOUNT: "kanari_getOwner",
   GET_TOKEN_BALANCE: "kanari_getTokenBalance",
   LIST_TOKENS: "kanari_listTokens",
+  GET_FUNGIBLE_ASSET: "kanari_getFungibleAsset",
+  GET_FUNGIBLE_ASSET_HOLDERS: "kanari_getFungibleAssetHolders",
+  GET_FUNGIBLE_ASSET_TRANSACTIONS: "kanari_getFungibleAssetTransactions",
   GET_ALL_BALANCES: "kanari_getOwnerBalances",
   GET_BLOCK: "kanari_getBlock",
   GET_FULL_BLOCK: "kanari_getFullBlock",
@@ -230,6 +235,23 @@ export async function getAccount(address: string) {
 
 export async function getTokens() {
   return callRpc(RPC_METHODS.LIST_TOKENS, []);
+}
+
+export async function getFungibleAsset(token_type: string) {
+  return callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET, { token_type });
+}
+
+export async function getFungibleAssetHolders(token_type: string, limit: number = 100) {
+  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_HOLDERS, { token_type, limit });
+  const holders = readField(response, "holders");
+  return Array.isArray(holders) ? holders : asArray(response);
+}
+
+export async function getFungibleAssetTransactions(token_type: string, limit: number = 50, owner?: string) {
+  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_TRANSACTIONS, { token_type, limit, owner: owner || null });
+  const transactions = readField(response, "transactions");
+  if (Array.isArray(transactions)) return dedupeTransactions(transactions.map(normalizeTransaction));
+  return asArray(response).map(normalizeTransaction);
 }
 
 export async function getStats(rpcUrl?: string) {

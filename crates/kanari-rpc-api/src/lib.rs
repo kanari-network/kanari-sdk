@@ -795,6 +795,69 @@ pub struct GetOwnerBalancesRequest {
     pub owner: String,
 }
 
+/// Get fungible asset summary request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetFungibleAssetRequest {
+    pub token_type: String,
+}
+
+/// Get fungible asset holder list request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetFungibleAssetHoldersRequest {
+    pub token_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// Get transactions that involve a fungible asset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetFungibleAssetTransactionsRequest {
+    pub token_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetInfo {
+    pub token_type: String,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    pub total_supply: u64,
+    pub wallet_visible_supply: u64,
+    pub circulating_supply: u64,
+    pub object_locked_supply: u64,
+    pub accounted_supply: u64,
+    pub untracked_supply: u64,
+    pub holders_count: usize,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetHolder {
+    pub owner: String,
+    pub balance: u64,
+    pub coin_object_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetHoldersResponse {
+    pub token_type: String,
+    pub holders: Vec<FungibleAssetHolder>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetTransactionsResponse {
+    pub token_type: String,
+    pub transactions: Vec<TransactionDetails>,
+}
+
 /// RPC Methods
 #[kanari_open_rpc::open_rpc]
 pub mod methods {
@@ -845,6 +908,52 @@ pub mod methods {
         tags = ["balance"]
     )]
     pub const LIST_TOKENS: &str = "kanari_listTokens";
+    #[open_rpc_method(
+        summary = "Get fungible asset",
+        description = "Returns metadata, supply, and holder count for one fungible asset token type.",
+        params = [(
+            "request",
+            "Fungible asset token type payload.",
+            true,
+            object_schema(&[("token_type", schema_string())])
+        )],
+        result = ("asset", "Fungible asset summary.", schema_object()),
+        tags = ["asset", "balance"]
+    )]
+    pub const GET_FUNGIBLE_ASSET: &str = "kanari_getFungibleAsset";
+    #[open_rpc_method(
+        summary = "Get fungible asset holders",
+        description = "Returns wallets that currently hold a positive balance of one fungible asset.",
+        params = [(
+            "request",
+            "Fungible asset holder query.",
+            true,
+            object_schema(&[
+                ("token_type", schema_string()),
+                ("limit", optional_schema(schema_integer()))
+            ])
+        )],
+        result = ("holders", "Fungible asset holders.", schema_object()),
+        tags = ["asset", "balance"]
+    )]
+    pub const GET_FUNGIBLE_ASSET_HOLDERS: &str = "kanari_getFungibleAssetHolders";
+    #[open_rpc_method(
+        summary = "Get fungible asset transactions",
+        description = "Returns recent committed and pending transactions that involve one fungible asset.",
+        params = [(
+            "request",
+            "Fungible asset transaction query.",
+            true,
+            object_schema(&[
+                ("token_type", schema_string()),
+                ("owner", optional_schema(schema_string())),
+                ("limit", optional_schema(schema_integer()))
+            ])
+        )],
+        result = ("transactions", "Fungible asset transaction list.", schema_object()),
+        tags = ["asset", "transaction"]
+    )]
+    pub const GET_FUNGIBLE_ASSET_TRANSACTIONS: &str = "kanari_getFungibleAssetTransactions";
 
     // Blocks & Transactions
     #[open_rpc_method(

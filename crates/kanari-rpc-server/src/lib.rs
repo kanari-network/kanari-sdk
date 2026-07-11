@@ -23,7 +23,8 @@ use tracing::info;
 
 use crate::{
     balance::{
-        handle_get_owner, handle_get_owner_balances, handle_get_token_balance, handle_list_tokens,
+        handle_get_fungible_asset, handle_get_fungible_asset_holders, handle_get_owner,
+        handle_get_owner_balances, handle_get_token_balance, handle_list_tokens,
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
@@ -35,8 +36,8 @@ use crate::{
     transaction::{
         handle_build_call_function, handle_build_native_coin_consolidation,
         handle_build_native_transfer, handle_build_publish_module, handle_build_token_transfer,
-        handle_call_function, handle_get_transaction, handle_publish_module,
-        handle_submit_object_transfer, handle_view_function,
+        handle_call_function, handle_get_fungible_asset_transactions, handle_get_transaction,
+        handle_publish_module, handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -175,6 +176,13 @@ async fn handle_rpc(
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::LIST_TOKENS => handle_list_tokens(&state, &request).await,
         methods::GET_OWNER_BALANCES => handle_get_owner_balances(&state, &request).await,
+        methods::GET_FUNGIBLE_ASSET => handle_get_fungible_asset(&state, &request).await,
+        methods::GET_FUNGIBLE_ASSET_HOLDERS => {
+            handle_get_fungible_asset_holders(&state, &request).await
+        }
+        methods::GET_FUNGIBLE_ASSET_TRANSACTIONS => {
+            handle_get_fungible_asset_transactions(&state, &request).await
+        }
 
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,

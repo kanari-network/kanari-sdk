@@ -8,13 +8,14 @@ use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
     BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
-    BuildPublishModuleRequest, BuildTokenTransferRequest, CallFunctionRequest, ObjectTransferData,
+    BuildPublishModuleRequest, BuildTokenTransferRequest, CallFunctionRequest,
+    FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest, ObjectTransferData,
     PublishModuleRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
     ViewFunctionRequest,
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
 };
@@ -544,6 +545,54 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
     }
 
     normalize_addr(tx.sender()) == owner
+}
+
+fn token_module_path(token_type: &str) -> Option<String> {
+    let token_type = normalize_token_type(token_type);
+    let mut parts = token_type.split("::");
+    let address = parts.next()?;
+    let module = parts.next()?;
+    let _struct_name = parts.next()?;
+    Some(format!("{address}::{module}"))
+}
+
+fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
+    let token_type = normalize_token_type(token_type);
+    let target_module = token_module_path(&token_type);
+
+    match tx {
+        Transaction::ExecuteFunction {
+            module,
+            type_args,
+            object_inputs,
+            ..
+        } => {
+            if token_type == KANARI_TOKEN_TYPE && module == &KanariModule::module_path() {
+                return true;
+            }
+
+            if let Some(target_module) = &target_module
+                && module == target_module
+            {
+                return true;
+            }
+
+            if type_args
+                .iter()
+                .any(|arg| normalize_token_type(arg) == token_type)
+            {
+                return true;
+            }
+
+            object_inputs.iter().any(|input| {
+                input
+                    .object_ref
+                    .object_id
+                    .contains(token_type.as_str())
+            })
+        }
+        Transaction::PublishModule { .. } => false,
+    }
 }
 
 fn push_unique_tx_details(
@@ -1813,6 +1862,123 @@ pub async fn handle_get_all_transactions(
     }
 
     respond_with_serialize(request.id, results)
+}
+
+pub async fn handle_get_fungible_asset_transactions(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req_data: GetFungibleAssetTransactionsRequest =
+        match parse_labeled_params(request.id, &request.params, "fungible asset transaction query")
+        {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    let token_type = normalize_token_type(&req_data.token_type);
+    let limit = req_data.limit.unwrap_or(50).min(500);
+    let owner_norm = req_data
+        .owner
+        .as_deref()
+        .map(|owner| owner.trim_start_matches("0x").to_lowercase());
+
+    let mut results: Vec<TransactionDetails> = Vec::new();
+    let mut seen_hashes = HashSet::new();
+    let pending = state.engine.pending_transaction_records_snapshot();
+
+    for tx in pending.iter().rev() {
+        if !tx_mentions_token_type(&tx.signed_tx.transaction, &token_type)
+            || !tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref())
+        {
+            continue;
+        }
+
+        if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, {
+            let mut details = map_transaction_to_details(
+                state,
+                &tx.signed_tx.transaction,
+                &hex::encode(tx.signed_tx.transaction_hash()),
+                pending_status(tx),
+                None,
+                None,
+            );
+            apply_pending_preview_metadata(tx, &mut details);
+            details
+        }) {
+            break;
+        }
+    }
+
+    if results.len() < limit {
+        let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
+            error!("blockchain lock poisoned while listing asset transactions; recovering");
+            p.into_inner()
+        });
+
+        for checkpoint in chain.dag_checkpoints.iter().rev() {
+            if results.len() >= limit {
+                break;
+            }
+
+            for tx in checkpoint.transactions.iter().rev() {
+                if !tx_mentions_token_type(&tx.transaction, &token_type)
+                    || !tx_matches_owner(&tx.transaction, owner_norm.as_deref())
+                {
+                    continue;
+                }
+
+                if !push_unique_tx_details(
+                    &mut results,
+                    &mut seen_hashes,
+                    limit,
+                    map_transaction_to_details(
+                        state,
+                        &tx.transaction,
+                        &hex::encode(tx.transaction_hash()),
+                        "committed",
+                        Some(checkpoint.sequence),
+                        Some(hex::encode(&checkpoint.state_root)),
+                    ),
+                ) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if results.len() < limit {
+        for (tx, height, state_root) in state
+            .engine
+            .list_committed_transactions_from_history(limit, |tx| {
+                tx_mentions_token_type(tx, &token_type)
+                    && tx_matches_owner(tx, owner_norm.as_deref())
+            })
+        {
+            if !push_unique_tx_details(
+                &mut results,
+                &mut seen_hashes,
+                limit,
+                map_transaction_to_details(
+                    state,
+                    &tx.transaction,
+                    &hex::encode(tx.transaction_hash()),
+                    "committed",
+                    Some(height),
+                    Some(hex::encode(state_root)),
+                ),
+            ) {
+                break;
+            }
+        }
+    }
+
+    respond_with_serialize(
+        request.id,
+        FungibleAssetTransactionsResponse {
+            token_type,
+            transactions: results,
+        },
+    )
 }
 
 /// Handle publish module request

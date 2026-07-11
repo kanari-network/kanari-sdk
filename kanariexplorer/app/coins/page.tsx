@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { asArray, EmptyState, formatBalance, PageHeader, RawDetails, readString, SearchForm, StatusPill } from "../components/ExplorerUI";
 import { getAllBalances, getTokens } from "../lib/rpc";
@@ -92,6 +93,7 @@ function CoinsContent() {
               const decimals = readString(token, "decimals", "9");
               const amount = address ? readString(token, "amount", readString(token, "balance", "0")) : pickSupply(token);
               const icon = getTokenIcon(token, symbol);
+              const tokenType = readString(token, "token_type", readString(token, "token", symbol));
               return (
                 <div className="data-row data-row--tokens" key={`${symbol}-${index}`}>
                   <div className="token-identity primary-text">
@@ -103,8 +105,12 @@ function CoinsContent() {
                       )}
                     </span>
                     <span>
-                      <strong>{readString(token, "name", symbol)}</strong>
-                      <span className="muted-text mono">{readString(token, "token_type", readString(token, "token", symbol))}</span>
+                      <strong>
+                        <Link className="text-link" href={`/coins/${encodeURIComponent(tokenType)}`}>
+                          {readString(token, "name", symbol)}
+                        </Link>
+                      </strong>
+                      <span className="muted-text mono">{tokenType}</span>
                     </span>
                   </div>
                   <div>

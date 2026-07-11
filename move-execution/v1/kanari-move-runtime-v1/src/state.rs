@@ -663,7 +663,7 @@ impl StateManager {
         Ok(())
     }
 
-    fn load_owner_addresses(&self) -> Result<Vec<AccountAddress>> {
+    pub fn owner_addresses(&self) -> Result<Vec<AccountAddress>> {
         let ids = self.load_owner_index_ids()?;
         Ok(ids
             .into_iter()
