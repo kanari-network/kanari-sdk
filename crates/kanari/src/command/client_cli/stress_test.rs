@@ -207,6 +207,7 @@ impl StressTest {
                             amount: amount_mist,
                             gas_limit,
                             gas_price,
+                            client_nonce: None,
                             execute_immediate: Some(false),
                         })
                         .await

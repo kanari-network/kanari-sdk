@@ -139,6 +139,7 @@ impl Publish {
                     module_name,
                     gas_limit,
                     gas_price,
+                    client_nonce: None,
                     execute_immediate: None,
                 })
                 .context("Failed to serialize build publish request")?,

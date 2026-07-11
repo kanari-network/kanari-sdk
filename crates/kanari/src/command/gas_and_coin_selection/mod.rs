@@ -206,6 +206,7 @@ pub async fn consolidate_coin_objects(
             object_inputs: None,
             gas_limit,
             gas_price,
+            client_nonce: Some(sequence_number),
             sequence_number,
             gas_payment: None,
             signature: None,

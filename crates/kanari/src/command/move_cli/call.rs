@@ -114,6 +114,7 @@ impl Call {
                 args: parsed_args,
                 gas_limit,
                 gas_price,
+                client_nonce: None,
                 execute_immediate: None,
             })
             .context("Failed to serialize build call request")?,

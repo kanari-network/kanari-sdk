@@ -242,6 +242,7 @@ pub async fn request_from_dev(
                     amount: amount_mist,
                     gas_limit,
                     gas_price,
+                    client_nonce: None,
                     execute_immediate: Some(false),
                 })
                 .await
@@ -271,6 +272,7 @@ pub async fn request_from_dev(
                 required_amount: amount_mist,
                 gas_limit,
                 gas_price,
+                client_nonce: None,
                 execute_immediate: Some(false),
             };
             let join_request = match client

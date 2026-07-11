@@ -19,6 +19,20 @@ use tokio::time::sleep;
 use crate::command::common::normalize_addr;
 use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 
+fn request_nonce(client_nonce: Option<u64>, sequence_number: u64) -> Result<u64> {
+    if let Some(client_nonce) = client_nonce {
+        ensure!(
+            client_nonce == sequence_number,
+            "Prepared request client_nonce ({}) does not match legacy sequence_number ({})",
+            client_nonce,
+            sequence_number
+        );
+        return Ok(client_nonce);
+    }
+
+    Ok(sequence_number)
+}
+
 pub fn should_wait_for_commit(
     success: bool,
     previewed: bool,
@@ -50,7 +64,7 @@ pub fn sign_call_function_request(
         gas_payment: request.gas_payment.clone(),
         gas_limit: request.gas_limit,
         gas_price: request.gas_price,
-        sequence_number: request.sequence_number,
+        sequence_number: request_nonce(request.client_nonce, request.sequence_number)?,
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -80,7 +94,7 @@ pub fn sign_publish_module_request(
         gas_payment: request.gas_payment.clone(),
         gas_limit: request.gas_limit,
         gas_price: request.gas_price,
-        sequence_number: request.sequence_number,
+        sequence_number: request_nonce(request.client_nonce, request.sequence_number)?,
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -113,7 +127,7 @@ pub fn sign_object_transfer_request(
         coin_object_ref,
         request.recipient.clone(),
         request.amount,
-        request.sequence_number,
+        request_nonce(request.client_nonce, request.sequence_number)?,
         request.gas_limit,
         request.gas_price,
     );

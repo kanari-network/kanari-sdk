@@ -505,6 +505,8 @@ pub struct SubmitObjectTransferRequest {
 /// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
 /// the backend chooses canonical object refs and requires distinct native
 /// transfer/gas coin objects.
+/// `client_nonce` is optional input entropy for transaction hash uniqueness;
+/// it is not an account sequence and is not used for consensus ordering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNativeTransferRequest {
     pub sender: String,
@@ -512,6 +514,8 @@ pub struct BuildNativeTransferRequest {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -523,6 +527,8 @@ pub struct BuildNativeCoinConsolidationRequest {
     pub required_amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -538,6 +544,9 @@ pub struct ObjectTransferData {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
+    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
     pub sequence_number: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
@@ -554,6 +563,9 @@ pub struct PublishModuleRequest {
     pub module_name: String,
     pub gas_limit: u64,
     pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
+    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
     pub sequence_number: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
@@ -570,6 +582,9 @@ pub struct BuildPublishModuleRequest {
     pub module_name: String,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -587,6 +602,9 @@ pub struct CallFunctionRequest {
     pub object_inputs: Option<Vec<ObjectInput>>,
     pub gas_limit: u64,
     pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
+    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
     pub sequence_number: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
@@ -605,6 +623,9 @@ pub struct BuildCallFunctionRequest {
     pub args: Vec<Vec<u8>>,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -618,6 +639,9 @@ pub struct BuildTokenTransferRequest {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
