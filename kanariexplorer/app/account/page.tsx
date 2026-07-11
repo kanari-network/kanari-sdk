@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
 import {
@@ -214,18 +215,28 @@ function AccountContent() {
           </div>
           {balances.length === 0 ? <EmptyState label="No balances found." /> : null}
           <div className="data-list">
-            {balances.map((token, index) => (
-              <div className="data-row data-row--account" key={`${readString(token, "symbol", "token")}-${index}`}>
-                <div className="primary-text">
-                  <strong>{readString(token, "name", readString(token, "symbol", "Token"))}</strong>
-                  <div className="muted-text mono">{readString(token, "symbol", readString(token, "token_type", "-"))}</div>
+            {balances.map((token, index) => {
+              const tokenType = readString(token, "token_type", readString(token, "token", readString(token, "symbol", "-")));
+              const symbol = readString(token, "symbol", tokenType.split("::").slice(-1)[0] || "Token");
+              return (
+                <div className="data-row data-row--account" key={`${tokenType}-${index}`}>
+                  <div className="primary-text">
+                    <strong>
+                      <Link className="text-link" href={`/coins/${encodeURIComponent(tokenType)}`}>
+                        {readString(token, "name", symbol)}
+                      </Link>
+                    </strong>
+                    <div className="muted-text mono break-anywhere">{tokenType}</div>
+                  </div>
+                  <div>
+                    <p className="tiny-label">Balance</p>
+                    <span className="mono">
+                      {formatBalance(readString(token, "amount", readString(token, "balance", "0")), readString(token, "decimals", "9"))} {symbol}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <p className="tiny-label">Balance</p>
-                  <span className="mono">{formatBalance(readString(token, "amount", readString(token, "balance", "0")), readString(token, "decimals", "9"))}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}
