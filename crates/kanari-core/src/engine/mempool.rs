@@ -244,6 +244,14 @@ impl BlockchainEngine {
             .unwrap_or(0)
     }
 
+    pub fn pending_access_keys_snapshot(&self) -> std::collections::HashSet<String> {
+        self.mempool_read()
+            .pending_access_counts
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     pub(crate) fn remove_pending_sender_counts(
         counts: &mut ahash::AHashMap<String, u64>,
         transactions: &[PendingTransactionRecord],

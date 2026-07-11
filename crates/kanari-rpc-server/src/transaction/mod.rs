@@ -250,6 +250,7 @@ fn select_native_gas_payment(
     gas_limit: u64,
     gas_price: u64,
     exclude_object_ids: &[String],
+    pending_access_keys: &HashSet<String>,
 ) -> anyhow::Result<GasPayment> {
     let excluded = exclude_object_ids
         .iter()
@@ -260,6 +261,9 @@ fn select_native_gas_payment(
     let mut best: Option<(ObjectRef, u64)> = None;
     for object in owned_objects {
         if excluded.contains(&normalize_addr(&object.id)) {
+            continue;
+        }
+        if pending_access_keys.contains(&format!("mut:gas:{}", object.id)) {
             continue;
         }
         if object.type_ != CoinModule::coin_type(KANARI_TOKEN_TYPE) {
@@ -303,12 +307,15 @@ fn select_native_transfer_and_gas_payment(
     transfer_amount: u64,
     gas_limit: u64,
     gas_price: u64,
+    pending_access_keys: &HashSet<String>,
 ) -> anyhow::Result<(ObjectRef, GasPayment)> {
     let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
     let required_gas = gas_limit.saturating_mul(gas_price);
     let mut native_coins: Vec<(ObjectRef, u64)> = owned_objects
         .iter()
         .filter(|object| object.type_ == native_coin_type)
+        .filter(|object| !pending_access_keys.contains(&format!("mut:object:{}", object.id)))
+        .filter(|object| !pending_access_keys.contains(&format!("mut:gas:{}", object.id)))
         .filter_map(|object| {
             read_coin_balance(&object.data).map(|balance| {
                 (
@@ -1137,12 +1144,14 @@ pub async fn handle_build_publish_module(
         return internal_error_response(request.id, "Owner has no owned object list");
     };
 
+    let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
         build_data.gas_limit,
         build_data.gas_price,
         &[],
+        &pending_access_keys,
     ) {
         Ok(payment) => payment,
         Err(e) => {
@@ -1195,12 +1204,14 @@ pub async fn handle_build_native_transfer(
         return internal_error_response(request.id, "Owner has no owned object list");
     };
 
+    let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let (coin_object_ref, gas_payment) = match select_native_transfer_and_gas_payment(
         &owned_objects,
         &build_data.sender,
         build_data.amount,
         build_data.gas_limit,
         build_data.gas_price,
+        &pending_access_keys,
     ) {
         Ok(payment) => payment,
         Err(e) => {
@@ -1377,12 +1388,14 @@ pub async fn handle_build_call_function(
         .filter(|input| input.mutable)
         .map(|input| input.object_ref.object_id.clone())
         .collect::<Vec<_>>();
+    let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
         build_data.gas_limit,
         build_data.gas_price,
         &exclude_ids,
+        &pending_access_keys,
     ) {
         Ok(payment) => payment,
         Err(e) => {
@@ -1480,6 +1493,7 @@ pub async fn handle_build_token_transfer(
         build_data.gas_limit,
         build_data.gas_price,
         std::slice::from_ref(&coin_object_ref.object_id),
+        &state.engine.pending_access_keys_snapshot(),
     ) {
         Ok(payment) => payment,
         Err(e) => {
@@ -1940,6 +1954,7 @@ mod tests {
     use kanari_rpc_api::TransactionErrorReason;
     use kanari_types::coin::CoinModule;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
+    use std::collections::HashSet;
 
     #[test]
     fn transaction_state_flags_match_pending_status() {
@@ -2049,11 +2064,58 @@ mod tests {
             },
         ];
 
-        let (coin, gas) =
-            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap();
+        let pending_access_keys = HashSet::new();
+        let (coin, gas) = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            60,
+            10,
+            1,
+            &pending_access_keys,
+        )
+        .unwrap();
         assert_eq!(coin.object_id, "0x1");
         assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
         assert_eq!(gas.payment_objects[0].object_id, "0x2");
+    }
+
+    #[test]
+    fn native_transfer_selection_skips_pending_object_refs() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let owned_objects = ["0x1", "0x2", "0x3", "0x4"]
+            .into_iter()
+            .map(|id| ObjectInfo {
+                id: id.to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some(format!("{id}:digest")),
+            })
+            .collect::<Vec<_>>();
+
+        let pending_access_keys =
+            HashSet::from(["mut:object:0x1".to_string(), "mut:gas:0x2".to_string()]);
+        let (coin, gas) = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            60,
+            10,
+            1,
+            &pending_access_keys,
+        )
+        .unwrap();
+
+        assert_ne!(coin.object_id, "0x1");
+        assert_ne!(gas.payment_objects[0].object_id, "0x2");
+        assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
     }
 
     #[test]
@@ -2075,8 +2137,16 @@ mod tests {
             digest: Some("d1".to_string()),
         }];
 
-        let err =
-            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap_err();
+        let pending_access_keys = HashSet::new();
+        let err = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            60,
+            10,
+            1,
+            &pending_access_keys,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("two distinct Coin<"));
     }
 

@@ -417,8 +417,9 @@ impl Transaction {
         let object_access_keys = self.object_access_keys();
         if !object_access_keys.is_empty() {
             keys.extend(object_access_keys);
+        } else {
+            keys.push(format!("owner:{}", sender_norm));
         }
-        keys.push(format!("owner:{}", sender_norm));
 
         match self {
             Transaction::ExecuteFunction { args, .. }

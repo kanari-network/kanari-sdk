@@ -832,6 +832,39 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
 }
 
 #[test]
+fn native_self_transfer_preserves_balance_except_explicit_gas() -> Result<()> {
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+
+    state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
+    set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
+    state.global_token_supplies.insert(
+        KANARI_TOKEN_TYPE.to_string(),
+        base.wallet_visible_supply + 1_000,
+    );
+
+    let mut transfer = ChangeSet::new();
+    transfer.transfer(alice, alice, 100);
+    state.apply_changeset(&transfer)?;
+
+    assert_eq!(
+        state.resolve_owner_native_balance(alice)?,
+        1_000,
+        "self-transfer must not mint or burn native balance"
+    );
+    assert_eq!(
+        state
+            .token_supply_summary(KANARI_TOKEN_TYPE)?
+            .wallet_visible_supply,
+        base.wallet_visible_supply + 1_000
+    );
+    state.validate_supply_invariants()?;
+
+    Ok(())
+}
+
+#[test]
 fn get_owner_state_returns_none_for_missing_owner() -> Result<()> {
     let state = StateManager::new_in_memory();
     let missing = AccountAddress::from_hex_literal("0x4242")?;
@@ -1203,6 +1236,78 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
     assert_eq!(summary.total_supply, 1_000_000);
     assert_eq!(summary.wallet_visible_supply, 1_000_000);
     assert_eq!(summary.object_locked_supply, 0);
+    state.validate_supply_invariants()?;
+
+    Ok(())
+}
+
+#[test]
+fn custom_token_incoming_coin_adds_to_existing_wallet_balance() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let token_type = "0x2::usdc::USDC";
+    let cap_type = format!("0x2::coin::TreasuryCap<{}>", token_type);
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+    let mut state = StateManager::new_in_memory();
+
+    let mut cap_data = vec![0u8; UID_SIZE + U64_SIZE];
+    cap_data[UID_SIZE..].copy_from_slice(&200u64.to_le_bytes());
+    let mut first_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    first_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+
+    let mut setup = ChangeSet::new();
+    setup.created_objects.push((
+        "0xcafe".to_string(),
+        CreatedObject {
+            owner,
+            owner_kind: address_owner(owner),
+            uid: None,
+            id: None,
+            type_: cap_type,
+            data: cap_data,
+            version: 1,
+        },
+    ));
+    setup.created_objects.push((
+        "0xaaaa".to_string(),
+        CreatedObject {
+            owner,
+            owner_kind: address_owner(owner),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: first_coin_data,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&setup)?;
+    assert_eq!(state.resolve_owner_token_balance(owner, token_type)?, 100);
+
+    let mut incoming_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    incoming_coin_data[UID_SIZE..].copy_from_slice(&50u64.to_le_bytes());
+    let mut incoming = ChangeSet::new();
+    incoming.created_objects.push((
+        "0xbbbb".to_string(),
+        CreatedObject {
+            owner,
+            owner_kind: address_owner(owner),
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: incoming_coin_data,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&incoming)?;
+
+    assert_eq!(
+        state.resolve_owner_token_balance(owner, token_type)?,
+        150,
+        "incoming token coin must add to existing wallet balance"
+    );
+    let summary = state.token_supply_summary(token_type)?;
+    assert_eq!(summary.total_supply, 200);
+    assert_eq!(summary.wallet_visible_supply, 150);
+    assert_eq!(summary.object_locked_supply, 50);
     state.validate_supply_invariants()?;
 
     Ok(())
