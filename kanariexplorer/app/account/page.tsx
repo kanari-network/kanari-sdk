@@ -188,7 +188,7 @@ function AccountContent() {
                 </span>
               </div>
             </div>
-            <StatusPill label={`Seq ${readString(account, "sequence_number", "0")} / Objects ${readString(account, "owned_object_count", String(objects.length))}`} />
+            <StatusPill label={`Objects ${readString(account, "owned_object_count", String(objects.length))}`} />
           </div>
         </section>
       ) : null}

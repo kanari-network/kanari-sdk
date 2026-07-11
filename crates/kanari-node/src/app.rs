@@ -564,7 +564,7 @@ pub async fn run_node(
                                     tracing::warn!(
                                         tx_hash = %hex::encode(tx.signed_tx.transaction_hash()),
                                         sender = %tx.signed_tx.transaction.sender_address(),
-                                        sequence = tx.signed_tx.transaction.sequence_number(),
+                                        nonce = tx.signed_tx.transaction.nonce(),
                                         "Dropped invalid pending transaction after deterministic execution failure"
                                     );
                                 }

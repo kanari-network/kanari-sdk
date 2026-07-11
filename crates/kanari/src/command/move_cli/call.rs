@@ -6,7 +6,8 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::rpc_helpers::{
-    render_transaction_submission, sign_call_function_request, submit_blocking_rpc,
+    render_transaction_submission, require_rpc_result, sign_call_function_request,
+    submit_blocking_rpc,
 };
 use anyhow::{Context, Result};
 use clap::*;
@@ -114,16 +115,15 @@ impl Call {
                 args: parsed_args,
                 gas_limit,
                 gas_price,
-                client_nonce: None,
+                nonce: None,
                 execute_immediate: None,
             })
             .context("Failed to serialize build call request")?,
         )?;
-        let prepared: CallFunctionRequest = serde_json::from_value(
-            prepared
-                .result
-                .context("RPC did not return prepared call request")?,
-        )
+        let prepared: CallFunctionRequest = serde_json::from_value(require_rpc_result(
+            prepared,
+            "RPC did not return prepared call request",
+        )?)
         .context("Failed to decode prepared call request")?;
 
         if let Some(object_inputs) = &prepared.object_inputs

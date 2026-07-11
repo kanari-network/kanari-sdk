@@ -3,13 +3,13 @@
 
 use anyhow::{Context, Result, bail};
 use kanari_crypto::wallet::Wallet;
-use kanari_rpc_api::{CallFunctionRequest, ObjectInfo};
+use kanari_rpc_api::{BuildCallFunctionRequest, ObjectInfo};
 use kanari_rpc_client::RpcClient;
 use kanari_types::coin::CoinModule;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef};
 
-use crate::command::rpc_helpers::sign_and_call_function;
+use crate::command::rpc_helpers::{map_nonce_error, sign_and_call_function};
 
 fn read_coin_balance(data: &[u8]) -> Option<u64> {
     if data.len() < 40 {
@@ -166,7 +166,7 @@ pub async fn consolidate_coin_objects(
     token_type: &str,
     spendable_coins: &[SpendableCoinObject],
     required_balance: u64,
-    starting_sequence: u64,
+    _starting_sequence: u64,
     gas_limit: u64,
     gas_price: u64,
 ) -> Result<(SelectedCoinObject, u64)> {
@@ -178,46 +178,45 @@ pub async fn consolidate_coin_objects(
     };
 
     let mut accumulated = primary.balance;
-    let mut sequence_number = starting_sequence;
+    let mut last_prepared_nonce = 0;
 
     for coin in coins.iter().skip(1) {
         if accumulated >= required_balance {
             break;
         }
 
-        let join_req = CallFunctionRequest {
-            sender: sender_tagged.to_string(),
-            package: "0x2".to_string(),
-            module: CoinModule::COIN_MODULE.to_string(),
-            function: CoinModule::function_names().join_entry.to_string(),
-            type_args: vec![token_type.to_string()],
-            args: vec![
-                move_core_types::account_address::AccountAddress::from_hex_literal(
-                    &primary.coin_object_id,
-                )
-                .context("Invalid primary coin object ID")?
-                .to_vec(),
-                move_core_types::account_address::AccountAddress::from_hex_literal(
-                    &coin.coin_object_id,
-                )
-                .context("Invalid merge coin object ID")?
-                .to_vec(),
-            ],
-            object_inputs: None,
-            gas_limit,
-            gas_price,
-            client_nonce: Some(sequence_number),
-            sequence_number,
-            gas_payment: None,
-            signature: None,
-            execute_immediate: Some(true),
-        };
+        let join_req = client
+            .build_call_function(BuildCallFunctionRequest {
+                sender: sender_tagged.to_string(),
+                package: "0x2".to_string(),
+                module: CoinModule::COIN_MODULE.to_string(),
+                function: CoinModule::function_names().join_entry.to_string(),
+                type_args: vec![token_type.to_string()],
+                args: vec![
+                    move_core_types::account_address::AccountAddress::from_hex_literal(
+                        &primary.coin_object_id,
+                    )
+                    .context("Invalid primary coin object ID")?
+                    .to_vec(),
+                    move_core_types::account_address::AccountAddress::from_hex_literal(
+                        &coin.coin_object_id,
+                    )
+                    .context("Invalid merge coin object ID")?
+                    .to_vec(),
+                ],
+                gas_limit,
+                gas_price,
+                nonce: None,
+                execute_immediate: Some(true),
+            })
+            .await
+            .context("Failed to build coin consolidation transaction")?;
+        last_prepared_nonce = join_req.canonical_nonce().map_err(map_nonce_error)?;
         let status = sign_and_call_function(client, wallet, join_req).await?;
         eprintln!(
             "  Consolidated coin {} into {} (tx: {})",
             coin.coin_object_id, primary.coin_object_id, status.hash
         );
-        sequence_number = sequence_number.saturating_add(1);
         accumulated = accumulated.saturating_add(coin.balance);
     }
 
@@ -230,7 +229,7 @@ pub async fn consolidate_coin_objects(
                 .iter()
                 .fold(0u64, |sum, coin| sum.saturating_add(coin.balance)),
         },
-        sequence_number,
+        last_prepared_nonce,
     ))
 }
 

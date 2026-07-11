@@ -48,7 +48,7 @@ fn sign_object_transfer_request(
         coin_object_ref,
         request.recipient.clone(),
         request.amount,
-        request.sequence_number,
+        request.canonical_nonce().map_err(anyhow::Error::msg)?,
         request.gas_limit,
         request.gas_price,
     );
@@ -89,7 +89,7 @@ fn sign_call_function_request(
         gas_payment: request.gas_payment.clone(),
         gas_limit: request.gas_limit,
         gas_price: request.gas_price,
-        sequence_number: request.sequence_number,
+        nonce: request.canonical_nonce().map_err(anyhow::Error::msg)?,
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -242,7 +242,7 @@ pub async fn request_from_dev(
                     amount: amount_mist,
                     gas_limit,
                     gas_price,
-                    client_nonce: None,
+                    nonce: None,
                     execute_immediate: Some(false),
                 })
                 .await
@@ -272,7 +272,7 @@ pub async fn request_from_dev(
                 required_amount: amount_mist,
                 gas_limit,
                 gas_price,
-                client_nonce: None,
+                nonce: None,
                 execute_immediate: Some(false),
             };
             let join_request = match client

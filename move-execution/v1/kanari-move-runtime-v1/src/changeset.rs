@@ -54,7 +54,6 @@ pub struct OwnerDelta {
     pub address: AccountAddress,
     /// Positive = credit, negative = debit. i128 prevents lossy u64 -> i64 casts.
     pub balance_delta: i128,
-    pub sequence_increment: u64,
     pub modules_added: BTreeSet<String>,
 }
 
@@ -63,7 +62,6 @@ impl OwnerDelta {
         Self {
             address,
             balance_delta: 0,
-            sequence_increment: 0,
             modules_added: BTreeSet::new(),
         }
     }
@@ -74,10 +72,6 @@ impl OwnerDelta {
 
     pub fn credit(&mut self, amount: u64) {
         self.balance_delta += amount as i128;
-    }
-
-    pub fn increment_sequence(&mut self) {
-        // Legacy no-op. Replay/double-spend safety is enforced by object/gas refs.
     }
 
     fn add_module(&mut self, module_name: String) {
@@ -263,9 +257,6 @@ impl ChangeSet {
             existing.balance_delta = existing
                 .balance_delta
                 .saturating_add(other_change.balance_delta);
-            existing.sequence_increment = existing
-                .sequence_increment
-                .saturating_add(other_change.sequence_increment);
             existing.modules_added.extend(other_change.modules_added);
         }
         self.events.extend(other.events);

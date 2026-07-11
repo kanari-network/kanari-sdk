@@ -30,7 +30,7 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
         gas_payment: None,
         gas_limit: 1000,
         gas_price: 1,
-        sequence_number: 0,
+        nonce: 0,
     };
     SignedTransaction::new(tx)
 }

@@ -207,7 +207,7 @@ impl StressTest {
                             amount: amount_mist,
                             gas_limit,
                             gas_price,
-                            client_nonce: None,
+                            nonce: None,
                             execute_immediate: Some(false),
                         })
                         .await
@@ -223,7 +223,9 @@ impl StressTest {
                             )
                         })?;
 
-                    let tx_seq = prepared.sequence_number;
+                    let tx_nonce = prepared
+                        .canonical_nonce()
+                        .map_err(crate::command::rpc_helpers::map_nonce_error)?;
                     let coin_object_id = prepared.coin_object_id.clone();
                     let gas_object_id = prepared
                         .gas_payment
@@ -237,7 +239,7 @@ impl StressTest {
                         .await
                         .context("Failed to submit transaction")?;
 
-                    Ok::<_, anyhow::Error>((tx_seq, coin_object_id, gas_object_id, status))
+                    Ok::<_, anyhow::Error>((tx_nonce, coin_object_id, gas_object_id, status))
                 }
                 .await;
 
@@ -247,7 +249,7 @@ impl StressTest {
                             && retry_count < MAX_OBJECT_BUSY_RETRIES =>
                     {
                         retry_count += 1;
-                        if retry_count == 1 || retry_count % 10 == 0 {
+                        if retry_count == 1 || retry_count.is_multiple_of(10) {
                             eprintln!(
                                 "  [{}/{}] waiting for coin/gas object refs to commit (retry {}/{})",
                                 i + 1,
@@ -263,14 +265,14 @@ impl StressTest {
             };
 
             match result {
-                Ok((tx_seq, coin_object_id, gas_object_id, status)) => {
+                Ok((tx_nonce, coin_object_id, gas_object_id, status)) => {
                     if !status.success || (!status.submitted && !status.committed) {
                         fail_count += 1;
                         eprintln!(
-                            "  [{}/{}] FAILED seq={} status={} submitted={} committed={} previewed={} hash={}",
+                            "  [{}/{}] FAILED nonce={} status={} submitted={} committed={} previewed={} hash={}",
                             i + 1,
                             self.count,
-                            tx_seq,
+                            tx_nonce,
                             status.status,
                             status.submitted,
                             status.committed,
@@ -295,11 +297,11 @@ impl StressTest {
                             0.0
                         };
                         eprintln!(
-                            "  [{}/{}] hash={} seq={} tps={:.1}",
+                            "  [{}/{}] hash={} nonce={} tps={:.1}",
                             i + 1,
                             self.count,
                             &status.hash[..16.min(status.hash.len())],
-                            tx_seq,
+                            tx_nonce,
                             tps,
                         );
                     }

@@ -75,7 +75,7 @@ class TransactionDetails extends Equatable {
   final String txType;
   final String sender;
   final String? senderAddress;
-  final int sequenceNumber;
+  final int nonce;
   final int gasLimit;
   final int gasPrice;
   final String? module;
@@ -92,7 +92,7 @@ class TransactionDetails extends Equatable {
     required this.txType,
     required this.sender,
     this.senderAddress,
-    required this.sequenceNumber,
+    required this.nonce,
     required this.gasLimit,
     required this.gasPrice,
     this.module,
@@ -117,7 +117,7 @@ class TransactionDetails extends Equatable {
       txType: json['tx_type']?.toString() ?? '',
       sender: json['sender']?.toString() ?? '',
       senderAddress: json['sender_address']?.toString(),
-      sequenceNumber: _jsonInt(json['sequence_number']),
+      nonce: _jsonInt(json['nonce']),
       gasLimit: _jsonInt(json['gas_limit']),
       gasPrice: _jsonInt(json['gas_price']),
       module: json['module']?.toString(),
@@ -142,7 +142,7 @@ class TransactionDetails extends Equatable {
     'tx_type': txType,
     'sender': sender,
     'sender_address': senderAddress,
-    'sequence_number': sequenceNumber,
+    'nonce': nonce,
     'gas_limit': gasLimit,
     'gas_price': gasPrice,
     'module': module,
@@ -161,7 +161,7 @@ class TransactionDetails extends Equatable {
     txType,
     sender,
     senderAddress,
-    sequenceNumber,
+    nonce,
     gasLimit,
     gasPrice,
     module,

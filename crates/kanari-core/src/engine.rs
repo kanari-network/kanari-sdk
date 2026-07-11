@@ -598,7 +598,7 @@ impl BlockchainEngine {
         self.mempool_read().pending_txs.len()
     }
 
-    pub(crate) fn get_expected_sequence(&self, address_hex: &str) -> u64 {
+    pub(crate) fn get_expected_nonce(&self, address_hex: &str) -> u64 {
         // Legacy wire field only. Account sequence is no longer a state/consensus rule;
         // keep this as a best-effort transaction nonce so older clients get distinct hashes.
         self.pending_tx_count_for_sender(address_hex)
@@ -1543,7 +1543,7 @@ mod tests {
 
     fn signed_transfer_from(
         sender: &kanari_crypto::keys::KeyPair,
-        sequence_number: u64,
+        nonce: u64,
     ) -> SignedTransaction {
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
         let tx = Transaction::new_transfer_with_object_ref(
@@ -1551,7 +1551,7 @@ mod tests {
             native_coin_object_ref("0xaaaa", 1_000_000),
             recipient.address,
             1,
-            sequence_number,
+            nonce,
         );
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx
@@ -1910,22 +1910,21 @@ mod tests {
 
         assert_eq!(hashes.len(), 3);
         let pending = engine.pending_transactions_snapshot();
-        let pending_sequences = pending
+        let pending_nonces = pending
             .iter()
-            .map(|tx| tx.transaction.sequence_number())
+            .map(|tx| tx.transaction.nonce())
             .collect::<Vec<_>>();
-        assert_eq!(pending_sequences, vec![0, 1, 2]);
+        assert_eq!(pending_nonces, vec![0, 1, 2]);
     }
 
     #[test]
-    fn gas_application_does_not_increment_account_sequence() {
+    fn gas_application_only_debits_balance() {
         let sender = AccountAddress::random();
         let mut changeset = ChangeSet::new();
 
         BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
 
         let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
-        assert_eq!(sender_owner_delta.sequence_increment, 0);
         assert_eq!(sender_owner_delta.balance_delta, -10);
     }
 
@@ -2055,7 +2054,7 @@ mod tests {
             }),
             gas_limit: 100_000,
             gas_price: 1,
-            sequence_number: 0,
+            nonce: 0,
         };
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx
@@ -2096,7 +2095,7 @@ mod tests {
             }),
             gas_limit: 100_000,
             gas_price: 1,
-            sequence_number: 0,
+            nonce: 0,
         };
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx
@@ -2159,7 +2158,7 @@ mod tests {
             }),
             gas_limit: 100_000,
             gas_price: 1,
-            sequence_number: 0,
+            nonce: 0,
         };
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx

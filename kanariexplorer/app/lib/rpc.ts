@@ -75,7 +75,7 @@ export type SignedTransactionPayload = {
   amount?: number | null;
   gas_limit: number;
   gas_price: number;
-  sequence_number: number;
+  nonce?: number;
   signature?: RpcBytes | null;
 };
 
@@ -85,7 +85,7 @@ export type PublishModulePayload = {
   module_name: string;
   gas_limit: number;
   gas_price: number;
-  sequence_number: number;
+  nonce?: number;
   signature?: RpcBytes | null;
   execute_immediate?: boolean;
 };
@@ -102,9 +102,13 @@ export type CallFunctionPayload = FunctionCallPayload & {
   sender: string;
   gas_limit: number;
   gas_price: number;
-  sequence_number: number;
+  nonce?: number;
   signature?: RpcBytes | null;
   execute_immediate?: boolean;
+};
+
+type NoncePayload = {
+  nonce?: number;
 };
 
 export type GetOwnedObjectsOptions = {
@@ -361,9 +365,11 @@ function normalizeAccount(address: string, value: unknown) {
   const record = asRecord(value);
   const account = asRecord(record.account);
   const source = Object.keys(account).length > 0 ? account : record;
+  const normalizedNonce = source.nonce ?? record.nonce ?? 0;
   return {
     ...record,
     ...source,
+    nonce: normalizedNonce,
     balances: record.balances ?? source.balances ?? [],
     owned_objects: asObjectArray(source.owned_objects ?? record.owned_objects),
     owned_object_count: source.owned_object_count ?? record.owned_object_count ?? asObjectArray(source.owned_objects ?? record.owned_objects).length,
@@ -399,6 +405,7 @@ function normalizeTransaction(value: unknown) {
   const record = asRecord(value);
   const status = String(record.status ?? "");
   const normalizedStatus = status.toLowerCase();
+  const normalizedNonce = record.nonce ?? null;
   const success =
     typeof record.success === "boolean"
       ? record.success
@@ -414,6 +421,7 @@ function normalizeTransaction(value: unknown) {
       : normalizedStatus === "committed" || normalizedStatus === "success";
   return {
     ...record,
+    nonce: normalizedNonce,
     success,
     previewed,
     submitted,
@@ -476,11 +484,11 @@ export async function getTransaction(hash: string) {
 }
 
 export async function submitTransaction(transaction: SignedTransactionPayload) {
-  return callRpc(RPC_METHODS.SUBMIT_TRANSACTION, transaction);
+  return callRpc(RPC_METHODS.SUBMIT_TRANSACTION, withCanonicalNonce(transaction));
 }
 
 export async function publishModule(payload: PublishModulePayload) {
-  return callRpc(RPC_METHODS.PUBLISH_MODULE, payload);
+  return callRpc(RPC_METHODS.PUBLISH_MODULE, withCanonicalNonce(payload));
 }
 
 export async function getModule(address: string, name: string) {
@@ -497,7 +505,7 @@ export async function verifyModule(module_bytes: RpcBytes) {
 
 export async function callFunction(payload: CallFunctionPayload) {
   return callRpc(RPC_METHODS.CALL_FUNCTION, {
-    ...payload,
+    ...withCanonicalNonce(payload),
     args: payload.args ?? [],
     type_args: payload.type_args ?? [],
   });
@@ -550,4 +558,16 @@ export async function getCollections() {
 
 export async function getNftsByCollection(collectionId: string) {
   return callRpc(RPC_METHODS.GET_NFTS_BY_COLLECTION, collectionId);
+}
+
+function withCanonicalNonce<T extends NoncePayload>(payload: T): T {
+  const nonce = payload.nonce;
+  if (typeof nonce !== "number") {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    nonce,
+  };
 }

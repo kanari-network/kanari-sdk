@@ -293,7 +293,8 @@ mod tests {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnerInfo {
     pub owner: String,
-    pub sequence_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce: Option<u64>,
     pub modules: Vec<String>,
     pub balances: std::collections::BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -456,7 +457,8 @@ pub struct TransactionDetails {
     pub sender: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sender_address: Option<String>,
-    pub sequence_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
     pub gas_limit: u64,
     pub gas_price: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -505,8 +507,6 @@ pub struct SubmitObjectTransferRequest {
 /// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
 /// the backend chooses canonical object refs and requires distinct native
 /// transfer/gas coin objects.
-/// `client_nonce` is optional input entropy for transaction hash uniqueness;
-/// it is not an account sequence and is not used for consensus ordering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNativeTransferRequest {
     pub sender: String,
@@ -514,8 +514,9 @@ pub struct BuildNativeTransferRequest {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -528,7 +529,7 @@ pub struct BuildNativeCoinConsolidationRequest {
     pub gas_limit: u64,
     pub gas_price: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -544,10 +545,9 @@ pub struct ObjectTransferData {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Canonical replay nonce.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
-    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
-    pub sequence_number: u64,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
@@ -563,10 +563,9 @@ pub struct PublishModuleRequest {
     pub module_name: String,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Canonical replay nonce.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
-    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
-    pub sequence_number: u64,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
@@ -582,9 +581,9 @@ pub struct BuildPublishModuleRequest {
     pub module_name: String,
     pub gas_limit: u64,
     pub gas_price: u64,
-    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -602,14 +601,60 @@ pub struct CallFunctionRequest {
     pub object_inputs: Option<Vec<ObjectInput>>,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Canonical replay nonce.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
-    /// Legacy transaction-format nonce. Must match `client_nonce` when provided.
-    pub sequence_number: u64,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
     pub execute_immediate: Option<bool>,
+}
+
+fn canonical_request_nonce(nonce: Option<u64>) -> Result<u64, String> {
+    if let Some(nonce) = nonce {
+        if nonce == 0 {
+            return Err("Prepared request nonce must be non-zero".to_string());
+        }
+        return Ok(nonce);
+    }
+
+    Err("Prepared request is missing canonical nonce".to_string())
+}
+
+impl ObjectTransferData {
+    pub fn canonical_nonce(&self) -> Result<u64, String> {
+        canonical_request_nonce(self.nonce)
+    }
+
+    pub fn require_nonce(&mut self) -> Result<u64, String> {
+        let nonce = self.canonical_nonce()?;
+        self.nonce = Some(nonce);
+        Ok(nonce)
+    }
+}
+
+impl PublishModuleRequest {
+    pub fn canonical_nonce(&self) -> Result<u64, String> {
+        canonical_request_nonce(self.nonce)
+    }
+
+    pub fn require_nonce(&mut self) -> Result<u64, String> {
+        let nonce = self.canonical_nonce()?;
+        self.nonce = Some(nonce);
+        Ok(nonce)
+    }
+}
+
+impl CallFunctionRequest {
+    pub fn canonical_nonce(&self) -> Result<u64, String> {
+        canonical_request_nonce(self.nonce)
+    }
+
+    pub fn require_nonce(&mut self) -> Result<u64, String> {
+        let nonce = self.canonical_nonce()?;
+        self.nonce = Some(nonce);
+        Ok(nonce)
+    }
 }
 
 /// Build call function request
@@ -623,9 +668,9 @@ pub struct BuildCallFunctionRequest {
     pub args: Vec<Vec<u8>>,
     pub gas_limit: u64,
     pub gas_price: u64,
-    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -639,9 +684,9 @@ pub struct BuildTokenTransferRequest {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
-    /// Optional caller-provided replay nonce. If omitted, RPC generates one from OS randomness.
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_nonce: Option<u64>,
+    pub nonce: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
@@ -892,7 +937,7 @@ pub mod methods {
     // Owner & Balance
     #[open_rpc_method(
         summary = "Get owner info",
-        description = "Returns owner data including sequence number, balances, modules, and owned objects.",
+        description = "Returns owner data including nonce, balances, modules, and owned objects.",
         params = [("owner", "Target owner address.", true, schema_string())],
         result = ("owner", "Owner information object.", schema_object()),
         tags = ["owner", "balance"]
@@ -1040,7 +1085,7 @@ pub mod methods {
     pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
     #[open_rpc_method(
         summary = "Build native transfer transaction",
-        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and sequence number, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
+        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
         params = [("transaction", "Unsigned native transfer payload.", true, schema_object())],
         result = ("transaction", "Prepared object-transfer request.", schema_object()),
         tags = ["transaction"]
@@ -1094,7 +1139,7 @@ pub mod methods {
     pub const PUBLISH_MODULE: &str = "kanari_publishModule";
     #[open_rpc_method(
         summary = "Build publish module transaction",
-        description = "Resolves sequence number and gas payment for a module publication and returns a canonical unsigned request.",
+        description = "Resolves nonce and gas payment for a module publication and returns a canonical unsigned request.",
         params = [("module", "Unsigned module publication payload.", true, schema_object())],
         result = ("module", "Prepared publish-module request.", schema_object()),
         tags = ["module"]
@@ -1146,7 +1191,7 @@ pub mod methods {
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
     #[open_rpc_method(
         summary = "Build function call transaction",
-        description = "Resolves object inputs, sequence number, and gas payment for a Move entry function call and returns a canonical unsigned request.",
+        description = "Resolves object inputs, nonce, and gas payment for a Move entry function call and returns a canonical unsigned request.",
         params = [("call", "Unsigned function call payload.", true, schema_object())],
         result = ("call", "Prepared call-function request.", schema_object()),
         tags = ["function"]
@@ -1154,7 +1199,7 @@ pub mod methods {
     pub const BUILD_CALL_FUNCTION: &str = "kanari_buildCallFunction";
     #[open_rpc_method(
         summary = "Build token transfer transaction",
-        description = "Selects a token coin object, resolves gas and sequence number, and returns a canonical unsigned Move call for token transfer.",
+        description = "Selects a token coin object, resolves gas and nonce, and returns a canonical unsigned Move call for token transfer.",
         params = [("call", "Unsigned token transfer payload.", true, schema_object())],
         result = ("call", "Prepared token-transfer call request.", schema_object()),
         tags = ["function"]

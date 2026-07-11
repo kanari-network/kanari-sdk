@@ -27,7 +27,7 @@ pub struct IndexedTransaction {
     pub block_height: u64,
     pub sender: String,
     pub tx_type: String,
-    pub sequence_number: u64,
+    pub nonce: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
     pub gas_used: u64,

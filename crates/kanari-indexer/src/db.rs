@@ -69,7 +69,7 @@ impl IndexerDB {
 
         self.conn
             .execute(
-                "INSERT OR REPLACE INTO blocks 
+                "INSERT OR REPLACE INTO blocks
              (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
@@ -135,8 +135,8 @@ impl IndexerDB {
         transactions: &[SignedTransaction],
     ) -> Result<()> {
         let mut insert_tx_stmt = self.conn.prepare_cached(
-            "INSERT OR REPLACE INTO transactions 
-                 (tx_hash, block_height, sender, tx_type, sequence_number, gas_limit, gas_price, status, signature, raw_data, timestamp)
+            "INSERT OR REPLACE INTO transactions
+                 (tx_hash, block_height, sender, tx_type, nonce, gas_limit, gas_price, status, signature, raw_data, timestamp)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )?;
         let mut insert_arg_stmt = self.conn.prepare_cached(
@@ -157,7 +157,7 @@ impl IndexerDB {
                     block_height as i64,
                     sender,
                     tx_type,
-                    signed_tx.transaction.sequence_number() as i64,
+                    signed_tx.transaction.nonce() as i64,
                     signed_tx.transaction.gas_limit() as i64,
                     signed_tx.transaction.gas_price() as i64,
                     "success",
@@ -189,7 +189,7 @@ impl IndexerDB {
     /// Get a transaction by hash
     pub fn get_transaction_by_hash(&self, tx_hash: &str) -> Result<Option<IndexedTransaction>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tx_hash, block_height, sender, tx_type, sequence_number, 
+            "SELECT id, tx_hash, block_height, sender, tx_type, nonce,
                     gas_limit, gas_price, gas_used, status, signature, raw_data, timestamp, created_at
              FROM transactions WHERE tx_hash = ?1"
         )?;
@@ -202,7 +202,7 @@ impl IndexerDB {
                     block_height: row.get::<_, i64>(2)? as u64,
                     sender: row.get(3)?,
                     tx_type: row.get(4)?,
-                    sequence_number: row.get::<_, i64>(5)? as u64,
+                    nonce: row.get::<_, i64>(5)? as u64,
                     gas_limit: row.get::<_, i64>(6)? as u64,
                     gas_price: row.get::<_, i64>(7)? as u64,
                     gas_used: row.get::<_, i64>(8)? as u64,
@@ -221,7 +221,7 @@ impl IndexerDB {
     /// Get transactions by block height
     pub fn get_transactions_by_block(&self, block_height: u64) -> Result<Vec<IndexedTransaction>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tx_hash, block_height, sender, tx_type, sequence_number, 
+            "SELECT id, tx_hash, block_height, sender, tx_type, nonce,
                     gas_limit, gas_price, gas_used, status, signature, raw_data, timestamp, created_at
              FROM transactions WHERE block_height = ?1 ORDER BY id"
         )?;
@@ -234,7 +234,7 @@ impl IndexerDB {
                     block_height: row.get::<_, i64>(2)? as u64,
                     sender: row.get(3)?,
                     tx_type: row.get(4)?,
-                    sequence_number: row.get::<_, i64>(5)? as u64,
+                    nonce: row.get::<_, i64>(5)? as u64,
                     gas_limit: row.get::<_, i64>(6)? as u64,
                     gas_price: row.get::<_, i64>(7)? as u64,
                     gas_used: row.get::<_, i64>(8)? as u64,
@@ -257,7 +257,7 @@ impl IndexerDB {
         limit: u32,
     ) -> Result<Vec<IndexedTransaction>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tx_hash, block_height, sender, tx_type, sequence_number, 
+        "SELECT id, tx_hash, block_height, sender, tx_type, nonce,
                     gas_limit, gas_price, gas_used, status, signature, raw_data, timestamp, created_at
              FROM transactions WHERE sender = ?1 ORDER BY id DESC LIMIT ?2"
         )?;
@@ -270,7 +270,7 @@ impl IndexerDB {
                     block_height: row.get::<_, i64>(2)? as u64,
                     sender: row.get(3)?,
                     tx_type: row.get(4)?,
-                    sequence_number: row.get::<_, i64>(5)? as u64,
+                    nonce: row.get::<_, i64>(5)? as u64,
                     gas_limit: row.get::<_, i64>(6)? as u64,
                     gas_price: row.get::<_, i64>(7)? as u64,
                     gas_used: row.get::<_, i64>(8)? as u64,
@@ -332,7 +332,7 @@ impl IndexerDB {
     pub fn get_events_by_transaction(&self, tx_hash: &str) -> Result<Vec<IndexedEvent>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
-             FROM events WHERE tx_hash = ?1 ORDER BY sequence_number"
+             FROM events WHERE tx_hash = ?1 ORDER BY id"
         )?;
 
         let events = stmt
@@ -357,7 +357,7 @@ impl IndexerDB {
     pub fn get_events_by_key(&self, event_key: &str, limit: u32) -> Result<Vec<IndexedEvent>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
-             FROM events WHERE event_key = ?1 ORDER BY sequence_number DESC LIMIT ?2"
+             FROM events WHERE event_key = ?1 ORDER BY id DESC LIMIT ?2"
         )?;
 
         let events = stmt

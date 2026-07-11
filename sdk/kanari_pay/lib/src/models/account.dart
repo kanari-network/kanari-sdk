@@ -15,14 +15,14 @@ String _jsonString(dynamic value, {String fallback = ''}) {
 
 class AccountInfo extends Equatable {
   final String address;
-  final int sequenceNumber;
+  final int nonce;
   final List<String> modules;
   final Map<String, int> tokenBalances;
   final List<ObjectInfo>? ownedObjects;
 
   const AccountInfo({
     required this.address,
-    required this.sequenceNumber,
+    required this.nonce,
     required this.modules,
     required this.tokenBalances,
     this.ownedObjects,
@@ -39,7 +39,7 @@ class AccountInfo extends Equatable {
 
     return AccountInfo(
       address: _jsonString(json['owner'] ?? json['address']),
-      sequenceNumber: _jsonInt(json['sequence_number']),
+      nonce: _jsonInt(json['nonce']),
       modules: (json['modules'] as List<dynamic>? ?? const [])
           .map((item) => item.toString())
           .toList(),
@@ -52,7 +52,7 @@ class AccountInfo extends Equatable {
 
   Map<String, dynamic> toJson() => {
     'owner': address,
-    'sequence_number': sequenceNumber,
+    'nonce': nonce,
     'modules': modules,
     'balances': tokenBalances,
     'owned_objects': ownedObjects?.map((item) => item.toJson()).toList(),
@@ -61,7 +61,7 @@ class AccountInfo extends Equatable {
   @override
   List<Object?> get props => [
     address,
-    sequenceNumber,
+    nonce,
     modules,
     tokenBalances,
     ownedObjects,

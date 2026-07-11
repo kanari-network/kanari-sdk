@@ -81,14 +81,14 @@ impl BlockchainEngine {
                     .get(sender)
                     .expect("sender cache must contain every batch sender")
                     .clone();
-                let sequence_number = tx.sequence_number();
+                let nonce = tx.nonce();
                 let primary_access_key = tx.primary_access_key();
                 let access_keys = tx.object_access_keys();
                 Ok((
                     verified.into_signed_transaction(),
                     tx_hash,
                     normalized_sender,
-                    sequence_number,
+                    nonce,
                     primary_access_key,
                     access_keys,
                 ))

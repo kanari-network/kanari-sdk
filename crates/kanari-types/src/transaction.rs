@@ -330,7 +330,7 @@ pub enum Transaction {
         gas_payment: Option<GasPayment>,
         gas_limit: u64,
         gas_price: u64,
-        sequence_number: u64,
+        nonce: u64,
     },
     /// Execute a Move function
     ExecuteFunction {
@@ -343,7 +343,7 @@ pub enum Transaction {
         gas_payment: Option<GasPayment>,
         gas_limit: u64,
         gas_price: u64,
-        sequence_number: u64,
+        nonce: u64,
     },
 }
 
@@ -373,14 +373,10 @@ impl Transaction {
         self.sender()
     }
 
-    pub fn sequence_number(&self) -> u64 {
+    pub fn nonce(&self) -> u64 {
         match self {
-            Transaction::PublishModule {
-                sequence_number, ..
-            } => *sequence_number,
-            Transaction::ExecuteFunction {
-                sequence_number, ..
-            } => *sequence_number,
+            Transaction::PublishModule { nonce, .. } => *nonce,
+            Transaction::ExecuteFunction { nonce, .. } => *nonce,
         }
     }
 
@@ -569,17 +565,9 @@ impl Transaction {
         coin_object_id: String,
         to: String,
         amount: u64,
-        sequence_number: u64,
+        nonce: u64,
     ) -> Self {
-        Self::new_transfer_with_gas(
-            from,
-            coin_object_id,
-            to,
-            amount,
-            sequence_number,
-            100_000,
-            1000,
-        )
+        Self::new_transfer_with_gas(from, coin_object_id, to, amount, nonce, 100_000, 1000)
     }
 
     pub fn new_transfer_with_gas(
@@ -587,7 +575,7 @@ impl Transaction {
         coin_object_id: String,
         to: String,
         amount: u64,
-        sequence_number: u64,
+        nonce: u64,
         gas_limit: u64,
         gas_price: u64,
     ) -> Self {
@@ -596,7 +584,7 @@ impl Transaction {
             ObjectRef::new(coin_object_id, None, None),
             to,
             amount,
-            sequence_number,
+            nonce,
             gas_limit,
             gas_price,
         )
@@ -607,14 +595,14 @@ impl Transaction {
         coin_object_ref: ObjectRef,
         to: String,
         amount: u64,
-        sequence_number: u64,
+        nonce: u64,
     ) -> Self {
         Self::new_transfer_with_object_ref_and_gas(
             from,
             coin_object_ref,
             to,
             amount,
-            sequence_number,
+            nonce,
             100_000,
             1000,
         )
@@ -625,7 +613,7 @@ impl Transaction {
         coin_object_ref: ObjectRef,
         to: String,
         amount: u64,
-        sequence_number: u64,
+        nonce: u64,
         gas_limit: u64,
         gas_price: u64,
     ) -> Self {
@@ -656,19 +644,19 @@ impl Transaction {
             }),
             gas_limit,
             gas_price,
-            sequence_number,
+            nonce,
         }
     }
 
     /// Create a burn transaction with default gas settings
-    pub fn new_burn(from: String, amount: u64, sequence_number: u64) -> Self {
-        Self::new_burn_with_gas(from, amount, sequence_number, 100_000, 1000)
+    pub fn new_burn(from: String, amount: u64, nonce: u64) -> Self {
+        Self::new_burn_with_gas(from, amount, nonce, 100_000, 1000)
     }
 
     pub fn new_burn_with_gas(
         from: String,
         amount: u64,
-        sequence_number: u64,
+        nonce: u64,
         gas_limit: u64,
         gas_price: u64,
     ) -> Self {
@@ -687,7 +675,7 @@ impl Transaction {
             }),
             gas_limit,
             gas_price,
-            sequence_number,
+            nonce,
         }
     }
 }
@@ -710,12 +698,12 @@ mod tests {
             Transaction::ExecuteFunction {
                 module,
                 function,
-                sequence_number,
+                nonce,
                 ..
             } => {
                 assert_eq!(module, &KanariModule::module_path());
                 assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
-                assert_eq!(*sequence_number, 7);
+                assert_eq!(*nonce, 7);
             }
             Transaction::PublishModule { .. } => panic!("transfer helper must build a call"),
         }
@@ -738,13 +726,13 @@ mod tests {
             Transaction::ExecuteFunction {
                 module,
                 function,
-                sequence_number,
+                nonce,
                 args,
                 ..
             } => {
                 assert_eq!(module, &KanariModule::module_path());
                 assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
-                assert_eq!(*sequence_number, 7);
+                assert_eq!(*nonce, 7);
                 assert_eq!(args.len(), 3);
             }
             Transaction::PublishModule { .. } => panic!("object transfer helper must build a call"),
@@ -785,7 +773,7 @@ mod tests {
             gas_payment: None,
             gas_limit: 100_000,
             gas_price: 1,
-            sequence_number: 0,
+            nonce: 0,
         };
 
         let keys = tx.get_conflict_keys();
@@ -817,9 +805,7 @@ mod tests {
         assert!(signed_tx.verify_signature().unwrap());
 
         match &mut signed_tx.transaction {
-            Transaction::ExecuteFunction {
-                sequence_number, ..
-            } => *sequence_number += 1,
+            Transaction::ExecuteFunction { nonce, .. } => *nonce += 1,
             Transaction::PublishModule { .. } => unreachable!(),
         }
 
@@ -864,9 +850,7 @@ mod tests {
         assert_eq!(verified.hash(), signed_tx.transaction_hash());
 
         match &mut signed_tx.transaction {
-            Transaction::ExecuteFunction {
-                sequence_number, ..
-            } => *sequence_number += 1,
+            Transaction::ExecuteFunction { nonce, .. } => *nonce += 1,
             Transaction::PublishModule { .. } => unreachable!(),
         }
 

@@ -77,7 +77,7 @@ void main() {
                 'amount': 1000,
                 'gas_limit': 1,
                 'gas_price': 1,
-                'sequence_number': 5,
+                'nonce': 5,
                 'gas_payment': {
                   'payment_objects': [
                     {
@@ -142,7 +142,7 @@ void main() {
         submittedParams?['gas_payment']?['payment_objects']?[0]?['object_id'],
         '0x0000000000000000000000000000000000000000000000000000000000000def',
       );
-      expect(submittedParams?['sequence_number'], 5);
+      expect(submittedParams?['nonce'], 5);
       expect(submittedParams?['signature'], isA<List>());
     });
 
@@ -247,7 +247,7 @@ void main() {
                 'module_name': 'TestModule',
                 'gas_limit': 100000,
                 'gas_price': 1000,
-                'sequence_number': 10,
+                'nonce': 10,
                 'gas_payment': {
                   'payment_objects': const [],
                   'owner': 'Ed25519:0x123',
@@ -290,7 +290,7 @@ void main() {
       expect(result.hash, '0xpubhash');
       expect(methods, ['kanari_buildPublishModule', 'kanari_publishModule']);
       expect(builtParams?['sender'], 'Ed25519:0x123');
-      expect(submittedParams?['sequence_number'], 10);
+      expect(submittedParams?['nonce'], 10);
       expect(submittedParams?['signature'], isA<List>());
     });
 
@@ -323,7 +323,7 @@ void main() {
                 'object_inputs': const [],
                 'gas_limit': 100000,
                 'gas_price': 1000,
-                'sequence_number': 15,
+                'nonce': 15,
                 'gas_payment': {
                   'payment_objects': const [],
                   'owner': 'Ed25519:0x123',
@@ -375,7 +375,7 @@ void main() {
         [1],
         [2],
       ]);
-      expect(submittedParams?['sequence_number'], 15);
+      expect(submittedParams?['nonce'], 15);
       expect(submittedParams?['signature'], isA<List>());
     });
 
@@ -407,7 +407,7 @@ void main() {
                 'object_inputs': const [],
                 'gas_limit': 100000,
                 'gas_price': 1000,
-                'sequence_number': 20,
+                'nonce': 20,
                 'gas_payment': {
                   'payment_objects': const [],
                   'owner': 'Ed25519:0x123',
@@ -447,7 +447,7 @@ void main() {
       expect(result.hash, '0xburnhash');
       expect(methods, ['kanari_buildCallFunction', 'kanari_callFunction']);
       expect(builtParams?['function'], 'burn_amount');
-      expect(submittedParams?['sequence_number'], 20);
+      expect(submittedParams?['nonce'], 20);
       expect(submittedParams?['signature'], isA<List>());
     });
 
@@ -525,7 +525,7 @@ void main() {
                 ],
                 'gas_limit': 100000,
                 'gas_price': 1000,
-                'sequence_number': 8,
+                'nonce': 8,
                 'gas_payment': {
                   'payment_objects': const [],
                   'owner': 'Ed25519:0x123',
@@ -573,7 +573,7 @@ void main() {
         '0x0000000000000000000000000000000000000000000000000000000000000456',
       );
       expect(builtParams?['token_type'], '0x2::demo_token::DEMO');
-      expect(submittedParams?['sequence_number'], 8);
+      expect(submittedParams?['nonce'], 8);
       expect(submittedParams?['signature'], isA<List>());
     });
   });

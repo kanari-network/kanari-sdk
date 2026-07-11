@@ -64,7 +64,7 @@ impl Burn {
                 args: vec![bcs::to_bytes(&amount_mist).context("Failed to serialize burn amount")?],
                 gas_limit,
                 gas_price,
-                client_nonce: None,
+                nonce: None,
                 execute_immediate: None,
             })
             .await

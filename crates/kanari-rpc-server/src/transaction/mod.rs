@@ -154,10 +154,13 @@ fn normalize_token_type(token: &str) -> String {
     token.to_string()
 }
 
-fn fresh_transaction_nonce(request_id: u64, client_nonce: Option<u64>) -> anyhow::Result<u64> {
-    if let Some(client_nonce) = client_nonce {
-        anyhow::ensure!(client_nonce != 0, "client_nonce must be non-zero");
-        return Ok(client_nonce);
+fn fresh_nonce(
+    request_id: u64,
+    nonce: Option<u64>,
+) -> anyhow::Result<u64> {
+    if let Some(nonce) = nonce {
+        anyhow::ensure!(nonce != 0, "nonce must be non-zero");
+        return Ok(nonce);
     }
 
     static NONCE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -165,13 +168,13 @@ fn fresh_transaction_nonce(request_id: u64, client_nonce: Option<u64>) -> anyhow
     let mut random = [0u8; 32];
     let mut rng = SysRng;
     rng.try_fill_bytes(&mut random)
-        .map_err(|e| anyhow::anyhow!("OS randomness unavailable for client_nonce: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("OS randomness unavailable for nonce: {}", e))?;
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(counter);
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"kanari-rpc-client-nonce-v1");
+    hasher.update(b"kanari-rpc-nonce-v1");
     hasher.update(&random);
     hasher.update(&request_id.to_le_bytes());
     hasher.update(&counter.to_le_bytes());
@@ -180,31 +183,6 @@ fn fresh_transaction_nonce(request_id: u64, client_nonce: Option<u64>) -> anyhow
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&digest.as_bytes()[..8]);
     Ok(u64::from_le_bytes(bytes).max(1))
-}
-
-fn validate_client_nonce(
-    request_id: u64,
-    client_nonce: Option<u64>,
-    sequence_number: u64,
-) -> Result<(), Box<RpcResponse>> {
-    if let Some(client_nonce) = client_nonce {
-        if client_nonce == 0 {
-            return Err(Box::new(invalid_params_response(
-                request_id,
-                "client_nonce must be non-zero",
-            )));
-        }
-        if client_nonce != sequence_number {
-            return Err(Box::new(invalid_params_response(
-                request_id,
-                format!(
-                    "client_nonce ({}) must match legacy sequence_number ({})",
-                    client_nonce, sequence_number
-                ),
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
@@ -687,6 +665,9 @@ fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
 }
 
 fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransaction {
+    let nonce = module_data
+        .canonical_nonce()
+        .expect("publish request canonical nonce must be validated before signing");
     let mut signed_tx = SignedTransaction::new(Transaction::PublishModule {
         sender: module_data.sender,
         module_bytes: module_data.module_bytes,
@@ -694,13 +675,16 @@ fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransacti
         gas_payment: module_data.gas_payment,
         gas_limit: module_data.gas_limit,
         gas_price: module_data.gas_price,
-        sequence_number: module_data.sequence_number,
+        nonce,
     });
     maybe_attach_signature(&mut signed_tx, module_data.signature);
     signed_tx
 }
 
 fn build_call_signed_tx(call_data: CallFunctionRequest) -> SignedTransaction {
+    let nonce = call_data
+        .canonical_nonce()
+        .expect("call request canonical nonce must be validated before signing");
     let mut signed_tx = SignedTransaction::new(Transaction::ExecuteFunction {
         sender: call_data.sender.clone(),
         module: format!("{}::{}", call_data.package, call_data.module),
@@ -711,7 +695,7 @@ fn build_call_signed_tx(call_data: CallFunctionRequest) -> SignedTransaction {
         gas_payment: call_data.gas_payment,
         gas_limit: call_data.gas_limit,
         gas_price: call_data.gas_price,
-        sequence_number: call_data.sequence_number,
+        nonce,
     });
     maybe_attach_signature(&mut signed_tx, call_data.signature);
     signed_tx
@@ -724,7 +708,7 @@ fn base_transaction_details(
     tx_type: &str,
     sender: String,
     sender_address: String,
-    sequence_number: u64,
+    nonce: u64,
     gas_limit: u64,
     gas_price: u64,
 ) -> TransactionDetails {
@@ -741,7 +725,7 @@ fn base_transaction_details(
         tx_type: tx_type.to_string(),
         sender,
         sender_address: Some(sender_address),
-        sequence_number,
+        nonce: Some(nonce),
         gas_limit,
         gas_price,
         object_inputs: None,
@@ -806,7 +790,7 @@ fn map_transaction_to_details(
             sender,
             module_bytes,
             module_name,
-            sequence_number,
+            nonce,
             gas_payment,
             gas_limit,
             gas_price,
@@ -828,7 +812,7 @@ fn map_transaction_to_details(
                 "publish_module",
                 sender.clone(),
                 sender_address.clone(),
-                *sequence_number,
+                *nonce,
                 *gas_limit,
                 *gas_price,
             );
@@ -841,7 +825,7 @@ fn map_transaction_to_details(
             sender,
             module,
             function,
-            sequence_number,
+            nonce,
             gas_limit,
             gas_price,
             ..
@@ -853,7 +837,7 @@ fn map_transaction_to_details(
                 tx.tx_type_label(),
                 sender.clone(),
                 sender_address.clone(),
-                *sequence_number,
+                *nonce,
                 *gas_limit,
                 *gas_price,
             );
@@ -1265,10 +1249,10 @@ pub async fn handle_build_publish_module(
             };
         }
     };
-    let client_nonce = match fresh_transaction_nonce(request.id, build_data.client_nonce) {
-        Ok(nonce) => nonce,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+            Ok(nonce) => nonce,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,
@@ -1278,8 +1262,7 @@ pub async fn handle_build_publish_module(
             module_name: build_data.module_name,
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
-            client_nonce: Some(client_nonce),
-            sequence_number: client_nonce,
+            nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: build_data.execute_immediate,
@@ -1333,10 +1316,10 @@ pub async fn handle_build_native_transfer(
             };
         }
     };
-    let client_nonce = match fresh_transaction_nonce(request.id, build_data.client_nonce) {
-        Ok(nonce) => nonce,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+            Ok(nonce) => nonce,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,
@@ -1348,8 +1331,7 @@ pub async fn handle_build_native_transfer(
             amount: build_data.amount,
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
-            client_nonce: Some(client_nonce),
-            sequence_number: client_nonce,
+            nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: build_data.execute_immediate,
@@ -1421,10 +1403,10 @@ pub async fn handle_build_native_coin_consolidation(
             };
         }
     };
-    let client_nonce = match fresh_transaction_nonce(request.id, build_data.client_nonce) {
-        Ok(nonce) => nonce,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+            Ok(nonce) => nonce,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,
@@ -1445,8 +1427,7 @@ pub async fn handle_build_native_coin_consolidation(
             object_inputs: Some(vec![primary_input, merge_input]),
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
-            client_nonce: Some(client_nonce),
-            sequence_number: client_nonce,
+            nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: build_data.execute_immediate,
@@ -1524,10 +1505,10 @@ pub async fn handle_build_call_function(
             };
         }
     };
-    let client_nonce = match fresh_transaction_nonce(request.id, build_data.client_nonce) {
-        Ok(nonce) => nonce,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+            Ok(nonce) => nonce,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,
@@ -1545,8 +1526,7 @@ pub async fn handle_build_call_function(
             },
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
-            client_nonce: Some(client_nonce),
-            sequence_number: client_nonce,
+            nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: build_data.execute_immediate,
@@ -1635,10 +1615,10 @@ pub async fn handle_build_token_transfer(
             "Invalid token type format. Expected address::module::struct",
         );
     }
-    let client_nonce = match fresh_transaction_nonce(request.id, build_data.client_nonce) {
-        Ok(nonce) => nonce,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+            Ok(nonce) => nonce,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,
@@ -1667,8 +1647,7 @@ pub async fn handle_build_token_transfer(
             object_inputs: Some(vec![object_input]),
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
-            client_nonce: Some(client_nonce),
-            sequence_number: client_nonce,
+            nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
             execute_immediate: build_data.execute_immediate,
@@ -1681,7 +1660,7 @@ pub async fn handle_submit_object_transfer(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let tx_data: ObjectTransferData = match serde_json::from_value(request.params.clone()) {
+    let mut tx_data: ObjectTransferData = match serde_json::from_value(request.params.clone()) {
         Ok(data) => data,
         Err(e) => {
             return invalid_params_response(request.id, format!("Invalid transaction data: {}", e));
@@ -1733,18 +1712,17 @@ pub async fn handle_submit_object_transfer(
     {
         return *response;
     }
-    if let Err(response) =
-        validate_client_nonce(request.id, tx_data.client_nonce, tx_data.sequence_number)
-    {
-        return *response;
-    }
+    let canonical_nonce = match tx_data.require_nonce() {
+        Ok(nonce) => nonce,
+        Err(message) => return invalid_params_response(request.id, &message),
+    };
 
     let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
         tx_data.sender.clone(),
         coin_object_ref,
         recipient.to_hex_literal(),
         tx_data.amount,
-        tx_data.sequence_number,
+        canonical_nonce,
         tx_data.gas_limit,
         tx_data.gas_price,
     );
@@ -2069,7 +2047,7 @@ pub async fn handle_get_fungible_asset_transactions(
 
 /// Handle publish module request
 pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let module_data: PublishModuleRequest =
+    let mut module_data: PublishModuleRequest =
         match parse_labeled_params(request.id, &request.params, "module data") {
             Ok(data) => data,
             Err(response) => return *response,
@@ -2083,10 +2061,8 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
     {
         return *response;
     }
-    if let Err(response) =
-        validate_client_nonce(request.id, module_data.client_nonce, module_data.sequence_number)
-    {
-        return *response;
+    if let Err(message) = module_data.require_nonce() {
+        return invalid_params_response(request.id, &message);
     }
 
     let execute_immediate = module_data.execute_immediate.unwrap_or(false);
@@ -2105,7 +2081,7 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
 
 /// Handle call function request
 pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let call_data: CallFunctionRequest =
+    let mut call_data: CallFunctionRequest =
         match parse_labeled_params(request.id, &request.params, "call data") {
             Ok(data) => data,
             Err(response) => return *response,
@@ -2124,10 +2100,8 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
     ) {
         return *response;
     }
-    if let Err(response) =
-        validate_client_nonce(request.id, call_data.client_nonce, call_data.sequence_number)
-    {
-        return *response;
+    if let Err(message) = call_data.require_nonce() {
+        return invalid_params_response(request.id, &message);
     }
 
     let execute_immediate = call_data.execute_immediate.unwrap_or(false);

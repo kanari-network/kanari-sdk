@@ -38,15 +38,9 @@ pub fn build_signed_workload(
     let signed_txs = (0..config.tx_count)
         .map(|tx_index| {
             let sender_index = tx_index % sender_count;
-            let sequence_number = tx_index / sender_count;
+            let nonce = deterministic_workload_nonce(tx_index, sender_index);
             let sender = &senders[sender_index];
-            let tx = Transaction::new_burn_with_gas(
-                sender.tagged_address(),
-                0,
-                sequence_number as u64,
-                100_000,
-                0,
-            );
+            let tx = Transaction::new_burn_with_gas(sender.tagged_address(), 0, nonce, 100_000, 0);
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)
@@ -56,6 +50,17 @@ pub fn build_signed_workload(
         .collect();
 
     Ok(signed_txs)
+}
+
+fn deterministic_workload_nonce(tx_index: usize, sender_index: usize) -> u64 {
+    let mut material = Vec::with_capacity(32);
+    material.extend_from_slice(b"kanari-bench-tx-nonce-v1");
+    material.extend_from_slice(&(tx_index as u64).to_le_bytes());
+    material.extend_from_slice(&(sender_index as u64).to_le_bytes());
+    let digest = hash_data_blake3(&material);
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    u64::from_le_bytes(bytes).max(1)
 }
 
 fn deterministic_sender_keypair(index: usize) -> Result<KeyPair> {

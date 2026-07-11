@@ -31,13 +31,6 @@ fn test_changeset_transfer() {
             .balance_delta,
         100
     );
-    assert_eq!(
-        cs.owner_deltas
-            .get(&from)
-            .invariant("sender change missing")
-            .sequence_increment,
-        0
-    );
 }
 
 #[test]
@@ -90,8 +83,6 @@ fn test_changeset_module_publish() {
         .invariant("publisher change missing");
     assert_eq!(change.modules_added.len(), 1);
     assert!(change.modules_added.contains("kanari"));
-    // Note: sequence_increment is NOT set by publish_module - it's handled by engine
-    assert_eq!(change.sequence_increment, 0);
 }
 
 #[test]

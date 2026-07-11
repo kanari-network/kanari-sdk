@@ -7,7 +7,8 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::rpc_helpers::{
-    render_transaction_submission, sign_publish_module_request, submit_blocking_rpc,
+    render_transaction_submission, require_rpc_result, sign_publish_module_request,
+    submit_blocking_rpc,
 };
 use anyhow::{Context, Result, bail};
 use clap::*;
@@ -139,16 +140,15 @@ impl Publish {
                     module_name,
                     gas_limit,
                     gas_price,
-                    client_nonce: None,
+                    nonce: None,
                     execute_immediate: None,
                 })
                 .context("Failed to serialize build publish request")?,
             )?;
-            let prepared: PublishModuleRequest = serde_json::from_value(
-                prepared
-                    .result
-                    .context("RPC did not return prepared publish request")?,
-            )
+            let prepared: PublishModuleRequest = serde_json::from_value(require_rpc_result(
+                prepared,
+                "RPC did not return prepared publish request",
+            )?)
             .context("Failed to decode prepared publish request")?;
 
             if let Some(gas_payment) = &prepared.gas_payment

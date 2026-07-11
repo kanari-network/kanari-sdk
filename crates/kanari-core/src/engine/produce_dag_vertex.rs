@@ -989,7 +989,7 @@ mod tests {
         ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
     }
 
-    fn signed_transfer(sequence_number: u64) -> SignedTransaction {
+    fn signed_transfer(nonce: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
         let tx = Transaction::new_transfer_with_object_ref(
@@ -997,7 +997,7 @@ mod tests {
             ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
             recipient.address,
             1,
-            sequence_number,
+            nonce,
         );
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx

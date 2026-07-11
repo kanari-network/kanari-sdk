@@ -20,7 +20,7 @@ pub use crate::command::gas_and_coin_selection::{
     select_native_gas_coin_object, spendable_coin_objects,
 };
 pub use crate::command::rpc_helpers::{
-    get_owner_info, get_owner_sequence, sign_and_call_function, sign_call_function_request,
+    get_owner_info, sign_and_call_function, sign_call_function_request,
 };
 pub use crate::command::tx_output::{
     print_json_value, print_rpc_error, print_transaction_result, print_transaction_status,

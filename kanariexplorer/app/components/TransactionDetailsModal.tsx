@@ -127,7 +127,7 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
-                <DetailItem label="Sequence" value={readFirstString(transaction, ["sequence_number", "sequence", "nonce"])} mono />
+                <DetailItem label="Nonce" value={readFirstString(transaction, ["nonce"])} mono />
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />
                 <DetailItem label="Gas Used" value={readFirstString(transaction, ["gas_used"])} mono />

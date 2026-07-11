@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         "Balance should be 1000"
     );
     assert_eq!(
-        owner_state.sequence_number, 0,
+        owner_state.nonce, 0,
         "Owner sequence is a legacy field and should remain 0"
     );
 
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         "   Balance: {}",
         owner_state.get_token_balance(KANARI_TOKEN_TYPE)
     );
-    println!("   Sequence: {}", owner_state.sequence_number);
+    println!("   Nonce: {}", owner_state.nonce);
 
     // Verify state root matches
     let root = state2.compute_state_root();

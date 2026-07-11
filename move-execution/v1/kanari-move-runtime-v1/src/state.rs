@@ -45,7 +45,7 @@ type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnerState {
     pub address: AccountAddress,
-    pub sequence_number: u64,
+    pub nonce: u64,
     pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
     /// Example: "0x840512ff...::james::JAMES" -> BalanceRecord(1000000000)
@@ -56,7 +56,7 @@ impl OwnerState {
     pub fn new(address: AccountAddress) -> Self {
         Self {
             address,
-            sequence_number: 0,
+            nonce: 0,
             modules: BTreeSet::new(),
             token_balances: BTreeMap::new(),
         }
@@ -849,15 +849,15 @@ impl StateManager {
         smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
     }
 
-    pub fn resolve_owner_sequence_number(&self, _owner: &AccountAddress) -> Result<u64> {
+    pub fn resolve_owner_nonce(&self, _owner: &AccountAddress) -> Result<u64> {
         Ok(0)
     }
 
-    /// Legacy no-op: owner/account sequence is not an execution validity rule.
-    pub fn validate_owner_sequence(
+    /// Legacy no-op: owner/account nonce is not an execution validity rule.
+    pub fn validate_owner_nonce(
         &self,
         _owner: &AccountAddress,
-        _expected_sequence: u64,
+        _expected_nonce: u64,
     ) -> Result<()> {
         Ok(())
     }

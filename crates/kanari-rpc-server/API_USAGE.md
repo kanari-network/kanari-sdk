@@ -27,7 +27,7 @@ All requests use the JSON-RPC 2.0 wrapper:
 
 **Owner-related methods**
 
-- `kanari_getOwner` - fetch owner-centric state including sequence number, balances, modules, and owned objects
+- `kanari_getOwner` - fetch owner-centric state including nonce, balances, modules, and owned objects
 
 Request `params`:
 
@@ -40,7 +40,7 @@ Response `result` (`OwnerInfo`):
 ```json
 {
   "owner": "0x...",
-  "sequence_number": 0,
+  "nonce": 0,
   "modules": [],
   "balances": {},
   "owned_objects": []
@@ -60,7 +60,7 @@ Request `params` (PublishModuleRequest):
   "module_name": "MyModule",
   "gas_limit": 1000000,
   "gas_price": 1,
-  "sequence_number": 0,
+  "nonce": 123,
   "signature": null,
   "execute_immediate": false
 }
@@ -146,7 +146,7 @@ Request `params` (`ObjectTransferData`):
   "amount": 1000,
   "gas_limit": 1000000,
   "gas_price": 1,
-  "sequence_number": 0,
+  "nonce": 123,
   "signature": [1,2,3],
   "execute_immediate": true
 }
@@ -161,7 +161,7 @@ Publish (submit pending tx):
 ```bash
 curl -X POST http://127.0.0.1:19001/rpc \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","method":"kanari_publishModule","params":{"sender":"0x1","module_bytes":[1,2,3],"module_name":"M","gas_limit":1000000,"gas_price":1,"sequence_number":0},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"kanari_publishModule","params":{"sender":"0x1","module_bytes":[1,2,3],"module_name":"M","gas_limit":1000000,"gas_price":1,"nonce":123},"id":1}'
 ```
 
 Get module:

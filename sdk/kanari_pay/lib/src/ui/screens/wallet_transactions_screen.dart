@@ -340,8 +340,8 @@ class _TransactionDetailsSheet extends StatelessWidget {
               if (transaction.gasUsed != null)
                 _DetailRow(label: 'Gas Used', value: '${transaction.gasUsed}'),
               _DetailRow(
-                label: 'Sequence',
-                value: '${transaction.sequenceNumber}',
+                label: 'Nonce',
+                value: '${transaction.nonce}',
               ),
               _DetailRow(label: 'Gas Limit', value: '${transaction.gasLimit}'),
               _DetailRow(label: 'Gas Price', value: '${transaction.gasPrice}'),

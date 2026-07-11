@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:bcs/bcs.dart';
 import 'package:http/http.dart' as http;
 import 'package:kanari_crypto/kanari_crypto.dart';
@@ -11,6 +13,7 @@ import 'constants.dart';
 class TransactionOperations {
   final String url;
   final http.Client client;
+  static const _bcsWireNonceField = 'nonce';
 
   static final _objectRefBcs = Bcs.struct('ObjectRef', {
     'object_id': Bcs.string(),
@@ -45,7 +48,7 @@ class TransactionOperations {
       'gas_payment': Bcs.option(_gasPaymentBcs),
       'gas_limit': Bcs.u64(),
       'gas_price': Bcs.u64(),
-      'sequence_number': Bcs.u64(),
+      _bcsWireNonceField: Bcs.u64(),
     }),
     'ExecuteFunction': Bcs.struct('ExecuteFunction', {
       'sender': Bcs.string(),
@@ -57,7 +60,7 @@ class TransactionOperations {
       'gas_payment': Bcs.option(_gasPaymentBcs),
       'gas_limit': Bcs.u64(),
       'gas_price': Bcs.u64(),
-      'sequence_number': Bcs.u64(),
+      _bcsWireNonceField: Bcs.u64(),
     }),
   });
 
@@ -114,6 +117,33 @@ class TransactionOperations {
         'mutable': mutable,
       };
     }).toList();
+  }
+
+  int _preparedNonce(Map<String, dynamic> prepared) {
+    final value = prepared['nonce'];
+    if (value is int && value > 0) {
+      return value;
+    }
+    if (value is num && value > 0) {
+      return value.toInt();
+    }
+    throw Exception('Prepared transaction is missing a valid nonce');
+  }
+
+  Map<String, dynamic> _bcsWireNonceEntry(int nonce) => {
+    _bcsWireNonceField: nonce,
+  };
+
+  Map<String, dynamic> _finalizeSignedRequest(
+    Map<String, dynamic> prepared,
+    Uint8List signature,
+  ) {
+    final nonce = _preparedNonce(prepared);
+    return {
+      ...prepared,
+      'nonce': nonce,
+      'signature': signature.toList(),
+    };
   }
 
   Future<List<int>> _signingHash(List<int> serializedTx) async {
@@ -197,16 +227,13 @@ class TransactionOperations {
         'gas_payment': _gasPaymentForBcs(prepared['gas_payment']),
         'gas_limit': prepared['gas_limit'],
         'gas_price': prepared['gas_price'],
-        'sequence_number': prepared['sequence_number'],
+        ..._bcsWireNonceEntry(_preparedNonce(prepared)),
       },
     };
 
     final txBytes = _transactionBcs.serialize(txData).toBytes();
     final signature = await wallet.sign(await _signingHash(txBytes));
-    return {
-      ...prepared,
-      'signature': signature.toList(),
-    };
+    return _finalizeSignedRequest(prepared, signature);
   }
 
   Future<Map<String, dynamic>> _signCallRequest(
@@ -224,16 +251,13 @@ class TransactionOperations {
         'gas_payment': _gasPaymentForBcs(prepared['gas_payment']),
         'gas_limit': prepared['gas_limit'],
         'gas_price': prepared['gas_price'],
-        'sequence_number': prepared['sequence_number'],
+        ..._bcsWireNonceEntry(_preparedNonce(prepared)),
       },
     };
 
     final txBytes = _transactionBcs.serialize(txData).toBytes();
     final signature = await wallet.sign(await _signingHash(txBytes));
-    return {
-      ...prepared,
-      'signature': signature.toList(),
-    };
+    return _finalizeSignedRequest(prepared, signature);
   }
 
   Future<Map<String, dynamic>> _signNativeTransferRequest(
@@ -267,16 +291,13 @@ class TransactionOperations {
         'gas_payment': _gasPaymentForBcs(prepared['gas_payment']),
         'gas_limit': prepared['gas_limit'],
         'gas_price': prepared['gas_price'],
-        'sequence_number': prepared['sequence_number'],
+        ..._bcsWireNonceEntry(_preparedNonce(prepared)),
       },
     };
 
     final txBytes = _transactionBcs.serialize(txData).toBytes();
     final signature = await wallet.sign(await _signingHash(txBytes));
-    return {
-      ...prepared,
-      'signature': signature.toList(),
-    };
+    return _finalizeSignedRequest(prepared, signature);
   }
 
   Future<TransactionResult> publishModule({

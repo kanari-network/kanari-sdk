@@ -54,7 +54,7 @@ impl BlockchainEngine {
 
         state.get_owner_state_by_hex(owner).map(|acc| {
             let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
-            let sequence_number = self.get_expected_sequence(owner);
+            let nonce = self.get_expected_nonce(owner);
             let balances = state
                 .resolve_owner_token_balances(acc.address)
                 .unwrap_or_else(|_| {
@@ -66,7 +66,7 @@ impl BlockchainEngine {
 
             OwnerInfo {
                 owner: format!("{:#x}", acc.owner_address()),
-                sequence_number,
+                nonce: Some(nonce),
                 modules: acc.modules.iter().cloned().collect(),
                 balances,
                 owned_object_count: Some(final_owned_objects.len()),
@@ -395,7 +395,7 @@ mod tests {
         SignedTransaction, Transaction,
     };
 
-    fn signed_transfer(sequence_number: u64) -> SignedTransaction {
+    fn signed_transfer(nonce: u64) -> SignedTransaction {
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let recipient = generate_keypair(CurveType::Ed25519).unwrap();
         let mut coin_data = vec![0u8; 40];
@@ -412,7 +412,7 @@ mod tests {
             ),
             recipient.address,
             1,
-            sequence_number,
+            nonce,
         );
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx

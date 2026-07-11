@@ -5,6 +5,90 @@
 
 use rusqlite::{Connection, Result as SqliteResult};
 
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqliteResult<bool> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for entry in columns {
+        if entry? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn ensure_column_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> SqliteResult<()> {
+    if !table_has_column(conn, table, column)? {
+        let alter = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        conn.execute(&alter, [])?;
+    }
+    Ok(())
+}
+
+fn migrate_transactions_nonce_schema(conn: &Connection) -> SqliteResult<()> {
+    if !table_has_column(conn, "transactions", "sequence_number")? {
+        return Ok(());
+    }
+
+    ensure_column_exists(conn, "transactions", "nonce", "INTEGER")?;
+    conn.execute(
+        "UPDATE transactions SET nonce = COALESCE(nonce, sequence_number) WHERE nonce IS NULL",
+        [],
+    )?;
+
+    conn.execute_batch(
+        "
+        DROP INDEX IF EXISTS idx_transactions_hash;
+        DROP INDEX IF EXISTS idx_transactions_sender;
+        DROP INDEX IF EXISTS idx_transactions_block;
+        DROP INDEX IF EXISTS idx_transactions_type;
+
+        ALTER TABLE transactions RENAME TO transactions_legacy_nonce_migration;
+
+        CREATE TABLE transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tx_hash TEXT NOT NULL UNIQUE,
+            block_height INTEGER NOT NULL,
+            sender TEXT NOT NULL,
+            tx_type TEXT NOT NULL,
+            nonce INTEGER NOT NULL,
+            gas_limit INTEGER NOT NULL,
+            gas_price INTEGER NOT NULL,
+            gas_used INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'success',
+            signature TEXT NOT NULL,
+            raw_data BLOB,
+            timestamp INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (block_height) REFERENCES blocks(height) ON DELETE CASCADE
+        );
+
+        INSERT INTO transactions (
+            id, tx_hash, block_height, sender, tx_type, nonce, gas_limit, gas_price,
+            gas_used, status, signature, raw_data, timestamp, created_at
+        )
+        SELECT
+            id, tx_hash, block_height, sender, tx_type, COALESCE(nonce, sequence_number),
+            gas_limit, gas_price, gas_used, status, signature, raw_data, timestamp, created_at
+        FROM transactions_legacy_nonce_migration;
+
+        DROP TABLE transactions_legacy_nonce_migration;
+
+        CREATE INDEX IF NOT EXISTS idx_transactions_hash ON transactions(tx_hash);
+        CREATE INDEX IF NOT EXISTS idx_transactions_sender ON transactions(sender);
+        CREATE INDEX IF NOT EXISTS idx_transactions_block ON transactions(block_height);
+        CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(tx_type);
+        ",
+    )?;
+
+    Ok(())
+}
+
 /// Initialize the database schema
 pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
     // Create blocks table
@@ -31,7 +115,7 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
             block_height INTEGER NOT NULL,
             sender TEXT NOT NULL,
             tx_type TEXT NOT NULL,
-            sequence_number INTEGER NOT NULL,
+            nonce INTEGER NOT NULL,
             gas_limit INTEGER NOT NULL,
             gas_price INTEGER NOT NULL,
             gas_used INTEGER DEFAULT 0,
@@ -119,6 +203,8 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
         INSERT OR IGNORE INTO indexer_metadata (key, value) VALUES ('last_indexed_height', '0');
         ",
     )?;
+
+    migrate_transactions_nonce_schema(conn)?;
 
     Ok(())
 }

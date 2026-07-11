@@ -46,10 +46,13 @@ pub struct CapturedEvent {
 #[derive(Tid, Default)]
 pub struct EventsExt {
     pub events: Vec<CapturedEvent>,
+    next_sequence_number: u64,
 }
 
 impl EventsExt {
-    pub fn record(&mut self, ev: CapturedEvent) {
+    pub fn record(&mut self, mut ev: CapturedEvent) {
+        ev.sequence_number = self.next_sequence_number;
+        self.next_sequence_number = self.next_sequence_number.saturating_add(1);
         self.events.push(ev);
     }
 
