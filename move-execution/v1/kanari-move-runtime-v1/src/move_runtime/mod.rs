@@ -141,19 +141,14 @@ impl MoveRuntime {
             && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
     }
 
-    fn object_reference_mutability<F>(param_type: &RuntimeType, is_key_struct: F) -> Option<bool>
+    fn object_param_mutability<F>(param_type: &RuntimeType, is_key_struct: F) -> Option<bool>
     where
         F: Fn(&RuntimeType) -> bool,
     {
         match param_type {
-            RuntimeType::Reference(inner)
-                if is_key_struct(inner) || Self::is_runtime_struct_like(inner) =>
-            {
-                Some(false)
-            }
-            RuntimeType::MutableReference(inner)
-                if is_key_struct(inner) || Self::is_runtime_struct_like(inner) =>
-            {
+            RuntimeType::Reference(inner) if is_key_struct(inner) => Some(false),
+            RuntimeType::MutableReference(inner) if is_key_struct(inner) => Some(true),
+            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_) if is_key_struct(param_type) => {
                 Some(true)
             }
             _ => None,
@@ -214,7 +209,7 @@ impl MoveRuntime {
     ) -> Result<()> {
         if object_inputs.len() != requirements.len() {
             anyhow::bail!(
-                "Declared object_inputs count mismatch: function expects {} object reference params, got {}",
+                "Declared object_inputs count mismatch: function expects {} object params, got {}",
                 requirements.len(),
                 object_inputs.len()
             );
@@ -1128,7 +1123,7 @@ impl MoveRuntime {
                 .enumerate()
                 .filter_map(|(i, param_type)| {
                     let mutable =
-                        Self::object_reference_mutability(param_type, is_key_struct_param)?;
+                        Self::object_param_mutability(param_type, is_key_struct_param)?;
                     if Self::is_tx_context_param(param_type, type_tag_for_param) {
                         return None;
                     }
@@ -1167,10 +1162,8 @@ impl MoveRuntime {
                     final_args[i] = otw_bytes;
                 }
 
-                if matches!(
-                    param_type,
-                    RuntimeType::Reference(_) | RuntimeType::MutableReference(_)
-                ) && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
+                if Self::object_param_mutability(param_type, is_key_struct_param).is_some()
+                    && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
                     && let Some(explicit_input) = explicit_object_bindings.next()
                 {
                     let explicit_addr =
@@ -1188,7 +1181,7 @@ impl MoveRuntime {
                 let is_potential_id = final_args[i].len() == 32;
 
                 if is_potential_id
-                    && Self::object_reference_mutability(param_type, is_key_struct_param).is_some()
+                    && Self::object_param_mutability(param_type, is_key_struct_param).is_some()
                     && !Self::is_tx_context_param(param_type, type_tag_for_param)
                 {
                     let Ok(object_addr) = AccountAddress::from_bytes(final_args[i].as_slice())
@@ -1216,7 +1209,12 @@ impl MoveRuntime {
 
                         final_args[i] = stored_obj.data.clone();
 
-                        if let RuntimeType::MutableReference(_) = param_type {
+                        if matches!(
+                            param_type,
+                            RuntimeType::MutableReference(_)
+                                | RuntimeType::Struct(_)
+                                | RuntimeType::StructInstantiation(_)
+                        ) {
                             loaded_mutable_objects.push((
                                 i,
                                 stored_obj.id.clone(),
@@ -1537,7 +1535,7 @@ impl MoveRuntime {
                 .enumerate()
                 .filter_map(|(i, param_type)| {
                     let mutable =
-                        Self::object_reference_mutability(param_type, is_key_struct_param)?;
+                        Self::object_param_mutability(param_type, is_key_struct_param)?;
                     if Self::is_tx_context_param(param_type, type_tag_for_param) {
                         return None;
                     }
@@ -1551,7 +1549,7 @@ impl MoveRuntime {
 
             let mut explicit_object_bindings = object_inputs.iter();
             for (i, param_type) in func.parameters.iter().enumerate() {
-                if Self::object_reference_mutability(param_type, is_key_struct_param).is_some()
+                if Self::object_param_mutability(param_type, is_key_struct_param).is_some()
                     && !Self::is_tx_context_param(param_type, type_tag_for_param)
                     && let Some(explicit_input) = explicit_object_bindings.next()
                 {
@@ -1726,7 +1724,18 @@ mod binding_tests {
             )))));
 
         assert_eq!(
-            MoveRuntime::object_reference_mutability(&generic_coin_ref, |_| false),
+            MoveRuntime::object_param_mutability(&generic_coin_ref, |_| true),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn key_struct_values_are_object_input_candidates() {
+        let coin_value =
+            RuntimeType::StructInstantiation(Box::new((CachedStructIndex(0), vec![RuntimeType::TyParam(0)])));
+
+        assert_eq!(
+            MoveRuntime::object_param_mutability(&coin_value, |_| true),
             Some(true)
         );
     }
@@ -1737,7 +1746,7 @@ mod binding_tests {
             RuntimeType::Reference(Box::new(RuntimeType::Vector(Box::new(RuntimeType::U8))));
 
         assert_eq!(
-            MoveRuntime::object_reference_mutability(&vector_ref, |_| false),
+            MoveRuntime::object_param_mutability(&vector_ref, |_| false),
             None
         );
     }

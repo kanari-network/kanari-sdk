@@ -14,6 +14,7 @@ pub mod stats;
 pub mod stress_test;
 pub mod token_transfer;
 pub mod transfer;
+pub mod tx;
 pub mod view;
 
 #[derive(Subcommand, Debug)]
@@ -30,6 +31,8 @@ pub enum ClientCommand {
     Stats(stats::Stats),
     /// Show token balances for an owner address
     Balance(balance::Balance),
+    /// Show transaction details by hash
+    Tx(tx::Tx),
     /// Owner operations (object-centric state queries)
     Owner {
         #[command(subcommand)]
@@ -54,6 +57,7 @@ impl ClientCommand {
             ClientCommand::Burn(cmd) => cmd.execute().await,
             ClientCommand::Stats(cmd) => cmd.execute().await,
             ClientCommand::Balance(cmd) => cmd.execute().await,
+            ClientCommand::Tx(cmd) => cmd.execute().await,
             ClientCommand::Owner { command } => command.execute().await,
             ClientCommand::Envs(cmd) => cmd.execute(),
             ClientCommand::Objects(cmd) => cmd.execute().await,

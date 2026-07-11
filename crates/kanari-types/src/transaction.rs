@@ -169,7 +169,7 @@ pub enum NativeCall {
         recipient: String,
         amount: u64,
     },
-    BurnAmount {
+    Burn {
         amount: u64,
     },
 }
@@ -178,13 +178,13 @@ impl NativeCall {
     pub fn tx_type_label(&self) -> &'static str {
         match self {
             Self::Transfer { .. } => "transfer",
-            Self::BurnAmount { .. } => "burn",
+            Self::Burn { .. } => "burn",
         }
     }
 
     pub fn required_native_amount(&self) -> u64 {
         match self {
-            Self::Transfer { amount, .. } | Self::BurnAmount { amount } => *amount,
+            Self::Transfer { amount, .. } | Self::Burn { amount } => *amount,
         }
     }
 }
@@ -348,9 +348,6 @@ pub enum Transaction {
 }
 
 impl Transaction {
-    pub const TRANSFER_AMOUNT_FUNCTION: &'static str = "transfer";
-    pub const BURN_AMOUNT_FUNCTION: &'static str = KanariModule::NATIVE_BURN_AMOUNT_FUNCTION;
-
     pub fn hash(&self) -> Vec<u8> {
         let serialized = match bcs::to_bytes(self) {
             Ok(b) => b,
@@ -529,9 +526,11 @@ impl Transaction {
         }
 
         match function.as_str() {
-            Self::BURN_AMOUNT_FUNCTION if !args.is_empty() => {
-                let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
-                Some(NativeCall::BurnAmount { amount })
+            function_name
+                if function_name == KanariModule::function_names().burn && !args.is_empty() =>
+            {
+                let amount = bcs::from_bytes::<u64>(args.last()?).ok()?;
+                Some(NativeCall::Burn { amount })
             }
             _ => None,
         }
@@ -551,9 +550,16 @@ impl Transaction {
             Transaction::ExecuteFunction {
                 module, function, ..
             } if module == &KanariModule::module_path()
-                && function == Self::TRANSFER_AMOUNT_FUNCTION =>
+                && function == KanariModule::function_names().transfer =>
             {
                 "transfer"
+            }
+            Transaction::ExecuteFunction {
+                module, function, ..
+            } if module == &KanariModule::module_path()
+                && function == KanariModule::function_names().burn =>
+            {
+                "burn"
             }
             Transaction::ExecuteFunction { .. } => "call",
         }
@@ -624,7 +630,7 @@ impl Transaction {
         Self::ExecuteFunction {
             sender: from.clone(),
             module: KanariModule::module_path(),
-            function: Self::TRANSFER_AMOUNT_FUNCTION.to_string(),
+            function: KanariModule::function_names().transfer.to_string(),
             type_args: vec![],
             args: vec![
                 coin_object_addr.to_vec(),
@@ -663,7 +669,7 @@ impl Transaction {
         Self::ExecuteFunction {
             sender: from.clone(),
             module: KanariModule::module_path(),
-            function: Self::BURN_AMOUNT_FUNCTION.to_string(),
+            function: KanariModule::function_names().burn.to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&amount).unwrap_or_default()],
             object_inputs: Vec::new(),
@@ -702,7 +708,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(module, &KanariModule::module_path());
-                assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
+                assert_eq!(function, KanariModule::function_names().transfer);
                 assert_eq!(*nonce, 7);
             }
             Transaction::PublishModule { .. } => panic!("transfer helper must build a call"),
@@ -731,7 +737,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(module, &KanariModule::module_path());
-                assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
+                assert_eq!(function, KanariModule::function_names().transfer);
                 assert_eq!(*nonce, 7);
                 assert_eq!(args.len(), 3);
             }
@@ -784,7 +790,7 @@ mod tests {
     fn burn_helper_builds_native_execute_function() {
         let tx = Transaction::new_burn("0x1".to_string(), 9, 3);
 
-        assert_eq!(tx.native_call(), Some(NativeCall::BurnAmount { amount: 9 }));
+        assert_eq!(tx.native_call(), Some(NativeCall::Burn { amount: 9 }));
         assert_eq!(tx.tx_type_label(), "burn");
     }
 

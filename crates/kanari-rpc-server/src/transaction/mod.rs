@@ -19,7 +19,10 @@ use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
 };
-use move_binary_format::{CompiledModule, file_format::SignatureToken};
+use move_binary_format::{
+    CompiledModule,
+    file_format::{SignatureToken, StructHandleIndex},
+};
 use move_core_types::language_storage::TypeTag;
 use rand::{TryRng, rngs::SysRng};
 use std::collections::HashSet;
@@ -96,7 +99,27 @@ fn is_tx_context_token(module: &CompiledModule, token: &SignatureToken) -> bool 
         && struct_name.as_str() == "TxContext"
 }
 
-fn function_object_ref_param_indices(
+fn struct_token_has_key_ability(module: &CompiledModule, struct_idx: StructHandleIndex) -> bool {
+    module.struct_handle_at(struct_idx).abilities.has_key()
+}
+
+fn token_is_object_param(module: &CompiledModule, token: &SignatureToken) -> bool {
+    match token {
+        SignatureToken::Reference(inner) | SignatureToken::MutableReference(inner) => {
+            token_is_object_param(module, inner)
+        }
+        SignatureToken::Struct(struct_idx) => {
+            !is_tx_context_token(module, token) && struct_token_has_key_ability(module, *struct_idx)
+        }
+        SignatureToken::StructInstantiation(instantiation) => {
+            !is_tx_context_token(module, token)
+                && struct_token_has_key_ability(module, instantiation.0)
+        }
+        _ => false,
+    }
+}
+
+fn function_object_param_indices(
     state: &RpcServerState,
     package: &str,
     module_name: &str,
@@ -115,16 +138,7 @@ fn function_object_ref_param_indices(
             .0
             .iter()
             .enumerate()
-            .filter_map(|(index, token)| match token {
-                SignatureToken::Reference(inner) | SignatureToken::MutableReference(inner) => {
-                    let is_struct_ref = matches!(
-                        inner.as_ref(),
-                        SignatureToken::Struct(_) | SignatureToken::StructInstantiation(_)
-                    );
-                    (is_struct_ref && !is_tx_context_token(&module, inner)).then_some(index)
-                }
-                _ => None,
-            })
+            .filter_map(|(index, token)| token_is_object_param(&module, token).then_some(index))
             .collect(),
     )
 }
@@ -154,10 +168,7 @@ fn normalize_token_type(token: &str) -> String {
     token.to_string()
 }
 
-fn fresh_nonce(
-    request_id: u64,
-    nonce: Option<u64>,
-) -> anyhow::Result<u64> {
+fn fresh_nonce(request_id: u64, nonce: Option<u64>) -> anyhow::Result<u64> {
     if let Some(nonce) = nonce {
         anyhow::ensure!(nonce != 0, "nonce must be non-zero");
         return Ok(nonce);
@@ -282,6 +293,7 @@ fn infer_object_inputs(
 fn select_native_gas_payment(
     owned_objects: &[kanari_rpc_api::ObjectInfo],
     sender: &str,
+    required_amount: u64,
     gas_limit: u64,
     gas_price: u64,
     exclude_object_ids: &[String],
@@ -291,8 +303,6 @@ fn select_native_gas_payment(
         .iter()
         .map(|id| normalize_addr(id))
         .collect::<HashSet<_>>();
-    let required_amount = gas_limit.saturating_mul(gas_price);
-
     let mut best: Option<(ObjectRef, u64)> = None;
     for object in owned_objects {
         if excluded.contains(&normalize_addr(&object.id)) {
@@ -325,8 +335,12 @@ fn select_native_gas_payment(
         }
     }
 
-    let (payment_object, _) =
-        best.ok_or_else(|| anyhow::anyhow!("No spendable native gas coin object found"))?;
+    let (payment_object, _) = best.ok_or_else(|| {
+        anyhow::anyhow!(
+            "No spendable native gas coin object found with required balance {}",
+            required_amount
+        )
+    })?;
 
     Ok(GasPayment {
         payment_objects: vec![payment_object],
@@ -334,6 +348,20 @@ fn select_native_gas_payment(
         budget: gas_limit,
         price: gas_price,
     })
+}
+
+fn build_call_native_burn_amount(build_data: &BuildCallFunctionRequest) -> Option<u64> {
+    if normalize_addr(&build_data.package) != normalize_addr(Address::KANARI_SYSTEM_ADDRESS) {
+        return None;
+    }
+    if build_data.module != "kanari" || build_data.function != KanariModule::function_names().burn {
+        return None;
+    }
+    if build_data.args.len() != 1 {
+        return None;
+    }
+
+    bcs::from_bytes::<u64>(&build_data.args[0]).ok()
 }
 
 fn select_native_transfer_and_gas_payment(
@@ -574,7 +602,7 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
             NativeCall::Transfer { recipient, .. } => {
                 return normalize_addr(tx.sender()) == owner || normalize_addr(&recipient) == owner;
             }
-            NativeCall::BurnAmount { .. } => {}
+            NativeCall::Burn { .. } => {}
         }
     }
 
@@ -858,7 +886,7 @@ fn map_transaction_to_details(
                     } => {
                         details.module = Some(format!("To: {} via {}", recipient, coin_object_id));
                     }
-                    NativeCall::BurnAmount { .. } => {}
+                    NativeCall::Burn { .. } => {}
                 }
             }
             details
@@ -1234,6 +1262,7 @@ pub async fn handle_build_publish_module(
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
+        build_data.gas_limit.saturating_mul(build_data.gas_price),
         build_data.gas_limit,
         build_data.gas_price,
         &[],
@@ -1250,9 +1279,9 @@ pub async fn handle_build_publish_module(
         }
     };
     let nonce = match fresh_nonce(request.id, build_data.nonce) {
-            Ok(nonce) => nonce,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,
@@ -1317,9 +1346,9 @@ pub async fn handle_build_native_transfer(
         }
     };
     let nonce = match fresh_nonce(request.id, build_data.nonce) {
-            Ok(nonce) => nonce,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,
@@ -1404,9 +1433,9 @@ pub async fn handle_build_native_coin_consolidation(
         }
     };
     let nonce = match fresh_nonce(request.id, build_data.nonce) {
-            Ok(nonce) => nonce,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,
@@ -1459,7 +1488,7 @@ pub async fn handle_build_call_function(
         return internal_error_response(request.id, "Owner has no owned object list");
     };
 
-    let object_ref_arg_indices = function_object_ref_param_indices(
+    let object_ref_arg_indices = function_object_param_indices(
         state,
         &build_data.package,
         &build_data.module,
@@ -1487,9 +1516,15 @@ pub async fn handle_build_call_function(
         .map(|input| input.object_ref.object_id.clone())
         .collect::<Vec<_>>();
     let pending_access_keys = state.engine.pending_access_keys_snapshot();
+    let burn_amount = build_call_native_burn_amount(&build_data);
+    let required_gas_balance = build_data.gas_limit.saturating_mul(build_data.gas_price);
+    let required_native_balance = burn_amount
+        .and_then(|amount| amount.checked_add(required_gas_balance))
+        .unwrap_or(required_gas_balance);
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
+        required_native_balance,
         build_data.gas_limit,
         build_data.gas_price,
         &exclude_ids,
@@ -1506,9 +1541,9 @@ pub async fn handle_build_call_function(
         }
     };
     let nonce = match fresh_nonce(request.id, build_data.nonce) {
-            Ok(nonce) => nonce,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,
@@ -1592,6 +1627,7 @@ pub async fn handle_build_token_transfer(
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
+        build_data.gas_limit.saturating_mul(build_data.gas_price),
         build_data.gas_limit,
         build_data.gas_price,
         std::slice::from_ref(&coin_object_ref.object_id),
@@ -1616,9 +1652,9 @@ pub async fn handle_build_token_transfer(
         );
     }
     let nonce = match fresh_nonce(request.id, build_data.nonce) {
-            Ok(nonce) => nonce,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,

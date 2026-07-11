@@ -13,7 +13,6 @@ pub const KANARI_TOKEN_TYPE: &str = "0x2::kanari::KANARI";
 
 impl KanariModule {
     pub const KANARI_MODULE: &'static str = "kanari";
-    pub const NATIVE_BURN_AMOUNT_FUNCTION: &'static str = "burn_amount";
 
     /// The amount of Mist per Kanari token (10^-9 of a Kanari token)
     pub const MIST_PER_KANARI: u64 = 1_000_000_000;

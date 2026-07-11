@@ -5,7 +5,7 @@ use crate::blockchain::Blockchain;
 use crate::consensus::Checkpoint;
 use ahash::AHashMap;
 use anyhow::{Context, Result, ensure};
-use kanari_move_runtime_v1::changeset::ChangeSet;
+use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::move_runtime::{EntryFunctionObjectContext, MoveRuntime};
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
@@ -193,6 +193,94 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 impl BlockchainEngine {
     fn is_native_gas_coin_type(object_type: &str) -> bool {
         CoinModule::is_coin_type_for(object_type, KANARI_TOKEN_TYPE)
+    }
+
+    fn read_coin_balance(data: &[u8]) -> Option<u64> {
+        if data.len() < 40 {
+            return None;
+        }
+
+        let mut amount_bytes = [0u8; 8];
+        amount_bytes.copy_from_slice(&data[32..40]);
+        Some(u64::from_le_bytes(amount_bytes))
+    }
+
+    fn execute_backend_native_burn(
+        state: &StateManager,
+        tx: &Transaction,
+        sender_addr: AccountAddress,
+        amount: u64,
+        gas_cost: u64,
+        changeset: &mut ChangeSet,
+    ) -> Result<()> {
+        let gas_payment = tx
+            .gas_payment()
+            .context("Native burn requires prepared gas payment")?;
+        let gas_object_ref = gas_payment
+            .payment_objects
+            .first()
+            .context("Native burn requires one prepared gas payment object")?;
+        let gas_object = state
+            .get_object(&gas_object_ref.object_id)?
+            .with_context(|| {
+                format!(
+                    "Native burn gas object {} was not found in state",
+                    gas_object_ref.object_id
+                )
+            })?;
+
+        ensure!(
+            Self::is_native_gas_coin_type(&gas_object.type_),
+            "Native burn gas object {} must be Coin<{}>, found {}",
+            gas_object_ref.object_id,
+            KANARI_TOKEN_TYPE,
+            gas_object.type_
+        );
+        ensure!(
+            gas_object.owner == sender_addr,
+            "Native burn gas object {} is not owned by sender {}",
+            gas_object_ref.object_id,
+            sender_addr.to_hex_literal()
+        );
+
+        let object_balance = Self::read_coin_balance(&gas_object.data).with_context(|| {
+            format!(
+                "Native burn gas object {} has invalid coin bytes",
+                gas_object_ref.object_id
+            )
+        })?;
+        let total_required = amount
+            .checked_add(gas_cost)
+            .context("Native burn amount + gas overflowed u64")?;
+        ensure!(
+            object_balance >= total_required,
+            "Native burn requires one Coin<{}> object with at least {} Mist for burn + gas; selected object {} only has {} Mist",
+            KANARI_TOKEN_TYPE,
+            total_required,
+            gas_object_ref.object_id,
+            object_balance
+        );
+
+        changeset.burn(sender_addr, amount);
+
+        if object_balance == total_required {
+            changeset.deleted_objects.push(gas_object_ref.object_id.clone());
+        } else {
+            changeset.created_objects.push((
+                gas_object_ref.object_id.clone(),
+                CreatedObject {
+                    owner: gas_object.owner,
+                    owner_kind: gas_object.owner_kind,
+                    uid: gas_object.uid,
+                    id: gas_object.id,
+                    type_: gas_object.type_,
+                    data: gas_object.data,
+                    version: gas_object.version,
+                },
+            ));
+        }
+
+        Ok(())
     }
 
     fn checkpoint_transactions_key(sequence: u64) -> Vec<u8> {
@@ -1023,6 +1111,33 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
+                if let Some(kanari_types::transaction::NativeCall::Burn { amount }) =
+                    native_call.clone()
+                {
+                    let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
+                    match Self::execute_backend_native_burn(
+                        &state,
+                        tx,
+                        sender_addr,
+                        amount,
+                        gas_cost,
+                        &mut changeset,
+                    ) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            changeset.mark_failed(format!("Execution failed: {}", e));
+                        }
+                    }
+                    Self::apply_gas_and_sequence(
+                        &mut changeset,
+                        sender_addr,
+                        gas_cost,
+                        gas_meter.gas_used,
+                    )?;
+                    Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+                    return Ok(changeset);
+                }
+
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -1560,6 +1675,12 @@ mod tests {
         signed_tx
     }
 
+    fn transaction_coin_balance(data: &[u8]) -> u64 {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&data[32..40]);
+        u64::from_le_bytes(bytes)
+    }
+
     fn fund_sender_with_coin(
         engine: &BlockchainEngine,
         address: &str,
@@ -1678,6 +1799,65 @@ mod tests {
             account.balances.get(KANARI_TOKEN_TYPE).copied(),
             Some(ledger_balance_after_fee)
         );
+    }
+
+    #[test]
+    fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let owner = "0x1111";
+        let object_id = "0xcoin";
+        let starting_balance = 1_000_000u64;
+        let burn_amount = 100_000u64;
+        fund_sender_with_coin(&engine, owner, object_id, starting_balance);
+
+        let initial_supply = {
+            let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+            state.total_supply
+        };
+
+        let mut tx = Transaction::new_burn_with_gas(
+            owner.to_string(),
+            burn_amount,
+            1,
+            100_000,
+            1,
+        );
+        if let Transaction::ExecuteFunction { gas_payment, .. } = &mut tx {
+            *gas_payment = Some(GasPayment {
+                payment_objects: vec![native_coin_object_ref(object_id, starting_balance)],
+                owner: owner.to_string(),
+                budget: 100_000,
+                price: 1,
+            });
+        }
+
+        let changeset = engine
+            .execute_transaction_with_runtime_internal(
+                &tx,
+                &engine.runtime_pool[0],
+                &engine.state,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(changeset.success, "{:?}", changeset.error_message);
+
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            state.apply_changeset(&changeset).unwrap();
+
+            let coin = state.get_object(object_id).unwrap().expect("coin must exist");
+            let expected_balance = starting_balance - burn_amount - changeset.gas_used;
+            assert_eq!(transaction_coin_balance(&coin.data), expected_balance);
+            assert_eq!(
+                state
+                    .resolve_owner_native_balance(AccountAddress::from_hex_literal(owner).unwrap())
+                    .unwrap(),
+                expected_balance
+            );
+            assert_eq!(state.total_supply, initial_supply - burn_amount);
+        }
     }
 
     fn secure_consensus_keys(
