@@ -7,7 +7,8 @@ use crate::db::IndexerDB;
 use crate::models::IndexedCoin;
 use anyhow::{Context, Result};
 use chrono::Utc;
-use kanari_types::transaction::NativeCall;
+use kanari_types::address::Address as KanariAddress;
+use kanari_types::transaction::Transaction;
 use kanari_types::{block::Block, kanari::KANARI_TOKEN_TYPE};
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
@@ -40,6 +41,28 @@ pub struct Indexer {
 }
 
 impl Indexer {
+    fn extract_native_transfer(transaction: &Transaction) -> Option<(String, u64)> {
+        let Transaction::ExecuteFunction {
+            module,
+            function,
+            args,
+            ..
+        } = transaction
+        else {
+            return None;
+        };
+
+        if module != "0x2::kanari" || function != "transfer" || args.len() < 3 {
+            return None;
+        }
+
+        let amount = bcs::from_bytes::<u64>(&args[1]).ok()?;
+        let recipient = KanariAddress::try_from(args[2].as_slice())
+            .ok()?
+            .to_hex_literal();
+        Some((recipient, amount))
+    }
+
     /// Create a new indexer with the given configuration
     pub fn new(config: IndexerConfig) -> Result<Self> {
         let db = if config.in_memory {
@@ -87,9 +110,8 @@ impl Indexer {
                 let tx_hash = hex::encode(signed_tx.hash());
 
                 // Extract coin information from transaction payload
-                if let Some(NativeCall::Transfer {
-                    recipient, amount, ..
-                }) = signed_tx.transaction.native_call()
+                if let Some((recipient, amount)) =
+                    Self::extract_native_transfer(&signed_tx.transaction)
                 {
                     // Create coin record for transfer
                     let coin = IndexedCoin {
@@ -108,12 +130,12 @@ impl Indexer {
                         .upsert_coin(&coin)
                         .context(format!("Failed to insert coin from tx {}", tx_hash))?;
                 }
+            }
 
-                if !block.events.is_empty() {
-                    self.db
-                        .insert_events(height, &[(tx_hash.as_str(), block.events.as_slice())])
-                        .context(format!("Failed to insert events for block {}", height))?;
-                }
+            if !block.events.is_empty() {
+                self.db
+                    .insert_events(height, &[(None, block.events.as_slice())])
+                    .context(format!("Failed to insert events for block {}", height))?;
             }
         }
 
@@ -185,18 +207,10 @@ impl Indexer {
         F: Fn(u64) -> Result<Option<Block>>,
     {
         warn!("Reindexing from height {}", from_height);
-
-        // Clear data from this height onwards
-        // Note: This is a simplified approach - in production you might want more sophisticated cleanup
-
-        // Set the last indexed height to one before the reindex point
-        if from_height > 0 {
-            self.db.update_last_indexed_height(from_height - 1)?;
-        } else {
-            self.db.update_last_indexed_height(0)?;
-        }
-
-        // Now sync from this height
+        warn!(
+            "Reindex rebuilds the index from genesis to avoid stale derived rows after schema or logic changes"
+        );
+        self.db.clear_all_indexed_data()?;
         self.sync_to_latest(get_block_fn)
     }
 

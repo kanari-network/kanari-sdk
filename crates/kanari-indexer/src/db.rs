@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::{debug, info};
 
-type EventBatch<'a> = (&'a str, &'a [kanari_types::event::Event]);
+type EventBatch<'a> = (Option<&'a str>, &'a [kanari_types::event::Event]);
 
 /// Main database interface for the indexer
 pub struct IndexerDB {
@@ -28,6 +28,7 @@ impl IndexerDB {
         // Enable WAL mode for better concurrent read performance
         conn.execute_batch(
             "
+            PRAGMA foreign_keys=ON;
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             PRAGMA cache_size=-64000;  -- 64MB cache
@@ -48,6 +49,8 @@ impl IndexerDB {
     /// Create an in-memory database (useful for testing)
     pub fn new_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().context("Failed to create in-memory database")?;
+        conn.execute_batch("PRAGMA foreign_keys=ON;")
+            .context("Failed to enable SQLite foreign keys")?;
 
         schema::initialize_schema(&conn).context("Failed to initialize database schema")?;
 
@@ -384,10 +387,21 @@ impl IndexerDB {
 
     /// Insert or update a coin
     pub fn upsert_coin(&self, coin: &IndexedCoin) -> Result<()> {
+        let previous_owner_and_type: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT owner, coin_type FROM coins WHERE id = ?1",
+                params![&coin.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO coins (id, owner, coin_type, balance, is_frozen, created_tx_hash, last_updated_tx_hash, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
+                owner = excluded.owner,
+                coin_type = excluded.coin_type,
                 balance = excluded.balance,
                 is_frozen = excluded.is_frozen,
                 last_updated_tx_hash = excluded.last_updated_tx_hash,
@@ -406,24 +420,45 @@ impl IndexerDB {
         ])
         .context("Failed to upsert coin")?;
 
-        // Update owner balance aggregate
-        self.update_owner_balance(&coin.owner, &coin.coin_type, coin.balance as i64)?;
+        self.refresh_owner_balance(&coin.owner, &coin.coin_type)?;
+
+        if let Some((previous_owner, previous_coin_type)) = previous_owner_and_type {
+            if previous_owner != coin.owner || previous_coin_type != coin.coin_type {
+                self.refresh_owner_balance(&previous_owner, &previous_coin_type)?;
+            }
+        }
 
         Ok(())
     }
 
-    /// Update owner balance aggregation.
-    fn update_owner_balance(&self, address: &str, coin_type: &str, balance: i64) -> Result<()> {
+    /// Recompute owner balance aggregation from canonical coin rows.
+    fn refresh_owner_balance(&self, address: &str, coin_type: &str) -> Result<()> {
+        let (total_balance, coin_count): (i64, i64) = self.conn.query_row(
+            "SELECT COALESCE(SUM(balance), 0), COUNT(*)
+             FROM coins
+             WHERE owner = ?1 AND coin_type = ?2",
+            params![address, coin_type],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        if coin_count == 0 {
+            self.conn.execute(
+                "DELETE FROM owner_balances WHERE address = ?1 AND coin_type = ?2",
+                params![address, coin_type],
+            )?;
+            return Ok(());
+        }
+
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO owner_balances (address, coin_type, total_balance, coin_count, last_updated)
-             VALUES (?1, ?2, ?3, 1, datetime('now'))
+             VALUES (?1, ?2, ?3, ?4, datetime('now'))
              ON CONFLICT(address, coin_type) DO UPDATE SET
-                total_balance = total_balance + ?3,
-                coin_count = coin_count + 1,
+                total_balance = excluded.total_balance,
+                coin_count = excluded.coin_count,
                 last_updated = datetime('now')",
         )?;
-        stmt.execute(params![address, coin_type, balance])
-            .context("Failed to update owner balance")?;
+        stmt.execute(params![address, coin_type, total_balance, coin_count])
+            .context("Failed to refresh owner balance")?;
 
         Ok(())
     }
@@ -562,6 +597,24 @@ impl IndexerDB {
         self.set_metadata("last_indexed_height", &height.to_string())
     }
 
+    /// Remove all indexed chain-derived data so the index can be rebuilt cleanly.
+    pub fn clear_all_indexed_data(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "
+                DELETE FROM transaction_args;
+                DELETE FROM events;
+                DELETE FROM transactions;
+                DELETE FROM blocks;
+                DELETE FROM coins;
+                DELETE FROM owner_balances;
+                ",
+            )
+            .context("Failed to clear indexed data")?;
+        self.update_last_indexed_height(0)?;
+        Ok(())
+    }
+
     /// Get last indexed height
     pub fn get_last_indexed_height(&self) -> Result<u64> {
         let value = self
@@ -646,5 +699,36 @@ mod tests {
         db.set_metadata("test_key", "test_value").unwrap();
         let value = db.get_metadata("test_key").unwrap();
         assert_eq!(value, Some("test_value".to_string()));
+    }
+
+    #[test]
+    fn test_owner_balance_recomputed_on_coin_update() {
+        let db = IndexerDB::new_in_memory().unwrap();
+
+        let now = Utc::now();
+        let coin = IndexedCoin {
+            id: "coin-1".to_string(),
+            owner: "0x1".to_string(),
+            coin_type: "0x2::kanari::KANARI".to_string(),
+            balance: 10,
+            is_frozen: false,
+            created_tx_hash: None,
+            last_updated_tx_hash: None,
+            created_at: now,
+            updated_at: now,
+        };
+        db.upsert_coin(&coin).unwrap();
+
+        let mut updated_coin = coin.clone();
+        updated_coin.balance = 25;
+        updated_coin.updated_at = Utc::now();
+        db.upsert_coin(&updated_coin).unwrap();
+
+        let owner_balance = db
+            .get_owner_balance("0x1", "0x2::kanari::KANARI")
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner_balance.total_balance, 25);
+        assert_eq!(owner_balance.coin_count, 1);
     }
 }

@@ -55,7 +55,7 @@ pub struct IndexedEvent {
     pub sequence_number: u64,
     pub type_tag: String,
     pub event_data: Option<Vec<u8>>,
-    pub tx_hash: String,
+    pub tx_hash: Option<String>,
     pub block_height: u64,
     pub created_at: DateTime<Utc>,
 }

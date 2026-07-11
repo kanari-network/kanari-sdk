@@ -17,6 +17,20 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqliteResul
     Ok(false)
 }
 
+fn table_column_is_not_null(conn: &Connection, table: &str, column: &str) -> SqliteResult<bool> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            let not_null: i64 = row.get(3)?;
+            return Ok(not_null != 0);
+        }
+    }
+    Ok(false)
+}
+
 fn ensure_column_exists(
     conn: &Connection,
     table: &str,
@@ -89,6 +103,54 @@ fn migrate_transactions_nonce_schema(conn: &Connection) -> SqliteResult<()> {
     Ok(())
 }
 
+fn migrate_events_tx_hash_schema(conn: &Connection) -> SqliteResult<()> {
+    if !table_has_column(conn, "events", "tx_hash")?
+        || !table_column_is_not_null(conn, "events", "tx_hash")?
+    {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "
+        DROP INDEX IF EXISTS idx_events_key;
+        DROP INDEX IF EXISTS idx_events_tx;
+        DROP INDEX IF EXISTS idx_events_block;
+        DROP INDEX IF EXISTS idx_events_type;
+
+        ALTER TABLE events RENAME TO events_legacy_tx_hash_migration;
+
+        CREATE TABLE events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_key TEXT NOT NULL,
+            sequence_number INTEGER NOT NULL,
+            type_tag TEXT NOT NULL,
+            event_data BLOB,
+            tx_hash TEXT,
+            block_height INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (tx_hash) REFERENCES transactions(tx_hash) ON DELETE CASCADE,
+            FOREIGN KEY (block_height) REFERENCES blocks(height) ON DELETE CASCADE
+        );
+
+        INSERT INTO events (
+            id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
+        )
+        SELECT
+            id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
+        FROM events_legacy_tx_hash_migration;
+
+        DROP TABLE events_legacy_tx_hash_migration;
+
+        CREATE INDEX IF NOT EXISTS idx_events_key ON events(event_key);
+        CREATE INDEX IF NOT EXISTS idx_events_tx ON events(tx_hash);
+        CREATE INDEX IF NOT EXISTS idx_events_block ON events(block_height);
+        CREATE INDEX IF NOT EXISTS idx_events_type ON events(type_tag);
+        ",
+    )?;
+
+    Ok(())
+}
+
 /// Initialize the database schema
 pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
     // Create blocks table
@@ -150,7 +212,7 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
             sequence_number INTEGER NOT NULL,
             type_tag TEXT NOT NULL,
             event_data BLOB,
-            tx_hash TEXT NOT NULL,
+            tx_hash TEXT,
             block_height INTEGER NOT NULL,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (tx_hash) REFERENCES transactions(tx_hash) ON DELETE CASCADE,
@@ -205,6 +267,7 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
     )?;
 
     migrate_transactions_nonce_schema(conn)?;
+    migrate_events_tx_hash_schema(conn)?;
 
     Ok(())
 }
