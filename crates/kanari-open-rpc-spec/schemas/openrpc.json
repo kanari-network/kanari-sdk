@@ -18,7 +18,7 @@
     {
       "name": "kanari_getOwner",
       "summary": "Get owner info",
-      "description": "Returns owner data including sequence number, balances, modules, and owned objects.",
+      "description": "Returns owner data including nonce, balances, modules, and owned objects.",
       "params": [
         {
           "name": "owner",
@@ -149,6 +149,158 @@
       "tags": [
         {
           "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getFungibleAsset",
+      "summary": "Get fungible asset",
+      "description": "Returns metadata, supply, and holder count for one fungible asset token type.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Fungible asset token type payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "token_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "token_type"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "asset",
+        "description": "Fungible asset summary.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "asset"
+        },
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getFungibleAssetHolders",
+      "summary": "Get fungible asset holders",
+      "description": "Returns wallets that currently hold a positive balance of one fungible asset.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Fungible asset holder query.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "oneOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "token_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "token_type"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "holders",
+        "description": "Fungible asset holders.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "asset"
+        },
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getFungibleAssetTransactions",
+      "summary": "Get fungible asset transactions",
+      "description": "Returns recent committed and pending transactions that involve one fungible asset.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Fungible asset transaction query.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "oneOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "token_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "token_type"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "transactions",
+        "description": "Fungible asset transaction list.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "asset"
+        },
+        {
+          "name": "transaction"
         }
       ]
     },
@@ -318,6 +470,62 @@
       ]
     },
     {
+      "name": "kanari_buildNativeTransfer",
+      "summary": "Build native transfer transaction",
+      "description": "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
+      "params": [
+        {
+          "name": "transaction",
+          "description": "Unsigned native transfer payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "transaction",
+        "description": "Prepared object-transfer request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildNativeCoinConsolidation",
+      "summary": "Build native coin consolidation step",
+      "description": "Builds one backend-approved coin::join_entry step when NativeTransferPolicyContract cannot yet be satisfied by current native coin layout.",
+      "params": [
+        {
+          "name": "transaction",
+          "description": "Unsigned native coin consolidation payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared call-function request for one native coin join step.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
       "name": "kanari_getStats",
       "summary": "Get chain stats",
       "description": "Returns aggregate blockchain statistics.",
@@ -391,6 +599,34 @@
       "result": {
         "name": "publication",
         "description": "Publish execution or pending status.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildPublishModule",
+      "summary": "Build publish module transaction",
+      "description": "Resolves nonce and gas payment for a module publication and returns a canonical unsigned request.",
+      "params": [
+        {
+          "name": "module",
+          "description": "Unsigned module publication payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "module",
+        "description": "Prepared publish-module request.",
         "required": true,
         "schema": {
           "type": "object"
@@ -535,6 +771,62 @@
       ]
     },
     {
+      "name": "kanari_buildCallFunction",
+      "summary": "Build function call transaction",
+      "description": "Resolves object inputs, nonce, and gas payment for a Move entry function call and returns a canonical unsigned request.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Unsigned function call payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared call-function request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "function"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildTokenTransfer",
+      "summary": "Build token transfer transaction",
+      "description": "Selects a token coin object, resolves gas and nonce, and returns a canonical unsigned Move call for token transfer.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Unsigned token transfer payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared token-transfer call request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "function"
+        }
+      ]
+    },
+    {
       "name": "kanari_viewFunction",
       "summary": "View function",
       "description": "Executes a read-only Move function without submitting a transaction.",
@@ -638,6 +930,111 @@
       "result": {
         "name": "objects",
         "description": "Owned object list.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "object"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getObjectsByType",
+      "summary": "Get objects by type",
+      "description": "Returns all known objects that match one exact object type string.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Object type payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "object_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object_type"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "objects",
+        "description": "Object list.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "object"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getObjects",
+      "summary": "Query objects",
+      "description": "Returns objects filtered by owner, owner kind, object type, and/or version range.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Object query filter payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "objects",
+        "description": "Filtered object list.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "object"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getObjectByRef",
+      "summary": "Get object by ref",
+      "description": "Returns one object only if the full object ref (id, version, digest) matches the current canonical object.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Full object ref payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "object_ref": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "object_ref"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "object",
+        "description": "Exact object ref match payload.",
         "required": true,
         "schema": {
           "type": "object"
