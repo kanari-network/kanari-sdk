@@ -1,6 +1,8 @@
 // modules/escrow/operations.dart
 // Escrow transaction operations.
 
+import 'dart:async';
+
 import '../../client/kanari_client.dart';
 import '../../core/bcs_utils.dart';
 import '../../core/token_metadata.dart';
@@ -39,17 +41,29 @@ class EscrowOperations {
     int gasPrice = TransactionConstants.defaultGasPrice,
   }) async {
     final normalizedToken = BcsUtils.normalizeTokenType(tokenType);
-    final ownedObjects = await rpc.getOwnedObjects(wallet.address);
-    final coinObject = _findOwnedCoinObject(
+    var ownedObjects = await rpc.getOwnedObjects(wallet.address);
+    var coinObject = _findOwnedCoinObject(
       ownedObjects: ownedObjects,
       tokenType: normalizedToken,
+      requiredAmount: amount,
     );
-    _validateNativeEscrowGasSeparation(
-      ownedObjects: ownedObjects,
-      collateralCoinId: coinObject.id,
-      tokenType: normalizedToken,
-      requiredGas: gasLimit * gasPrice,
-    );
+
+    if (isKanariType(normalizedToken)) {
+      ownedObjects = await _prepareNativeGasCoinIfNeeded(
+        wallet: wallet,
+        ownedObjects: ownedObjects,
+        collateralCoin: coinObject,
+        collateralAmount: amount,
+        requiredGas: gasLimit * gasPrice,
+        gasPrice: gasPrice,
+      );
+      coinObject = _findOwnedCoinObject(
+        ownedObjects: ownedObjects,
+        tokenType: normalizedToken,
+        requiredAmount: amount,
+      );
+    }
+
     final coinObjectId = BcsUtils.normalizeObjectId(coinObject.id);
 
     final args = TransactionArgs()
@@ -75,12 +89,26 @@ class EscrowOperations {
   ObjectInfo _findOwnedCoinObject({
     required List<ObjectInfo> ownedObjects,
     required String tokenType,
+    int? requiredAmount,
   }) {
-    for (final obj in ownedObjects) {
+    final candidates = ownedObjects.where((obj) {
       final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
-      if (objToken != null && BcsUtils.tokenTypesEqual(objToken, tokenType)) {
-        return obj;
+      if (objToken == null || !BcsUtils.tokenTypesEqual(objToken, tokenType)) {
+        return false;
       }
+
+      if (requiredAmount == null) return true;
+      final balance = BcsUtils.readCoinObjectBalance(obj.data);
+      return balance != null && balance >= requiredAmount;
+    }).toList()
+      ..sort((a, b) {
+        final aBalance = BcsUtils.readCoinObjectBalance(a.data) ?? 0;
+        final bBalance = BcsUtils.readCoinObjectBalance(b.data) ?? 0;
+        return bBalance.compareTo(aBalance);
+      });
+
+    if (candidates.isNotEmpty) {
+      return candidates.first;
     }
 
     throw Exception(
@@ -90,30 +118,76 @@ class EscrowOperations {
     );
   }
 
-  void _validateNativeEscrowGasSeparation({
+  bool _hasSeparateNativeGasCoin({
     required List<ObjectInfo> ownedObjects,
     required String collateralCoinId,
-    required String tokenType,
     required int requiredGas,
   }) {
-    if (!isKanariType(tokenType)) return;
-
     final collateralId = BcsUtils.normalizeObjectId(collateralCoinId);
-    final hasSeparateGasCoin = ownedObjects.any((obj) {
+    return ownedObjects.any((obj) {
       if (BcsUtils.normalizeObjectId(obj.id) == collateralId) return false;
       final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
       if (objToken == null || !isKanariType(objToken)) return false;
       final balance = BcsUtils.readCoinObjectBalance(obj.data);
       return balance != null && balance >= requiredGas;
     });
+  }
 
-    if (!hasSeparateGasCoin) {
+  Future<List<ObjectInfo>> _prepareNativeGasCoinIfNeeded({
+    required KanariWallet wallet,
+    required List<ObjectInfo> ownedObjects,
+    required ObjectInfo collateralCoin,
+    required int collateralAmount,
+    required int requiredGas,
+    required int gasPrice,
+  }) async {
+    if (_hasSeparateNativeGasCoin(
+      ownedObjects: ownedObjects,
+      collateralCoinId: collateralCoin.id,
+      requiredGas: requiredGas,
+    )) {
+      return ownedObjects;
+    }
+
+    final collateralBalance = BcsUtils.readCoinObjectBalance(collateralCoin.data);
+    final prepareGasLimit = TransactionConstants.defaultGasLimit;
+    final prepareGas = prepareGasLimit * gasPrice;
+    final prepareAmount = requiredGas * 2;
+    final requiredTotal = collateralAmount + prepareAmount + prepareGas;
+
+    if (collateralBalance == null || collateralBalance < requiredTotal) {
       throw Exception(
         'KANARI can be used in DeFi, but it needs a separate Coin<KANARI> '
-        'object for gas. Split or fund a second KANARI coin object before '
-        'creating this escrow.',
+        'object for gas. This wallet does not have enough spendable KANARI '
+        'to auto-prepare gas. Required at least $requiredTotal Mist, '
+        'available ${collateralBalance ?? 0} Mist.',
       );
     }
+
+    await rpc.transfer(
+      wallet: wallet,
+      recipient: wallet.address,
+      amount: prepareAmount,
+      gasLimit: prepareGasLimit,
+      gasPrice: gasPrice,
+    );
+
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      final refreshed = await rpc.getOwnedObjects(wallet.address);
+      if (_hasSeparateNativeGasCoin(
+        ownedObjects: refreshed,
+        collateralCoinId: collateralCoin.id,
+        requiredGas: requiredGas,
+      )) {
+        return refreshed;
+      }
+    }
+
+    throw Exception(
+      'KANARI gas coin preparation was submitted, but the new gas coin is not '
+      'indexed yet. Please retry creating the escrow in a few seconds.',
+    );
   }
 
   /// Confirm delivery (Seller only)

@@ -155,6 +155,39 @@ impl CoinModule {
         Ok(ModuleId::new(address, module_name))
     }
 
+    /// Fully qualified Move module path.
+    pub fn module_path() -> String {
+        format!("{}::{}", Address::KANARI_SYSTEM_ADDRESS, Self::COIN_MODULE)
+    }
+
+    /// Fully qualified `Coin<T>` object type for a token type.
+    pub fn coin_type(token_type: &str) -> String {
+        format!(
+            "{}::{}<{}>",
+            Self::module_path(),
+            Self::COIN_STRUCT,
+            token_type
+        )
+    }
+
+    /// Legacy nested coin path accepted for older indexed objects.
+    pub fn legacy_nested_coin_type(token_type: &str) -> String {
+        format!(
+            "{}::{}::{}::{}<{}>",
+            Address::KANARI_SYSTEM_ADDRESS,
+            Self::COIN_MODULE,
+            Self::COIN_MODULE,
+            Self::COIN_STRUCT,
+            token_type
+        )
+    }
+
+    /// Match canonical and legacy object type spellings for `Coin<T>`.
+    pub fn is_coin_type_for(object_type: &str, token_type: &str) -> bool {
+        object_type == Self::coin_type(token_type)
+            || object_type == Self::legacy_nested_coin_type(token_type)
+    }
+
     /// Get function names used in coin module
     pub fn function_names() -> CoinFunctions {
         CoinFunctions {
@@ -168,6 +201,7 @@ impl CoinModule {
             value: "value",
             split: "split",
             join: "join",
+            join_entry: "join_entry",
             treasury_into_supply: "treasury_into_supply",
             into_balance: "into_balance",
             update_icon_url: "update_icon_url",
@@ -190,6 +224,7 @@ pub struct CoinFunctions {
     pub value: &'static str,
     pub split: &'static str,
     pub join: &'static str,
+    pub join_entry: &'static str,
     pub treasury_into_supply: &'static str,
     pub into_balance: &'static str,
     pub update_icon_url: &'static str,

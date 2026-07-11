@@ -199,19 +199,6 @@ module kanari_system::coin {
         }
     }
 
-    /// Entry wrapper for splitting a coin object and transferring the new coin
-    /// to a recipient. Wallets use this to prepare a separate gas coin before
-    /// using the native KANARI coin as a mutable DeFi object input.
-    public entry fun split_and_transfer<T>(
-        coin: &mut Coin<T>,
-        amount: u64,
-        recipient: address,
-        ctx: &mut TxContext,
-    ) {
-        let split_coin = split(coin, amount, ctx);
-        transfer::public_transfer(split_coin, recipient);
-    }
-
     /// Join two coins together (adds the balance of 'other' into 'coin').
     public fun join<T>(coin: &mut Coin<T>, other: Coin<T>) {
         let Coin { id: _, balance } = other;

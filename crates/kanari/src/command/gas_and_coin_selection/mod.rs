@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use kanari_crypto::wallet::Wallet;
 use kanari_rpc_api::{CallFunctionRequest, ObjectInfo};
 use kanari_rpc_client::RpcClient;
+use kanari_types::coin::CoinModule;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef};
 
@@ -39,7 +40,7 @@ pub fn spendable_coin_objects(
     owned_objects: &[ObjectInfo],
     token_type: &str,
 ) -> Vec<SpendableCoinObject> {
-    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+    let coin_type = CoinModule::coin_type(token_type);
     let mut coins = Vec::new();
 
     for obj in owned_objects {
@@ -187,8 +188,8 @@ pub async fn consolidate_coin_objects(
         let join_req = CallFunctionRequest {
             sender: sender_tagged.to_string(),
             package: "0x2".to_string(),
-            module: "coin".to_string(),
-            function: "join_entry".to_string(),
+            module: CoinModule::COIN_MODULE.to_string(),
+            function: CoinModule::function_names().join_entry.to_string(),
             type_args: vec![token_type.to_string()],
             args: vec![
                 move_core_types::account_address::AccountAddress::from_hex_literal(

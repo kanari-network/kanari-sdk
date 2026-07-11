@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Blockchain data structures and operations
+use crate::kanari::KanariModule;
 use anyhow::Result;
 use kanari_crypto::keys::CurveType;
 use kanari_crypto::verify_signature;
@@ -347,9 +348,8 @@ pub enum Transaction {
 }
 
 impl Transaction {
-    pub const KANARI_MODULE: &'static str = "0x2::kanari";
     pub const TRANSFER_AMOUNT_FUNCTION: &'static str = "transfer";
-    pub const BURN_AMOUNT_FUNCTION: &'static str = "burn_amount";
+    pub const BURN_AMOUNT_FUNCTION: &'static str = KanariModule::NATIVE_BURN_AMOUNT_FUNCTION;
 
     pub fn hash(&self) -> Vec<u8> {
         let serialized = match bcs::to_bytes(self) {
@@ -526,7 +526,8 @@ impl Transaction {
             return None;
         };
 
-        if module != Self::KANARI_MODULE {
+        let kanari_module = KanariModule::module_path();
+        if module != &kanari_module {
             return None;
         }
 
@@ -639,7 +640,7 @@ impl Transaction {
 
         Self::ExecuteFunction {
             sender: from.clone(),
-            module: Self::KANARI_MODULE.to_string(),
+            module: KanariModule::module_path(),
             function: Self::TRANSFER_AMOUNT_FUNCTION.to_string(),
             type_args: vec![],
             args: vec![
@@ -678,7 +679,7 @@ impl Transaction {
     ) -> Self {
         Self::ExecuteFunction {
             sender: from.clone(),
-            module: Self::KANARI_MODULE.to_string(),
+            module: KanariModule::module_path(),
             function: Self::BURN_AMOUNT_FUNCTION.to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&amount).unwrap_or_default()],
@@ -717,7 +718,7 @@ mod tests {
                 sequence_number,
                 ..
             } => {
-                assert_eq!(module, Transaction::KANARI_MODULE);
+                assert_eq!(module, &KanariModule::module_path());
                 assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
                 assert_eq!(*sequence_number, 7);
             }
@@ -753,7 +754,7 @@ mod tests {
                 args,
                 ..
             } => {
-                assert_eq!(module, Transaction::KANARI_MODULE);
+                assert_eq!(module, &KanariModule::module_path());
                 assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
                 assert_eq!(*sequence_number, 7);
                 assert_eq!(args.len(), 3);

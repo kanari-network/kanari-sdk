@@ -11,6 +11,7 @@ use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::coin::CoinModule;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
@@ -191,9 +192,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     fn is_native_gas_coin_type(object_type: &str) -> bool {
-        let canonical = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
-        let alternate = format!("0x2::coin::coin::Coin<{}>", KANARI_TOKEN_TYPE);
-        object_type == canonical || object_type == alternate
+        CoinModule::is_coin_type_for(object_type, KANARI_TOKEN_TYPE)
     }
 
     fn checkpoint_transactions_key(sequence: u64) -> Vec<u8> {
@@ -1547,7 +1546,7 @@ mod tests {
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::coin::TreasuryCap;
-    use kanari_types::kanari::KANARI_TOKEN_TYPE;
+    use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
     use kanari_types::transaction::{
         GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
     };
@@ -1626,7 +1625,7 @@ mod tests {
                 ),
                 uid: None,
                 id: None,
-                type_: format!("0x2::coin::Coin<{}>", token_type),
+                type_: CoinModule::coin_type(token_type),
                 data: coin_data,
                 version: 1,
             },
@@ -1684,7 +1683,7 @@ mod tests {
                 ),
                 uid: None,
                 id: None,
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: coin_data,
                 version: 1,
             },
@@ -2038,8 +2037,8 @@ mod tests {
 
         let tx = Transaction::ExecuteFunction {
             sender: sender.tagged_address(),
-            module: "0x2::coin".to_string(),
-            function: "join_entry".to_string(),
+            module: CoinModule::module_path(),
+            function: CoinModule::function_names().join_entry.to_string(),
             type_args: vec![KANARI_TOKEN_TYPE.to_string()],
             args: vec![],
             object_inputs: vec![ObjectInput {
@@ -2083,7 +2082,7 @@ mod tests {
 
         let tx = Transaction::ExecuteFunction {
             sender: sender.tagged_address(),
-            module: "0x2::kanari".to_string(),
+            module: KanariModule::module_path(),
             function: "burn_amount".to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&1u64).unwrap()],
@@ -2144,8 +2143,8 @@ mod tests {
 
         let tx = Transaction::ExecuteFunction {
             sender: sender.tagged_address(),
-            module: "0x2::coin".to_string(),
-            function: "join_entry".to_string(),
+            module: CoinModule::module_path(),
+            function: CoinModule::function_names().join_entry.to_string(),
             type_args: vec![KANARI_TOKEN_TYPE.to_string()],
             args: vec![],
             object_inputs: vec![ObjectInput {

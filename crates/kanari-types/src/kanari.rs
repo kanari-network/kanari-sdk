@@ -13,6 +13,7 @@ pub const KANARI_TOKEN_TYPE: &str = "0x2::kanari::KANARI";
 
 impl KanariModule {
     pub const KANARI_MODULE: &'static str = "kanari";
+    pub const NATIVE_BURN_AMOUNT_FUNCTION: &'static str = "burn_amount";
 
     /// The amount of Mist per Kanari token (10^-9 of a Kanari token)
     pub const MIST_PER_KANARI: u64 = 1_000_000_000;
@@ -32,6 +33,15 @@ impl KanariModule {
             Identifier::new(Self::KANARI_MODULE).context("Invalid kanari module name")?;
 
         Ok(ModuleId::new(address, module_name))
+    }
+
+    /// Fully qualified Move module path for `0x2::kanari`.
+    pub fn module_path() -> String {
+        format!(
+            "{}::{}",
+            Address::KANARI_SYSTEM_ADDRESS,
+            Self::KANARI_MODULE
+        )
     }
 
     /// Get function names used in kanari module

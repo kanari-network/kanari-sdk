@@ -13,6 +13,7 @@ use kanari_rpc_api::{
     ViewFunctionRequest,
 };
 use kanari_types::address::Address;
+use kanari_types::coin::CoinModule;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
@@ -262,7 +263,7 @@ fn select_native_gas_payment(
         if excluded.contains(&normalize_addr(&object.id)) {
             continue;
         }
-        if object.type_ != format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE) {
+        if object.type_ != CoinModule::coin_type(KANARI_TOKEN_TYPE) {
             continue;
         }
         let Some(balance) = read_coin_balance(&object.data) else {
@@ -304,7 +305,7 @@ fn select_native_transfer_and_gas_payment(
     gas_limit: u64,
     gas_price: u64,
 ) -> anyhow::Result<(ObjectRef, GasPayment)> {
-    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
     let required_gas = gas_limit.saturating_mul(gas_price);
     let mut native_coins: Vec<(ObjectRef, u64)> = owned_objects
         .iter()
@@ -424,7 +425,7 @@ fn select_native_coin_consolidation_step(
     kanari_rpc_api::ObjectInfo,
     GasPayment,
 )> {
-    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
     let required_gas = gas_limit.saturating_mul(gas_price);
     let native_coins: Vec<(kanari_rpc_api::ObjectInfo, u64)> = owned_objects
         .iter()
@@ -1343,9 +1344,9 @@ pub async fn handle_build_native_coin_consolidation(
         request.id,
         CallFunctionRequest {
             sender: build_data.sender,
-            package: "0x2".to_string(),
-            module: "coin".to_string(),
-            function: "join_entry".to_string(),
+            package: Address::KANARI_SYSTEM_ADDRESS.to_string(),
+            module: CoinModule::COIN_MODULE.to_string(),
+            function: CoinModule::function_names().join_entry.to_string(),
             type_args: vec![KANARI_TOKEN_TYPE.to_string()],
             args: vec![
                 Address::from_hex_literal(&primary_object.id)
@@ -2064,7 +2065,7 @@ mod tests {
                 id: "0x1".to_string(),
                 owner: "0xa".to_string(),
                 owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: {
                     let mut bytes = vec![0u8; 40];
                     bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
@@ -2077,7 +2078,7 @@ mod tests {
                 id: "0x2".to_string(),
                 owner: "0xa".to_string(),
                 owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: {
                     let mut bytes = vec![0u8; 40];
                     bytes[32..40].copy_from_slice(&50u64.to_le_bytes());
@@ -2104,7 +2105,7 @@ mod tests {
             id: "0x1".to_string(),
             owner: "0xa".to_string(),
             owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-            type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+            type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
             data: {
                 let mut bytes = vec![0u8; 40];
                 bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
@@ -2130,7 +2131,7 @@ mod tests {
                 id: "0x1".to_string(),
                 owner: "0xa".to_string(),
                 owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: {
                     let mut bytes = vec![0u8; 40];
                     bytes[32..40].copy_from_slice(&120u64.to_le_bytes());
@@ -2143,7 +2144,7 @@ mod tests {
                 id: "0x2".to_string(),
                 owner: "0xa".to_string(),
                 owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: {
                     let mut bytes = vec![0u8; 40];
                     bytes[32..40].copy_from_slice(&90u64.to_le_bytes());
@@ -2156,7 +2157,7 @@ mod tests {
                 id: "0x3".to_string(),
                 owner: "0xa".to_string(),
                 owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
                 data: {
                     let mut bytes = vec![0u8; 40];
                     bytes[32..40].copy_from_slice(&20u64.to_le_bytes());
