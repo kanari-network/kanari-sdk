@@ -1000,13 +1000,55 @@ impl BlockchainEngine {
         sender: AccountAddress,
         gas_cost: u64,
         gas_used: u64,
+        tx_hash: &[u8],
     ) -> Result<()> {
         let sender_owner_delta = changeset.get_or_create_owner_delta(sender);
         sender_owner_delta.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
         changeset.collect_gas(dao_addr, gas_cost);
+        Self::materialize_dao_gas_fee(changeset, dao_addr, gas_cost, tx_hash)?;
         changeset.set_gas_used(gas_used);
+        Ok(())
+    }
+
+    fn materialize_dao_gas_fee(
+        changeset: &mut ChangeSet,
+        dao_addr: AccountAddress,
+        gas_cost: u64,
+        tx_hash: &[u8],
+    ) -> Result<()> {
+        if gas_cost == 0 {
+            return Ok(());
+        }
+
+        // A distinct fee coin per transaction keeps the DAO collection path
+        // parallel-safe: no transaction needs to mutate a shared treasury object.
+        let mut id_material = b"kanari:dao-gas-fee:v1".to_vec();
+        id_material.extend_from_slice(tx_hash);
+        let object_id_bytes = kanari_crypto::hash_data_blake3(&id_material);
+        ensure!(
+            object_id_bytes.len() == AccountAddress::LENGTH,
+            "DAO gas fee object id must be {} bytes",
+            AccountAddress::LENGTH
+        );
+        let object_id = format!("0x{}", hex::encode(&object_id_bytes));
+
+        let mut coin_data = object_id_bytes;
+        coin_data.extend_from_slice(&gas_cost.to_le_bytes());
+        changeset.created_objects.push((
+            object_id,
+            CreatedObject {
+                owner: dao_addr,
+                owner_kind: ObjectOwnerKind::AddressOwner(dao_addr.to_hex_literal()),
+                uid: None,
+                id: None,
+                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
+                data: coin_data,
+                version: 1,
+            },
+        ));
+
         Ok(())
     }
 
@@ -1076,6 +1118,7 @@ impl BlockchainEngine {
                         sender_addr,
                         gas_cost,
                         gas_meter.gas_used,
+                        &tx.hash(),
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -1133,6 +1176,7 @@ impl BlockchainEngine {
                         sender_addr,
                         gas_cost,
                         gas_meter.gas_used,
+                        &tx.hash(),
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -1180,7 +1224,13 @@ impl BlockchainEngine {
             }
         }
 
-        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+        Self::apply_gas_and_sequence(
+            &mut changeset,
+            sender_addr,
+            gas_cost,
+            gas_meter.gas_used,
+            &tx.hash(),
+        )?;
         let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
@@ -1631,6 +1681,7 @@ mod tests {
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
     use kanari_move_runtime_v1::state::OwnerState;
+    use kanari_types::address::Address as KanariAddress;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::coin::{CoinModule, TreasuryCap};
     use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
@@ -2098,14 +2149,42 @@ mod tests {
     }
 
     #[test]
-    fn gas_application_only_debits_balance() {
+    fn gas_application_creates_a_spendable_dao_fee_coin() {
         let sender = AccountAddress::random();
         let mut changeset = ChangeSet::new();
 
-        BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
+        BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10, &[7; 32]).unwrap();
 
         let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
         assert_eq!(sender_owner_delta.balance_delta, -10);
+        let dao = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS).unwrap();
+        assert_eq!(changeset.owner_deltas.get(&dao).unwrap().balance_delta, 10);
+        assert_eq!(changeset.created_objects.len(), 1);
+        let (object_id, fee_coin) = &changeset.created_objects[0];
+        assert_eq!(fee_coin.owner, dao);
+        assert_eq!(fee_coin.type_, CoinModule::coin_type(KANARI_TOKEN_TYPE));
+        assert_eq!(&fee_coin.data[..32], &hex::decode(&object_id[2..]).unwrap());
+        assert_eq!(
+            u64::from_le_bytes(fee_coin.data[32..40].try_into().unwrap()),
+            10
+        );
+
+        let mut state = kanari_move_runtime_v1::state::StateManager::new_in_memory();
+        state
+            .save_owner_state(&OwnerState::with_native_balance(sender, 10))
+            .unwrap();
+        state
+            .apply_changeset_without_supply_validation(&changeset)
+            .unwrap();
+        assert_eq!(state.resolve_owner_native_balance(dao).unwrap(), 10);
+        assert_eq!(
+            state.get_owned_objects(&dao).unwrap(),
+            vec![object_id.clone()]
+        );
+        assert_eq!(
+            state.get_object(object_id).unwrap().unwrap().data,
+            fee_coin.data
+        );
     }
 
     #[test]

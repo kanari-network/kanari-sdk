@@ -96,7 +96,8 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
         summary.wallet_visible_supply,
         base.wallet_visible_supply + 500
     );
-    assert_eq!(summary.object_locked_supply, 100);
+    assert_eq!(summary.object_locked_supply, 0);
+    assert_eq!(summary.untracked_supply, 100);
 
     state.validate_supply_invariants()?;
 
@@ -132,7 +133,8 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
     let summary = state.token_supply_summary(token_type)?;
     assert_eq!(summary.total_supply, 1_000);
     assert_eq!(summary.wallet_visible_supply, 250);
-    assert_eq!(summary.object_locked_supply, 750);
+    assert_eq!(summary.object_locked_supply, 0);
+    assert_eq!(summary.untracked_supply, 750);
 
     Ok(())
 }
@@ -1307,7 +1309,8 @@ fn custom_token_incoming_coin_adds_to_existing_wallet_balance() -> Result<()> {
     let summary = state.token_supply_summary(token_type)?;
     assert_eq!(summary.total_supply, 200);
     assert_eq!(summary.wallet_visible_supply, 150);
-    assert_eq!(summary.object_locked_supply, 50);
+    assert_eq!(summary.object_locked_supply, 0);
+    assert_eq!(summary.untracked_supply, 50);
     state.validate_supply_invariants()?;
 
     Ok(())

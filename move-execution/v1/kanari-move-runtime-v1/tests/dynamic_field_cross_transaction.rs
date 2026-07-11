@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
+use kanari_move_runtime_v1::move_runtime::EntryFunctionObjectContext;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::ModuleId;
@@ -47,7 +49,7 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
         .context("host object should be created")?;
 
     let add_changes = runtime
-        .execute_entry_function(
+        .execute_entry_function_with_object_context_and_persistence(
             &module_id,
             "add_value",
             vec![],
@@ -56,9 +58,14 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
                 bcs::to_bytes(&7u64)?,
                 bcs::to_bytes(&41u64)?,
             ],
-            Some(*module_id.address()),
-            None,
-            None,
+            EntryFunctionObjectContext {
+                object_inputs: vec![host_object_input(&host_id, *module_id.address(), true)],
+                sender: Some(*module_id.address()),
+                gas_info: None,
+                timestamp: None,
+                tx_hash: None,
+                persist_runtime_state: true,
+            },
         )
         .context("add dynamic field value")?;
     assert_eq!(add_changes.added_dynamic_fields.len(), 1);
@@ -74,13 +81,13 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "read_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
-            &[],
+            &[host_object_input(&host_id, *module_id.address(), false)],
         )
         .context("read persisted dynamic field value")?;
     assert_eq!(read_before_update, JsonValue::from(41u64));
 
     let update_changes = second_runtime
-        .execute_entry_function(
+        .execute_entry_function_with_object_context_and_persistence(
             &module_id,
             "write_value",
             vec![],
@@ -89,9 +96,14 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
                 bcs::to_bytes(&7u64)?,
                 bcs::to_bytes(&99u64)?,
             ],
-            Some(*module_id.address()),
-            None,
-            None,
+            EntryFunctionObjectContext {
+                object_inputs: vec![host_object_input(&host_id, *module_id.address(), true)],
+                sender: Some(*module_id.address()),
+                gas_info: None,
+                timestamp: None,
+                tx_hash: None,
+                persist_runtime_state: true,
+            },
         )
         .context("mutate persisted dynamic field value")?;
     assert_eq!(update_changes.added_dynamic_fields.len(), 1);
@@ -107,20 +119,25 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "read_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
-            &[],
+            &[host_object_input(&host_id, *module_id.address(), false)],
         )
         .context("read updated dynamic field value")?;
     assert_eq!(read_after_update, JsonValue::from(99u64));
 
     let remove_changes = third_runtime
-        .execute_entry_function(
+        .execute_entry_function_with_object_context_and_persistence(
             &module_id,
             "remove_value",
             vec![],
             vec![object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
-            Some(*module_id.address()),
-            None,
-            None,
+            EntryFunctionObjectContext {
+                object_inputs: vec![host_object_input(&host_id, *module_id.address(), true)],
+                sender: Some(*module_id.address()),
+                gas_info: None,
+                timestamp: None,
+                tx_hash: None,
+                persist_runtime_state: true,
+            },
         )
         .context("remove persisted dynamic field value")?;
     assert!(remove_changes.added_dynamic_fields.is_empty());
@@ -136,7 +153,7 @@ fn dynamic_field_persists_across_runtime_instances() -> Result<()> {
             "has_value",
             &[],
             &[object_arg(&host_id)?, bcs::to_bytes(&7u64)?],
-            &[],
+            &[host_object_input(&host_id, *module_id.address(), false)],
         )
         .context("check dynamic field absence after remove")?;
     assert_eq!(exists_after_remove, JsonValue::from(0u64));
@@ -189,4 +206,12 @@ fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
 fn object_arg(object_id: &str) -> Result<Vec<u8>> {
     let clean = object_id.strip_prefix("0x").unwrap_or(object_id);
     hex::decode(clean).context("decode object id argument")
+}
+
+fn host_object_input(host_id: &str, owner: AccountAddress, mutable: bool) -> ObjectInput {
+    ObjectInput {
+        object_ref: ObjectRef::new(host_id.to_string(), None, None),
+        owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+        mutable,
+    }
 }

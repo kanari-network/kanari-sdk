@@ -268,8 +268,10 @@ impl StateManager {
             cached_visible.max(indexed_visible)
         };
         let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
-        let inferred_locked_supply = total_supply.saturating_sub(wallet_visible_supply);
-        let object_locked_supply = ledger_locked_supply.max(inferred_locked_supply);
+        // Only explicit object-locked records count as locked supply.
+        // Any remaining gap between issued supply and accounted wallet/object balances
+        // must stay visible as untracked instead of being silently re-labeled as locked.
+        let object_locked_supply = ledger_locked_supply;
         let accounted_supply = wallet_visible_supply.saturating_add(object_locked_supply);
 
         Ok(TokenSupplySummary {
