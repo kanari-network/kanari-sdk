@@ -194,13 +194,10 @@ class _EscrowScreenState extends State<EscrowScreen>
       return 'This wallet does not have a spendable coin object for the selected token.';
     }
     if (text.contains('KANARI can be used in DeFi')) {
-      return 'KANARI can be used in DeFi, but this wallet needs enough spendable KANARI to auto-prepare a separate gas coin.';
-    }
-    if (text.contains('KANARI gas coin preparation was submitted')) {
-      return 'Gas coin preparation was submitted. Wait a few seconds for the new coin object to index, then try again.';
+      return 'KANARI can be used in DeFi, but Move execution needs two Coin<KANARI> objects: one for escrow funds and one separate gas coin.';
     }
     if (text.contains('No spendable native gas coin object found')) {
-      return 'No separate KANARI gas coin object was found. The app will try to prepare one automatically when the wallet has enough KANARI.';
+      return 'No separate KANARI gas coin object was found. Fund this wallet with a second Coin<KANARI> object, then try again.';
     }
     return 'An unexpected error occurred: ${text.split('\n').first}';
   }

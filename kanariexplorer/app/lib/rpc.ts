@@ -308,11 +308,24 @@ function asRecord(value: unknown): Record<string, unknown> {
 function asBalanceArray(value: unknown) {
   if (Array.isArray(value)) return value;
   const record = asRecord(value);
+  const account = asRecord(record.account);
+  if (Array.isArray(account.balances)) return account.balances;
+  if (account.balances && typeof account.balances === "object") {
+    return Object.entries(account.balances as Record<string, unknown>).map(([token_type, balance]) => ({
+      balance: typeof balance === "number" || typeof balance === "string" ? balance : 0,
+      amount: typeof balance === "number" || typeof balance === "string" ? balance : 0,
+      decimals: 9,
+      symbol: token_type.split("::").slice(-1)[0] || token_type,
+      token_type,
+    }));
+  }
+
   if (Array.isArray(record.balances)) return record.balances;
 
   if (record.balances && typeof record.balances === "object") {
-    return Object.entries(record.balances as Record<string, unknown>).map(([token_type, amount]) => ({
-      amount: typeof amount === "number" || typeof amount === "string" ? amount : 0,
+    return Object.entries(record.balances as Record<string, unknown>).map(([token_type, balance]) => ({
+      balance: typeof balance === "number" || typeof balance === "string" ? balance : 0,
+      amount: typeof balance === "number" || typeof balance === "string" ? balance : 0,
       decimals: 9,
       symbol: token_type.split("::").slice(-1)[0] || token_type,
       token_type,
@@ -324,9 +337,39 @@ function asBalanceArray(value: unknown) {
 
 function normalizeAccount(address: string, value: unknown) {
   const record = asRecord(value);
+  const account = asRecord(record.account);
+  const source = Object.keys(account).length > 0 ? account : record;
   return {
     ...record,
-    address: String(record.owner ?? record.address ?? address),
+    ...source,
+    balances: record.balances ?? source.balances ?? [],
+    owned_objects: asObjectArray(source.owned_objects ?? record.owned_objects),
+    owned_object_count: source.owned_object_count ?? record.owned_object_count ?? asObjectArray(source.owned_objects ?? record.owned_objects).length,
+    address: String(source.owner ?? source.address ?? record.owner ?? record.address ?? address),
+  };
+}
+
+function asObjectArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.map(normalizeObjectInfo);
+  const record = asRecord(value);
+  if (Array.isArray(record.objects)) return record.objects.map(normalizeObjectInfo);
+  if (Array.isArray(record.owned_objects)) return record.owned_objects.map(normalizeObjectInfo);
+  const account = asRecord(record.account);
+  if (Array.isArray(account.owned_objects)) return account.owned_objects.map(normalizeObjectInfo);
+  return [];
+}
+
+function normalizeObjectInfo(value: unknown) {
+  const record = asRecord(value);
+  const id = String(record.id ?? record.object_id ?? record.objectId ?? "");
+  const type = String(record.type_ ?? record.type ?? record.object_type ?? record.objectType ?? "");
+  return {
+    ...record,
+    id: id || record.id,
+    object_id: id || record.object_id,
+    type_: type || record.type_,
+    object_type: type || record.object_type,
+    data: Array.isArray(record.data) ? record.data : [],
   };
 }
 
@@ -464,16 +507,15 @@ export async function getObjects(request: GetObjectsRequest = {}) {
     min_version: request.min_version ?? null,
     max_version: request.max_version ?? null,
   });
-  return response?.objects ?? response;
+  return asObjectArray(response);
 }
 
 export async function getOwnedObjects(owner: string, options: GetOwnedObjectsOptions = {}) {
-  const response = await getObjects({
+  const response = await callRpc(RPC_METHODS.GET_OWNED_OBJECTS, {
     owner,
-    owner_kind: "address",
     object_type: options.object_type ?? null,
   });
-  return response?.objects ?? response;
+  return asObjectArray(response);
 }
 
 export async function getOwnedNfts(address: string) {

@@ -2,7 +2,6 @@ use kanari_rpc_api::{
     GetObjectByRefRequest, GetObjectsRequest, ModuleInfo, ObjectInfo, RpcRequest, RpcResponse,
 };
 use move_binary_format::CompiledModule;
-use std::collections::BTreeMap;
 
 use crate::{
     RpcServerState, internal_error_response, invalid_params_response, parse_params,
@@ -23,62 +22,6 @@ fn build_object_info(
         version: obj.version,
         digest: Some(digest),
     }
-}
-
-fn read_coin_balance(data: &[u8]) -> Option<u64> {
-    if data.len() < 40 {
-        return None;
-    }
-
-    let mut balance_bytes = [0u8; 8];
-    balance_bytes.copy_from_slice(&data[32..40]);
-    Some(u64::from_le_bytes(balance_bytes))
-}
-
-fn write_coin_balance(data: &mut [u8], balance: u64) -> bool {
-    if data.len() < 40 {
-        return false;
-    }
-
-    data[32..40].copy_from_slice(&balance.to_le_bytes());
-    true
-}
-
-fn is_coin_object(object_type: &str) -> bool {
-    object_type.contains("::coin::Coin<")
-}
-
-pub(crate) fn aggregate_owned_objects(objects: Vec<ObjectInfo>) -> Vec<ObjectInfo> {
-    let mut aggregated = Vec::new();
-    let mut coin_indices = BTreeMap::<(String, String), usize>::new();
-
-    for obj in objects {
-        if !is_coin_object(&obj.type_) {
-            aggregated.push(obj);
-            continue;
-        }
-
-        let Some(balance) = read_coin_balance(&obj.data) else {
-            aggregated.push(obj);
-            continue;
-        };
-
-        let key = (obj.owner.clone(), obj.type_.clone());
-        if let Some(index) = coin_indices.get(&key).copied() {
-            if let Some(existing) = aggregated.get_mut(index)
-                && let Some(existing_balance) = read_coin_balance(&existing.data)
-            {
-                let merged_balance = existing_balance.saturating_add(balance);
-                let _ = write_coin_balance(&mut existing.data, merged_balance);
-                existing.version = existing.version.max(obj.version);
-            }
-        } else {
-            coin_indices.insert(key, aggregated.len());
-            aggregated.push(obj);
-        }
-    }
-
-    aggregated
 }
 
 /// Handle get module
@@ -236,8 +179,6 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
             objects.push(build_object_info(uid, obj));
         }
     }
-
-    let objects = aggregate_owned_objects(objects);
 
     // Return the filtered list of objects
     respond_with_serialize(

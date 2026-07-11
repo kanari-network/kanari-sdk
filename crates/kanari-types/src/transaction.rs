@@ -532,19 +532,6 @@ impl Transaction {
         }
 
         match function.as_str() {
-            Self::TRANSFER_AMOUNT_FUNCTION if args.len() >= 3 => {
-                let coin_object_id = AccountAddress::from_bytes(&args[0]).ok()?.to_hex_literal();
-                let amount = bcs::from_bytes::<u64>(&args[1]).ok()?;
-                let recipient = AccountAddress::from_bytes(&args[2])
-                    .ok()
-                    .map(|addr| addr.to_hex_literal())
-                    .or_else(|| bcs::from_bytes::<String>(&args[2]).ok())?;
-                Some(NativeCall::Transfer {
-                    coin_object_id,
-                    recipient,
-                    amount,
-                })
-            }
             Self::BURN_AMOUNT_FUNCTION if !args.is_empty() => {
                 let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
                 Some(NativeCall::BurnAmount { amount })
@@ -564,11 +551,18 @@ impl Transaction {
 
         match self {
             Transaction::PublishModule { .. } => "publish_module",
+            Transaction::ExecuteFunction {
+                module, function, ..
+            } if module == &KanariModule::module_path()
+                && function == Self::TRANSFER_AMOUNT_FUNCTION =>
+            {
+                "transfer"
+            }
             Transaction::ExecuteFunction { .. } => "call",
         }
     }
 
-    /// Create an object-input native transfer transaction with default gas settings.
+    /// Create an object-input KANARI Move transfer transaction with default gas settings.
     pub fn new_transfer(
         from: String,
         coin_object_id: String,
@@ -725,14 +719,7 @@ mod tests {
             Transaction::PublishModule { .. } => panic!("transfer helper must build a call"),
         }
 
-        assert_eq!(
-            tx.native_call(),
-            Some(NativeCall::Transfer {
-                coin_object_id: "0xaaaa".to_string(),
-                recipient: "0x2".to_string(),
-                amount: 42,
-            })
-        );
+        assert_eq!(tx.native_call(), None);
         assert_eq!(tx.tx_type_label(), "transfer");
     }
 
@@ -762,14 +749,7 @@ mod tests {
             Transaction::PublishModule { .. } => panic!("object transfer helper must build a call"),
         }
 
-        assert_eq!(
-            tx.native_call(),
-            Some(NativeCall::Transfer {
-                coin_object_id: "0xaaaa".to_string(),
-                recipient: "0x2".to_string(),
-                amount: 42,
-            })
-        );
+        assert_eq!(tx.native_call(), None);
     }
 
     #[test]

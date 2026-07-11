@@ -57,7 +57,10 @@ export default function CheckpointObjectGraphPage() {
   }
 
   useEffect(() => {
-    void loadCheckpoint();
+    const timeout = window.setTimeout(() => {
+      void loadCheckpoint();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const effectCount = readArrayLength(checkpoint, "transaction_effects");

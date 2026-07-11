@@ -280,11 +280,11 @@ impl StressTest {
                             eprintln!("           Policy: {}", summary);
                         } else {
                             eprintln!(
-                                "           Hint: native transfer needs either one Coin<{}> large enough for amount+gas",
+                                "           Hint: native transfer needs two distinct Coin<{}> objects",
                                 KANARI_TOKEN_TYPE
                             );
                             eprintln!(
-                                "                 or two distinct native coin objects: one transfer coin and one gas coin"
+                                "                 one mutable transfer coin and one separate gas coin"
                             );
                         }
                     }

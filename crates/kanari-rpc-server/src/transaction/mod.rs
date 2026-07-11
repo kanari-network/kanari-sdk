@@ -369,23 +369,6 @@ fn select_native_transfer_and_gas_payment(
         ));
     }
 
-    if let Some((coin_object_ref, _balance)) = native_coins
-        .iter()
-        .filter(|(_, balance)| *balance >= transfer_amount.saturating_add(required_gas))
-        .min_by_key(|(_, balance)| *balance)
-        .cloned()
-    {
-        return Ok((
-            coin_object_ref.clone(),
-            GasPayment {
-                payment_objects: vec![coin_object_ref],
-                owner: sender.to_string(),
-                budget: gas_limit,
-                price: gas_price,
-            },
-        ));
-    }
-
     let has_transfer_coin = native_coins
         .iter()
         .any(|(_, balance)| *balance >= transfer_amount);
@@ -408,8 +391,7 @@ fn select_native_transfer_and_gas_payment(
     }
 
     anyhow::bail!(
-        "Native transfer requires either two distinct Coin<{}> objects or one Coin<{}> object large enough to cover both transfer amount and gas",
-        KANARI_TOKEN_TYPE,
+        "Native transfer requires two distinct Coin<{}> objects: one mutable transfer input and one separate gas payment object",
         KANARI_TOKEN_TYPE
     )
 }
@@ -965,7 +947,7 @@ fn classify_transaction_error_data(message: &str) -> Option<TransactionErrorData
         TransactionErrorData::with_native_transfer_policy(
             TransactionErrorReason::InsufficientGasCoinBalance,
         )
-    } else if message.contains("Native transfer requires either two distinct Coin<") {
+    } else if message.contains("Native transfer requires two distinct Coin<") {
         TransactionErrorData::with_native_transfer_policy(
             TransactionErrorReason::NativeTransferPolicyNotSatisfied,
         )
@@ -1249,7 +1231,7 @@ pub async fn handle_build_native_transfer(
                 jsonrpc: "2.0".into(),
                 result: None,
                 error: Some(transaction_error_with_reason(format!(
-                    "{}. Native transfer is only built when API can prove the gas object does not overlap the mutable transfer input.",
+                    "{}. Native KANARI transfer is a Move object call, so the gas object must not overlap the mutable transfer input.",
                     e
                 ))),
                 id: request.id,
@@ -1979,6 +1961,7 @@ mod tests {
         transaction_error_with_reason,
     };
     use kanari_rpc_api::TransactionErrorReason;
+    use kanari_types::coin::CoinModule;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
     #[test]
@@ -2043,7 +2026,7 @@ mod tests {
     #[test]
     fn structured_transaction_error_attaches_native_transfer_policy() {
         let error = transaction_error_with_reason(
-            "Transaction error: Native transfer requires either two distinct Coin<0x2::kanari::KANARI> objects or one Coin<0x2::kanari::KANARI> object large enough to cover both transfer amount and gas",
+            "Transaction error: Native transfer requires two distinct Coin<0x2::kanari::KANARI> objects: one mutable transfer input and one separate gas payment object",
         );
         let details = error
             .transaction_error_details()
@@ -2097,7 +2080,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_native_transfer_when_one_coin_covers_transfer_and_gas() {
+    fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
         use kanari_rpc_api::ObjectInfo;
         use kanari_types::transaction::ObjectOwnerKind;
 
@@ -2115,10 +2098,9 @@ mod tests {
             digest: Some("d1".to_string()),
         }];
 
-        let (coin, gas) =
-            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap();
-        assert_eq!(coin.object_id, "0x1");
-        assert_eq!(gas.payment_objects[0].object_id, "0x1");
+        let err =
+            select_native_transfer_and_gas_payment(&owned_objects, "0xa", 60, 10, 1).unwrap_err();
+        assert!(err.to_string().contains("two distinct Coin<"));
     }
 
     #[test]

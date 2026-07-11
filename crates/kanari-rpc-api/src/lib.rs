@@ -99,9 +99,9 @@ pub struct NativeTransferPolicyContract {
     pub canonical_object_refs_required: bool,
     /// Gas payment objects must be native `Coin<0x2::kanari::KANARI>` objects.
     pub gas_payment_must_be_native_kanari: bool,
-    /// A single native coin may be reused for both transfer and gas when it covers `amount + gas`.
+    /// A single native coin cannot be reused for both transfer and gas.
     pub allows_single_coin_for_transfer_and_gas: bool,
-    /// Distinct native transfer/gas objects are also valid when the gas object is separate.
+    /// Native transfer requires distinct transfer/gas objects.
     pub allows_distinct_transfer_and_gas_objects: bool,
 }
 
@@ -111,13 +111,13 @@ impl NativeTransferPolicyContract {
             api_selects_objects: true,
             canonical_object_refs_required: true,
             gas_payment_must_be_native_kanari: true,
-            allows_single_coin_for_transfer_and_gas: true,
+            allows_single_coin_for_transfer_and_gas: false,
             allows_distinct_transfer_and_gas_objects: true,
         }
     }
 
     pub fn summary(&self) -> &'static str {
-        "one Coin<0x2::kanari::KANARI> large enough to cover transfer amount plus gas, or two distinct Coin<0x2::kanari::KANARI> objects with separate transfer and gas roles"
+        "two distinct Coin<0x2::kanari::KANARI> objects: one mutable transfer input and one separate gas payment object"
     }
 }
 
@@ -242,7 +242,7 @@ mod tests {
         assert!(policy.api_selects_objects);
         assert!(policy.canonical_object_refs_required);
         assert!(policy.gas_payment_must_be_native_kanari);
-        assert!(policy.allows_single_coin_for_transfer_and_gas);
+        assert!(!policy.allows_single_coin_for_transfer_and_gas);
         assert!(policy.allows_distinct_transfer_and_gas_objects);
         assert!(policy.summary().contains("Coin<0x2::kanari::KANARI>"));
     }
@@ -503,9 +503,8 @@ pub struct SubmitObjectTransferRequest {
 /// Build native transfer request.
 ///
 /// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
-/// the backend chooses canonical object refs and accepts either
-/// 1. one native coin large enough for `amount + gas`, or
-/// 2. distinct native transfer/gas coin objects.
+/// the backend chooses canonical object refs and requires distinct native
+/// transfer/gas coin objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNativeTransferRequest {
     pub sender: String,
@@ -908,7 +907,7 @@ pub mod methods {
     pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
     #[open_rpc_method(
         summary = "Build native transfer transaction",
-        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and sequence number, then returns a canonical unsigned transfer payload. Valid layouts are either one coin large enough for amount plus gas or distinct transfer/gas coin objects.",
+        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and sequence number, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
         params = [("transaction", "Unsigned native transfer payload.", true, schema_object())],
         result = ("transaction", "Prepared object-transfer request.", schema_object()),
         tags = ["transaction"]

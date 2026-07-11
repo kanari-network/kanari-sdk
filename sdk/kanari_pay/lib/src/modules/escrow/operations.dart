@@ -50,12 +50,9 @@ class EscrowOperations {
 
     if (isKanariType(normalizedToken)) {
       ownedObjects = await _prepareNativeGasCoinIfNeeded(
-        wallet: wallet,
         ownedObjects: ownedObjects,
         collateralCoin: coinObject,
-        collateralAmount: amount,
         requiredGas: gasLimit * gasPrice,
-        gasPrice: gasPrice,
       );
       coinObject = _findOwnedCoinObject(
         ownedObjects: ownedObjects,
@@ -134,12 +131,9 @@ class EscrowOperations {
   }
 
   Future<List<ObjectInfo>> _prepareNativeGasCoinIfNeeded({
-    required KanariWallet wallet,
     required List<ObjectInfo> ownedObjects,
     required ObjectInfo collateralCoin,
-    required int collateralAmount,
     required int requiredGas,
-    required int gasPrice,
   }) async {
     if (_hasSeparateNativeGasCoin(
       ownedObjects: ownedObjects,
@@ -150,43 +144,12 @@ class EscrowOperations {
     }
 
     final collateralBalance = BcsUtils.readCoinObjectBalance(collateralCoin.data);
-    final prepareGasLimit = TransactionConstants.defaultGasLimit;
-    final prepareGas = prepareGasLimit * gasPrice;
-    final prepareAmount = requiredGas * 2;
-    final requiredTotal = collateralAmount + prepareAmount + prepareGas;
-
-    if (collateralBalance == null || collateralBalance < requiredTotal) {
-      throw Exception(
-        'KANARI can be used in DeFi, but it needs a separate Coin<KANARI> '
-        'object for gas. This wallet does not have enough spendable KANARI '
-        'to auto-prepare gas. Required at least $requiredTotal Mist, '
-        'available ${collateralBalance ?? 0} Mist.',
-      );
-    }
-
-    await rpc.transfer(
-      wallet: wallet,
-      recipient: wallet.address,
-      amount: prepareAmount,
-      gasLimit: prepareGasLimit,
-      gasPrice: gasPrice,
-    );
-
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      final refreshed = await rpc.getOwnedObjects(wallet.address);
-      if (_hasSeparateNativeGasCoin(
-        ownedObjects: refreshed,
-        collateralCoinId: collateralCoin.id,
-        requiredGas: requiredGas,
-      )) {
-        return refreshed;
-      }
-    }
-
     throw Exception(
-      'KANARI gas coin preparation was submitted, but the new gas coin is not '
-      'indexed yet. Please retry creating the escrow in a few seconds.',
+      'KANARI can be used in DeFi, but Move object execution requires a '
+      'separate Coin<KANARI> gas object. This wallet has collateral balance '
+      '${collateralBalance ?? 0} Mist in the selected coin, but no different '
+      'native gas coin with at least $requiredGas Mist. Receive or fund a '
+      'second Coin<KANARI> object, then retry.',
     );
   }
 

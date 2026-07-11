@@ -17,6 +17,29 @@ fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Re
 }
 
 #[test]
+fn genesis_seeds_dev_wallet_with_separate_native_gas_coin() -> Result<()> {
+    let state = StateManager::new_in_memory();
+    let dev = AccountAddress::from_hex_literal(kanari_types::address::Address::DEV_ADDRESS)?;
+    let native_coin_type = kanari_types::coin::CoinModule::coin_type(KANARI_TOKEN_TYPE);
+
+    let native_coin_ids: Vec<_> = state
+        .get_owned_objects(&dev)?
+        .into_iter()
+        .filter_map(|object_id| {
+            let object = state.get_object(&object_id).ok().flatten()?;
+            (object.type_ == native_coin_type).then_some(object_id)
+        })
+        .collect();
+
+    assert!(
+        native_coin_ids.len() >= 2,
+        "genesis dev wallet must have separate native transfer and gas coin objects, found {:?}",
+        native_coin_ids
+    );
+    Ok(())
+}
+
+#[test]
 fn treasury_update_syncs_native_total_supply() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let owner = AccountAddress::from_hex_literal("0x1")?;

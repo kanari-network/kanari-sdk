@@ -2,7 +2,6 @@ use super::{
     RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
     respond_with_serialize,
 };
-use crate::module::aggregate_owned_objects;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{GetOwnerBalancesRequest, GetTokenBalanceRequest};
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -76,13 +75,7 @@ pub async fn handle_get_owner(state: &RpcServerState, request: &RpcRequest) -> R
     };
 
     match state.engine.get_owner_info(&owner) {
-        Some(mut info) => {
-            if let Some(objects) = info.owned_objects.take() {
-                let aggregated = aggregate_owned_objects(objects);
-                info.owned_objects = Some(aggregated);
-            }
-            respond_with_serialize(request.id, info)
-        }
+        Some(info) => respond_with_serialize(request.id, info),
         None => internal_error_response(request.id, "Owner not found"),
     }
 }

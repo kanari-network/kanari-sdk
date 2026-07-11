@@ -16,8 +16,8 @@ use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
 use kanari_types::transaction::{
-    NativeCall, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef,
-    SignedTransaction, Transaction, TransactionEffects,
+    ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef, SignedTransaction,
+    Transaction, TransactionEffects,
 };
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
@@ -949,13 +949,6 @@ impl BlockchainEngine {
         )
     }
 
-    fn allows_native_transfer_gas_overlap(tx: &Transaction, payment_object_id: &str) -> bool {
-        matches!(
-            tx.native_call(),
-            Some(NativeCall::Transfer { coin_object_id, .. }) if coin_object_id == payment_object_id
-        )
-    }
-
     pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
@@ -1311,8 +1304,7 @@ impl BlockchainEngine {
                     anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
                 }
                 ensure!(
-                    !mutable_input_ids.contains(&payment.object_id)
-                        || Self::allows_native_transfer_gas_overlap(tx, &payment.object_id),
+                    !mutable_input_ids.contains(&payment.object_id),
                     "Gas payment object {} cannot overlap with a mutable object input",
                     payment.object_id
                 );
@@ -1545,7 +1537,7 @@ mod tests {
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
-    use kanari_types::coin::TreasuryCap;
+    use kanari_types::coin::{CoinModule, TreasuryCap};
     use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
     use kanari_types::transaction::{
         GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
@@ -2107,7 +2099,7 @@ mod tests {
     }
 
     #[test]
-    fn native_transfer_allows_gas_payment_overlap_with_transfer_coin() {
+    fn move_transfer_rejects_gas_payment_overlap_with_transfer_coin() {
         let engine = BlockchainEngine::new_in_memory().unwrap();
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
@@ -2124,14 +2116,12 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
 
-        let (tx_hash, changeset) = engine.execute_transaction_immediate(signed_tx).unwrap();
-        assert!(!tx_hash.is_empty());
         assert!(
-            !changeset.owner_deltas.is_empty()
-                || !changeset.created_objects.is_empty()
-                || !changeset.deleted_objects.is_empty()
-                || !changeset.explicit_object_changes.is_empty(),
-            "native transfer should produce object changes"
+            engine
+                .execute_transaction_immediate(signed_tx)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot overlap with a mutable object input")
         );
     }
 

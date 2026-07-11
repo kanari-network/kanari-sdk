@@ -388,7 +388,7 @@ mod tests {
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::address::Address as KanariAddress;
     use kanari_types::balance::BalanceRecord;
-    use kanari_types::coin::TreasuryCap;
+    use kanari_types::coin::{CoinModule, TreasuryCap};
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::transaction::{
         ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectRef,
@@ -482,6 +482,42 @@ mod tests {
             .store
             .save(b"global_token_supplies", &state.global_token_supplies)
             .unwrap();
+    }
+
+    #[test]
+    fn fresh_engine_owner_query_exposes_separate_genesis_native_gas_coin() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        assert_fresh_engine_exposes_separate_genesis_native_gas_coin(&engine);
+    }
+
+    #[test]
+    fn fresh_persistent_engine_owner_query_exposes_separate_genesis_native_gas_coin() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let engine = BlockchainEngine::new_dir(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_fresh_engine_exposes_separate_genesis_native_gas_coin(&engine);
+    }
+
+    fn assert_fresh_engine_exposes_separate_genesis_native_gas_coin(engine: &BlockchainEngine) {
+        let owner = KanariAddress::DEV_ADDRESS;
+        let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
+
+        let owner_info = engine
+            .get_owner_info(owner)
+            .expect("dev owner should exist after genesis");
+        let owned_objects = owner_info
+            .owned_objects
+            .expect("owner query should include object list");
+        let native_coin_ids: Vec<_> = owned_objects
+            .into_iter()
+            .filter(|object| object.type_ == native_coin_type)
+            .map(|object| object.id)
+            .collect();
+
+        assert!(
+            native_coin_ids.len() >= 2,
+            "fresh engine query must expose separate native transfer and gas coin objects, found {:?}",
+            native_coin_ids
+        );
     }
 
     #[test]

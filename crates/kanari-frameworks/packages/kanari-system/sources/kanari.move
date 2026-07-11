@@ -6,6 +6,7 @@
 module kanari_system::kanari {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
+    use kanari_system::pay;
     use kanari_system::tx_context::{Self, TxContext};
     use std::option;
     use kanari_system::transfer;
@@ -63,15 +64,14 @@ module kanari_system::kanari {
     }
 
 
-    /// Transfer a specific amount of KANARI from a mutable coin object.
+    /// Transfer a specific amount of KANARI using the same Move coin path as other tokens.
     public entry fun transfer(
         c: &mut coin::Coin<KANARI>,
         amount: u64,
         recipient: address,
         ctx: &mut TxContext
     ) {
-        let split_coin = coin::split(c, amount, ctx);
-        transfer::public_transfer(split_coin, recipient);
+        pay::split_and_transfer<KANARI>(c, amount, recipient, ctx);
     }
 
     /// Burns KANARI tokens, decreasing total supply

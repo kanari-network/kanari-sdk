@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   deriveAuthorityRpcEndpoints,
   getBlock,
@@ -627,13 +627,13 @@ export default function Home() {
   const latestCheckpointEffectCount = readArrayLength(latestBlock, "transaction_effects");
   const latestCheckpointObjectChangeCount = readArrayLength(latestBlock, "object_changes");
   const latestCheckpointGraphEdgeCount = readArrayLength(latestBlock, "object_graph_edges");
-  const networkStatusLabel = useMemo(() => {
+  const networkStatusLabel = (() => {
     if (nodes.length === 0) return "Loading network";
     if (onlineNodes.length === nodes.length && laggingNodes === 0) return "All nodes synced";
     if (onlineNodes.length === nodes.length) return "Nodes syncing";
     if (onlineNodes.length > 0) return "Partial outage";
     return "Network offline";
-  }, [laggingNodes, nodes.length, onlineNodes.length]);
+  })();
 
   useEffect(() => {
     async function fetchNetworkData() {

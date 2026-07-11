@@ -27,9 +27,39 @@ function readBytes(value: unknown, key: string) {
   return item.filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry));
 }
 
+function readArrayField(value: unknown, key: string) {
+  const record = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const item = record[key];
+  return Array.isArray(item) ? item : [];
+}
+
 function formatHex(bytes: number[]) {
   if (bytes.length === 0) return "-";
   return `0x${bytes.map((byte) => Math.max(0, Math.min(255, byte)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function readCoinBalanceMist(bytes: number[]) {
+  if (bytes.length < 40) return null;
+  let value = BigInt(0);
+  for (let index = 0; index < 8; index += 1) {
+    value += BigInt(Math.max(0, Math.min(255, bytes[32 + index]))) << BigInt(index * 8);
+  }
+  return value.toString();
+}
+
+function isCoinType(type: string) {
+  return type.includes("::coin::Coin<");
+}
+
+function dedupeObjects(values: unknown[]) {
+  const seen = new Set<string>();
+  return values.filter((value, index) => {
+    const id = readString(value, "object_id", readString(value, "id", `object-${index}`));
+    const normalized = id.toLowerCase();
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
 }
 
 function readTransactionHash(transaction: unknown, fallback: string) {
@@ -104,7 +134,7 @@ function AccountContent() {
       setBalances(asArray(balanceData));
       setTransactions(asArray(transactionData));
       setNfts(asArray(nftData));
-      setObjects(asArray(objectData));
+      setObjects(dedupeObjects([...asArray(objectData), ...readArrayField(accountData, "owned_objects")]));
     } finally {
       setLoading(false);
     }
@@ -157,7 +187,7 @@ function AccountContent() {
                 </span>
               </div>
             </div>
-            <StatusPill label={`Sequence ${readString(account, "sequence_number", "0")}`} />
+            <StatusPill label={`Seq ${readString(account, "sequence_number", "0")} / Objects ${readString(account, "owned_object_count", String(objects.length))}`} />
           </div>
         </section>
       ) : null}
@@ -290,6 +320,7 @@ function AccountContent() {
               const owner = readString(object, "owner", address);
               const ownerKind = readOwnerKindLabel(object);
               const dataBytes = readBytes(object, "data");
+              const coinBalanceMist = isCoinType(objectType) ? readCoinBalanceMist(dataBytes) : null;
               const objectJson =
                 object && typeof object === "object" && !Array.isArray(object)
                   ? { ...(object as Record<string, unknown>), data_hex: formatHex(dataBytes) }
@@ -332,6 +363,12 @@ function AccountContent() {
                       <p className="tiny-label">Data Bytes</p>
                       <span className="mono">{dataBytes.length.toLocaleString()}</span>
                     </div>
+                    {coinBalanceMist !== null ? (
+                      <div className="object-detail-field">
+                        <p className="tiny-label">Coin Balance</p>
+                        <span className="mono">{formatBalance(coinBalanceMist, "9")}</span>
+                      </div>
+                    ) : null}
                     <div className="object-detail-field">
                       <p className="tiny-label">Status</p>
                       <StatusPill label={readString(object, "status", "owned")} />
