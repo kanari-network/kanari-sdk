@@ -108,6 +108,10 @@ impl OwnerState {
     pub fn increment_sequence(&mut self) {
         // Legacy no-op. Owner/account sequence is not part of Kanari execution semantics.
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty() && self.token_balances.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -153,6 +157,59 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    fn collect_derived_indexes(
+        &self,
+    ) -> Result<(Vec<String>, BTreeMap<AccountAddress, Vec<String>>, Vec<String>)> {
+        let entries = self
+            .store
+            .logical_entries()
+            .context("Failed to read state entries for derived index rebuild")?;
+
+        let mut owner_ids = BTreeSet::new();
+        let mut owned_objects: BTreeMap<AccountAddress, BTreeSet<String>> = BTreeMap::new();
+        let mut object_ids = BTreeSet::new();
+
+        for (key, value) in entries {
+            if let Some(owner_bytes) = key.strip_prefix(b"account:") {
+                if let Ok(owner) = AccountAddress::from_bytes(owner_bytes.to_vec()) {
+                    owner_ids.insert(owner.to_hex_literal());
+                }
+                continue;
+            }
+
+            let Some(object_id_bytes) = key.strip_prefix(b"object:") else {
+                continue;
+            };
+            let Ok(mut object_id) = String::from_utf8(object_id_bytes.to_vec()) else {
+                continue;
+            };
+            if let Some(canonical_id) = canonical_object_id(&object_id) {
+                object_id = canonical_id;
+            }
+            object_ids.insert(object_id.clone());
+
+            let Ok(stored) = bcs::from_bytes::<StoredObject>(&value) else {
+                continue;
+            };
+            if matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                owner_ids.insert(stored.owner.to_hex_literal());
+                owned_objects
+                    .entry(stored.owner)
+                    .or_default()
+                    .insert(object_id);
+            }
+        }
+
+        Ok((
+            owner_ids.into_iter().collect(),
+            owned_objects
+                .into_iter()
+                .map(|(owner, ids)| (owner, ids.into_iter().collect()))
+                .collect(),
+            object_ids.into_iter().collect(),
+        ))
+    }
+
     fn load_index_list(&self, key: &[u8]) -> Result<Vec<String>> {
         Ok(self.load_internal(key)?.unwrap_or_default())
     }
@@ -292,6 +349,10 @@ impl StateManager {
         Self::try_new(store)
     }
 
+    pub fn store(&self) -> Arc<PersistentStore> {
+        self.store.clone()
+    }
+
     /// Create new state with genesis allocation
     /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
@@ -362,6 +423,15 @@ impl StateManager {
         }
 
         if state
+            .repair_derived_indexes_on_startup()
+            .context("Failed to rebuild derived indexes on startup")?
+        {
+            state
+                .commit()
+                .context("Failed to persist rebuilt derived indexes on startup")?;
+        }
+
+        if state
             .repair_legacy_native_wallet_overcount()
             .context("Failed to repair native wallet supply on startup")?
         {
@@ -399,6 +469,51 @@ impl StateManager {
         let updates = entries.into_iter().collect::<Vec<_>>();
         smt.insert(&updates)?;
         Ok(())
+    }
+
+    fn repair_derived_indexes_on_startup(&mut self) -> Result<bool> {
+        let (expected_owner_ids, expected_owned_objects, expected_object_ids) =
+            self.collect_derived_indexes()?;
+        let mut changed = false;
+
+        let current_owner_ids = self.load_index_list(OWNER_INDEX_KEY)?;
+        if current_owner_ids != expected_owner_ids {
+            self.save_index_list(OWNER_INDEX_KEY, &expected_owner_ids)?;
+            changed = true;
+        }
+
+        let legacy_owner_ids = self.load_index_list(LEGACY_ACCOUNT_INDEX_KEY)?;
+        if !legacy_owner_ids.is_empty() {
+            self.overlay.insert(LEGACY_ACCOUNT_INDEX_KEY.to_vec(), None);
+            changed = true;
+        }
+
+        let current_object_ids = self.load_index_list(b"object_index")?;
+        if current_object_ids != expected_object_ids {
+            self.save_index_list(b"object_index", &expected_object_ids)?;
+            changed = true;
+        }
+
+        let indexed_owners = current_owner_ids
+            .into_iter()
+            .chain(expected_owner_ids.iter().cloned())
+            .filter_map(|id| AccountAddress::from_hex_literal(&id).ok())
+            .collect::<BTreeSet<_>>();
+
+        for owner in indexed_owners {
+            let expected_ids = expected_owned_objects
+                .get(&owner)
+                .cloned()
+                .unwrap_or_default();
+            let key = owned_objects_key(&owner);
+            let current_ids = self.load_index_list(&key)?;
+            if current_ids != expected_ids {
+                self.save_index_list(&key, &expected_ids)?;
+                changed = true;
+            }
+        }
+
+        Ok(changed)
     }
 
     /// Commit pending overlay changes to the persistent store and update SMT
@@ -496,102 +611,34 @@ impl StateManager {
     }
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
-        key == OWNER_INDEX_KEY
-            || key == LEGACY_ACCOUNT_INDEX_KEY
-            || key == OBJECT_LOCKED_COIN_RECORDS_KEY
-            || key == b"total_supply"
-            || key == b"global_token_supplies"
-            || key == b"treasury_index"
-            || key == b"nft_collection_index"
+        let canonical_object = key.starts_with(b"object:")
+            && key
+                != b"object:0x0000000000000000000000000000000000000000000000000000000000000000";
+        let canonical_module = key.starts_with(b"module:")
+            && !key.starts_with(b"module:0x1:")
+            && !key.starts_with(b"module:0x2:");
+
+        key == b"total_supply"
             || key.starts_with(b"resource:")
-            || key.starts_with(b"account:")
-            || key.starts_with(b"owned_objects:")
+            || canonical_object
+            || canonical_module
             || key.starts_with(b"df:")
             || key.starts_with(b"system:")
             || key.starts_with(b"supply:")
             || key.starts_with(b"treasury:")
             || key.starts_with(b"nft:")
-            || key.starts_with(b"collection_members:")
-            || key.starts_with(b"metadata_decimals:")
-            || key.starts_with(b"metadata_name:")
-            || key.starts_with(b"metadata_symbol:")
-            || key.starts_with(b"metadata_description:")
-            || key.starts_with(b"metadata_icon_url:")
     }
 
     fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
-        let mut canonical_object_keys = BTreeSet::new();
-        let mut canonical_module_keys = BTreeSet::new();
-
-        if let Some(module_index_bytes) = entries.get(b"module_index".as_slice())
-            && let Ok(module_keys) = bcs::from_bytes::<Vec<String>>(module_index_bytes)
-        {
-            for module_key in module_keys {
-                let module_key = module_key.into_bytes();
-                if module_key.starts_with(b"module:") && entries.contains_key(&module_key) {
-                    canonical_module_keys.insert(module_key);
-                }
-            }
-        }
-
-        for (key, value) in entries.iter() {
-            if !key.starts_with(b"owned_objects:") {
-                continue;
-            }
-
-            let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value) else {
-                log::warn!(
-                    "[StateManager] Skipping malformed owned object index while computing state root"
-                );
-                continue;
-            };
-
-            for object_id in object_ids {
-                canonical_object_keys.insert(object_key(&object_id));
-            }
-        }
-
-        entries.retain(|key, _| {
-            Self::is_canonical_state_root_key(key)
-                || (key.starts_with(b"module:") && canonical_module_keys.contains(key))
-                || (key.starts_with(b"object:") && canonical_object_keys.contains(key))
-        });
+        entries.retain(|key, _| Self::is_canonical_state_root_key(key));
     }
 
     fn is_canonical_smt_update(&self, key: &[u8], value: &[u8]) -> bool {
         if Self::is_canonical_state_root_key(key) {
             return true;
         }
-
-        if key.starts_with(b"module:") {
-            return self
-                .load_internal::<Vec<String>>(b"module_index")
-                .ok()
-                .flatten()
-                .map(|modules| modules.iter().any(|module| module.as_bytes() == key))
-                .unwrap_or(false);
-        }
-
-        let Some(object_id) = key
-            .strip_prefix(b"object:")
-            .and_then(|id| std::str::from_utf8(id).ok())
-        else {
-            return false;
-        };
-
-        bcs::from_bytes::<StoredObject>(value)
-            .map(|stored| {
-                if !matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
-                    return false;
-                }
-                let owner_key = owned_objects_key(&stored.owner);
-                self.load_internal::<Vec<String>>(&owner_key)
-                    .ok()
-                    .flatten()
-                    .map(|owned| owned.iter().any(|id| id == object_id))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false)
+        let _ = value;
+        false
     }
 
     fn smt_changes_from_overlay(&self) -> OverlaySmtChanges {
@@ -691,8 +738,13 @@ impl StateManager {
     }
 
     pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
-        self.save_owner_record(owner_state)?;
-        self.add_to_index_list(OWNER_INDEX_KEY, owner_state.address.to_hex_literal())
+        if owner_state.is_empty() {
+            self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
+            self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())
+        } else {
+            self.save_owner_record(owner_state)?;
+            self.add_to_index_list(OWNER_INDEX_KEY, owner_state.address.to_hex_literal())
+        }
     }
 
     pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {
@@ -847,6 +899,27 @@ impl StateManager {
         Self::retain_canonical_state_root_entries(&mut entries);
 
         smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
+    }
+
+    pub fn canonical_state_snapshot(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
+            Ok(entries) => entries.into_iter().collect(),
+            Err(e) => {
+                log::error!("Failed to materialize canonical state snapshot: {}", e);
+                BTreeMap::new()
+            }
+        };
+
+        for (key, value_opt) in &self.overlay {
+            if let Some(value) = value_opt {
+                entries.insert(key.clone(), value.clone());
+            } else {
+                entries.remove(key);
+            }
+        }
+
+        Self::retain_canonical_state_root_entries(&mut entries);
+        entries
     }
 
     pub fn resolve_owner_nonce(&self, _owner: &AccountAddress) -> Result<u64> {

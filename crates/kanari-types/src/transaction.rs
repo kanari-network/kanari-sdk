@@ -503,10 +503,36 @@ impl Transaction {
     }
 
     pub fn primary_access_key(&self) -> String {
-        self.object_access_keys()
+        if let Some(key) = self
+            .object_inputs()
+            .into_iter()
+            .find(|input| input.mutable)
+            .map(|input| format!("mut:object:{}", input.object_ref.object_id))
+        {
+            return key;
+        }
+
+        if let Some(key) = self
+            .object_inputs()
             .into_iter()
             .next()
-            .unwrap_or_else(|| format!("owner:{}", self.sender()))
+            .map(|input| {
+                let mutability = if input.mutable { "mut" } else { "ro" };
+                format!("{mutability}:object:{}", input.object_ref.object_id)
+            })
+        {
+            return key;
+        }
+
+        if let Some(key) = self
+            .gas_payment()
+            .and_then(|gas_payment| gas_payment.payment_objects.into_iter().next())
+            .map(|payment| format!("mut:gas:{}", payment.object_id))
+        {
+            return key;
+        }
+
+        format!("owner:{}", self.sender())
     }
 
     pub fn native_call(&self) -> Option<NativeCall> {

@@ -262,11 +262,7 @@ impl StateManager {
             .copied()
             .unwrap_or(0);
         let indexed_visible = self.indexed_wallet_supply(&token_type)?;
-        let wallet_visible_supply = if token_type == KANARI_TOKEN_TYPE {
-            indexed_visible
-        } else {
-            cached_visible.max(indexed_visible)
-        };
+        let wallet_visible_supply = cached_visible.max(indexed_visible);
         let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
         // Only explicit object-locked records count as locked supply.
         // Any remaining gap between issued supply and accounted wallet/object balances

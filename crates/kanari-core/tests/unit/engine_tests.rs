@@ -1,4 +1,5 @@
 use super::BlockchainEngine;
+use crate::engine::MAX_PENDING_PER_PRIMARY_ACCESS_LANE;
 use crate::consensus::Checkpoint;
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
@@ -15,6 +16,15 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn divergence_message(left: &BlockchainEngine, right: &BlockchainEngine) -> String {
+    left.first_canonical_state_divergence(right)
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+fn snapshot_preview(engine: &BlockchainEngine, limit: usize) -> String {
+    format!("{:?}", engine.canonical_state_snapshot_dump(Some(limit)))
+}
 
 fn native_coin_object_ref(object_id: &str, balance: u64) -> ObjectRef {
     let mut coin_data = vec![0u8; 40];
@@ -38,6 +48,38 @@ fn signed_transfer_from(sender: &kanari_crypto::keys::KeyPair, nonce: u64) -> Si
         1,
         nonce,
     );
+    let mut signed_tx = SignedTransaction::new(tx);
+    signed_tx
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+    signed_tx
+}
+
+fn signed_transfer_with_refs(
+    sender: &kanari_crypto::keys::KeyPair,
+    recipient: &str,
+    coin_object_id: &str,
+    coin_balance: u64,
+    gas_object_id: &str,
+    gas_balance: u64,
+    nonce: u64,
+) -> SignedTransaction {
+    let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref(coin_object_id, coin_balance),
+        recipient.to_string(),
+        1,
+        nonce,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref(gas_object_id, gas_balance)];
+    }
     let mut signed_tx = SignedTransaction::new(tx);
     signed_tx
         .sign(&sender.private_key, sender.curve_type)
@@ -386,6 +428,227 @@ fn restarted_engine_does_not_create_empty_dag_progress() {
 }
 
 #[test]
+#[ignore = "known restart/persistence reproduction for multi-checkpoint replay debugging"]
+fn restarted_engine_matches_reference_across_replay_and_multi_checkpoint_progress() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_c = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx1 = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx2 = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xbbbb",
+        2_000_000,
+        "0x2001",
+        1_000_000,
+        2,
+    );
+    let tx3 = signed_transfer_with_refs(
+        &sender,
+        &recipient_c.address,
+        "0xcccc",
+        1_000_000,
+        "0x3001",
+        1_000_000,
+        3,
+    );
+
+    let configure_engine = |engine: &mut BlockchainEngine| {
+        engine.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        engine
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+    };
+
+    let fund_engine = |engine: &BlockchainEngine| {
+        fund_sender_with_coin(engine, &sender.address, "0xaaaa", 3_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x1001", 1_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0xbbbb", 2_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x2001", 1_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0xcccc", 1_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x3001", 1_000_000);
+    };
+
+    let persisted_checkpoint_two_dump = {
+        let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+        if engine.persistent_store.is_none() {
+            return;
+        }
+        configure_engine(&mut engine);
+        fund_engine(&engine);
+
+        engine.submit_transactions_batch(vec![tx1.clone()]).unwrap();
+        engine.produce_checkpoint().unwrap();
+        engine.submit_transactions_batch(vec![tx2.clone()]).unwrap();
+        engine.produce_checkpoint().unwrap();
+        {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            engine.persist_blockchain_snapshot(&chain).unwrap();
+        }
+
+        assert_eq!(engine.get_stats().height, 2);
+        engine.canonical_state_snapshot_dump(None)
+    };
+
+    let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+    if restarted.persistent_store.is_none() {
+        return;
+    }
+    configure_engine(&mut restarted);
+
+    assert_eq!(restarted.get_stats().height, 2);
+    assert_eq!(
+        restarted.canonical_state_snapshot_dump(None),
+        persisted_checkpoint_two_dump,
+        "restart snapshot mismatch after checkpoint 2; restarted_preview={}",
+        snapshot_preview(&restarted, 8)
+    );
+    assert!(
+        restarted.first_canonical_state_divergence(&restarted).is_none(),
+        "self comparison should never diverge"
+    );
+
+    let replay_err = restarted.submit_transactions_batch(vec![tx1.clone()]).unwrap_err();
+    assert!(replay_err.to_string().contains("already executed"));
+
+    let mut reference = BlockchainEngine::new_in_memory().unwrap();
+    configure_engine(&mut reference);
+    fund_engine(&reference);
+    reference.submit_transactions_batch(vec![tx1]).unwrap();
+    reference.produce_checkpoint().unwrap();
+    reference.submit_transactions_batch(vec![tx2]).unwrap();
+    reference.produce_checkpoint().unwrap();
+
+    eprintln!(
+        "checkpoint2 restarted_vs_reference divergence={}",
+        divergence_message(&restarted, &reference)
+    );
+
+    restarted.submit_transactions_batch(vec![tx3.clone()]).unwrap();
+    reference.submit_transactions_batch(vec![tx3]).unwrap();
+
+    restarted.produce_checkpoint().unwrap();
+    reference.produce_checkpoint().unwrap();
+
+    assert_eq!(restarted.get_stats().height, 3);
+    assert_eq!(reference.get_stats().height, 3);
+    let divergence = restarted.first_canonical_state_divergence(&reference);
+    eprintln!(
+        "checkpoint3 restarted_vs_reference divergence={}",
+        divergence_message(&restarted, &reference)
+    );
+    assert_eq!(
+        restarted.latest_checkpoint_state_root_hex(),
+        reference.latest_checkpoint_state_root_hex(),
+        "restart + replay latest root mismatch; divergence={}, restarted_ts={}, reference_ts={}",
+        divergence.clone().unwrap_or_default(),
+        restarted
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .latest_checkpoint()
+            .timestamp,
+        reference
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .latest_checkpoint()
+            .timestamp
+    );
+    assert!(
+        divergence.is_none(),
+        "restart + replay path diverged from reference: {}",
+        divergence_message(&restarted, &reference)
+    );
+}
+
+#[test]
+fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx1 = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx2 = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xbbbb",
+        2_000_000,
+        "0x2001",
+        1_000_000,
+        2,
+    );
+
+    let configure_engine = |engine: &mut BlockchainEngine| {
+        engine.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        engine
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+    };
+
+    let fund_engine = |engine: &BlockchainEngine| {
+        fund_sender_with_coin(engine, &sender.address, "0xaaaa", 3_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x1001", 1_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0xbbbb", 2_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x2001", 1_000_000);
+    };
+
+    let mut persistent = BlockchainEngine::new_dir(data_dir).unwrap();
+    configure_engine(&mut persistent);
+    fund_engine(&persistent);
+    persistent.submit_transactions_batch(vec![tx1.clone()]).unwrap();
+    persistent.produce_checkpoint().unwrap();
+    persistent.submit_transactions_batch(vec![tx2.clone()]).unwrap();
+    persistent.produce_checkpoint().unwrap();
+
+    let mut in_memory = BlockchainEngine::new_in_memory().unwrap();
+    configure_engine(&mut in_memory);
+    fund_engine(&in_memory);
+    in_memory.submit_transactions_batch(vec![tx1]).unwrap();
+    in_memory.produce_checkpoint().unwrap();
+    in_memory.submit_transactions_batch(vec![tx2]).unwrap();
+    in_memory.produce_checkpoint().unwrap();
+
+    assert_eq!(
+        persistent.latest_checkpoint_state_root_hex(),
+        in_memory.latest_checkpoint_state_root_hex(),
+        "checkpoint 2 root mismatch: {}",
+        divergence_message(&persistent, &in_memory)
+    );
+    assert!(
+        persistent
+            .first_canonical_state_divergence(&in_memory)
+            .is_none(),
+        "checkpoint 2 canonical snapshot mismatch: {}",
+        divergence_message(&persistent, &in_memory)
+    );
+}
+
+#[test]
 fn committed_transaction_history_survives_metadata_stripping() {
     let temp_dir = tempfile::tempdir().unwrap();
     let data_dir = temp_dir.path().to_str().unwrap();
@@ -601,6 +864,459 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
 
     assert_eq!(strict_counts, parallel_counts);
     assert_eq!(strict_root, parallel_root);
+}
+
+#[test]
+fn select_conflict_free_transactions_keeps_non_conflicting_transactions() {
+    let sender_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let sender_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+
+    let tx_a = signed_transfer_with_refs(
+        &sender_a,
+        &recipient_a.address,
+        "0xaaaa",
+        1_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx_b = signed_transfer_with_refs(
+        &sender_b,
+        &recipient_b.address,
+        "0xbbbb",
+        1_000_000,
+        "0x1002",
+        1_000_000,
+        2,
+    );
+
+    let selected = BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b.clone()]);
+    let hashes = selected
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+
+    assert_eq!(hashes.len(), 2);
+    assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec(), tx_b.transaction_hash().to_vec()]);
+}
+
+#[test]
+fn select_conflict_free_transactions_returns_empty_for_empty_input() {
+    let selected = BlockchainEngine::select_conflict_free_transactions(Vec::new());
+    assert!(selected.is_empty());
+}
+
+#[test]
+fn select_conflict_free_transactions_skips_later_conflicts_but_keeps_later_independent_transactions() {
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let independent_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_c = generate_keypair(CurveType::Ed25519).unwrap();
+
+    let tx_a = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx_b = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1002",
+        1_000_000,
+        2,
+    );
+    let tx_c = signed_transfer_with_refs(
+        &independent_sender,
+        &recipient_c.address,
+        "0xbbbb",
+        1_000_000,
+        "0x2001",
+        1_000_000,
+        3,
+    );
+
+    let selected =
+        BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b, tx_c.clone()]);
+    let hashes = selected
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        hashes,
+        vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()]
+    );
+}
+
+#[test]
+fn select_conflict_free_transactions_keeps_only_first_when_all_transactions_conflict() {
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_c = generate_keypair(CurveType::Ed25519).unwrap();
+
+    let tx_a = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx_b = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1002",
+        1_000_000,
+        2,
+    );
+    let tx_c = signed_transfer_with_refs(
+        &sender,
+        &recipient_c.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1003",
+        1_000_000,
+        3,
+    );
+
+    let selected = BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_c, tx_b]);
+    let hashes = selected
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+
+    assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec()]);
+}
+
+#[test]
+fn pending_conflict_free_snapshot_is_stable_regardless_of_submit_order() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let independent_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_c = generate_keypair(CurveType::Ed25519).unwrap();
+
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 2_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1002", 1_000_000);
+    fund_sender_with_coin(&engine, &independent_sender.address, "0xbbbb", 1_000_000);
+    fund_sender_with_coin(&engine, &independent_sender.address, "0x2001", 1_000_000);
+
+    let tx_a = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx_b = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1002",
+        1_000_000,
+        2,
+    );
+    let tx_c = signed_transfer_with_refs(
+        &independent_sender,
+        &recipient_c.address,
+        "0xbbbb",
+        1_000_000,
+        "0x2001",
+        1_000_000,
+        3,
+    );
+
+    let expected = vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()];
+
+    engine
+        .submit_transactions_batch(vec![tx_c, tx_b, tx_a])
+        .unwrap();
+
+    let ready = engine
+        .pending_conflict_free_transactions_snapshot()
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(ready, expected);
+}
+
+#[test]
+fn produce_checkpoint_returns_error_when_only_conflicting_transactions_remain_for_current_round() {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    engine.set_authorities("0x1".to_string(), authorities.clone());
+    let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+    engine
+        .set_consensus_signing_key(local_key, public_keys)
+        .unwrap();
+
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 2_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1002", 1_000_000);
+
+    let tx_a = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx_b = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1002",
+        1_000_000,
+        2,
+    );
+
+    engine.submit_transactions_batch(vec![tx_b, tx_a]).unwrap();
+    engine.produce_checkpoint().unwrap();
+
+    let ready = engine.pending_conflict_free_transactions_snapshot();
+    assert_eq!(ready.len(), 1);
+    let second = engine.produce_checkpoint().unwrap();
+    assert_eq!(second.tx_count, 1);
+    assert_eq!(engine.pending_transaction_len(), 0);
+}
+
+#[test]
+fn produce_checkpoint_skips_conflicting_transactions_from_same_wallet() {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    engine.set_authorities("0x1".to_string(), authorities.clone());
+    let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+    engine
+        .set_consensus_signing_key(local_key, public_keys)
+        .unwrap();
+
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let shared_coin_id = "0xaaaa";
+    let gas_a_id = "0x1001";
+    let gas_b_id = "0x1002";
+
+    fund_sender_with_coin(&engine, &sender.address, shared_coin_id, 2_000_000);
+    fund_sender_with_coin(&engine, &sender.address, gas_a_id, 1_000_000);
+    fund_sender_with_coin(&engine, &sender.address, gas_b_id, 1_000_000);
+
+    let mut tx_a = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref(shared_coin_id, 2_000_000),
+        recipient_a.address.clone(),
+        1,
+        1,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx_a
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref(gas_a_id, 1_000_000)];
+    }
+
+    let mut tx_b = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref(shared_coin_id, 2_000_000),
+        recipient_b.address.clone(),
+        1,
+        2,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx_b
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref(gas_b_id, 1_000_000)];
+    }
+
+    let mut signed_a = SignedTransaction::new(tx_a);
+    signed_a
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+    let hash_a = signed_a.transaction_hash().to_vec();
+
+    let mut signed_b = SignedTransaction::new(tx_b);
+    signed_b
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+    let hash_b = signed_b.transaction_hash().to_vec();
+
+    engine
+        .submit_transactions_batch(vec![signed_b, signed_a])
+        .unwrap();
+
+    let ready_hashes = engine
+        .pending_conflict_free_transactions_snapshot()
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(ready_hashes.len(), 1);
+    let chosen_first = ready_hashes[0].clone();
+    let chosen_second = if chosen_first == hash_a {
+        hash_b.clone()
+    } else {
+        hash_a.clone()
+    };
+
+    let info = engine.produce_checkpoint().unwrap();
+    assert_eq!(info.tx_count, 1);
+    assert_eq!(engine.pending_transaction_len(), 1);
+    let committed_hashes = info
+        .vertex
+        .as_ref()
+        .expect("checkpoint should expose produced vertex")
+        .transactions
+        .iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(committed_hashes, vec![chosen_first.clone()]);
+
+    let pending_hashes = engine
+        .pending_transactions_snapshot()
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(pending_hashes, vec![chosen_second.clone()]);
+
+    let ready_after_first_checkpoint = engine
+        .pending_conflict_free_transactions_snapshot()
+        .into_iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(ready_after_first_checkpoint, vec![chosen_second.clone()]);
+
+    let second = engine.produce_checkpoint().unwrap();
+    assert_eq!(second.tx_count, 1);
+    assert_eq!(engine.pending_transaction_len(), 0);
+}
+
+#[test]
+fn mempool_admission_caps_primary_access_lane_depth() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let shared_coin_id = "0xaaaa";
+
+    fund_sender_with_coin(&engine, &sender.address, shared_coin_id, 10_000_000);
+    for i in 0..(MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 1) {
+        let gas_object_id = format!("0x{:0>4x}", i + 0x1000);
+        fund_sender_with_coin(&engine, &sender.address, &gas_object_id, 1_000_000);
+    }
+
+    let mut accepted = Vec::new();
+    for nonce in 0..MAX_PENDING_PER_PRIMARY_ACCESS_LANE {
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        accepted.push(signed_transfer_with_refs(
+            &sender,
+            &recipient.address,
+            shared_coin_id,
+            10_000_000,
+            &format!("0x{:0>4x}", nonce + 0x1000),
+            1_000_000,
+            nonce,
+        ));
+    }
+    let lane_key = accepted[0].transaction.primary_access_key();
+
+    engine.submit_transactions_batch(accepted).unwrap();
+    assert_eq!(
+        engine.pending_tx_count_for_primary_access(&lane_key),
+        MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+    );
+
+    let overflow_recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let err = engine
+        .submit_transactions_batch(vec![signed_transfer_with_refs(
+            &sender,
+            &overflow_recipient.address,
+            shared_coin_id,
+            10_000_000,
+            &format!("0x{:0>4x}", MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 0x1000),
+            1_000_000,
+            MAX_PENDING_PER_PRIMARY_ACCESS_LANE,
+        )])
+        .unwrap_err();
+
+    assert!(err.to_string().contains("is saturated"));
+    assert_eq!(engine.pending_transaction_len() as u64, MAX_PENDING_PER_PRIMARY_ACCESS_LANE);
+}
+
+#[test]
+fn mempool_admission_allows_independent_primary_access_lanes_when_one_lane_is_full() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 10_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0xbbbb", 10_000_000);
+    for i in 0..(MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 2) {
+        let gas_object_id = format!("0x{:0>4x}", i + 0x2000);
+        fund_sender_with_coin(&engine, &sender.address, &gas_object_id, 1_000_000);
+    }
+
+    let mut lane_a = Vec::new();
+    for nonce in 0..MAX_PENDING_PER_PRIMARY_ACCESS_LANE {
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        lane_a.push(signed_transfer_with_refs(
+            &sender,
+            &recipient.address,
+            "0xaaaa",
+            10_000_000,
+            &format!("0x{:0>4x}", nonce + 0x2000),
+            1_000_000,
+            nonce,
+        ));
+    }
+    let lane_a_key = lane_a[0].transaction.primary_access_key();
+    engine.submit_transactions_batch(lane_a).unwrap();
+
+    let independent_recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let lane_b_tx = signed_transfer_with_refs(
+            &sender,
+            &independent_recipient.address,
+            "0xbbbb",
+            10_000_000,
+            &format!("0x{:0>4x}", MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 0x2000),
+            1_000_000,
+            MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 1,
+        );
+    let lane_b_key = lane_b_tx.transaction.primary_access_key();
+    engine.submit_transactions_batch(vec![lane_b_tx]).unwrap();
+
+    assert_eq!(
+        engine.pending_tx_count_for_primary_access(&lane_a_key),
+        MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+    );
+    assert_eq!(engine.pending_tx_count_for_primary_access(&lane_b_key), 1);
 }
 
 #[test]

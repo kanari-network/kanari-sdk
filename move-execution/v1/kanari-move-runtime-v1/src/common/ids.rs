@@ -16,5 +16,8 @@ pub(crate) fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {
 
     let mut arr = [0u8; AccountAddress::LENGTH];
     arr.copy_from_slice(&bytes[..AccountAddress::LENGTH]);
+    if arr.iter().all(|byte| *byte == 0) {
+        return None;
+    }
     Some(AccountAddress::new(arr).to_hex_literal())
 }

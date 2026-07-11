@@ -506,21 +506,10 @@ impl DagEngine {
 
     pub fn produce_vertex(&self) -> Result<CheckpointProductionInfo> {
         let policy = self.production_policy();
-        let mut transactions = self.engine.pending_transactions_snapshot();
-        transactions.sort_by(|a, b| {
-            a.transaction
-                .primary_access_key()
-                .cmp(&b.transaction.primary_access_key())
-                .then_with(|| {
-                    a.transaction
-                        .sender_address()
-                        .cmp(b.transaction.sender_address())
-                })
-                .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
-        });
+        let transactions = self.engine.pending_conflict_free_transactions_snapshot();
         let tx_count = transactions.len();
         if tx_count == 0 {
-            anyhow::bail!("No new transactions to checkpoint");
+            anyhow::bail!("No conflict-free transactions available to checkpoint");
         }
 
         let timestamp = {

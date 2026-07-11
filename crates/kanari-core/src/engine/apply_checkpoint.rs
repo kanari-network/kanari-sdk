@@ -216,18 +216,10 @@ impl BlockchainEngine {
         validate_supply: bool,
     ) -> Result<()> {
         if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
-            let mut side_effect_snapshot = self.state_read().clone();
-            side_effect_snapshot
-                .repair_legacy_native_wallet_overcount()
-                .context("Failed to repair legacy native wallet overcount before checkpoint side effects")?;
-            let side_effect_state = Arc::new(RwLock::new(side_effect_snapshot));
-            self.apply_system_prologue_to_state(&side_effect_state, checkpoint.timestamp, true)?;
-            self.execute_tx_waves_strict_serial(
-                to_execute,
-                &side_effect_state,
-                Some(checkpoint.timestamp),
-                true, // persist_objects = true
-            )?;
+            tracing::debug!(
+                checkpoint = checkpoint.sequence,
+                "Skipping checkpoint side-effect replay: verified_state commit is the canonical source of truth, and replaying persistence against the same backing store can skew object versions during restart/recovery paths."
+            );
         }
 
         self.finalize_checkpoint(checkpoint, verified_state, validate_supply)

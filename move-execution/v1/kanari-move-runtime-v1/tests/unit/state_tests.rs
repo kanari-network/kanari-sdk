@@ -1,6 +1,7 @@
 use super::*;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::ObjectOwnerKind;
+use std::collections::BTreeMap;
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
     ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
@@ -100,6 +101,59 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
     assert_eq!(summary.untracked_supply, 100);
 
     state.validate_supply_invariants()?;
+
+    Ok(())
+}
+
+#[test]
+fn native_supply_summary_prefers_cached_visible_supply_when_owner_index_is_stale() -> Result<()> {
+    let dao = AccountAddress::from_hex_literal("0x2222")?;
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+
+    state.save_owner_state(&OwnerState::with_native_balance(dao, 210))?;
+    set_native_supply_for_test(&mut state, base.total_supply + 210)?;
+    state.global_token_supplies.insert(
+        KANARI_TOKEN_TYPE.to_string(),
+        base.wallet_visible_supply + 210,
+    );
+
+    state.store.save(b"owner_index", &Vec::<String>::new())?;
+
+    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 210);
+    assert_eq!(summary.object_locked_supply, 0);
+    assert_eq!(summary.accounted_supply, summary.total_supply);
+    assert_eq!(summary.untracked_supply, 0);
+
+    Ok(())
+}
+
+#[test]
+fn state_root_ignores_owner_indexes_and_supply_caches() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let mut state = StateManager::new_in_memory();
+
+    state.save_owner_state(&OwnerState::with_native_balance(owner, 1_000))?;
+    let canonical_root = state.compute_state_root();
+
+    state.save_internal(b"owner_index", &vec![owner.to_hex_literal()])?;
+    state.save_internal(
+        &crate::common::keys::owned_objects_key(&owner),
+        &vec!["0xaaaa".to_string()],
+    )?;
+    state.save_internal(
+        b"global_token_supplies",
+        &BTreeMap::from([(KANARI_TOKEN_TYPE.to_string(), 1_000u64)]),
+    )?;
+    state.save_internal(b"metadata_symbol:0x2::kanari::KANARI", &"KANARI".to_string())?;
+    state.save_internal(
+        b"object_locked_coin_records",
+        &vec![serde_json::json!({"not":"canonical"})],
+    )?;
+
+    let indexed_root = state.compute_state_root();
+    assert_eq!(canonical_root, indexed_root);
 
     Ok(())
 }

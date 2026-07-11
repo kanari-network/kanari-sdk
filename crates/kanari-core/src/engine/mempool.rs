@@ -48,11 +48,12 @@ impl BlockchainEngine {
 
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
-        let (pending_hashes, pending_by_access) = {
+        let (pending_hashes, pending_by_access, pending_by_primary_access) = {
             let mempool = self.mempool_read();
             (
                 mempool.pending_tx_hashes.clone(),
                 mempool.pending_access_counts.clone(),
+                mempool.pending_primary_access_counts.clone(),
             )
         };
 
@@ -156,6 +157,7 @@ impl BlockchainEngine {
         let mut accepted_hashes = Vec::with_capacity(batch_size);
         let mut accepted_counts_by_sender = ahash::AHashMap::new();
         let mut accepted_counts_by_access = ahash::AHashMap::new();
+        let mut accepted_counts_by_primary_access = ahash::AHashMap::new();
         for (tx_hash, sender, _, primary_access, access_keys) in &batch_metadata {
             if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
                 let tx_hash_hex = hex::encode(tx_hash);
@@ -166,8 +168,30 @@ impl BlockchainEngine {
                 anyhow::bail!("Transaction {} already executed", tx_hash_hex);
             }
 
+            let current_lane_depth = pending_by_primary_access
+                .get(primary_access)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(
+                    accepted_counts_by_primary_access
+                        .get(primary_access)
+                        .copied()
+                        .unwrap_or(0),
+                );
+            if current_lane_depth >= MAX_PENDING_PER_PRIMARY_ACCESS_LANE {
+                anyhow::bail!(
+                    "Transaction lane {} is saturated: {} pending transaction(s) already target this primary access key, max {}",
+                    primary_access,
+                    current_lane_depth,
+                    MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+                );
+            }
+
             accepted_hashes.push(tx_hash.clone());
             *accepted_counts_by_sender.entry(sender.clone()).or_insert(0) += 1;
+            *accepted_counts_by_primary_access
+                .entry(primary_access.clone())
+                .or_insert(0) += 1;
             *accepted_counts_by_access
                 .entry(primary_access.clone())
                 .or_insert(0) += 1;
@@ -199,6 +223,12 @@ impl BlockchainEngine {
                 *mempool
                     .pending_sender_counts
                     .entry(sender.clone())
+                    .or_insert(0) += *count;
+            }
+            for (primary_access, count) in &accepted_counts_by_primary_access {
+                *mempool
+                    .pending_primary_access_counts
+                    .entry(primary_access.clone())
                     .or_insert(0) += *count;
             }
             for (access_key, count) in &accepted_counts_by_access {
@@ -240,6 +270,14 @@ impl BlockchainEngine {
         self.mempool_read()
             .pending_sender_counts
             .get(&normalized_sender)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn pending_tx_count_for_primary_access(&self, key: &str) -> u64 {
+        self.mempool_read()
+            .pending_primary_access_counts
+            .get(key)
             .copied()
             .unwrap_or(0)
     }
@@ -301,6 +339,28 @@ impl BlockchainEngine {
         }
     }
 
+    pub(crate) fn remove_pending_primary_access_counts(
+        counts: &mut ahash::AHashMap<String, u64>,
+        transactions: &[PendingTransactionRecord],
+    ) {
+        if transactions.is_empty() {
+            return;
+        }
+
+        for tx in transactions {
+            let key = tx.signed_tx.transaction.primary_access_key();
+            let should_remove = if let Some(count) = counts.get_mut(&key) {
+                *count = count.saturating_sub(1);
+                *count == 0
+            } else {
+                false
+            };
+            if should_remove {
+                counts.remove(&key);
+            }
+        }
+    }
+
     pub fn remove_pending_transactions_by_hashes(
         &self,
         hashes: &[Vec<u8>],
@@ -330,6 +390,10 @@ impl BlockchainEngine {
             .retain(|hash| !target_hashes.contains(hash));
         Self::remove_pending_sender_counts(
             &mut mempool.pending_sender_counts,
+            &removed_transactions,
+        );
+        Self::remove_pending_primary_access_counts(
+            &mut mempool.pending_primary_access_counts,
             &removed_transactions,
         );
         Self::remove_pending_access_counts(

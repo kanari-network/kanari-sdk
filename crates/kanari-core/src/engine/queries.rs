@@ -13,6 +13,60 @@ use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
+    pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
+        let state = self.state_read();
+        let mut entries = state
+            .canonical_state_snapshot()
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    String::from_utf8_lossy(&key).into_owned(),
+                    hex::encode(value),
+                )
+            })
+            .collect::<Vec<_>>();
+        if let Some(limit) = limit {
+            entries.truncate(limit);
+        }
+        entries
+    }
+
+    pub fn first_canonical_state_divergence(&self, other: &Self) -> Option<String> {
+        let left = self.state_read().canonical_state_snapshot();
+        let right = other.state_read().canonical_state_snapshot();
+
+        for key in left.keys().chain(right.keys()) {
+            match (left.get(key), right.get(key)) {
+                (Some(left_value), Some(right_value)) if left_value == right_value => {}
+                (Some(left_value), Some(right_value)) => {
+                    return Some(format!(
+                        "key={} left={} right={}",
+                        String::from_utf8_lossy(key),
+                        hex::encode(left_value),
+                        hex::encode(right_value)
+                    ));
+                }
+                (Some(left_value), None) => {
+                    return Some(format!(
+                        "key={} missing_on_right left={}",
+                        String::from_utf8_lossy(key),
+                        hex::encode(left_value)
+                    ));
+                }
+                (None, Some(right_value)) => {
+                    return Some(format!(
+                        "key={} missing_on_left right={}",
+                        String::from_utf8_lossy(key),
+                        hex::encode(right_value)
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
+
+        None
+    }
+
     pub fn latest_checkpoint_hash_hex(&self) -> String {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain

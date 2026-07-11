@@ -52,6 +52,7 @@ pub struct CheckpointSyncData {
 }
 
 const MAX_MEMPOOL_SIZE: usize = 1_000_000;
+pub(crate) const MAX_PENDING_PER_PRIMARY_ACCESS_LANE: u64 = 64;
 const MAX_PERSISTED_RECENT_TX_HASHES: usize = 100_000;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -79,6 +80,7 @@ pub(crate) struct MempoolState {
     pending_tx_hashes: HashSet<Vec<u8>>,
     pending_sender_counts: AHashMap<String, u64>,
     pending_access_counts: AHashMap<String, u64>,
+    pending_primary_access_counts: AHashMap<String, u64>,
 }
 
 /// Complete blockchain engine with Move VM integration
@@ -682,6 +684,47 @@ impl BlockchainEngine {
             .collect()
     }
 
+    pub(crate) fn select_conflict_free_transactions(
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        let mut selected = Vec::with_capacity(transactions.len());
+        let mut reserved_keys = HashSet::new();
+
+        for signed_tx in transactions {
+            let mut conflict_keys = signed_tx.transaction.get_conflict_keys();
+            conflict_keys.sort();
+            conflict_keys.dedup();
+
+            if conflict_keys
+                .iter()
+                .any(|conflict_key| reserved_keys.contains(conflict_key))
+            {
+                continue;
+            }
+
+            reserved_keys.extend(conflict_keys);
+            selected.push(signed_tx);
+        }
+
+        selected
+    }
+
+    pub fn pending_conflict_free_transactions_snapshot(&self) -> Vec<SignedTransaction> {
+        let mut transactions = self.pending_transactions_snapshot();
+        transactions.sort_by(|a, b| {
+            a.transaction
+                .primary_access_key()
+                .cmp(&b.transaction.primary_access_key())
+                .then_with(|| {
+                    a.transaction
+                        .sender_address()
+                        .cmp(b.transaction.sender_address())
+                })
+                .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
+        });
+        Self::select_conflict_free_transactions(transactions)
+    }
+
     pub fn pending_transaction_len(&self) -> usize {
         self.mempool_read().pending_txs.len()
     }
@@ -842,12 +885,6 @@ impl BlockchainEngine {
                     }
                 };
 
-                if persist_objects {
-                    let runtime = &self.runtime_pool[0];
-                    runtime.persist_created_objects(&changeset);
-                    runtime.persist_deleted_objects(&changeset);
-                }
-
                 state_write
                     .apply_changeset(&changeset)
                     .require("Failed to apply changeset")?;
@@ -911,12 +948,6 @@ impl BlockchainEngine {
                         )
                     })?;
 
-                    if persist_objects {
-                        let runtime = &self.runtime_pool[0];
-                        runtime.persist_created_objects(&cs);
-                        runtime.persist_deleted_objects(&cs);
-                    }
-
                     wave_changeset.merge(cs);
                     wave_executed += 1;
                 }
@@ -950,12 +981,6 @@ impl BlockchainEngine {
                 for res in results {
                     match res {
                         Ok(cs) => {
-                            if persist_objects {
-                                let runtime = &self.runtime_pool[0];
-                                runtime.persist_created_objects(&cs);
-                                runtime.persist_deleted_objects(&cs);
-                            }
-
                             if let Err(e) = state_write.apply_changeset(&cs) {
                                 log::warn!("apply_changeset failed: {}", e);
                                 failed_count += 1;

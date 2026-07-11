@@ -4,6 +4,71 @@
 use super::*;
 
 impl BlockchainEngine {
+    fn recover_checkpoint_sequences_from_store(store: &PersistentStore) -> Vec<u64> {
+        let mut sequences = store
+            .logical_entries()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(key, _)| {
+                let key = String::from_utf8(key).ok()?;
+                key.strip_prefix("checkpoint_meta/")
+                    .or_else(|| key.strip_prefix("checkpoint_txs/"))?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        sequences.dedup();
+        sequences
+    }
+
+    fn recover_blockchain_from_checkpoint_store(store: &PersistentStore) -> Option<Blockchain> {
+        let checkpoint_sequences = Self::recover_checkpoint_sequences_from_store(store);
+
+        if checkpoint_sequences.is_empty() {
+            return None;
+        }
+
+        let mut blockchain = Blockchain::new();
+        for sequence in checkpoint_sequences {
+            if sequence == 0 {
+                continue;
+            }
+            let mut checkpoint = match Self::load_checkpoint_metadata(store, sequence) {
+                Some(checkpoint) => checkpoint,
+                None => {
+                    let transactions = Self::load_checkpoint_transactions(store, sequence)?;
+                    let prev_hash = blockchain.latest_checkpoint().hash().ok()?;
+                    Checkpoint::new(
+                        sequence,
+                        Vec::new(),
+                        transactions,
+                        Vec::new(),
+                        blockchain.latest_checkpoint().timestamp.saturating_add(1),
+                        prev_hash,
+                    )
+                }
+            };
+            if checkpoint.transactions.is_empty()
+                && let Some(transactions) = Self::load_checkpoint_transactions(store, sequence)
+            {
+                checkpoint.transactions = transactions;
+            }
+
+            if let Err(error) = blockchain.add_checkpoint_with_validation(checkpoint, true) {
+                tracing::error!(
+                    checkpoint = sequence,
+                    "Failed to recover checkpoint from metadata store: {}",
+                    error
+                );
+                return None;
+            }
+        }
+
+        blockchain.rebuild_tx_hash_index();
+        Some(blockchain)
+    }
+
     pub fn new_dir(dir: &str) -> Result<Self> {
         let persistent_store = Self::try_open_store(
             || PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))),
@@ -55,15 +120,16 @@ impl BlockchainEngine {
         let blockchain = Self::load_blockchain(&persistent_store);
         tracing::info!("Opening state database");
         let state = Self::load_state(&persistent_store)?;
+        let shared_runtime_store = {
+            let state_guard = state.read().unwrap_or_else(|e| e.into_inner());
+            state_guard.store()
+        };
 
         let workers = Self::runtime_worker_count();
         let mut runtime_pool = Vec::new();
 
-        let base_runtime = match if let Some(store) = persistent_store.clone() {
-            MoveRuntime::new_with_kanari_natives_and_store(store)
-        } else {
-            MoveRuntime::new_with_kanari_natives_in_memory()
-        } {
+        let base_runtime = match MoveRuntime::new_with_kanari_natives_and_store(shared_runtime_store)
+        {
             Ok(rt) => rt,
             Err(e) => {
                 log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
@@ -163,15 +229,49 @@ impl BlockchainEngine {
                     Arc::new(RwLock::new(blockchain))
                 }
                 Ok(None) => {
-                    info!("No persisted blockchain found. Creating fresh genesis.");
-                    Arc::new(RwLock::new(Blockchain::new()))
+                    if let Some(blockchain) = Self::recover_blockchain_from_checkpoint_store(store)
+                    {
+                        if let Err(error) =
+                            Self::persist_blockchain_snapshot_to_store(store, &blockchain)
+                        {
+                            tracing::warn!(
+                                "Recovered blockchain but failed to repersist normalized snapshot: {}",
+                                error
+                            );
+                        }
+                        info!(
+                            "Recovered blockchain from checkpoint metadata (height: {}, checkpoints: {})",
+                            blockchain.height(),
+                            blockchain.dag_checkpoints.len()
+                        );
+                        Arc::new(RwLock::new(blockchain))
+                    } else {
+                        info!("No persisted blockchain found. Creating fresh genesis.");
+                        Arc::new(RwLock::new(Blockchain::new()))
+                    }
                 }
                 Err(e) => {
-                    error!(
-                        "FATAL ERROR loading blockchain: {}. Falling back to fresh genesis.",
-                        e
-                    );
-                    Arc::new(RwLock::new(Blockchain::new()))
+                    error!("FATAL ERROR loading blockchain: {}", e);
+                    if let Some(blockchain) = Self::recover_blockchain_from_checkpoint_store(store)
+                    {
+                        if let Err(error) =
+                            Self::persist_blockchain_snapshot_to_store(store, &blockchain)
+                        {
+                            tracing::warn!(
+                                "Recovered blockchain after load failure but failed to repersist normalized snapshot: {}",
+                                error
+                            );
+                        }
+                        info!(
+                            "Recovered blockchain from checkpoint metadata after primary load failure (height: {}, checkpoints: {})",
+                            blockchain.height(),
+                            blockchain.dag_checkpoints.len()
+                        );
+                        Arc::new(RwLock::new(blockchain))
+                    } else {
+                        error!("Falling back to fresh genesis after blockchain recovery failure.");
+                        Arc::new(RwLock::new(Blockchain::new()))
+                    }
                 }
             }
         } else {

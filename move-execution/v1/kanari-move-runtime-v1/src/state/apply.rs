@@ -370,6 +370,7 @@ impl StateManager {
         stored_id: Option<&str>,
     ) -> Result<()> {
         self.remove_owned_object_index_variants(owner, object_id, stored_id)?;
+        self.add_to_index_list(OWNER_INDEX_KEY, owner.to_hex_literal())?;
         self.add_to_index_list(
             &owned_objects_key(&owner),
             Self::canonical_owned_object_id(object_id),
@@ -475,8 +476,14 @@ impl StateManager {
             for module_name in &change.modules_added {
                 owner_state.add_module(module_name.clone());
             }
-            self.save_owner_record(&owner_state)?;
-            owner_index_additions.push(owner_state.address.to_hex_literal());
+            if owner_state.is_empty() {
+                self.overlay
+                    .insert(Self::owner_state_key(&owner_state.address), None);
+                self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())?;
+            } else {
+                self.save_owner_record(&owner_state)?;
+                owner_index_additions.push(owner_state.address.to_hex_literal());
+            }
             supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
         }
 
