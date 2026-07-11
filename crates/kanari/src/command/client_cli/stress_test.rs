@@ -18,11 +18,7 @@ use clap::Parser;
 use kanari_rpc_api::BuildNativeTransferRequest;
 use kanari_rpc_client::RpcClient;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
-use std::time::{Duration, Instant};
-use tokio::time::sleep;
-
-const MAX_SEQUENCE_RETRIES: usize = 3;
-const SEQUENCE_RETRY_DELAY_MS: u64 = 50;
+use std::time::Instant;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
     let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
@@ -32,11 +28,6 @@ fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
             .filter(|object| object.type_ == native_coin_type)
             .count()
     })
-}
-
-fn is_sequence_race_error(error: &anyhow::Error) -> bool {
-    let message = format!("{:#}", error);
-    message.contains("Sequence number too high") || message.contains("Sequence number too low")
 }
 
 #[derive(Parser, Debug)]
@@ -195,66 +186,46 @@ impl StressTest {
         let report_interval = (self.count / 20).max(1);
 
         for i in 0..self.count {
-            let mut retry_count = 0usize;
-            let result = loop {
-                let attempt_result = async {
-                    let prepared = client
-                        .build_native_transfer(BuildNativeTransferRequest {
-                            sender: sender_tagged.clone(),
-                            recipient: to_addr.clone(),
-                            amount: amount_mist,
-                            gas_limit,
-                            gas_price,
-                            execute_immediate: Some(false),
-                        })
-                        .await
-                        .map_err(|error| {
-                            let policy_suffix = native_transfer_policy_hint(&error)
-                                .map(|summary| format!(" Policy: {}.", summary))
-                                .unwrap_or_default();
-                            anyhow::anyhow!(
-                                "Failed to build native transfer transaction for sender {}: {:#}{}",
-                                from_addr,
-                                error,
-                                policy_suffix
-                            )
-                        })?;
+            let result = async {
+                let prepared = client
+                    .build_native_transfer(BuildNativeTransferRequest {
+                        sender: sender_tagged.clone(),
+                        recipient: to_addr.clone(),
+                        amount: amount_mist,
+                        gas_limit,
+                        gas_price,
+                        execute_immediate: Some(false),
+                    })
+                    .await
+                    .map_err(|error| {
+                        let policy_suffix = native_transfer_policy_hint(&error)
+                            .map(|summary| format!(" Policy: {}.", summary))
+                            .unwrap_or_default();
+                        anyhow::anyhow!(
+                            "Failed to build native transfer transaction for sender {}: {:#}{}",
+                            from_addr,
+                            error,
+                            policy_suffix
+                        )
+                    })?;
 
-                    let tx_seq = prepared.sequence_number;
-                    let coin_object_id = prepared.coin_object_id.clone();
-                    let gas_object_id = prepared
-                        .gas_payment
-                        .as_ref()
-                        .and_then(|gas| gas.payment_objects.first())
-                        .map(|obj| obj.object_id.clone());
+                let tx_seq = prepared.sequence_number;
+                let coin_object_id = prepared.coin_object_id.clone();
+                let gas_object_id = prepared
+                    .gas_payment
+                    .as_ref()
+                    .and_then(|gas| gas.payment_objects.first())
+                    .map(|obj| obj.object_id.clone());
 
-                    let signed = sign_object_transfer_request(prepared, &wallet)?;
-                    let status = client
-                        .submit_object_transfer(signed)
-                        .await
-                        .context("Failed to submit transaction")?;
+                let signed = sign_object_transfer_request(prepared, &wallet)?;
+                let status = client
+                    .submit_object_transfer(signed)
+                    .await
+                    .context("Failed to submit transaction")?;
 
-                    Ok::<_, anyhow::Error>((tx_seq, coin_object_id, gas_object_id, status))
-                }
-                .await;
-
-                match attempt_result {
-                    Err(error)
-                        if is_sequence_race_error(&error) && retry_count < MAX_SEQUENCE_RETRIES =>
-                    {
-                        retry_count += 1;
-                        eprintln!(
-                            "  [{}/{}] sequence changed while submitting; rebuilding tx (retry {}/{})",
-                            i + 1,
-                            self.count,
-                            retry_count,
-                            MAX_SEQUENCE_RETRIES
-                        );
-                        sleep(Duration::from_millis(SEQUENCE_RETRY_DELAY_MS)).await;
-                    }
-                    other => break other,
-                }
-            };
+                Ok::<_, anyhow::Error>((tx_seq, coin_object_id, gas_object_id, status))
+            }
+            .await;
 
             match result {
                 Ok((tx_seq, coin_object_id, gas_object_id, status)) => {

@@ -36,7 +36,7 @@ fn test_changeset_transfer() {
             .get(&from)
             .invariant("sender change missing")
             .sequence_increment,
-        1
+        0
     );
 }
 

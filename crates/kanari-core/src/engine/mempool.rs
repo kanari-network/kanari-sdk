@@ -48,11 +48,10 @@ impl BlockchainEngine {
 
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
-        let (pending_hashes, pending_by_sender, pending_by_access) = {
+        let (pending_hashes, pending_by_access) = {
             let mempool = self.mempool_read();
             (
                 mempool.pending_tx_hashes.clone(),
-                mempool.pending_sender_counts.clone(),
                 mempool.pending_access_counts.clone(),
             )
         };
@@ -120,23 +119,6 @@ impl BlockchainEngine {
             })
             .collect();
 
-        // Batch read account sequences to minimize state lock contention
-        let base_sequences = {
-            let state = self.state_read();
-            let mut sequences = std::collections::HashMap::with_capacity(batch_metadata.len());
-            for (_, sender, _, _, _) in &batch_metadata {
-                sequences.entry(sender.clone()).or_insert_with(|| {
-                    KanariAddress::parse_to_account_address(sender)
-                        .ok()
-                        .and_then(|sender_addr| {
-                            state.resolve_owner_sequence_number(&sender_addr).ok()
-                        })
-                        .unwrap_or(0)
-                });
-            }
-            sequences
-        };
-
         // Check executed transactions in parallel
         let executed_hashes = {
             let chain = match self.blockchain.read() {
@@ -168,13 +150,13 @@ impl BlockchainEngine {
             }
         };
 
-        // Validate duplicates globally, then validate sequence numbers per sender in parallel.
+        // Account sequence is intentionally not a consensus admission rule. Object refs,
+        // gas refs, and duplicate transaction hashes are the canonical replay/double-spend guards.
         let mut batch_hashes = AHashSet::with_capacity(batch_size);
         let mut accepted_hashes = Vec::with_capacity(batch_size);
         let mut accepted_counts_by_sender = ahash::AHashMap::new();
         let mut accepted_counts_by_access = ahash::AHashMap::new();
-        let mut sequence_groups = ahash::AHashMap::new();
-        for (tx_hash, sender, tx_seq, primary_access, access_keys) in &batch_metadata {
+        for (tx_hash, sender, _, primary_access, access_keys) in &batch_metadata {
             if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
                 let tx_hash_hex = hex::encode(tx_hash);
                 anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
@@ -194,45 +176,7 @@ impl BlockchainEngine {
                     .entry(access_key.clone())
                     .or_insert(0) += 1;
             }
-            sequence_groups
-                .entry(sender.clone())
-                .or_insert_with(Vec::new)
-                .push(*tx_seq);
         }
-
-        let sequence_groups = sequence_groups
-            .into_iter()
-            .map(|(sender, mut tx_sequences)| {
-                tx_sequences.sort_unstable();
-                let expected_start = base_sequences.get(&sender).copied().unwrap_or(0)
-                    + pending_by_sender.get(&sender).copied().unwrap_or(0);
-                (sender, expected_start, tx_sequences)
-            })
-            .collect::<Vec<_>>();
-
-        sequence_groups.par_iter().try_for_each(
-            |(sender, expected_start, tx_sequences)| -> Result<()> {
-                for (expected_seq, tx_seq) in (*expected_start..).zip(tx_sequences.iter().copied())
-                {
-                    if tx_seq < expected_seq {
-                        anyhow::bail!(
-                            "Sequence number too low: expected {}, got {}",
-                            expected_seq,
-                            tx_seq
-                        );
-                    }
-                    if tx_seq > expected_seq {
-                        anyhow::bail!(
-                            "Sequence number too high: expected {}, got {}, sender: {}",
-                            expected_seq,
-                            tx_seq,
-                            sender
-                        );
-                    }
-                }
-                Ok(())
-            },
-        )?;
 
         // Write to mempool with minimal lock duration
         {
@@ -277,18 +221,7 @@ impl BlockchainEngine {
         let tx = verified.into_signed_transaction().transaction;
 
         let changeset = {
-            let mut state_snapshot = self.state_read().clone();
-            let sender_addr = tx.sender_address();
-            let addr = KanariAddress::parse_to_account_address(sender_addr)?;
-
-            for _ in 0..self.pending_tx_count_for_sender(sender_addr) {
-                if let Some(mut owner_state) = state_snapshot.get_owner_state(&addr) {
-                    owner_state.increment_sequence();
-                    if let Err(e) = state_snapshot.save_owner_state(&owner_state) {
-                        error!("Failed to save owner state during sequence update: {}", e);
-                    }
-                }
-            }
+            let state_snapshot = self.state_read().clone();
             let state_arc = Arc::new(RwLock::new(state_snapshot));
             let runtime = self.runtime_pool[0]
                 .spawn_isolated_worker()

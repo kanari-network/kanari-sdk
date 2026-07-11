@@ -472,10 +472,6 @@ impl StateManager {
                 let next = owner_state.native_balance() - debit;
                 owner_state.set_token_balance_value(&native_token, next);
             }
-            owner_state.sequence_number = owner_state
-                .sequence_number
-                .checked_add(change.sequence_increment)
-                .require("Owner sequence number overflow")?;
             for module_name in &change.modules_added {
                 owner_state.add_module(module_name.clone());
             }

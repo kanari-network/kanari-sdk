@@ -353,13 +353,13 @@ When publishing modules:
 
 The CLI handles this automatically, but be aware when debugging.
 
-### Sequence Number Management
+### Object And Gas Management
 
-The CLI automatically manages account sequence numbers:
+The CLI delegates object and gas selection to the RPC layer:
 
-- Fetches base sequence before publishing
-- Increments for each module published
-- Prevents race conditions in multi-module packages
+- Resolves canonical object refs from live state
+- Selects a gas payment object that does not overlap mutable inputs
+- Avoids account-sequence ordering; object/gas refs are the execution contract
 
 ### Gas Estimation
 

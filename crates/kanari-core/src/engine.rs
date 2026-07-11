@@ -599,20 +599,9 @@ impl BlockchainEngine {
     }
 
     pub(crate) fn get_expected_sequence(&self, address_hex: &str) -> u64 {
-        let base_sequence = KanariAddress::parse_to_account_address(address_hex)
-            .ok()
-            .and_then(|owner| {
-                self.state
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .resolve_owner_sequence_number(&owner)
-                    .ok()
-            })
-            .unwrap_or(0);
-        let mut seq = self.pending_tx_count_for_sender(address_hex);
-
-        seq += base_sequence;
-        seq
+        // Legacy wire field only. Account sequence is no longer a state/consensus rule;
+        // keep this as a best-effort transaction nonce so older clients get distinct hashes.
+        self.pending_tx_count_for_sender(address_hex)
     }
 
     fn resolve_account_objects(
@@ -828,10 +817,9 @@ impl BlockchainEngine {
                 for (signed_tx, res) in wave.iter().zip(results) {
                     let cs = res.with_context(|| {
                         format!(
-                            "Execution failed for tx {} (sender={}, seq={})",
+                            "Execution failed for tx {} (sender={})",
                             hex::encode(signed_tx.transaction_hash()),
-                            signed_tx.transaction.sender_address(),
-                            signed_tx.transaction.sequence_number()
+                            signed_tx.transaction.sender_address()
                         )
                     })?;
 
@@ -926,9 +914,6 @@ impl BlockchainEngine {
         gas_used: u64,
     ) -> Result<()> {
         let sender_owner_delta = changeset.get_or_create_owner_delta(sender);
-        if sender_owner_delta.sequence_increment == 0 {
-            sender_owner_delta.increment_sequence();
-        }
         sender_owner_delta.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
@@ -954,7 +939,7 @@ impl BlockchainEngine {
         tx: &Transaction,
         runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
-        validate_sequence: bool,
+        _validate_sequence: bool,
         timestamp: Option<u64>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
@@ -981,7 +966,7 @@ impl BlockchainEngine {
         gas_meter.consume(gas_op.gas_units())?;
         let gas_cost = gas_meter.total_cost();
 
-        if validate_sequence || gas_cost > 0 {
+        if gas_cost > 0 {
             let state = match state_arc.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -989,11 +974,6 @@ impl BlockchainEngine {
                     poisoned.into_inner()
                 }
             };
-            if validate_sequence {
-                state
-                    .validate_owner_sequence(&sender_addr, tx.sequence_number())
-                    .context("Sequence number validation failed")?;
-            }
             Self::validate_transaction_object_access(&state, tx, sender_addr)?;
             if gas_cost > 0 {
                 let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
@@ -1938,17 +1918,14 @@ mod tests {
     }
 
     #[test]
-    fn gas_application_does_not_increment_sequence_twice() {
+    fn gas_application_does_not_increment_account_sequence() {
         let sender = AccountAddress::random();
         let mut changeset = ChangeSet::new();
-        changeset
-            .get_or_create_owner_delta(sender)
-            .increment_sequence();
 
         BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
 
         let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
-        assert_eq!(sender_owner_delta.sequence_increment, 1);
+        assert_eq!(sender_owner_delta.sequence_increment, 0);
         assert_eq!(sender_owner_delta.balance_delta, -10);
     }
 
@@ -1978,14 +1955,14 @@ mod tests {
     }
 
     #[test]
-    fn batch_submit_rejects_sequence_gaps() {
+    fn batch_submit_accepts_sequence_gaps() {
         let engine = BlockchainEngine::new().unwrap();
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
         let tx = signed_transfer_from(&sender, 1);
 
-        let err = engine.submit_transactions_batch(vec![tx]).unwrap_err();
+        let hashes = engine.submit_transactions_batch(vec![tx]).unwrap();
 
-        assert!(err.to_string().contains("Sequence number too high"));
+        assert_eq!(hashes.len(), 1);
     }
 
     #[test]

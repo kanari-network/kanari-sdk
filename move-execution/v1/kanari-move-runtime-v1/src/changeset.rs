@@ -77,7 +77,7 @@ impl OwnerDelta {
     }
 
     pub fn increment_sequence(&mut self) {
-        self.sequence_increment = self.sequence_increment.saturating_add(1);
+        // Legacy no-op. Replay/double-spend safety is enforced by object/gas refs.
     }
 
     fn add_module(&mut self, module_name: String) {
@@ -198,7 +198,6 @@ impl ChangeSet {
     pub fn transfer(&mut self, from: AccountAddress, to: AccountAddress, amount: u64) {
         let sender = self.get_or_create_owner_delta(from);
         sender.debit(amount);
-        sender.increment_sequence();
 
         let receiver = self.get_or_create_owner_delta(to);
         receiver.credit(amount);

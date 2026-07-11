@@ -106,7 +106,7 @@ impl OwnerState {
     }
 
     pub fn increment_sequence(&mut self) {
-        self.sequence_number += 1;
+        // Legacy no-op. Owner/account sequence is not part of Kanari execution semantics.
     }
 }
 
@@ -635,20 +635,8 @@ impl StateManager {
     where
         I: IntoIterator<Item = (AccountAddress, u64)>,
     {
-        let mut owner_index_additions = Vec::new();
-
-        for (address, increment) in sequence_increments {
-            if increment == 0 {
-                continue;
-            }
-
-            let mut owner_state = self.load_owner_state_or_default(address)?;
-            owner_state.sequence_number = owner_state.sequence_number.saturating_add(increment);
-            self.save_owner_record(&owner_state)?;
-            owner_index_additions.push(owner_state.address.to_hex_literal());
-        }
-
-        self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)
+        let _ = sequence_increments;
+        Ok(())
     }
 
     fn save_owner_record(&mut self, owner_state: &OwnerState) -> Result<()> {
@@ -861,26 +849,16 @@ impl StateManager {
         smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
     }
 
-    pub fn resolve_owner_sequence_number(&self, owner: &AccountAddress) -> Result<u64> {
-        Ok(self
-            .load_owner_state(owner)?
-            .map(|owner_state| owner_state.sequence_number)
-            .unwrap_or(0))
+    pub fn resolve_owner_sequence_number(&self, _owner: &AccountAddress) -> Result<u64> {
+        Ok(0)
     }
 
-    /// Validate sequence number for an owner state entry.
+    /// Legacy no-op: owner/account sequence is not an execution validity rule.
     pub fn validate_owner_sequence(
         &self,
-        owner: &AccountAddress,
-        expected_sequence: u64,
+        _owner: &AccountAddress,
+        _expected_sequence: u64,
     ) -> Result<()> {
-        let actual_sequence = self.resolve_owner_sequence_number(owner)?;
-        if actual_sequence != expected_sequence {
-            if actual_sequence == 0 {
-                anyhow::bail!("Owner state does not exist, sequence number must be 0");
-            }
-            anyhow::bail!("Invalid sequence number");
-        }
         Ok(())
     }
 

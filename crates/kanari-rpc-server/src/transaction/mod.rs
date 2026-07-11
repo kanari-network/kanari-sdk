@@ -22,7 +22,6 @@ use move_binary_format::{CompiledModule, file_format::SignatureToken};
 use move_core_types::language_storage::TypeTag;
 use std::collections::HashSet;
 use std::str::FromStr;
-use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 
 // Extract function names from module bytecode (returns None on error)
@@ -1011,32 +1010,10 @@ async fn submit_after_immediate_execution(
     signed_tx: SignedTransaction,
     metadata: PendingTransactionMetadata,
 ) -> anyhow::Result<()> {
-    const MAX_RETRIES: usize = 5;
-    const RETRY_DELAY_MS: u64 = 50;
-
-    let mut last_error = None;
-
-    for attempt in 0..MAX_RETRIES {
-        match state
-            .engine
-            .submit_transactions_batch_with_metadata(vec![signed_tx.clone()], metadata.clone())
-        {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                let error_text = e.to_string();
-                let retryable = error_text.contains("Sequence number too high");
-                last_error = Some(e);
-
-                if !retryable || attempt + 1 == MAX_RETRIES {
-                    break;
-                }
-
-                sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
-            }
-        }
-    }
-
-    Err(last_error.expect("retry loop should capture a submission error"))
+    state
+        .engine
+        .submit_transactions_batch_with_metadata(vec![signed_tx], metadata)
+        .map(|_| ())
 }
 
 async fn execute_or_submit_response(

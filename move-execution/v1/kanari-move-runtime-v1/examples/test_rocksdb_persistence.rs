@@ -27,8 +27,7 @@ fn main() -> Result<()> {
 
     // Create owner state
     println!("2. Creating owner state {:?} with balance 1000", addr);
-    let mut owner_state = OwnerState::with_native_balance(acc_addr, 1000);
-    owner_state.increment_sequence();
+    let owner_state = OwnerState::with_native_balance(acc_addr, 1000);
     state1.save_owner_state(&owner_state)?;
 
     // Commit changes
@@ -62,8 +61,8 @@ fn main() -> Result<()> {
         "Balance should be 1000"
     );
     assert_eq!(
-        owner_state.sequence_number, 1,
-        "Sequence number should be 1"
+        owner_state.sequence_number, 0,
+        "Owner sequence is a legacy field and should remain 0"
     );
 
     println!("   Owner-state verification successful!");
