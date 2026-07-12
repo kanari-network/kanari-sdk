@@ -155,6 +155,9 @@ function PanelTransactions({
             const canOpen = hash !== fallbackHash;
             const lifecycle = describeTransactionLifecycle(transaction);
             const senderAddress = readAddress(transaction, "sender_address", "sender");
+            const txType = readString(transaction, "tx_type", "operation");
+            const publishedModule = readString(transaction, "module", "-");
+            const publishedFunctionCount = readArrayLength(transaction, "module_functions");
             const objectInputs = readArrayLength(transaction, "object_inputs");
             const objectChanges = readEffectArrayLength(transaction, "object_changes");
             const graphEdges = readEffectArrayLength(transaction, "causal_edges");
@@ -175,7 +178,7 @@ function PanelTransactions({
                 </div>
                 <div>
                   <p className="tiny-label">Type</p>
-                  <span className="tag">{readString(transaction, "tx_type", "operation").replace(/_/g, " ")}</span>
+                  <span className="tag">{txType.replace(/_/g, " ")}</span>
                 </div>
                 <div>
                   <p className="tiny-label">Sender</p>
@@ -196,9 +199,11 @@ function PanelTransactions({
                   {lifecycle.detail ? <div className="mono muted-text">{lifecycle.detail}</div> : null}
                 </div>
                 <div>
-                  <p className="tiny-label">Objects</p>
+                  <p className="tiny-label">{txType === "publish_module" ? "Published" : "Objects"}</p>
                   <span className="mono muted-text">
-                    {objectInputs} inputs / {objectChanges} changes / {graphEdges} edges
+                    {txType === "publish_module"
+                      ? `${publishedModule}${publishedFunctionCount > 0 ? ` (${publishedFunctionCount} functions)` : ""}`
+                      : `${objectInputs} inputs / ${objectChanges} changes / ${graphEdges} edges`}
                   </span>
                 </div>
               </div>

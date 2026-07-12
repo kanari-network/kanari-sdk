@@ -335,6 +335,42 @@ pub struct BlockchainStats {
     pub state_root: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CanonicalStateEntry {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetCanonicalStateSnapshotRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CanonicalStateSnapshotResponse {
+    pub height: u64,
+    pub state_root: String,
+    pub entry_count: usize,
+    pub entries: Vec<CanonicalStateEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompareCanonicalStateSnapshotRequest {
+    pub entries: Vec<CanonicalStateEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CanonicalStateDiffResponse {
+    pub height: u64,
+    pub state_root: String,
+    pub local_entry_count: usize,
+    pub remote_entry_count: usize,
+    pub first_divergence: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectInfo {
     pub id: String,
@@ -781,6 +817,9 @@ pub struct ModuleInfo {
     pub bytecode_hash: String,
     pub size: usize,
     pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub functions: Vec<String>,
+    pub function_count: usize,
 }
 
 /// Health check response
@@ -1109,6 +1148,32 @@ pub mod methods {
         tags = ["system"]
     )]
     pub const GET_STATS: &str = "kanari_getStats";
+    #[open_rpc_method(
+        summary = "Get canonical state snapshot diagnostics",
+        description = "Returns canonical state key/value entries for the current node state, with optional prefix and limit filters, for divergence debugging.",
+        params = [(
+            "request",
+            "Optional canonical snapshot diagnostics filter.",
+            false,
+            object_schema(&[])
+        )],
+        result = ("snapshot", "Canonical state snapshot diagnostics.", schema_object()),
+        tags = ["system", "debug"]
+    )]
+    pub const GET_CANONICAL_STATE_SNAPSHOT: &str = "kanari_getCanonicalStateSnapshot";
+    #[open_rpc_method(
+        summary = "Compare canonical state snapshot diagnostics",
+        description = "Compares current node canonical state against a caller-provided snapshot and returns the first divergent key/value.",
+        params = [(
+            "request",
+            "Canonical snapshot entries captured from another node.",
+            true,
+            object_schema(&[("entries", schema_array(schema_object()))])
+        )],
+        result = ("diff", "Canonical state divergence diagnostics.", schema_object()),
+        tags = ["system", "debug"]
+    )]
+    pub const COMPARE_CANONICAL_STATE_SNAPSHOT: &str = "kanari_compareCanonicalStateSnapshot";
     pub const ESTIMATE_GAS: &str = "kanari_estimateGas";
     #[open_rpc_method(
         summary = "Health check",

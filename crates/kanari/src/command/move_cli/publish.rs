@@ -16,6 +16,11 @@ use kanari_rpc_api::{BuildPublishModuleRequest, PublishModuleRequest, methods};
 use kanari_types::{GasEstimate, GasOperation};
 use move_package::BuildConfig;
 use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::Duration;
+
+const MAX_PUBLISH_GAS_RETRIES: usize = 60;
+const PUBLISH_GAS_RETRY_DELAY_MS: u64 = 250;
 
 /// Publish the Move module to the blockchain
 #[derive(Parser, Clone)]
@@ -34,6 +39,12 @@ pub struct Publish {
 }
 
 impl Publish {
+    fn is_publish_gas_temporarily_unavailable(error: &anyhow::Error) -> bool {
+        let message = format!("{:#}", error);
+        message.contains("No spendable native gas coin object found with required balance")
+            || message.contains("No spendable native gas coin object found")
+    }
+
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> Result<()> {
         let rerooted_path = reroot_path(path.or(self.package_path.clone()))?;
         let (gas_limit, gas_price) = resolve_transaction_gas(self.gas_limit, self.gas_price);
@@ -130,26 +141,52 @@ impl Publish {
                 estimate.total_cost_mist, estimate.total_cost_kanari
             );
 
-            let prepared = submit_blocking_rpc(
-                &client,
-                &rpc,
-                methods::BUILD_PUBLISH_MODULE,
-                serde_json::to_value(BuildPublishModuleRequest {
-                    sender: sender_for_tx.clone(),
-                    module_bytes: module_bytecode,
-                    module_name,
-                    gas_limit,
-                    gas_price,
-                    nonce: None,
-                    execute_immediate: None,
-                })
-                .context("Failed to serialize build publish request")?,
-            )?;
-            let prepared: PublishModuleRequest = serde_json::from_value(require_rpc_result(
-                prepared,
-                "RPC did not return prepared publish request",
-            )?)
-            .context("Failed to decode prepared publish request")?;
+            let prepared: PublishModuleRequest = {
+                let mut retry_count = 0usize;
+                loop {
+                    let attempt = || -> Result<PublishModuleRequest> {
+                        let prepared = submit_blocking_rpc(
+                            &client,
+                            &rpc,
+                            methods::BUILD_PUBLISH_MODULE,
+                            serde_json::to_value(BuildPublishModuleRequest {
+                                sender: sender_for_tx.clone(),
+                                module_bytes: module_bytecode.clone(),
+                                module_name: module_name.clone(),
+                                gas_limit,
+                                gas_price,
+                                nonce: None,
+                                execute_immediate: None,
+                            })
+                            .context("Failed to serialize build publish request")?,
+                        )?;
+                        serde_json::from_value(require_rpc_result(
+                            prepared,
+                            "RPC did not return prepared publish request",
+                        )?)
+                        .context("Failed to decode prepared publish request")
+                    };
+
+                    match attempt() {
+                        Ok(prepared) => break prepared,
+                        Err(error)
+                            if Self::is_publish_gas_temporarily_unavailable(&error)
+                                && retry_count < MAX_PUBLISH_GAS_RETRIES =>
+                        {
+                            retry_count += 1;
+                            if retry_count == 1 || retry_count.is_multiple_of(10) {
+                                eprintln!(
+                                    "     Waiting for spendable gas coin to become available (retry {}/{})...",
+                                    retry_count,
+                                    MAX_PUBLISH_GAS_RETRIES
+                                );
+                            }
+                            sleep(Duration::from_millis(PUBLISH_GAS_RETRY_DELAY_MS));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+            };
 
             if let Some(gas_payment) = &prepared.gas_payment
                 && let Some(gas_object) = gas_payment.payment_objects.first()

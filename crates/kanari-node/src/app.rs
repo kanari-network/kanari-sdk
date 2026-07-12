@@ -3,12 +3,15 @@
 
 use anyhow::Result;
 use kanari_core::BlockchainEngine;
+use kanari_rpc_api::{CanonicalStateSnapshotResponse, CompareCanonicalStateSnapshotRequest};
 use kanari_rpc_server::start_server_with_transaction_broadcaster;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::KanariModule;
 use libp2p::identity::Keypair;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -45,6 +48,114 @@ fn short_value(value: impl AsRef<str>) -> String {
         value.to_string()
     } else {
         format!("{}...{}", &value[..24], &value[value.len() - 16..])
+    }
+}
+
+fn divergence_snapshot_dump_dir() -> Option<PathBuf> {
+    std::env::var("KANARI_DIVERGENCE_SNAPSHOT_DIR")
+        .ok()
+        .map(PathBuf::from)
+}
+
+fn divergence_reference_snapshot_path() -> Option<PathBuf> {
+    std::env::var("KANARI_DIVERGENCE_REFERENCE_SNAPSHOT")
+        .ok()
+        .map(PathBuf::from)
+}
+
+fn sanitize_path_component(value: &str) -> String {
+    value.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => ch,
+            _ => '_',
+        })
+        .collect()
+}
+
+fn write_snapshot_dump(path: &Path, snapshot: &CanonicalStateSnapshotResponse) {
+    if let Some(parent) = path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        tracing::warn!(
+            "Failed to create startup divergence snapshot directory {}: {}",
+            parent.display(),
+            error
+        );
+        return;
+    }
+
+    match serde_json::to_vec_pretty(snapshot) {
+        Ok(bytes) => {
+            if let Err(error) = fs::write(path, bytes) {
+                tracing::warn!(
+                    "Failed to write startup divergence snapshot {}: {}",
+                    path.display(),
+                    error
+                );
+            } else {
+                tracing::info!("Wrote startup divergence snapshot to {}", path.display());
+            }
+        }
+        Err(error) => tracing::warn!(
+            "Failed to serialize startup divergence snapshot {}: {}",
+            path.display(),
+            error
+        ),
+    }
+}
+
+fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_peer_id: &str) {
+    let snapshot = engine.canonical_state_snapshot_response(None, None);
+
+    tracing::info!(
+        height = snapshot.height,
+        state_root = snapshot.state_root,
+        entries = snapshot.entry_count,
+        peer_id = local_peer_id,
+        "Startup canonical state snapshot ready"
+    );
+
+    if let Some(reference_path) = divergence_reference_snapshot_path() {
+        match fs::read(&reference_path).ok().and_then(|bytes| {
+            serde_json::from_slice::<CanonicalStateSnapshotResponse>(&bytes).ok()
+        }) {
+            Some(reference) => {
+                let diff = engine.compare_canonical_state_snapshot(
+                    &CompareCanonicalStateSnapshotRequest {
+                        entries: reference.entries.clone(),
+                    },
+                );
+                if let Some(first_divergence) = diff.first_divergence {
+                    tracing::warn!(
+                        reference_file = %reference_path.display(),
+                        reference_height = reference.height,
+                        reference_state_root = reference.state_root,
+                        first_divergence,
+                        "Startup divergence detected against reference snapshot"
+                    );
+                } else {
+                    tracing::info!(
+                        reference_file = %reference_path.display(),
+                        reference_height = reference.height,
+                        reference_state_root = reference.state_root,
+                        "Startup snapshot matches reference"
+                    );
+                }
+            }
+            None => tracing::warn!(
+                reference_file = %reference_path.display(),
+                "Failed to load startup divergence reference snapshot"
+            ),
+        }
+    }
+
+    if let Some(dir) = divergence_snapshot_dump_dir() {
+        let filename = format!(
+            "startup-h{}-{}.json",
+            snapshot.height,
+            sanitize_path_component(local_peer_id)
+        );
+        write_snapshot_dump(&dir.join(filename), &snapshot);
     }
 }
 
@@ -279,6 +390,7 @@ pub async fn run_node(
     let keypair = Keypair::generate_ed25519();
     let peer_id = keypair.public().to_peer_id().to_string();
     tracing::info!(peer_id = %short_value(&peer_id), "Node peer identity ready");
+    emit_startup_divergence_diagnostics(&engine, &peer_id);
 
     let node_indexer = match NodeIndexer::new(data_dir.clone()) {
         Ok(idx) => {

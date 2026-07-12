@@ -23,6 +23,8 @@ use tokio::time::sleep;
 
 const MAX_OBJECT_BUSY_RETRIES: usize = 60;
 const OBJECT_BUSY_RETRY_DELAY_MS: u64 = 100;
+const MAX_LANE_SATURATION_RETRIES: usize = 240;
+const LANE_SATURATION_RETRY_DELAY_MS: u64 = 250;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
     let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
@@ -39,6 +41,11 @@ fn is_object_busy_or_unavailable(error: &anyhow::Error) -> bool {
     message.contains("No spendable native gas coin object found")
         || message.contains("Native transfer requires two distinct Coin<")
         || message.contains("native_transfer_policy_not_satisfied")
+}
+
+fn is_lane_saturated(error: &anyhow::Error) -> bool {
+    let message = format!("{:#}", error);
+    message.contains("is saturated") && message.contains("primary access key")
 }
 
 #[derive(Parser, Debug)]
@@ -110,13 +117,11 @@ impl StressTest {
 
         let client = RpcClient::new(&rpc);
 
-        {
-            let height = client
-                .get_block_height()
-                .await
-                .context("Cannot connect to RPC server")?;
-            eprintln!("  Node height: {}", height);
-        }
+        let mut last_observed_height = client
+            .get_block_height()
+            .await
+            .context("Cannot connect to RPC server")?;
+        eprintln!("  Node height: {}", last_observed_height);
 
         if self.faucet {
             let faucet_amt = self
@@ -198,6 +203,7 @@ impl StressTest {
 
         for i in 0..self.count {
             let mut retry_count = 0usize;
+            let mut lane_retry_count = 0usize;
             let result = loop {
                 let attempt_result = async {
                     let prepared = client
@@ -259,6 +265,31 @@ impl StressTest {
                             );
                         }
                         sleep(Duration::from_millis(OBJECT_BUSY_RETRY_DELAY_MS)).await;
+                    }
+                    Err(error)
+                        if is_lane_saturated(&error)
+                            && lane_retry_count < MAX_LANE_SATURATION_RETRIES =>
+                    {
+                        lane_retry_count += 1;
+                        let current_height = client.get_block_height().await.unwrap_or(last_observed_height);
+                        let height_advanced = current_height > last_observed_height;
+                        last_observed_height = current_height;
+
+                        if lane_retry_count == 1
+                            || lane_retry_count.is_multiple_of(20)
+                            || height_advanced
+                        {
+                            eprintln!(
+                                "  [{}/{}] lane saturated, waiting for checkpoint drain (retry {}/{}, height={})",
+                                i + 1,
+                                self.count,
+                                lane_retry_count,
+                                MAX_LANE_SATURATION_RETRIES,
+                                current_height
+                            );
+                        }
+
+                        sleep(Duration::from_millis(LANE_SATURATION_RETRY_DELAY_MS)).await;
                     }
                     other => break other,
                 }

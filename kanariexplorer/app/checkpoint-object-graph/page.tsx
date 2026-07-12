@@ -10,6 +10,7 @@ import {
   Panel,
   describeTransactionLifecycle,
   formatNumber,
+  readBoolean,
   readString,
   SearchForm,
   StatusPill,
@@ -21,6 +22,52 @@ function readArrayLength(source: unknown, key: string) {
   if (typeof source !== "object" || source === null || Array.isArray(source)) return 0;
   const value = (source as Record<string, unknown>)[key];
   return Array.isArray(value) ? value.length : 0;
+}
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function summarizeCheckpointTransaction(transaction: unknown) {
+  const record = asRecord(transaction);
+  const txType = readString(record, "tx_type", readString(record, "type", "transaction"));
+  const moduleName = readString(record, "module_name", readString(record, "module", ""));
+  const functionName = readString(record, "function", "");
+  const publishedModule = readString(record, "module_name", "");
+  const isPublish =
+    readBoolean(record, "is_publish", false) ||
+    txType.toLowerCase().includes("publish") ||
+    publishedModule.length > 0;
+
+  if (isPublish) {
+    return {
+      label: "Publish Module",
+      detail: publishedModule || moduleName || "Move module publication",
+    };
+  }
+
+  if (moduleName && functionName) {
+    return {
+      label: txType.replace(/_/g, " "),
+      detail: `${moduleName}::${functionName}`,
+    };
+  }
+
+  return {
+    label: txType.replace(/_/g, " "),
+    detail: moduleName || functionName || "Checkpoint transaction",
+  };
+}
+
+function summarizeObjectChange(change: unknown) {
+  const record = asRecord(change);
+  return {
+    objectId: readString(record, "object_id", readString(record, "id", "-")),
+    changeType: readString(record, "change_type", readString(record, "kind", "change")).replace(/_/g, " "),
+    objectType: readString(record, "object_type", readString(record, "type_", "-")),
+  };
 }
 
 export default function CheckpointObjectGraphPage() {
@@ -69,6 +116,11 @@ export default function CheckpointObjectGraphPage() {
   const effects = asArray(
     typeof checkpoint === "object" && checkpoint !== null && !Array.isArray(checkpoint)
       ? (checkpoint as Record<string, unknown>).transaction_effects
+      : [],
+  );
+  const transactions = asArray(
+    typeof checkpoint === "object" && checkpoint !== null && !Array.isArray(checkpoint)
+      ? (checkpoint as Record<string, unknown>).transactions
       : [],
   );
   const objectChanges =
@@ -180,30 +232,59 @@ export default function CheckpointObjectGraphPage() {
           <div className="checkpoint-effect-strip">
             {effects.map((effect, index) => {
               const lifecycle = describeTransactionLifecycle(effect);
+              const txSummary = summarizeCheckpointTransaction(transactions[index]);
+              const effectChanges = asArray(asRecord(effect).object_changes);
               return (
                 <article className="checkpoint-effect-card" key={`effect-${index}`}>
                   <div className="checkpoint-effect-card__head">
                     <span className="checkpoint-effect-card__title">Tx Effect {index + 1}</span>
                     <StatusPill label={lifecycle.label} state={lifecycle.state} />
                   </div>
+                  <div className="checkpoint-effect-card__summary">
+                    <div className="checkpoint-effect-card__section">
+                      <p className="tiny-label">Transaction</p>
+                      <strong>{txSummary.label}</strong>
+                    </div>
+                    <div className="checkpoint-effect-card__section">
+                      <p className="tiny-label">Detail</p>
+                      <p className="mono muted-text break-anywhere">{txSummary.detail}</p>
+                    </div>
+                  </div>
                   <div className="checkpoint-effect-card__grid">
-                    <div>
+                    <div className="checkpoint-effect-card__section">
                       <p className="tiny-label">Gas Used</p>
                       <strong className="mono">{readString(effect, "gas_used", "-")}</strong>
                     </div>
-                    <div>
+                    <div className="checkpoint-effect-card__section">
                       <p className="tiny-label">Inputs</p>
                       <strong className="mono">{readArrayLength(effect, "input_objects")}</strong>
                     </div>
-                    <div>
+                    <div className="checkpoint-effect-card__section">
                       <p className="tiny-label">Changes</p>
                       <strong className="mono">{readArrayLength(effect, "object_changes")}</strong>
                     </div>
-                    <div>
+                    <div className="checkpoint-effect-card__section">
                       <p className="tiny-label">Edges</p>
                       <strong className="mono">{readArrayLength(effect, "causal_edges")}</strong>
                     </div>
                   </div>
+                  {effectChanges.length > 0 ? (
+                    <div className="checkpoint-effect-card__changes">
+                      <p className="tiny-label">Object Change Preview</p>
+                      <div className="checkpoint-effect-card__change-list">
+                        {effectChanges.slice(0, 4).map((change, changeIndex) => {
+                          const summary = summarizeObjectChange(change);
+                          return (
+                            <div className="checkpoint-effect-card__change-item" key={`${summary.objectId}-${changeIndex}`}>
+                              <strong>{summary.changeType}</strong>
+                              <span className="mono break-anywhere">{summary.objectType}</span>
+                              <span className="mono muted-text break-anywhere">{summary.objectId}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
               );
             })}

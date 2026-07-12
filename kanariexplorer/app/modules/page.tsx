@@ -10,9 +10,17 @@ function moduleSearchText(module: unknown) {
     readString(module, "address", ""),
     readString(module, "bytecode_hash", ""),
     readString(module, "size", ""),
+    readString(module, "function_count", ""),
+    readString(module, "functions", ""),
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function readStringArray(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  const item = (value as Record<string, unknown>)[key];
+  return Array.isArray(item) ? item.map((entry) => String(entry)) : [];
 }
 
 export default function ModulesPage() {
@@ -72,9 +80,25 @@ export default function ModulesPage() {
                   <span className="mono">{readString(module, "size")}</span>
                 </div>
                 <div>
+                  <p className="tiny-label">Functions</p>
+                  <span className="mono">{readString(module, "function_count", "0")}</span>
+                </div>
+                <div>
                   <p className="tiny-label">Bytecode Hash</p>
                   <span className="mono muted-text break-anywhere">{readString(module, "bytecode_hash")}</span>
                 </div>
+                {readStringArray(module, "functions").length > 0 ? (
+                  <details className="object-json-details module-functions-details">
+                    <summary>Functions</summary>
+                    <div className="module-functions-list">
+                      {readStringArray(module, "functions").map((fnName) => (
+                        <div className="module-functions-list__item" key={fnName}>
+                          <span className="mono break-anywhere">{fnName}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
               </div>
             ))}
           </div>

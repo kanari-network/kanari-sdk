@@ -28,7 +28,8 @@ pub fn should_wait_for_commit(
     submitted: bool,
     committed: bool,
 ) -> bool {
-    success && previewed && submitted && !committed
+    let _ = previewed;
+    success && submitted && !committed
 }
 
 pub fn sign_call_function_request(

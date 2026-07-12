@@ -273,7 +273,8 @@ impl BlockchainEngine {
             .copied()
             .unwrap_or(0)
     }
-
+    
+    #[allow(dead_code)]
     pub(crate) fn pending_tx_count_for_primary_access(&self, key: &str) -> u64 {
         self.mempool_read()
             .pending_primary_access_counts

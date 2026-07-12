@@ -1,8 +1,10 @@
 use super::{
     RpcRequest, RpcResponse, RpcServerState, internal_error_response, invalid_params_response,
-    respond_with_serialize,
+    parse_params, respond_with_serialize,
 };
-use kanari_rpc_api::{BlockInfo, RpcEvent};
+use kanari_rpc_api::{
+    BlockInfo, CompareCanonicalStateSnapshotRequest, GetCanonicalStateSnapshotRequest, RpcEvent,
+};
 use serde_json;
 
 fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, Box<RpcResponse>> {
@@ -83,4 +85,40 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
         state_root: stats.state_root,
     };
     respond_with_serialize(request.id, blockchain_stats)
+}
+
+pub async fn handle_get_canonical_state_snapshot(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req = if request.params.is_null() || request.params == serde_json::json!([]) {
+        GetCanonicalStateSnapshotRequest {
+            limit: None,
+            prefix: None,
+        }
+    } else {
+        match parse_params(request.id, &request.params) {
+            Ok(req) => req,
+            Err(response) => return *response,
+        }
+    };
+
+    let snapshot = state
+        .engine
+        .canonical_state_snapshot_response(req.limit, req.prefix.as_deref());
+    respond_with_serialize(request.id, snapshot)
+}
+
+pub async fn handle_compare_canonical_state_snapshot(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let req: CompareCanonicalStateSnapshotRequest = match parse_params(request.id, &request.params)
+    {
+        Ok(req) => req,
+        Err(response) => return *response,
+    };
+
+    let diff = state.engine.compare_canonical_state_snapshot(&req);
+    respond_with_serialize(request.id, diff)
 }

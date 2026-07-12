@@ -3,7 +3,9 @@
 
 use kanari_rpc_api::ObjectInfo;
 use kanari_rpc_api::{
-    BlockData, BlockchainStats, FullBlockData, OwnerInfo, RpcObjectOwnerKindFilter,
+    BlockData, BlockchainStats, CanonicalStateDiffResponse, CanonicalStateEntry,
+    CanonicalStateSnapshotResponse, CompareCanonicalStateSnapshotRequest, FullBlockData, OwnerInfo,
+    RpcObjectOwnerKindFilter,
 };
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
@@ -13,17 +15,95 @@ use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
-    pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
+    pub fn canonical_state_snapshot_entries(
+        &self,
+        limit: Option<usize>,
+        prefix: Option<&str>,
+    ) -> Vec<CanonicalStateEntry> {
         let state = self.state_read();
         let mut entries = state
             .canonical_state_snapshot()
             .into_iter()
-            .map(|(key, value)| {
-                (
-                    String::from_utf8_lossy(&key).into_owned(),
-                    hex::encode(value),
-                )
+            .map(|(key, value)| CanonicalStateEntry {
+                key: String::from_utf8_lossy(&key).into_owned(),
+                value: hex::encode(value),
             })
+            .filter(|entry| match prefix {
+                Some(prefix) => entry.key.starts_with(prefix),
+                None => true,
+            })
+            .collect::<Vec<_>>();
+        if let Some(limit) = limit {
+            entries.truncate(limit);
+        }
+        entries
+    }
+
+    pub fn canonical_state_snapshot_response(
+        &self,
+        limit: Option<usize>,
+        prefix: Option<&str>,
+    ) -> CanonicalStateSnapshotResponse {
+        let entries = self.canonical_state_snapshot_entries(limit, prefix);
+        CanonicalStateSnapshotResponse {
+            height: self.get_stats().height,
+            state_root: self.latest_checkpoint_state_root_hex(),
+            entry_count: entries.len(),
+            entries,
+        }
+    }
+
+    pub fn compare_canonical_state_snapshot(
+        &self,
+        req: &CompareCanonicalStateSnapshotRequest,
+    ) -> CanonicalStateDiffResponse {
+        use std::collections::BTreeMap;
+
+        let local_entries = self.canonical_state_snapshot_entries(None, None);
+        let local_map = local_entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let remote_map = req
+            .entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.value.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let mut first_divergence = None;
+        for key in local_map.keys().chain(remote_map.keys()) {
+            match (local_map.get(key), remote_map.get(key)) {
+                (Some(left), Some(right)) if left == right => {}
+                (Some(left), Some(right)) => {
+                    first_divergence = Some(format!("key={} left={} right={}", key, left, right));
+                    break;
+                }
+                (Some(left), None) => {
+                    first_divergence = Some(format!("key={} missing_on_right left={}", key, left));
+                    break;
+                }
+                (None, Some(right)) => {
+                    first_divergence = Some(format!("key={} missing_on_left right={}", key, right));
+                    break;
+                }
+                (None, None) => {}
+            }
+        }
+
+        CanonicalStateDiffResponse {
+            height: self.get_stats().height,
+            state_root: self.latest_checkpoint_state_root_hex(),
+            local_entry_count: local_map.len(),
+            remote_entry_count: remote_map.len(),
+            first_divergence,
+        }
+    }
+
+    pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
+        let mut entries = self
+            .canonical_state_snapshot_entries(limit, None)
+            .into_iter()
+            .map(|entry| (entry.key, entry.value))
             .collect::<Vec<_>>();
         if let Some(limit) = limit {
             entries.truncate(limit);

@@ -8,6 +8,23 @@ use crate::{
     respond_with_serialize,
 };
 
+fn extract_module_functions(bytecode: &[u8]) -> Vec<String> {
+    CompiledModule::deserialize_with_defaults(bytecode)
+        .ok()
+        .map(|module| {
+            module
+                .function_defs
+                .iter()
+                .filter_map(|def| {
+                    let handle = module.function_handle_at(def.function);
+                    let name = module.identifier_at(handle.name).as_str().to_string();
+                    (!name.is_empty()).then_some(name)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn build_object_info(
     id: String,
     obj: kanari_move_runtime_v1::changeset::CreatedObject,
@@ -43,12 +60,15 @@ pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> 
         .get_module_bytecode(&params.address, &params.name)
     {
         Some(bytecode) => {
+            let functions = extract_module_functions(&bytecode);
             let module_info = ModuleInfo {
                 address: params.address,
                 name: params.name,
                 bytecode_hash: hex::encode(&blake3::hash(&bytecode).as_bytes()[..]),
                 size: bytecode.len(),
                 dependencies: vec![], // TODO: Extract dependencies from bytecode
+                function_count: functions.len(),
+                functions,
             };
             respond_with_serialize(request.id, module_info)
         }
@@ -64,6 +84,10 @@ pub async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -
         .iter()
         .map(|(address, name)| {
             let bytecode_opt = state.engine.get_module_bytecode(address, name);
+            let functions = bytecode_opt
+                .as_deref()
+                .map(extract_module_functions)
+                .unwrap_or_default();
             ModuleInfo {
                 address: address.clone(),
                 name: name.clone(),
@@ -73,6 +97,8 @@ pub async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -
                     .unwrap_or_else(|| "unknown".to_string()),
                 size: bytecode_opt.as_ref().map(|b| b.len()).unwrap_or(0),
                 dependencies: vec![],
+                function_count: functions.len(),
+                functions,
             }
         })
         .collect();

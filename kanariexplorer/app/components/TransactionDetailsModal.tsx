@@ -51,6 +51,46 @@ function DetailItem({ label, value, mono = false, wide = false }: { label: strin
   );
 }
 
+function splitPublishedFunction(value: string) {
+  const parts = value.split("::");
+  if (parts.length < 3) {
+    return { full: value, functionName: value, modulePath: "" };
+  }
+
+  return {
+    full: value,
+    functionName: parts[parts.length - 1] ?? value,
+    modulePath: parts.slice(0, -1).join("::"),
+  };
+}
+
+function PublishedFunctionsList({ functions }: { functions: string[] }) {
+  if (functions.length === 0) return null;
+
+  return (
+    <details className="object-graph-details tx-published-functions" aria-label="Published functions">
+      <summary>Published Functions</summary>
+      <div className="tx-published-functions__meta">
+        <p className="panel-subtitle">Functions declared in the published module bytecode.</p>
+        <StatusPill label={`${functions.length} functions`} state="ok" />
+      </div>
+      <div className="tx-published-functions__list">
+        {functions.map((item) => (
+          <div className="tx-published-functions__item" key={item}>
+            <p className="tiny-label">Function</p>
+            <strong className="tx-published-functions__name mono">{splitPublishedFunction(item).functionName}</strong>
+            {splitPublishedFunction(item).modulePath ? (
+              <span className="tx-published-functions__path mono break-anywhere">
+                {splitPublishedFunction(item).modulePath}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default function TransactionDetailsModal({
   open,
   loading,
@@ -67,6 +107,8 @@ export default function TransactionDetailsModal({
   const hash = readFirstString(transaction, ["hash", "tx_hash"]);
   const status = describeTransactionLifecycle(transaction);
   const senderAddress = readAddress(transaction, "sender_address", "sender");
+  const transactionType = readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ");
+  const publishedModule = readFirstString(transaction, ["module"]);
   const moduleFunctions = readOptionalArray(transaction, "module_functions");
   const effects = readObject(transaction, "effects");
   const objectInputs = readArrayLength(transaction, "object_inputs");
@@ -121,12 +163,13 @@ export default function TransactionDetailsModal({
               </div>
 
               <section className="tx-detail-grid" aria-label="Transaction fields">
-                <DetailItem label="Type" value={readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ")} />
+                <DetailItem label="Type" value={transactionType} />
                 <DetailItem label="Status Detail" value={status.detail || readFirstString(transaction, ["status"], "unknown")} />
                 <DetailItem label="Checkpoint Height" value={readFirstString(transaction, ["checkpoint_height", "block_height", "height"])} mono />
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
+                <DetailItem label="Published Module" value={publishedModule} mono wide />
                 <DetailItem label="Nonce" value={readFirstString(transaction, ["nonce"])} mono />
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />
@@ -150,10 +193,9 @@ export default function TransactionDetailsModal({
                   wide
                 />
                 <DetailItem label="Action" value={readFirstString(transaction, ["action"])} />
-                {moduleFunctions.length > 0 ? (
-                  <DetailItem label="Module Functions" value={moduleFunctions.join(", ")} mono wide />
-                ) : null}
               </section>
+
+              <PublishedFunctionsList functions={moduleFunctions} />
 
               <ObjectGraphView
                 title="Object Graph Timeline"

@@ -14,6 +14,7 @@ description.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 kanari-core = { workspace = true }
+kanari-rpc-api = { workspace = true }
 kanari-rpc-server = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }

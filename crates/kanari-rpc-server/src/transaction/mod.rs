@@ -805,7 +805,7 @@ fn map_transaction_to_details(
     tx_hash_hex: &str,
     status: &str,
     block_height: Option<u64>,
-    state_root_hex: Option<String>,
+    _state_root_hex: Option<String>,
 ) -> TransactionDetails {
     let hash = format!("0x{}", tx_hash_hex);
     let status_str = status.to_string();
@@ -824,12 +824,10 @@ fn map_transaction_to_details(
             gas_price,
             ..
         } => {
-            let prefix = state_root_hex
-                .map(|sr| format!("0x{}", sr))
-                .unwrap_or_else(|| status_str.clone());
+            let module_prefix = sender_address.clone();
             let module_funcs = extract_functions_from_bytes(module_bytes).map(|fns| {
                 fns.into_iter()
-                    .map(|f| format!("{}::{}::{}", prefix, module_name, f))
+                    .map(|f| format!("{}::{}::{}", module_prefix, module_name, f))
                     .collect()
             });
 
@@ -844,7 +842,7 @@ fn map_transaction_to_details(
                 *gas_limit,
                 *gas_price,
             );
-            details.module = Some(module_name.clone());
+            details.module = Some(format!("{}::{}", sender_address, module_name));
             details.module_functions = module_funcs;
             details.gas_payment = gas_payment.clone();
             details

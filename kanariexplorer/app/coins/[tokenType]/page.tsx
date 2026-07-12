@@ -9,6 +9,7 @@ import {
   PageHeader,
   Panel,
   RawDetails,
+  readBoolean,
   StatusPill,
   describeTransactionLifecycle,
   formatBalance,
@@ -24,6 +25,11 @@ import {
 } from "../../lib/rpc";
 
 type AssetTab = "info" | "holders" | "transactions";
+const SYSTEM_KANARI_TOKEN_TYPE = "0x2::kanari::KANARI";
+
+function normalizeTokenType(value: string) {
+  return value.trim().toLowerCase();
+}
 
 function decodeTokenParam(value: string | string[] | undefined) {
   const raw = Array.isArray(value) ? value.join("/") : value || "";
@@ -90,7 +96,11 @@ function FungibleAssetContent() {
 
   const symbol = readString(asset, "symbol", tokenType.split("::").slice(-1)[0] || "ASSET");
   const decimals = readString(asset, "decimals", "9");
-  const verified = readString(asset, "verified", "false") === "true";
+  const verified = readBoolean(
+    asset,
+    "verified",
+    normalizeTokenType(tokenType) === normalizeTokenType(SYSTEM_KANARI_TOKEN_TYPE),
+  );
 
   return (
     <div className="explorer-wrap">
