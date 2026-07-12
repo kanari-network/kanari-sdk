@@ -17,6 +17,17 @@ class EscrowOperations {
 
   const EscrowOperations(this.rpc);
 
+  Future<void> _ensurePublished() async {
+    try {
+      await rpc.getModule(EscrowConstants.packageAddress, EscrowConstants.module);
+    } catch (_) {
+      throw StateError(
+        'Escrow module is not deployed on this network. Publish '
+        '${EscrowConstants.packageAddress}::${EscrowConstants.module} first.',
+      );
+    }
+  }
+
   /// Validate transaction result
   TransactionResult requireSuccess(TransactionResult result) {
     if (result.status.toLowerCase() == 'failed') {
@@ -40,6 +51,7 @@ class EscrowOperations {
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = TransactionConstants.defaultGasPrice,
   }) async {
+    await _ensurePublished();
     final normalizedToken = BcsUtils.normalizeTokenType(tokenType);
     var ownedObjects = await rpc.getOwnedObjects(wallet.address);
     var coinObject = _findOwnedCoinObject(
@@ -79,6 +91,10 @@ class EscrowOperations {
       args: args.build(),
       gasLimit: gasLimit,
       gasPrice: gasPrice,
+      // Return the created object changes in this response. The Escrow screen
+      // needs the new deal/proof IDs before the next checkpoint query catches
+      // up with the submitted transaction.
+      executeImmediate: true,
     );
   }
 
@@ -221,13 +237,32 @@ class EscrowOperations {
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = TransactionConstants.defaultGasPrice,
   }) {
+    return _executePublishedAction(
+      wallet: wallet,
+      functionName: functionName,
+      typeArgs: [BcsUtils.normalizeTokenType(coinType)],
+      args: args.build(),
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+    );
+  }
+
+  Future<TransactionResult> _executePublishedAction({
+    required KanariWallet wallet,
+    required String functionName,
+    required List<String> typeArgs,
+    required List<List<int>> args,
+    required int gasLimit,
+    required int gasPrice,
+  }) async {
+    await _ensurePublished();
     return rpc.executeFunction(
       wallet: wallet,
       package: EscrowConstants.packageAddress,
       module: EscrowConstants.module,
       function: functionName,
-      typeArgs: [BcsUtils.normalizeTokenType(coinType)],
-      args: args.build(),
+      typeArgs: typeArgs,
+      args: args,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
     );

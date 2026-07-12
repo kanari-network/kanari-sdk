@@ -958,7 +958,6 @@ impl BlockchainEngine {
             };
 
             if fail_hard {
-                let mut wave_changeset = ChangeSet::new();
                 let mut wave_executed = 0usize;
 
                 for (signed_tx, res) in wave.iter().zip(results) {
@@ -970,25 +969,33 @@ impl BlockchainEngine {
                         )
                     })?;
 
-                    wave_changeset.merge(cs);
+                    // Apply each transaction against an isolated candidate so a
+                    // bad gas/object change cannot partially mutate the wave or
+                    // hide which pending transaction caused the failure.
+                    let mut state_write = match state_arc.write() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => {
+                            log::error!("State lock poisoned during wave execution, recovering...");
+                            poisoned.into_inner()
+                        }
+                    };
+                    let mut candidate = state_write.clone();
+                    candidate
+                        .apply_changeset_without_supply_validation(&cs)
+                        .with_context(|| {
+                            format!(
+                                "Execution failed for tx {} (sender={}): Failed to apply changeset",
+                                hex::encode(signed_tx.transaction_hash()),
+                                signed_tx.transaction.sender_address()
+                            )
+                        })?;
+                    *state_write = candidate;
                     wave_executed += 1;
                 }
 
                 if wave_executed == 0 {
                     continue;
                 }
-
-                let mut state_write = match state_arc.write() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        log::error!("State lock poisoned during wave execution, recovering...");
-                        poisoned.into_inner()
-                    }
-                };
-
-                state_write
-                    .apply_changeset_without_supply_validation(&wave_changeset)
-                    .require("Failed to apply changeset")?;
                 executed_count += wave_executed;
             } else {
                 // Apply changesets with proper error handling to prevent node crashes

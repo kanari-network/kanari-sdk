@@ -147,7 +147,14 @@ class QueriesModule {
         return const <TokenBalance>[];
       },
     );
-    if (resp.error != null) throw Exception(resp.error!.message);
+    // A newly created wallet has no on-chain owner record yet. The node
+    // reports that state as "Owner not found" rather than an empty balance.
+    if (resp.error != null) {
+      if (resp.error!.message.trim().toLowerCase() == 'owner not found') {
+        return const <TokenBalance>[];
+      }
+      throw Exception(resp.error!.message);
+    }
     return resp.result!;
   }
 

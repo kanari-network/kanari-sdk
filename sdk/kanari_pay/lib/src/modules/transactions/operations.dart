@@ -50,6 +50,22 @@ class TransactionOperations {
       'gas_price': Bcs.u64(),
       _bcsWireNonceField: Bcs.u64(),
     }),
+    // Keep this variant even though the current Flutter facade does not
+    // publish packages. BCS enum indexes must match the Rust Transaction
+    // declaration: PublishModule, PublishPackage, ExecuteFunction.
+    'PublishPackage': Bcs.struct('PublishPackage', {
+      'sender': Bcs.string(),
+      'modules': Bcs.vector(
+        Bcs.struct('PublishedModule', {
+          'module_name': Bcs.string(),
+          'module_bytes': Bcs.vector(Bcs.u8()),
+        }),
+      ),
+      'gas_payment': Bcs.option(_gasPaymentBcs),
+      'gas_limit': Bcs.u64(),
+      'gas_price': Bcs.u64(),
+      _bcsWireNonceField: Bcs.u64(),
+    }),
     'ExecuteFunction': Bcs.struct('ExecuteFunction', {
       'sender': Bcs.string(),
       'module': Bcs.string(),
@@ -147,16 +163,7 @@ class TransactionOperations {
   }
 
   Future<List<int>> _signingHash(List<int> serializedTx) async {
-    try {
-      return await blake3HashApi(data: serializedTx);
-    } catch (e) {
-      if (e.toString().contains(
-        'flutter_rust_bridge has not been initialized',
-      )) {
-        return serializedTx;
-      }
-      rethrow;
-    }
+    return blake3HashApi(data: serializedTx);
   }
 
   Future<Map<String, dynamic>> _requestPrepared(
@@ -202,6 +209,7 @@ class TransactionOperations {
     final result = resp.result!;
     final status = result.status.toLowerCase();
     if (status != 'pending' &&
+        status != 'simulated_pending' &&
         status != 'executed' &&
         status != 'committed' &&
         status != 'success') {

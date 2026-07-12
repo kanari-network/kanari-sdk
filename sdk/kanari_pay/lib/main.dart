@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme.dart';
 import 'src/client/auth_client.dart';
+import 'src/models/environment.dart';
 import 'src/providers/theme_mode_provider.dart';
 import 'src/providers/wallet_provider.dart';
 import 'src/ui/screens/login_screen.dart';
@@ -25,7 +26,7 @@ void main() async {
     debugPrint('Kanari Crypto init error: $e');
   }
 
-  final authClient = KanariAuthClient('http://localhost:3000');
+  final authClient = KanariAuthClient(KanariEnvironment.dev.authUrl);
   await _restoreSession(authClient);
 
   final themeModeProvider = ThemeModeProvider();

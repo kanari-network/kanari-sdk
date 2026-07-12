@@ -423,9 +423,10 @@ impl IndexerDB {
         self.refresh_owner_balance(&coin.owner, &coin.coin_type)?;
 
         if let Some((previous_owner, previous_coin_type)) = previous_owner_and_type
-            && (previous_owner != coin.owner || previous_coin_type != coin.coin_type) {
-                self.refresh_owner_balance(&previous_owner, &previous_coin_type)?;
-            }
+            && (previous_owner != coin.owner || previous_coin_type != coin.coin_type)
+        {
+            self.refresh_owner_balance(&previous_owner, &previous_coin_type)?;
+        }
 
         Ok(())
     }

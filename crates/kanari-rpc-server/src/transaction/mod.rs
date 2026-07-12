@@ -105,19 +105,26 @@ fn struct_token_has_key_ability(module: &CompiledModule, struct_idx: StructHandl
 }
 
 fn token_is_object_param(module: &CompiledModule, token: &SignatureToken) -> bool {
-    match token {
-        SignatureToken::Reference(inner) | SignatureToken::MutableReference(inner) => {
-            token_is_object_param(module, inner)
+    fn visit(module: &CompiledModule, token: &SignatureToken, by_ref: bool) -> bool {
+        match token {
+            SignatureToken::Reference(inner) | SignatureToken::MutableReference(inner) => {
+                visit(module, inner, true)
+            }
+            SignatureToken::Struct(struct_idx) => {
+                !is_tx_context_token(module, token)
+                    && struct_token_has_key_ability(module, *struct_idx)
+            }
+            SignatureToken::StructInstantiation(instantiation) => {
+                // Generic structs passed by reference are object bindings even
+                // when dependency loading does not expose key ability metadata.
+                !is_tx_context_token(module, token)
+                    && (by_ref || struct_token_has_key_ability(module, instantiation.0))
+            }
+            _ => false,
         }
-        SignatureToken::Struct(struct_idx) => {
-            !is_tx_context_token(module, token) && struct_token_has_key_ability(module, *struct_idx)
-        }
-        SignatureToken::StructInstantiation(instantiation) => {
-            !is_tx_context_token(module, token)
-                && struct_token_has_key_ability(module, instantiation.0)
-        }
-        _ => false,
     }
+
+    visit(module, token, false)
 }
 
 fn function_object_param_indices(

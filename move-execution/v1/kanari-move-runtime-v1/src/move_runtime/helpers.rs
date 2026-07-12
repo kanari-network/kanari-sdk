@@ -75,6 +75,42 @@ impl super::MoveRuntime {
         Ok(())
     }
 
+    /// Preload object IDs passed to ID-based entry functions such as
+    /// `confirm_delivery(address, address, ...)`. These functions intentionally
+    /// do not declare object inputs because the object may belong to another
+    /// participant; authorization is enforced by the Move function itself.
+    pub(crate) fn preload_object_ids_from_args(
+        &self,
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        args: &[Vec<u8>],
+    ) -> anyhow::Result<()> {
+        use kanari_system_natives::object::LoadedObjectsExt;
+
+        let loaded_ext = session
+            .get_native_extensions()
+            .get_mut::<LoadedObjectsExt>();
+        for arg in args {
+            if arg.len() != 32 {
+                continue;
+            }
+
+            let object_id = format!("0x{}", hex::encode(arg));
+            let Some(stored_obj) = self.object_storage.get_object(&object_id) else {
+                continue;
+            };
+
+            loaded_ext.insert(object_id.clone(), stored_obj.type_name, stored_obj.data);
+            log::debug!(
+                "[RUNTIME] Preloaded address-based object argument {} into LoadedObjectsExt",
+                object_id
+            );
+        }
+
+        Ok(())
+    }
+
     /// Check if struct tag represents a balance/coin resource
     pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
         let module_name = struct_tag.module.as_str();

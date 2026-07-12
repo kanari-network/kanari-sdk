@@ -142,8 +142,30 @@ impl StateManager {
 
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
-        Ok(self
+        let mut owners = self
             .owner_addresses()?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        // DAO/treasury fee coins are object-backed and may exist before their
+        // owner account record is present in the legacy account index. Include
+        // their owners from the canonical object index so gas is accounted for
+        // instead of being reported as untracked supply.
+        for (_, object) in self.query_objects(None, None, None, None, None)? {
+            let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
+                continue;
+            };
+            if Self::is_balance_struct(&struct_tag)
+                && Self::token_type_from_balance_struct(&struct_tag)
+                    .is_some_and(|object_token| {
+                        Self::normalize_token_type(&object_token) == token_type
+                    })
+            {
+                owners.insert(object.owner);
+            }
+        }
+
+        Ok(owners
             .into_iter()
             .filter_map(|owner| self.resolve_owner_token_balance(owner, &token_type).ok())
             .fold(0u64, |acc, balance| acc.saturating_add(balance)))

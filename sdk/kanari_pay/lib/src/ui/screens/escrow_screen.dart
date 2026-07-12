@@ -196,6 +196,11 @@ class _EscrowScreenState extends State<EscrowScreen>
     if (text.contains('KANARI can be used in DeFi')) {
       return 'KANARI can be used in DeFi, but Move execution needs two Coin<KANARI> objects: one for escrow funds and one separate gas coin.';
     }
+    if (text.contains('Escrow module is not deployed') ||
+        text.contains('Cannot find ModuleId') ||
+        text.contains('not found in data cache')) {
+      return 'Escrow contract is not deployed on this network. Publish the escrow package to DEV first.';
+    }
     if (text.contains('No spendable native gas coin object found')) {
       return 'No separate KANARI gas coin object was found. Fund this wallet with a second Coin<KANARI> object, then try again.';
     }

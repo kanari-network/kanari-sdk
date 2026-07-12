@@ -5,7 +5,6 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:kanari_crypto/kanari_crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/account.dart';
@@ -13,7 +12,6 @@ import 'models/account.dart';
 class WalletStorage {
   static const _keyWalletData = 'kanari_wallet_data';
   static const _keyActiveWallet = 'kanari_active_wallet';
-  static const _keyPasswordHash = 'kanari_wallet_password_hash';
   static const _keyPasswordSalt = 'kanari_wallet_password_salt';
   static const _keyPasswordVerifier = 'kanari_wallet_password_verifier';
   static const _keyFailedPinAttempts = 'kanari_failed_pin_attempts';
@@ -69,7 +67,6 @@ class WalletStorage {
 
     await prefs.setString(_keyPasswordSalt, base64Encode(salt));
     await prefs.setString(_keyPasswordVerifier, base64Encode(verifier));
-    await prefs.remove(_keyPasswordHash);
     await _resetPinFailures(prefs);
     await _syncBiometricUnlockPinIfEnabled(password);
     debugPrint('Master PIN verifier saved');
@@ -92,7 +89,6 @@ class WalletStorage {
     await prefs.setString(_keyWalletData, jsonEncode(encryptedWallets));
     await prefs.setString(_keyPasswordSalt, base64Encode(salt));
     await prefs.setString(_keyPasswordVerifier, base64Encode(verifier));
-    await prefs.remove(_keyPasswordHash);
     await _resetPinFailures(prefs);
     await _syncBiometricUnlockPinIfEnabled(password);
     debugPrint('Master PIN verifier and encrypted wallets saved');
@@ -125,34 +121,13 @@ class WalletStorage {
       return success;
     }
 
-    final legacyHash = prefs.getString(_keyPasswordHash);
-    if (legacyHash == null) {
-      await _recordFailedPin(prefs);
-      return false;
-    }
-
-    final legacyBytes = utf8.encode(password);
-    final legacyHashBase64 = base64Encode(
-      await blake3HashApi(data: legacyBytes),
-    );
-    final success = _constantTimeEquals(
-      utf8.encode(legacyHashBase64),
-      utf8.encode(legacyHash),
-    );
-
-    if (success) {
-      await savePassword(password);
-    } else {
-      await _recordFailedPin(prefs);
-    }
-
-    return success;
+    await _recordFailedPin(prefs);
+    return false;
   }
 
   static Future<bool> hasPassword() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyPasswordVerifier) != null ||
-        prefs.getString(_keyPasswordHash) != null;
+    return prefs.getString(_keyPasswordVerifier) != null;
   }
 
   static Future<Duration?> pinLockRemaining() async {
@@ -323,7 +298,6 @@ class WalletStorage {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyWalletData);
     await prefs.remove(_keyActiveWallet);
-    await prefs.remove(_keyPasswordHash);
     await prefs.remove(_keyPasswordSalt);
     await prefs.remove(_keyPasswordVerifier);
     await prefs.remove(_keyBiometricEnabled);

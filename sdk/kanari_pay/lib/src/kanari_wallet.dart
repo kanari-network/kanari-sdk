@@ -57,20 +57,10 @@ class KanariWallet {
 
   /// Sign a message using the wallet's private key
   Future<Uint8List> sign(List<int> message) async {
-    try {
-      return await signMessageApi(
-        privateKey: _keyPair.privateKey,
-        message: message,
-        curveName: _keyPair.curveType,
-      );
-    } catch (e) {
-      // For testing environment where RustLib might not be initialized
-      if (e.toString().contains(
-        'flutter_rust_bridge has not been initialized',
-      )) {
-        return Uint8List.fromList(List.filled(64, 0)); // Return dummy signature
-      }
-      rethrow;
-    }
+    return signMessageApi(
+      privateKey: _keyPair.privateKey,
+      message: message,
+      curveName: _keyPair.curveType,
+    );
   }
 }

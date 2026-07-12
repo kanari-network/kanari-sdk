@@ -1,15 +1,12 @@
 enum KanariEnvironment {
-  local('http://127.0.0.1:6767'),
-  dev('http://192.168.1.101:19001');
+  local('http://127.0.0.1:6767', 'http://127.0.0.1:3000'),
+  dev('http://192.168.1.101:19001', 'http://192.168.1.101:3000');
 
   final String url;
-  const KanariEnvironment(this.url);
+  final String authUrl;
+
+  const KanariEnvironment(this.url, this.authUrl);
 
   /// Returns the RPC endpoint URL
-  String get rpcUrl {
-    if (this == KanariEnvironment.dev) {
-      return url; // Local server usually handles RPC at root or specific port
-    }
-    return '$url/rpc';
-  }
+  String get rpcUrl => '$url/rpc';
 }

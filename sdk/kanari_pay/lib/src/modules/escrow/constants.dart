@@ -8,9 +8,12 @@ class EscrowConstants {
 
   // Entry functions
   static const String fnCreateDeal = 'create_deal_ref';
-  static const String fnConfirmDelivery = 'confirm_delivery_ref';
-  static const String fnReleaseFunds = 'release_funds_ref';
-  static const String fnRaiseDispute = 'raise_dispute_ref';
+  // ID-based entry points are required for cross-owner actions. The deal and
+  // proof belong to the buyer, while the seller must be able to confirm
+  // delivery without being declared the object owner in the transaction.
+  static const String fnConfirmDelivery = 'confirm_delivery';
+  static const String fnReleaseFunds = 'release_funds';
+  static const String fnRaiseDispute = 'raise_dispute';
 
   // View functions
   static const String fnGetState = 'get_state_ref';

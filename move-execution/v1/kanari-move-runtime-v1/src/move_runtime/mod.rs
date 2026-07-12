@@ -146,8 +146,21 @@ impl MoveRuntime {
         F: Fn(&RuntimeType) -> bool,
     {
         match param_type {
-            RuntimeType::Reference(inner) if is_key_struct(inner) => Some(false),
-            RuntimeType::MutableReference(inner) if is_key_struct(inner) => Some(true),
+            // Generic object types such as Coin<T> can lose their key-ability
+            // information while resolving a published package's dependency
+            // graph. They are still object references when passed by ref.
+            RuntimeType::Reference(inner)
+                if is_key_struct(inner)
+                    || matches!(&**inner, RuntimeType::StructInstantiation(_)) =>
+            {
+                Some(false)
+            }
+            RuntimeType::MutableReference(inner)
+                if is_key_struct(inner)
+                    || matches!(&**inner, RuntimeType::StructInstantiation(_)) =>
+            {
+                Some(true)
+            }
             RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
                 if is_key_struct(param_type) =>
             {
@@ -1174,6 +1187,7 @@ impl MoveRuntime {
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
 
         let mut final_args = Self::preprocess_entry_args(args);
+        self.preload_object_ids_from_args(&mut session, &final_args)?;
         let tx_context_bytes =
             self.build_tx_context_bytes(sender, timestamp, tx_hash.as_deref())?;
 
@@ -1920,6 +1934,68 @@ mod binding_tests {
         .expect_err("immutable mutable-ref binding should fail");
 
         assert!(err.to_string().contains("Immutable object input"));
+    }
+
+    #[test]
+    fn generic_immutable_reference_is_an_object_input_candidate() {
+        let generic_pool_ref = RuntimeType::Reference(Box::new(RuntimeType::StructInstantiation(
+            Box::new((CachedStructIndex(1), vec![RuntimeType::TyParam(0)])),
+        )));
+
+        assert_eq!(
+            MoveRuntime::object_param_mutability(&generic_pool_ref, |_| false),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn multiple_object_inputs_validate_in_parameter_order() {
+        let inputs = (0..2)
+            .map(|index| ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    format!("0x{}", index + 1),
+                    Some(1),
+                    Some(format!("digest-{index}")),
+                ),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::Shared),
+                mutable: true,
+            })
+            .collect::<Vec<_>>();
+        let requirements = vec![
+            ObjectParamBindingRequirement {
+                param_index: 0,
+                mutable: true,
+            },
+            ObjectParamBindingRequirement {
+                param_index: 1,
+                mutable: false,
+            },
+        ];
+
+        MoveRuntime::validate_declared_object_input_bindings(&inputs, &requirements)
+            .expect("multiple object inputs should validate in order");
+    }
+
+    #[test]
+    fn object_input_requires_owner_semantics() {
+        let err = MoveRuntime::validate_declared_object_input_bindings(
+            &[ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    "0x1",
+                    Some(1),
+                    Some("d".to_string()),
+                ),
+                owner: None,
+                mutable: true,
+            }],
+            &[ObjectParamBindingRequirement {
+                param_index: 0,
+                mutable: true,
+            }],
+        )
+        .expect_err("object input without owner semantics should fail");
+
+        assert!(err.to_string().contains("must declare owner semantics"));
     }
 }
 

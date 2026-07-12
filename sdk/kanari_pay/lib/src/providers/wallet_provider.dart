@@ -14,6 +14,7 @@ class WalletState extends ChangeNotifier {
   List<TokenBalance> _tokenBalances = [];
 
   bool _isLoading = false;
+  bool _isSubmittingTransaction = false;
   String? _error;
   String? _activeWalletId;
   String? _authenticatedWalletId;
@@ -602,15 +603,24 @@ class WalletState extends ChangeNotifier {
   }
 
   Future<String?> _runTransaction(Future<String> Function() action) async {
-    return _withLoading(() async {
-      try {
-        final message = await action();
-        await refreshBalance(notifyListenersOnSuccess: false);
-        return message;
-      } catch (e) {
-        return 'Error: $e';
-      }
-    });
+    if (_isSubmittingTransaction) {
+      return 'Error: Another transaction is already being submitted. Please wait for it to finish.';
+    }
+
+    _isSubmittingTransaction = true;
+    try {
+      return await _withLoading(() async {
+        try {
+          final message = await action();
+          await refreshBalance(notifyListenersOnSuccess: false);
+          return message;
+        } catch (e) {
+          return 'Error: $e';
+        }
+      });
+    } finally {
+      _isSubmittingTransaction = false;
+    }
   }
 
   Future<T> _withLoading<T>(Future<T> Function() action) async {

@@ -22,6 +22,34 @@ impl NormalizeAddr for BlockchainEngine {
 }
 
 impl BlockchainEngine {
+    fn rebuild_pending_indexes(mempool: &mut MempoolState) {
+        mempool.pending_tx_hashes.clear();
+        mempool.pending_sender_counts.clear();
+        mempool.pending_access_counts.clear();
+        mempool.pending_primary_access_counts.clear();
+
+        for record in &mempool.pending_txs {
+            let tx = &record.signed_tx.transaction;
+            mempool
+                .pending_tx_hashes
+                .insert(record.signed_tx.transaction_hash().to_vec());
+
+            let sender = Self::normalize_addr(tx.sender_address());
+            *mempool.pending_sender_counts.entry(sender).or_insert(0) += 1;
+
+            let primary = tx.primary_access_key();
+            *mempool
+                .pending_primary_access_counts
+                .entry(primary.clone())
+                .or_insert(0) += 1;
+            *mempool.pending_access_counts.entry(primary).or_insert(0) += 1;
+
+            for key in tx.object_access_keys() {
+                *mempool.pending_access_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+
     pub fn submit_transactions_batch_with_metadata(
         &self,
         signed_txs: Vec<SignedTransaction>,
@@ -49,7 +77,11 @@ impl BlockchainEngine {
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
         let (pending_hashes, pending_by_access, pending_by_primary_access) = {
-            let mempool = self.mempool_read();
+            let mut mempool = self.mempool_write();
+            // Reconcile derived indexes before admission. A failed checkpoint
+            // or legacy restart can leave lane counters behind after the
+            // pending transaction list has already been drained.
+            Self::rebuild_pending_indexes(&mut mempool);
             (
                 mempool.pending_tx_hashes.clone(),
                 mempool.pending_access_counts.clone(),

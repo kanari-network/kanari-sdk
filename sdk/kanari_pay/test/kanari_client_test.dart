@@ -40,7 +40,7 @@ void main() {
 
     test('fromEnvironment uses correct URL', () {
       final clientDev = KanariClient.fromEnvironment(KanariEnvironment.dev);
-      expect(clientDev.url, 'http://192.168.1.103:19001');
+      expect(clientDev.url, 'http://192.168.1.101:19001/rpc');
 
       final clientLocal = KanariClient.fromEnvironment(KanariEnvironment.local);
       expect(clientLocal.url, 'http://127.0.0.1:6767/rpc');
