@@ -48,15 +48,6 @@ constant codes
 
 
 
-<a name="0x2_ecdsa_k1_ECDSA_K1_SIG_LENGTH"></a>
-
-
-
-<pre><code><b>const</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ECDSA_K1_SIG_LENGTH">ECDSA_K1_SIG_LENGTH</a>: u64 = 64;
-</code></pre>
-
-
-
 <a name="0x2_ecdsa_k1_ECDSA_K1_UNCOMPRESSED_PUBKEY_LENGTH"></a>
 
 
@@ -72,16 +63,6 @@ Error if the public key cannot be recovered from the signature.
 
 
 <pre><code><b>const</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ErrorFailToRecoverPubKey">ErrorFailToRecoverPubKey</a>: u64 = 1;
-</code></pre>
-
-
-
-<a name="0x2_ecdsa_k1_ErrorInvalidHashType"></a>
-
-Invalid hash function.
-
-
-<pre><code><b>const</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ErrorInvalidHashType">ErrorInvalidHashType</a>: u64 = 4;
 </code></pre>
 
 

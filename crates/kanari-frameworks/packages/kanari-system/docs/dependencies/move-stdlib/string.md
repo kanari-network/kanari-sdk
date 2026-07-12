@@ -9,6 +9,8 @@ The <code><a href="../../dependencies/move-stdlib/string.md#0x1_string">string</
 -  [Struct `String`](#0x1_string_String)
 -  [Constants](#@Constants_0)
 -  [Function `utf8`](#0x1_string_utf8)
+-  [Function `from_ascii`](#0x1_string_from_ascii)
+-  [Function `to_ascii`](#0x1_string_to_ascii)
 -  [Function `try_utf8`](#0x1_string_try_utf8)
 -  [Function `bytes`](#0x1_string_bytes)
 -  [Function `is_empty`](#0x1_string_is_empty)
@@ -24,7 +26,8 @@ The <code><a href="../../dependencies/move-stdlib/string.md#0x1_string">string</
 -  [Function `internal_index_of`](#0x1_string_internal_index_of)
 
 
-<pre><code><b>use</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
+<pre><code><b>use</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii">0x1::ascii</a>;
+<b>use</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">0x1::vector</a>;
 </code></pre>
 
@@ -102,6 +105,58 @@ Creates a new string from a sequence of bytes. Aborts if the bytes do not repres
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_utf8">utf8</a>(bytes: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a> {
     <b>assert</b>!(<a href="../../dependencies/move-stdlib/string.md#0x1_string_internal_check_utf8">internal_check_utf8</a>(&bytes), <a href="../../dependencies/move-stdlib/string.md#0x1_string_EINVALID_UTF8">EINVALID_UTF8</a>);
     <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a>{bytes}
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x1_string_from_ascii"></a>
+
+## Function `from_ascii`
+
+Convert an ASCII string to a UTF8 string
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_from_ascii">from_ascii</a>(s: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>): <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_from_ascii">from_ascii</a>(s: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>): <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a> {
+    <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a> { bytes: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_into_bytes">ascii::into_bytes</a>(s) }
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x1_string_to_ascii"></a>
+
+## Function `to_ascii`
+
+Convert an UTF8 string to an ASCII string.
+Aborts if <code>s</code> is not valid ASCII
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_to_ascii">to_ascii</a>(s: <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>): <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_to_ascii">to_ascii</a>(s: <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a>): <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a> {
+    <b>let</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string_String">String</a> { bytes } = s;
+    <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_string">ascii::string</a>(bytes)
 }
 </code></pre>
 

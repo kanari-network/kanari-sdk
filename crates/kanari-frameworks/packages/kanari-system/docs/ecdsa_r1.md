@@ -21,15 +21,6 @@
 ## Constants
 
 
-<a name="0x2_ecdsa_r1_ErrorInvalidHashType"></a>
-
-
-
-<pre><code><b>const</b> <a href="ecdsa_r1.md#0x2_ecdsa_r1_ErrorInvalidHashType">ErrorInvalidHashType</a>: u64 = 3;
-</code></pre>
-
-
-
 <a name="0x2_ecdsa_r1_ErrorInvalidPubKey"></a>
 
 

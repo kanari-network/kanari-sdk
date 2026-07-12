@@ -3,7 +3,7 @@
   "info": {
     "title": "Kanari JSON-RPC",
     "description": "Kanari JSON-RPC API for interaction with kanari server.",
-    "version": "0.1.8",
+    "version": "0.2.0",
     "contact": {
       "name": "Kanari Network",
       "url": "https://kanarinetwork.site",
@@ -545,6 +545,83 @@
       ]
     },
     {
+      "name": "kanari_getCanonicalStateSnapshot",
+      "summary": "Get canonical state snapshot diagnostics",
+      "description": "Returns canonical state key/value entries for the current node state, with optional prefix and limit filters, for divergence debugging.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Optional canonical snapshot diagnostics filter.",
+          "required": false,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "snapshot",
+        "description": "Canonical state snapshot diagnostics.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        },
+        {
+          "name": "debug"
+        }
+      ]
+    },
+    {
+      "name": "kanari_compareCanonicalStateSnapshot",
+      "summary": "Compare canonical state snapshot diagnostics",
+      "description": "Compares current node canonical state against a caller-provided snapshot and returns the first divergent key/value.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Canonical snapshot entries captured from another node.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "entries"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "diff",
+        "description": "Canonical state divergence diagnostics.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        },
+        {
+          "name": "debug"
+        }
+      ]
+    },
+    {
       "name": "kanari_health",
       "summary": "Health check",
       "description": "Returns runtime health and guard configuration.",
@@ -627,6 +704,62 @@
       "result": {
         "name": "module",
         "description": "Prepared publish-module request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_publishPackage",
+      "summary": "Publish package",
+      "description": "Publishes multiple Move modules atomically in one package transaction.",
+      "params": [
+        {
+          "name": "package",
+          "description": "Package publication payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "publication",
+        "description": "Publish execution or pending status.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildPublishPackage",
+      "summary": "Build publish package transaction",
+      "description": "Resolves nonce and gas payment for an atomic package publication and returns a canonical unsigned request.",
+      "params": [
+        {
+          "name": "package",
+          "description": "Unsigned package publication payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "package",
+        "description": "Prepared publish-package request.",
         "required": true,
         "schema": {
           "type": "object"

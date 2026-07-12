@@ -18,8 +18,12 @@
 -  [Function `from_balance`](#0x2_coin_from_balance)
 -  [Function `total_supply`](#0x2_coin_total_supply)
 -  [Function `value`](#0x2_coin_value)
+-  [Function `zero`](#0x2_coin_zero)
 -  [Function `split`](#0x2_coin_split)
 -  [Function `join`](#0x2_coin_join)
+-  [Function `join_entry`](#0x2_coin_join_entry)
+-  [Function `destroy_zero`](#0x2_coin_destroy_zero)
+-  [Function `divide_into_n`](#0x2_coin_divide_into_n)
 -  [Function `update_icon_url`](#0x2_coin_update_icon_url)
 -  [Function `update_name`](#0x2_coin_update_name)
 -  [Function `update_symbol`](#0x2_coin_update_symbol)
@@ -173,36 +177,60 @@ Metadata resource for a currency (stored as an object with UID)
 
 <a name="0x2_coin_EINVALID_DECIMALS"></a>
 
+Invalid decimal count.
 
 
-<pre><code><b>const</b> <a href="coin.md#0x2_coin_EINVALID_DECIMALS">EINVALID_DECIMALS</a>: u64 = 5;
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EINVALID_DECIMALS">EINVALID_DECIMALS</a>: u64 = 6;
+</code></pre>
+
+
+
+<a name="0x2_coin_EInvalidArg"></a>
+
+Invalid arguments are passed to a function.
+
+
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EInvalidArg">EInvalidArg</a>: u64 = 1;
+</code></pre>
+
+
+
+<a name="0x2_coin_ENotEnough"></a>
+
+Trying to split a coin more times than its balance allows.
+
+
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_ENotEnough">ENotEnough</a>: u64 = 2;
 </code></pre>
 
 
 
 <a name="0x2_coin_EOVERFLOW"></a>
 
+Arithmetic overflow.
 
 
-<pre><code><b>const</b> <a href="coin.md#0x2_coin_EOVERFLOW">EOVERFLOW</a>: u64 = 2;
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EOVERFLOW">EOVERFLOW</a>: u64 = 4;
 </code></pre>
 
 
 
 <a name="0x2_coin_EUNDERFLOW"></a>
 
+Arithmetic underflow.
 
 
-<pre><code><b>const</b> <a href="coin.md#0x2_coin_EUNDERFLOW">EUNDERFLOW</a>: u64 = 3;
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EUNDERFLOW">EUNDERFLOW</a>: u64 = 5;
 </code></pre>
 
 
 
 <a name="0x2_coin_EZERO_AMOUNT"></a>
 
+Amount must be greater than zero.
 
 
-<pre><code><b>const</b> <a href="coin.md#0x2_coin_EZERO_AMOUNT">EZERO_AMOUNT</a>: u64 = 1;
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EZERO_AMOUNT">EZERO_AMOUNT</a>: u64 = 3;
 </code></pre>
 
 
@@ -519,6 +547,34 @@ Get coin value
 
 </details>
 
+<a name="0x2_coin_zero"></a>
+
+## Function `zero`
+
+Create a zero-value Coin<T> (useful for testing and as a starting point)
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_zero">zero</a>&lt;T&gt;(ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_zero">zero</a>&lt;T&gt;(ctx: &<b>mut</b> TxContext): <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt; {
+    <a href="coin.md#0x2_coin_Coin">Coin</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        <a href="balance.md#0x2_balance">balance</a>: kanari_system::balance::create&lt;T&gt;(0),
+    }
+}
+</code></pre>
+
+
+
+</details>
+
 <a name="0x2_coin_split"></a>
 
 ## Function `split`
@@ -569,6 +625,97 @@ Join two coins together (adds the balance of 'other' into 'coin').
     <b>let</b> <a href="coin.md#0x2_coin_Coin">Coin</a> { id: _, <a href="balance.md#0x2_balance">balance</a> } = other;
     kanari_system::balance::merge(&<b>mut</b> <a href="coin.md#0x2_coin">coin</a>.<a href="balance.md#0x2_balance">balance</a>, <a href="balance.md#0x2_balance">balance</a>);
     <a href="object.md#0x2_object_save_object">object::save_object</a>(<a href="coin.md#0x2_coin">coin</a>);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_join_entry"></a>
+
+## Function `join_entry`
+
+Entry wrapper for joining two coin objects owned by the sender.
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;) {
+    <a href="coin.md#0x2_coin_join">join</a>(<a href="coin.md#0x2_coin">coin</a>, other);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_destroy_zero"></a>
+
+## Function `destroy_zero`
+
+Destroy a zero-balance coin. This function can only be called on coins with 0 balance.
+Useful for cleaning up empty coin objects to save storage.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;) {
+    <b>let</b> <a href="coin.md#0x2_coin_Coin">Coin</a> { id: _, <a href="balance.md#0x2_balance">balance</a> } = <a href="coin.md#0x2_coin">coin</a>;
+    <b>assert</b>!(kanari_system::balance::value(&<a href="balance.md#0x2_balance">balance</a>) == 0, <a href="coin.md#0x2_coin_EZERO_AMOUNT">EZERO_AMOUNT</a>);
+    kanari_system::balance::destroy&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_divide_into_n"></a>
+
+## Function `divide_into_n`
+
+Split coin <code>self</code> into <code>n - 1</code> coins with equal balances. The remainder is left in
+<code>self</code>. Return newly created coins.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_divide_into_n">divide_into_n</a>&lt;T&gt;(self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, n: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_divide_into_n">divide_into_n</a>&lt;T&gt;(
+    self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;, n: u64, ctx: &<b>mut</b> TxContext
+): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;&gt; {
+    <b>assert</b>!(n &gt; 0, <a href="coin.md#0x2_coin_EInvalidArg">EInvalidArg</a>);
+    <b>assert</b>!(n &lt;= <a href="coin.md#0x2_coin_value">value</a>(self), <a href="coin.md#0x2_coin_ENotEnough">ENotEnough</a>);
+
+    <b>let</b> vec = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;&gt;();
+    <b>let</b> i = 0;
+    <b>let</b> split_amount = <a href="coin.md#0x2_coin_value">value</a>(self) / n;
+    <b>while</b> (i &lt; n - 1) {
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> vec, <a href="coin.md#0x2_coin_split">split</a>(self, split_amount, ctx));
+        i = i + 1;
+    };
+    vec
 }
 </code></pre>
 

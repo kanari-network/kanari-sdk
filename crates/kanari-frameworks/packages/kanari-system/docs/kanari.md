@@ -16,6 +16,7 @@ It has 9 decimals, and the smallest unit (10^-9) is called "MIST".
 
 <pre><code><b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="coin.md#0x2_coin">0x2::coin</a>;
+<b>use</b> <a href="pay.md#0x2_pay">0x2::pay</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
 <b>use</b> <a href="url.md#0x2_url">0x2::url</a>;
@@ -56,21 +57,11 @@ Name of the coin
 ## Constants
 
 
-<a name="0x2_kanari_EAlreadyMinted"></a>
+<a name="0x2_kanari_DEV_GAS_RESERVE_MIST"></a>
 
 
 
-<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_EAlreadyMinted">EAlreadyMinted</a>: u64 = 0;
-</code></pre>
-
-
-
-<a name="0x2_kanari_ENotSystemAddress"></a>
-
-Sender is not @0x0 the system address.
-
-
-<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_ENotSystemAddress">ENotSystemAddress</a>: u64 = 1;
+<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>: u64 = 1000000000;
 </code></pre>
 
 
@@ -122,8 +113,8 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
 
 
 <pre><code><b>fun</b> <a href="kanari.md#0x2_kanari_init">init</a>(witness: <a href="kanari.md#0x2_kanari_KANARI">KANARI</a>, ctx: &<b>mut</b> TxContext) {
-    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="kanari.md#0x2_kanari_ENotSystemAddress">ENotSystemAddress</a>); // Sender check might be too strict for init
-    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx) == 0, <a href="kanari.md#0x2_kanari_EAlreadyMinted">EAlreadyMinted</a>); // Epoch check might be okay
+    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, ENotSystemAddress); // Sender check might be too strict for init
+    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx) == 0, EAlreadyMinted); // Epoch check might be okay
 
     <b>let</b> (treasury, metadata) = <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
         witness,
@@ -131,7 +122,7 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
         b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>",
         b"Kanari Network Coin",
         b"",
-        <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>(),
+        <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(<a href="url.md#0x2_url_new_unsafe_from_bytes">url::new_unsafe_from_bytes</a>(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
         ctx
     );
     <a href="transfer.md#0x2_transfer_public_freeze_object">transfer::public_freeze_object</a>(metadata);
@@ -139,10 +130,14 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
     // make a mutable binding for minting (<b>use</b> a different name than the original)
     <b>let</b> treasury_cap = treasury;
 
-    // Mint the entire supply (in Mist) and <a href="transfer.md#0x2_transfer">transfer</a> <b>to</b> dev @0x9
+    // Mint the initial supply into two <a href="coin.md#0x2_coin">coin</a> objects so the dev wallet <b>has</b>
+    // a dedicated gas <a href="coin.md#0x2_coin">coin</a> from genesis onward.
     <b>let</b> dev_address: <b>address</b> = @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
-    <b>let</b> minted_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; = <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a>, ctx);
-    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(minted_coin, dev_address);
+    <b>let</b> primary_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; =
+        <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a> - <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>, ctx);
+    <b>let</b> gas_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; = <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>, ctx);
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(primary_coin, dev_address);
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(gas_coin, dev_address);
 
     // Transfer the treasury cap <b>to</b> the sender (deployer)
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(treasury_cap, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
@@ -157,10 +152,10 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
 
 ## Function `transfer`
 
-KANARI tokens to the treasury
+Transfer a specific amount of KANARI using the same Move coin path as other tokens.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>(c: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;, recipient: <b>address</b>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>(c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;, amount: u64, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -169,8 +164,13 @@ KANARI tokens to the treasury
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>(c: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;, recipient: <b>address</b>) {
-    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(c, recipient)
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>(
+    c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;,
+    amount: u64,
+    recipient: <b>address</b>,
+    ctx: &<b>mut</b> TxContext
+) {
+    <a href="pay.md#0x2_pay_split_and_transfer">pay::split_and_transfer</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;(c, amount, recipient, ctx);
 }
 </code></pre>
 

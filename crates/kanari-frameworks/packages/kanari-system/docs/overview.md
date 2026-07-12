@@ -31,8 +31,11 @@ The Kanari System is built on top of the Move programming language, providing a 
 ## Index
 
 
+-  [`0x2::address`](address.md#0x2_address)
 -  [`0x2::bag`](bag.md#0x2_bag)
 -  [`0x2::balance`](balance.md#0x2_balance)
+-  [`0x2::base64`](base64.md#0x2_base64)
+-  [`0x2::bcs`](bcs.md#0x2_bcs)
 -  [`0x2::clock`](clock.md#0x2_clock)
 -  [`0x2::coin`](coin.md#0x2_coin)
 -  [`0x2::collection`](collection.md#0x2_collection)
@@ -43,9 +46,13 @@ The Kanari System is built on top of the Move programming language, providing a 
 -  [`0x2::ecdsa_r1`](ecdsa_r1.md#0x2_ecdsa_r1)
 -  [`0x2::ed25519`](ed25519.md#0x2_ed25519)
 -  [`0x2::event`](event.md#0x2_event)
+-  [`0x2::hex`](hex.md#0x2_hex)
 -  [`0x2::kanari`](kanari.md#0x2_kanari)
 -  [`0x2::math`](math.md#0x2_math)
+-  [`0x2::multisig`](multisig.md#0x2_multisig)
 -  [`0x2::object`](object.md#0x2_object)
+-  [`0x2::pay`](pay.md#0x2_pay)
+-  [`0x2::rs256`](rs256.md#0x2_rs256)
 -  [`0x2::table`](table.md#0x2_table)
 -  [`0x2::transfer`](transfer.md#0x2_transfer)
 -  [`0x2::tx_context`](tx_context.md#0x2_tx_context)

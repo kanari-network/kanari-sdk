@@ -17,6 +17,8 @@
 -  [Function `uid_to_bytes`](#0x2_object_uid_to_bytes)
 -  [Function `id_bytes`](#0x2_object_id_bytes)
 -  [Function `save_object`](#0x2_object_save_object)
+-  [Function `borrow_global_mut`](#0x2_object_borrow_global_mut)
+-  [Function `borrow_global`](#0x2_object_borrow_global)
 -  [Function `delete`](#0x2_object_delete)
 -  [Function `delete_impl`](#0x2_object_delete_impl)
 
@@ -332,6 +334,57 @@ This is useful for serialization, hashing, and interoperability across modules.
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="object.md#0x2_object_save_object">save_object</a>&lt;T: key&gt;(obj: &T);
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_object_borrow_global_mut"></a>
+
+## Function `borrow_global_mut`
+
+Internal-only legacy loader retained for runtime compatibility.
+
+This function is intentionally not public. Arbitrary published modules must
+receive mutable object references as transaction inputs so the trusted runtime
+can authenticate ownership before Move execution begins.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_borrow_global_mut">borrow_global_mut</a>&lt;T: key&gt;(addr: <b>address</b>): &<b>mut</b> T
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="object.md#0x2_object_borrow_global_mut">borrow_global_mut</a>&lt;T: key&gt;(addr: <b>address</b>): &<b>mut</b> T;
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_object_borrow_global"></a>
+
+## Function `borrow_global`
+
+Load an object from storage by its address and return an immutable reference.
+Read access does not grant mutation or persistence authority.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_borrow_global">borrow_global</a>&lt;T: key&gt;(addr: <b>address</b>): &T
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="object.md#0x2_object_borrow_global">borrow_global</a>&lt;T: key&gt;(addr: <b>address</b>): &T;
 </code></pre>
 
 

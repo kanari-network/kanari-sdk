@@ -12,10 +12,19 @@ module kanari_system::coin {
     use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
     
+    // --- Error Codes ---
     /// Invalid arguments are passed to a function.
     const EInvalidArg: u64 = 1;
     /// Trying to split a coin more times than its balance allows.
     const ENotEnough: u64 = 2;
+    /// Amount must be greater than zero.
+    const EZERO_AMOUNT: u64 = 3;
+    /// Arithmetic overflow.
+    const EOVERFLOW: u64 = 4;
+    /// Arithmetic underflow.
+    const EUNDERFLOW: u64 = 5;
+    /// Invalid decimal count.
+    const EINVALID_DECIMALS: u64 = 6;
 
     // --- Data Structures ---
 
@@ -41,11 +50,7 @@ module kanari_system::coin {
         icon_url: option::Option<url::Url>,
     }
 
-    // --- Error Codes ---
-    const EZERO_AMOUNT: u64 = 1;
-    const EOVERFLOW: u64 = 2;
-    const EUNDERFLOW: u64 = 3;
-    const EINVALID_DECIMALS: u64 = 5;
+
 
     // --- Public Functions ---
 

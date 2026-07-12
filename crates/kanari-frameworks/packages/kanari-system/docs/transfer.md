@@ -346,8 +346,7 @@ Redirects to <code>freeze_object</code> native.
 
 ## Function `public_transfer`
 
-DEPRECATED: Transfer function that doesn't properly track objects
-Use share_object() or keep objects as function returns instead
+Transfer an owned object to another address.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>)
@@ -360,8 +359,6 @@ Use share_object() or keep objects as function returns instead
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>) {
-    // WORKAROUND: Store <a href="object.md#0x2_object">object</a> data for tracking before consuming
-    // Extract UID <b>if</b> <a href="object.md#0x2_object">object</a> <b>has</b> one
     <a href="transfer.md#0x2_transfer_transfer_with_uid">transfer_with_uid</a>(obj, recipient);
 }
 </code></pre>

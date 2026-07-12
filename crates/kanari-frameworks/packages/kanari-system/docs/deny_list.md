@@ -13,7 +13,8 @@
 -  [Function `deny_list_remove`](#0x2_deny_list_deny_list_remove)
 
 
-<pre><code><b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
+<pre><code><b>use</b> <a href="dependencies/move-stdlib/vector.md#0x1_vector">0x1::vector</a>;
+<b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
 </code></pre>
 
@@ -129,10 +130,10 @@ Create a new DenyCap object
 
 ## Function `deny_list_add`
 
-Add an address to the deny list. (No-op implementation: placeholder)
+Add an address to the deny list
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(_d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyCap">deny_list::DenyCap</a>&lt;T&gt;, _addr: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">deny_list::DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -141,8 +142,21 @@ Add an address to the deny list. (No-op implementation: placeholder)
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(_d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, _addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
-    // Placeholder: Implement presence checks and <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a> insert <b>if</b> needed.
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+    // Check <b>if</b> <b>address</b> already exists in the deny list
+    <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses);
+    <b>let</b>  i = 0;
+    <b>while</b> (i &lt; len) {
+        <b>let</b> existing_addr = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&d.addresses, i);
+        <b>if</b> (existing_addr == addr) {
+            // Address already exists, no need <b>to</b> add again
+            <b>return</b>
+        };
+        i = i + 1;
+    };
+
+    // Address not found, add it <b>to</b> the deny list
+    <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> d.addresses, addr);
 }
 </code></pre>
 
@@ -154,10 +168,10 @@ Add an address to the deny list. (No-op implementation: placeholder)
 
 ## Function `deny_list_remove`
 
-Remove an address from the deny list. (No-op implementation: placeholder)
+Remove an address from the deny list
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(_d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyCap">deny_list::DenyCap</a>&lt;T&gt;, _addr: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">deny_list::DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -166,8 +180,19 @@ Remove an address from the deny list. (No-op implementation: placeholder)
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(_d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, _addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
-    // Placeholder: Implement removal logic <b>if</b> desired.
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+    <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses);
+    <b>let</b> i = 0;
+    <b>while</b> (i &lt; len) {
+        <b>let</b> existing_addr = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&d.addresses, i);
+        <b>if</b> (existing_addr == addr) {
+            // Found the <b>address</b>, remove it from the <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>
+            <a href="dependencies/move-stdlib/vector.md#0x1_vector_remove">vector::remove</a>(&<b>mut</b> d.addresses, i);
+            <b>return</b>
+        };
+        i = i + 1;
+    };
+    // If <b>address</b> not found, do nothing (no-op)
 }
 </code></pre>
 
