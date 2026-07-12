@@ -128,14 +128,14 @@ impl BlockchainEngine {
         let workers = Self::runtime_worker_count();
         let mut runtime_pool = Vec::new();
 
-        let base_runtime = match MoveRuntime::new_with_kanari_natives_and_store(shared_runtime_store)
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
-                anyhow::bail!("Failed to initialize runtime pool: {}", e);
-            }
-        };
+        let base_runtime =
+            match MoveRuntime::new_with_kanari_natives_and_store(shared_runtime_store) {
+                Ok(rt) => rt,
+                Err(e) => {
+                    log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
+                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
+                }
+            };
 
         log::info!(
             "Initializing runtime pool with {} workers (independent VMs sharing DB)",

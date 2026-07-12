@@ -266,7 +266,9 @@ impl BlockchainEngine {
         changeset.burn(sender_addr, amount);
 
         if object_balance == total_required {
-            changeset.deleted_objects.push(gas_object_ref.object_id.clone());
+            changeset
+                .deleted_objects
+                .push(gas_object_ref.object_id.clone());
         } else {
             changeset.created_objects.push((
                 gas_object_ref.object_id.clone(),
@@ -856,9 +858,12 @@ impl BlockchainEngine {
     ) -> Result<(usize, usize)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
-        let has_module_publish = transactions
-            .iter()
-            .any(|tx| matches!(tx.transaction, Transaction::PublishModule { .. }));
+        let has_module_publish = transactions.iter().any(|tx| {
+            matches!(
+                tx.transaction,
+                Transaction::PublishModule { .. } | Transaction::PublishPackage { .. }
+            )
+        });
 
         if serial_execution {
             if has_module_publish {
@@ -1109,6 +1114,9 @@ impl BlockchainEngine {
             Transaction::PublishModule { module_bytes, .. } => GasOperation::PublishModule {
                 module_size: module_bytes.len(),
             },
+            Transaction::PublishPackage { modules, .. } => GasOperation::PublishModule {
+                module_size: modules.iter().map(|module| module.module_bytes.len()).sum(),
+            },
             Transaction::ExecuteFunction { .. } => {
                 if native_call.is_some() {
                     GasOperation::Transfer
@@ -1168,6 +1176,27 @@ impl BlockchainEngine {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
                         changeset.mark_failed(format!("Publish failed: {}", e));
+                    }
+                }
+            }
+            Transaction::PublishPackage {
+                sender, modules, ..
+            } => {
+                let package_modules = modules
+                    .iter()
+                    .map(|module| (module.module_name.clone(), module.module_bytes.clone()))
+                    .collect();
+                match runtime.publish_package_with_context_and_persistence(
+                    package_modules,
+                    KanariAddress::parse_to_account_address(sender)?,
+                    None,
+                    timestamp,
+                    Some(tx.hash()),
+                    persist_runtime_state,
+                ) {
+                    Ok(move_cs) => changeset.merge(move_cs),
+                    Err(e) => {
+                        changeset.mark_failed(format!("Publish package failed: {}", e));
                     }
                 }
             }

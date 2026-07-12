@@ -40,6 +40,11 @@ type RawStateValue = Vec<u8>;
 type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
+type DerivedIndexes = (
+    Vec<String>,
+    BTreeMap<AccountAddress, Vec<String>>,
+    Vec<String>,
+);
 
 /// Owner state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,9 +162,7 @@ pub struct StateManager {
 }
 
 impl StateManager {
-    fn collect_derived_indexes(
-        &self,
-    ) -> Result<(Vec<String>, BTreeMap<AccountAddress, Vec<String>>, Vec<String>)> {
+    fn collect_derived_indexes(&self) -> Result<DerivedIndexes> {
         let entries = self
             .store
             .logical_entries()
@@ -171,7 +174,7 @@ impl StateManager {
 
         for (key, value) in entries {
             if let Some(owner_bytes) = key.strip_prefix(b"account:") {
-                if let Ok(owner) = AccountAddress::from_bytes(owner_bytes.to_vec()) {
+                if let Ok(owner) = AccountAddress::from_bytes(owner_bytes) {
                     owner_ids.insert(owner.to_hex_literal());
                 }
                 continue;
@@ -612,8 +615,7 @@ impl StateManager {
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
         let canonical_object = key.starts_with(b"object:")
-            && key
-                != b"object:0x0000000000000000000000000000000000000000000000000000000000000000";
+            && key != b"object:0x0000000000000000000000000000000000000000000000000000000000000000";
         let canonical_module = key.starts_with(b"module:")
             && !key.starts_with(b"module:0x1:")
             && !key.starts_with(b"module:0x2:");
@@ -739,7 +741,8 @@ impl StateManager {
 
     pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
         if owner_state.is_empty() {
-            self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
+            self.overlay
+                .insert(Self::owner_state_key(&owner_state.address), None);
             self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())
         } else {
             self.save_owner_record(owner_state)?;

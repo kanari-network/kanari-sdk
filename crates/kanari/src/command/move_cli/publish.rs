@@ -7,12 +7,14 @@ use crate::command::common::{
     resolve_sender, resolve_transaction_gas,
 };
 use crate::command::rpc_helpers::{
-    render_transaction_submission, require_rpc_result, sign_publish_module_request,
+    render_transaction_submission, require_rpc_result, sign_publish_package_request,
     submit_blocking_rpc,
 };
 use anyhow::{Context, Result, bail};
 use clap::*;
-use kanari_rpc_api::{BuildPublishModuleRequest, PublishModuleRequest, methods};
+use kanari_rpc_api::{
+    BuildPublishPackageRequest, PublishPackageModule, PublishPackageRequest, methods,
+};
 use kanari_types::{GasEstimate, GasOperation};
 use move_package::BuildConfig;
 use std::path::PathBuf;
@@ -104,8 +106,9 @@ impl Publish {
         eprintln!("   RPC: {}", rpc);
         eprintln!("   Sender: {}", sender_for_tx);
 
-        let mut published_count = 0;
         let mut skipped_count = 0;
+        let mut package_modules = Vec::new();
+        let mut package_function_count = 0usize;
 
         for module_unit in &modules {
             let module = &module_unit.unit.module;
@@ -134,85 +137,109 @@ impl Publish {
             eprintln!("     Size: {} bytes", module_bytecode.len());
             eprintln!("     Address: {}", module.self_id().address());
             eprintln!("     Functions: {}", module.function_defs.len());
-            eprintln!("   Estimated: {} units", estimate.gas_units);
-            eprintln!("   Limit: {} units", gas_limit);
             eprintln!(
-                "   Total Cost: {} Mist ({:.9} KANARI)",
-                estimate.total_cost_mist, estimate.total_cost_kanari
+                "     Estimated contribution: {} units ({} Mist / {:.9} KANARI)",
+                estimate.gas_units, estimate.total_cost_mist, estimate.total_cost_kanari
             );
-
-            let prepared: PublishModuleRequest = {
-                let mut retry_count = 0usize;
-                loop {
-                    let attempt = || -> Result<PublishModuleRequest> {
-                        let prepared = submit_blocking_rpc(
-                            &client,
-                            &rpc,
-                            methods::BUILD_PUBLISH_MODULE,
-                            serde_json::to_value(BuildPublishModuleRequest {
-                                sender: sender_for_tx.clone(),
-                                module_bytes: module_bytecode.clone(),
-                                module_name: module_name.clone(),
-                                gas_limit,
-                                gas_price,
-                                nonce: None,
-                                execute_immediate: None,
-                            })
-                            .context("Failed to serialize build publish request")?,
-                        )?;
-                        serde_json::from_value(require_rpc_result(
-                            prepared,
-                            "RPC did not return prepared publish request",
-                        )?)
-                        .context("Failed to decode prepared publish request")
-                    };
-
-                    match attempt() {
-                        Ok(prepared) => break prepared,
-                        Err(error)
-                            if Self::is_publish_gas_temporarily_unavailable(&error)
-                                && retry_count < MAX_PUBLISH_GAS_RETRIES =>
-                        {
-                            retry_count += 1;
-                            if retry_count == 1 || retry_count.is_multiple_of(10) {
-                                eprintln!(
-                                    "     Waiting for spendable gas coin to become available (retry {}/{})...",
-                                    retry_count,
-                                    MAX_PUBLISH_GAS_RETRIES
-                                );
-                            }
-                            sleep(Duration::from_millis(PUBLISH_GAS_RETRY_DELAY_MS));
-                        }
-                        Err(error) => return Err(error),
-                    }
-                }
-            };
-
-            if let Some(gas_payment) = &prepared.gas_payment
-                && let Some(gas_object) = gas_payment.payment_objects.first()
-            {
-                eprintln!("   Gas payment object: {}", gas_object.object_id);
-            }
-
-            let request = sign_publish_module_request(prepared, &wallet)?;
-            eprintln!("     Sending publish RPC to {}...", rpc);
-            let rpc_response = submit_blocking_rpc(
-                &client,
-                &rpc,
-                methods::PUBLISH_MODULE,
-                serde_json::to_value(request)?,
-            )?;
-            if render_transaction_submission(&client, &rpc, rpc_response, "     ", false)? {
-                published_count += 1;
-            }
+            package_function_count += module.function_defs.len();
+            package_modules.push(PublishPackageModule {
+                module_name,
+                module_bytes: module_bytecode,
+            });
         }
 
-        if published_count == 0 {
+        if package_modules.is_empty() {
             eprintln!("Warning: No modules were published. All modules were skipped or rejected.");
+            eprintln!("Package build and validation complete!");
+            eprintln!("   Published: 0 modules");
+            eprintln!("   Skipped: {} dependency modules", skipped_count);
+            return Ok(());
         }
+
+        eprintln!("   Package modules: {}", package_modules.len());
+        eprintln!("   Package functions: {}", package_function_count);
+        eprintln!("   Limit: {} units", gas_limit);
+        let total_estimate = GasEstimate::from_operation(
+            GasOperation::PublishModule {
+                module_size: package_modules
+                    .iter()
+                    .map(|module| module.module_bytes.len())
+                    .sum(),
+            },
+            gas_price,
+        );
+        eprintln!(
+            "   Total Cost: {} Mist ({:.9} KANARI)",
+            total_estimate.total_cost_mist, total_estimate.total_cost_kanari
+        );
+
+        let prepared: PublishPackageRequest = {
+            let mut retry_count = 0usize;
+            loop {
+                let attempt = || -> Result<PublishPackageRequest> {
+                    let prepared = submit_blocking_rpc(
+                        &client,
+                        &rpc,
+                        methods::BUILD_PUBLISH_PACKAGE,
+                        serde_json::to_value(BuildPublishPackageRequest {
+                            sender: sender_for_tx.clone(),
+                            modules: package_modules.clone(),
+                            gas_limit,
+                            gas_price,
+                            nonce: None,
+                            execute_immediate: None,
+                        })
+                        .context("Failed to serialize build publish package request")?,
+                    )?;
+                    serde_json::from_value(require_rpc_result(
+                        prepared,
+                        "RPC did not return prepared publish package request",
+                    )?)
+                    .context("Failed to decode prepared publish package request")
+                };
+
+                match attempt() {
+                    Ok(prepared) => break prepared,
+                    Err(error)
+                        if Self::is_publish_gas_temporarily_unavailable(&error)
+                            && retry_count < MAX_PUBLISH_GAS_RETRIES =>
+                    {
+                        retry_count += 1;
+                        if retry_count == 1 || retry_count.is_multiple_of(10) {
+                            eprintln!(
+                                "     Waiting for spendable gas coin to become available (retry {}/{})...",
+                                retry_count, MAX_PUBLISH_GAS_RETRIES
+                            );
+                        }
+                        sleep(Duration::from_millis(PUBLISH_GAS_RETRY_DELAY_MS));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+
+        if let Some(gas_payment) = &prepared.gas_payment
+            && let Some(gas_object) = gas_payment.payment_objects.first()
+        {
+            eprintln!("   Gas payment object: {}", gas_object.object_id);
+        }
+
+        let request = sign_publish_package_request(prepared, &wallet)?;
+        eprintln!("     Sending publish package RPC to {}...", rpc);
+        let rpc_response = submit_blocking_rpc(
+            &client,
+            &rpc,
+            methods::PUBLISH_PACKAGE,
+            serde_json::to_value(request)?,
+        )?;
+        let published = render_transaction_submission(&client, &rpc, rpc_response, "     ", false)?;
 
         eprintln!("Package build and validation complete!");
-        eprintln!("   Published: {} modules", published_count);
+        eprintln!(
+            "   Published: {} package transaction ({} modules)",
+            usize::from(published),
+            package_modules.len()
+        );
         eprintln!("   Skipped: {} dependency modules", skipped_count);
         Ok(())
     }

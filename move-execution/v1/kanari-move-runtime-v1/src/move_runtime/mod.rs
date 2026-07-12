@@ -148,7 +148,9 @@ impl MoveRuntime {
         match param_type {
             RuntimeType::Reference(inner) if is_key_struct(inner) => Some(false),
             RuntimeType::MutableReference(inner) if is_key_struct(inner) => Some(true),
-            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_) if is_key_struct(param_type) => {
+            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
+                if is_key_struct(param_type) =>
+            {
                 Some(true)
             }
             _ => None,
@@ -573,6 +575,86 @@ impl MoveRuntime {
         if let Some((gas_limit, gas_price)) = gas_info {
             let gas_op = GasOperation::PublishModule {
                 module_size: module_bytes.len(),
+            };
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            self.apply_gas_info(
+                &mut cs,
+                Some(sender),
+                gas_limit,
+                gas_price,
+                gas_op,
+                written,
+                deleted,
+            )?;
+        }
+
+        Ok(cs)
+    }
+
+    pub fn publish_package_with_context_and_persistence(
+        &self,
+        modules: Vec<(String, Vec<u8>)>,
+        sender: AccountAddress,
+        gas_info: Option<(u64, u64)>,
+        _timestamp: Option<u64>,
+        _tx_hash: Option<Vec<u8>>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
+        let _publish_guard = self
+            .module_publish_lock
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+
+        let mut compiled_modules = Vec::with_capacity(modules.len());
+        let mut total_module_size = 0usize;
+        for (module_name, module_bytes) in &modules {
+            let compiled = CompiledModule::deserialize_with_defaults(module_bytes)?;
+            let module_id = compiled.self_id();
+            self.verify_module_publish_safety(sender, &module_id, &compiled, module_bytes)?;
+            if module_id.name().as_str() != module_name {
+                anyhow::bail!(
+                    "Module publish rejected: declared module name {} does not match bytecode self id {}",
+                    module_name,
+                    module_id.name()
+                );
+            }
+            total_module_size = total_module_size.saturating_add(module_bytes.len());
+            compiled_modules.push((module_id, module_bytes.clone()));
+        }
+
+        let (move_changeset, events) = {
+            let vm_guard = self.read_vm();
+            let mut session = self.create_session_with_storage_ext(&vm_guard);
+            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
+            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
+
+            for (_, module_bytes) in &compiled_modules {
+                session
+                    .publish_module(module_bytes.clone(), sender, &mut metered_gas)
+                    .require("Move VM package publish failed")?;
+            }
+
+            session
+                .finish()
+                .0
+                .require("Failed to finish publish package session")?
+        };
+
+        if persist_runtime_state {
+            self.apply_move_changeset(move_changeset.clone())?;
+            self.reload_vm_cache()?;
+        }
+
+        let mut cs = ChangeSet::new();
+        for (module_id, _) in &compiled_modules {
+            cs.publish_module(sender, module_id.name().to_string());
+        }
+        self.parse_move_changeset(&move_changeset, &mut cs);
+        self.parse_move_events(&events, &mut cs);
+
+        if let Some((gas_limit, gas_price)) = gas_info {
+            let gas_op = GasOperation::PublishModule {
+                module_size: total_module_size,
             };
             let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
             self.apply_gas_info(
@@ -1122,8 +1204,7 @@ impl MoveRuntime {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, param_type)| {
-                    let mutable =
-                        Self::object_param_mutability(param_type, is_key_struct_param)?;
+                    let mutable = Self::object_param_mutability(param_type, is_key_struct_param)?;
                     if Self::is_tx_context_param(param_type, type_tag_for_param) {
                         return None;
                     }
@@ -1534,8 +1615,7 @@ impl MoveRuntime {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, param_type)| {
-                    let mutable =
-                        Self::object_param_mutability(param_type, is_key_struct_param)?;
+                    let mutable = Self::object_param_mutability(param_type, is_key_struct_param)?;
                     if Self::is_tx_context_param(param_type, type_tag_for_param) {
                         return None;
                     }
@@ -1731,8 +1811,10 @@ mod binding_tests {
 
     #[test]
     fn key_struct_values_are_object_input_candidates() {
-        let coin_value =
-            RuntimeType::StructInstantiation(Box::new((CachedStructIndex(0), vec![RuntimeType::TyParam(0)])));
+        let coin_value = RuntimeType::StructInstantiation(Box::new((
+            CachedStructIndex(0),
+            vec![RuntimeType::TyParam(0)],
+        )));
 
         assert_eq!(
             MoveRuntime::object_param_mutability(&coin_value, |_| true),

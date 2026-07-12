@@ -236,6 +236,12 @@ pub struct GasPayment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublishedModule {
+    pub module_name: String,
+    pub module_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObjectChangeKind {
     Created,
     Mutated,
@@ -332,6 +338,15 @@ pub enum Transaction {
         gas_price: u64,
         nonce: u64,
     },
+    /// Publish a Move package as one atomic transaction.
+    PublishPackage {
+        sender: String,
+        modules: Vec<PublishedModule>,
+        gas_payment: Option<GasPayment>,
+        gas_limit: u64,
+        gas_price: u64,
+        nonce: u64,
+    },
     /// Execute a Move function
     ExecuteFunction {
         sender: String,
@@ -362,6 +377,7 @@ impl Transaction {
     pub fn sender(&self) -> &str {
         match self {
             Transaction::PublishModule { sender, .. } => sender,
+            Transaction::PublishPackage { sender, .. } => sender,
             Transaction::ExecuteFunction { sender, .. } => sender,
         }
     }
@@ -373,6 +389,7 @@ impl Transaction {
     pub fn nonce(&self) -> u64 {
         match self {
             Transaction::PublishModule { nonce, .. } => *nonce,
+            Transaction::PublishPackage { nonce, .. } => *nonce,
             Transaction::ExecuteFunction { nonce, .. } => *nonce,
         }
     }
@@ -380,6 +397,7 @@ impl Transaction {
     pub fn gas_limit(&self) -> u64 {
         match self {
             Transaction::PublishModule { gas_limit, .. } => *gas_limit,
+            Transaction::PublishPackage { gas_limit, .. } => *gas_limit,
             Transaction::ExecuteFunction { gas_limit, .. } => *gas_limit,
         }
     }
@@ -387,6 +405,7 @@ impl Transaction {
     pub fn gas_price(&self) -> u64 {
         match self {
             Transaction::PublishModule { gas_price, .. } => *gas_price,
+            Transaction::PublishPackage { gas_price, .. } => *gas_price,
             Transaction::ExecuteFunction { gas_price, .. } => *gas_price,
         }
     }
@@ -450,6 +469,13 @@ impl Transaction {
             Transaction::PublishModule { module_name, .. } => {
                 keys.push(format!("module:{}", module_name));
             }
+            Transaction::PublishPackage { modules, .. } => {
+                keys.extend(
+                    modules
+                        .iter()
+                        .map(|module| format!("module:{}", module.module_name)),
+                );
+            }
             Transaction::ExecuteFunction { .. } => {}
         }
         keys.sort();
@@ -460,7 +486,7 @@ impl Transaction {
     pub fn object_inputs(&self) -> Vec<ObjectInput> {
         match self {
             Transaction::ExecuteFunction { object_inputs, .. } => object_inputs.clone(),
-            Transaction::PublishModule { .. } => Vec::new(),
+            Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => Vec::new(),
         }
     }
 
@@ -468,13 +494,16 @@ impl Transaction {
         match self {
             Transaction::ExecuteFunction { gas_payment, .. } => gas_payment.clone(),
             Transaction::PublishModule { gas_payment, .. } => gas_payment.clone(),
+            Transaction::PublishPackage { gas_payment, .. } => gas_payment.clone(),
         }
     }
 
     pub fn requires_strict_object_metadata(&self) -> bool {
         matches!(
             self,
-            Transaction::ExecuteFunction { .. } | Transaction::PublishModule { .. }
+            Transaction::ExecuteFunction { .. }
+                | Transaction::PublishModule { .. }
+                | Transaction::PublishPackage { .. }
         )
     }
 
@@ -512,15 +541,10 @@ impl Transaction {
             return key;
         }
 
-        if let Some(key) = self
-            .object_inputs()
-            .into_iter()
-            .next()
-            .map(|input| {
-                let mutability = if input.mutable { "mut" } else { "ro" };
-                format!("{mutability}:object:{}", input.object_ref.object_id)
-            })
-        {
+        if let Some(key) = self.object_inputs().into_iter().next().map(|input| {
+            let mutability = if input.mutable { "mut" } else { "ro" };
+            format!("{mutability}:object:{}", input.object_ref.object_id)
+        }) {
             return key;
         }
 
@@ -573,6 +597,7 @@ impl Transaction {
 
         match self {
             Transaction::PublishModule { .. } => "publish_module",
+            Transaction::PublishPackage { .. } => "publish_package",
             Transaction::ExecuteFunction {
                 module, function, ..
             } if module == &KanariModule::module_path()
@@ -737,7 +762,9 @@ mod tests {
                 assert_eq!(function, KanariModule::function_names().transfer);
                 assert_eq!(*nonce, 7);
             }
-            Transaction::PublishModule { .. } => panic!("transfer helper must build a call"),
+            Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => {
+                panic!("transfer helper must build a call")
+            }
         }
 
         assert_eq!(tx.native_call(), None);
@@ -767,7 +794,9 @@ mod tests {
                 assert_eq!(*nonce, 7);
                 assert_eq!(args.len(), 3);
             }
-            Transaction::PublishModule { .. } => panic!("object transfer helper must build a call"),
+            Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => {
+                panic!("object transfer helper must build a call")
+            }
         }
 
         assert_eq!(tx.native_call(), None);
@@ -838,7 +867,9 @@ mod tests {
 
         match &mut signed_tx.transaction {
             Transaction::ExecuteFunction { nonce, .. } => *nonce += 1,
-            Transaction::PublishModule { .. } => unreachable!(),
+            Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => {
+                unreachable!()
+            }
         }
 
         assert!(!signed_tx.verify_signature().unwrap());
@@ -883,7 +914,9 @@ mod tests {
 
         match &mut signed_tx.transaction {
             Transaction::ExecuteFunction { nonce, .. } => *nonce += 1,
-            Transaction::PublishModule { .. } => unreachable!(),
+            Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => {
+                unreachable!()
+            }
         }
 
         assert!(signed_tx.into_verified().is_err());

@@ -46,6 +46,20 @@ function readEffectArrayLength(transaction: unknown, key: string) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function summarizePublishedModules(functions: string[]) {
+  const grouped = new Map<string, number>();
+  for (const item of functions) {
+    const parts = item.split("::");
+    if (parts.length < 3) continue;
+    const modulePath = parts.slice(0, -1).join("::");
+    grouped.set(modulePath, (grouped.get(modulePath) ?? 0) + 1);
+  }
+  return Array.from(grouped.entries()).map(([modulePath, functionCount]) => ({
+    modulePath,
+    functionCount,
+  }));
+}
+
 function TxContent() {
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("hash") ?? "");
@@ -158,9 +172,15 @@ function PanelTransactions({
             const txType = readString(transaction, "tx_type", "operation");
             const publishedModule = readString(transaction, "module", "-");
             const publishedFunctionCount = readArrayLength(transaction, "module_functions");
+            const publishedModules = summarizePublishedModules(
+              Array.isArray((transaction as Record<string, unknown>)?.module_functions)
+                ? ((transaction as Record<string, unknown>).module_functions as string[])
+                : [],
+            );
             const objectInputs = readArrayLength(transaction, "object_inputs");
             const objectChanges = readEffectArrayLength(transaction, "object_changes");
             const graphEdges = readEffectArrayLength(transaction, "causal_edges");
+            const isPublishTx = txType === "publish_module" || txType === "publish_package";
             return (
               <div className="data-row" key={`${hash}-${index}`}>
                 <div>
@@ -199,12 +219,26 @@ function PanelTransactions({
                   {lifecycle.detail ? <div className="mono muted-text">{lifecycle.detail}</div> : null}
                 </div>
                 <div>
-                  <p className="tiny-label">{txType === "publish_module" ? "Published" : "Objects"}</p>
-                  <span className="mono muted-text">
-                    {txType === "publish_module"
-                      ? `${publishedModule}${publishedFunctionCount > 0 ? ` (${publishedFunctionCount} functions)` : ""}`
-                      : `${objectInputs} inputs / ${objectChanges} changes / ${graphEdges} edges`}
-                  </span>
+                  <p className="tiny-label">{isPublishTx ? "Published" : "Objects"}</p>
+                  {isPublishTx ? (
+                    <div className="tx-publish-summary">
+                      <strong className="mono break-anywhere">
+                        {publishedModules.length > 1
+                          ? `${publishedModules.length} modules / ${publishedFunctionCount} functions`
+                          : `${publishedModule}${publishedFunctionCount > 0 ? ` (${publishedFunctionCount} functions)` : ""}`}
+                      </strong>
+                      {publishedModules.length > 0 ? (
+                        <span className="muted-text mono break-anywhere">
+                          {publishedModules.slice(0, 2).map((module) => module.modulePath).join(" | ")}
+                          {publishedModules.length > 2 ? ` | +${publishedModules.length - 2} more` : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="mono muted-text">
+                      {`${objectInputs} inputs / ${objectChanges} changes / ${graphEdges} edges`}
+                    </span>
+                  )}
                 </div>
               </div>
             );

@@ -191,7 +191,10 @@ fn poison_noncanonical_indexes(engine: &BlockchainEngine, owner: &str) {
         .unwrap();
     state
         .store
-        .save(&owned_objects_key(&owner_address), &vec!["0xdead".to_string()])
+        .save(
+            &owned_objects_key(&owner_address),
+            &vec!["0xdead".to_string()],
+        )
         .unwrap();
     state
         .store
@@ -440,7 +443,9 @@ fn test_produce_vertex_only_includes_conflict_free_subset() {
         3,
     );
 
-    engine.submit_transactions_batch(vec![tx_c, tx_b, tx_a]).unwrap();
+    engine
+        .submit_transactions_batch(vec![tx_c, tx_b, tx_a])
+        .unwrap();
 
     let info = engine.produce_checkpoint().unwrap();
     let committed_hashes = info
@@ -672,7 +677,10 @@ fn test_produce_vertex_burst_drains_conflicts_while_preserving_independent_throu
     engine.submit_transactions_batch(submitted).unwrap();
 
     let first = engine.produce_checkpoint().unwrap();
-    assert_eq!(first.tx_count, 4, "1 conflicting + 3 independent should fit in round 1");
+    assert_eq!(
+        first.tx_count, 4,
+        "1 conflicting + 3 independent should fit in round 1"
+    );
     assert_eq!(engine.pending_transaction_len(), 3);
 
     let second = engine.produce_checkpoint().unwrap();
@@ -794,14 +802,23 @@ fn test_multi_node_same_root_and_committed_set_across_conflict_burst() {
             .iter()
             .map(|tx| tx.transaction_hash().to_vec())
             .collect::<Vec<_>>();
-        assert_eq!(hashes_a, hashes_b, "committed tx set diverged at round {round}");
+        assert_eq!(
+            hashes_a, hashes_b,
+            "committed tx set diverged at round {round}"
+        );
 
         let root_a = {
-            let chain = engine_a.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = engine_a
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().state_root.clone()
         };
         let root_b = {
-            let chain = engine_b.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = engine_b
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().state_root.clone()
         };
         assert_eq!(root_a, root_b, "state root diverged at round {round}");
@@ -884,11 +901,17 @@ fn test_multi_node_ignores_noncanonical_index_and_cache_drift() {
     assert_eq!(hashes_a, hashes_b);
 
     let root_a = {
-        let chain = engine_a.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = engine_a
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().state_root.clone()
     };
     let root_b = {
-        let chain = engine_b.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = engine_b
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().state_root.clone()
     };
     assert_eq!(root_a, root_b);
@@ -979,7 +1002,10 @@ fn test_multi_node_same_committed_set_implies_same_canonical_snapshot() {
         .iter()
         .map(|tx| hex::encode(tx.transaction_hash()))
         .collect::<Vec<_>>();
-    assert_eq!(hashes_a, hashes_b, "committed set should match before state comparison");
+    assert_eq!(
+        hashes_a, hashes_b,
+        "committed set should match before state comparison"
+    );
 
     let divergence = first_canonical_snapshot_divergence(&engine_a, &engine_b);
     assert!(

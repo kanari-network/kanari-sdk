@@ -609,12 +609,49 @@ pub struct PublishModuleRequest {
     pub execute_immediate: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishPackageModule {
+    pub module_name: String,
+    pub module_bytes: Vec<u8>,
+}
+
+/// Publish package request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishPackageRequest {
+    pub sender: String,
+    pub modules: Vec<PublishPackageModule>,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    /// Canonical replay nonce.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_payment: Option<GasPayment>,
+    pub signature: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
 /// Build publish module request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildPublishModuleRequest {
     pub sender: String,
     pub module_bytes: Vec<u8>,
     pub module_name: String,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
+/// Build publish package request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildPublishPackageRequest {
+    pub sender: String,
+    pub modules: Vec<PublishPackageModule>,
     pub gas_limit: u64,
     pub gas_price: u64,
     /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
@@ -670,6 +707,18 @@ impl ObjectTransferData {
 }
 
 impl PublishModuleRequest {
+    pub fn canonical_nonce(&self) -> Result<u64, String> {
+        canonical_request_nonce(self.nonce)
+    }
+
+    pub fn require_nonce(&mut self) -> Result<u64, String> {
+        let nonce = self.canonical_nonce()?;
+        self.nonce = Some(nonce);
+        Ok(nonce)
+    }
+}
+
+impl PublishPackageRequest {
     pub fn canonical_nonce(&self) -> Result<u64, String> {
         canonical_request_nonce(self.nonce)
     }
@@ -1210,6 +1259,22 @@ pub mod methods {
         tags = ["module"]
     )]
     pub const BUILD_PUBLISH_MODULE: &str = "kanari_buildPublishModule";
+    #[open_rpc_method(
+        summary = "Publish package",
+        description = "Publishes multiple Move modules atomically in one package transaction.",
+        params = [("package", "Package publication payload.", true, schema_object())],
+        result = ("publication", "Publish execution or pending status.", schema_object()),
+        tags = ["module"]
+    )]
+    pub const PUBLISH_PACKAGE: &str = "kanari_publishPackage";
+    #[open_rpc_method(
+        summary = "Build publish package transaction",
+        description = "Resolves nonce and gas payment for an atomic package publication and returns a canonical unsigned request.",
+        params = [("package", "Unsigned package publication payload.", true, schema_object())],
+        result = ("package", "Prepared publish-package request.", schema_object()),
+        tags = ["module"]
+    )]
+    pub const BUILD_PUBLISH_PACKAGE: &str = "kanari_buildPublishPackage";
     #[open_rpc_method(
         summary = "Get module",
         description = "Returns module metadata by address and module name.",

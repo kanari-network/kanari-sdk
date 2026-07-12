@@ -5,12 +5,12 @@ use anyhow::{Context, Result, bail, ensure};
 use kanari_crypto::wallet::Wallet;
 use kanari_rpc_api::{
     CallFunctionRequest, GetObjectRequest, ObjectInfo, ObjectTransferData, OwnerInfo,
-    PublishModuleRequest, RpcRequest, RpcResponse, TransactionDetails, TransactionResult,
-    TransactionStatus, methods,
+    PublishModuleRequest, PublishPackageRequest, RpcRequest, RpcResponse, TransactionDetails,
+    TransactionResult, TransactionStatus, methods,
 };
 use kanari_rpc_client::RpcClient;
 use kanari_types::transaction::{
-    ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule, SignedTransaction, Transaction,
 };
 use reqwest::blocking::Client;
 use std::time::Duration;
@@ -91,6 +91,42 @@ pub fn sign_publish_module_request(
     signed_tx
         .sign(&wallet.private_key, wallet.curve_type)
         .context("Failed to sign module transaction")?;
+    request.signature = Some(signed_tx.signature);
+    Ok(request)
+}
+
+pub fn sign_publish_package_request(
+    mut request: PublishPackageRequest,
+    wallet: &Wallet,
+) -> Result<PublishPackageRequest> {
+    ensure!(
+        request
+            .signature
+            .as_ref()
+            .map(|sig| sig.is_empty())
+            .unwrap_or(true),
+        "Refusing to overwrite existing publish-package signature"
+    );
+    let transaction = Transaction::PublishPackage {
+        sender: request.sender.clone(),
+        modules: request
+            .modules
+            .iter()
+            .map(|module| PublishedModule {
+                module_name: module.module_name.clone(),
+                module_bytes: module.module_bytes.clone(),
+            })
+            .collect(),
+        gas_payment: request.gas_payment.clone(),
+        gas_limit: request.gas_limit,
+        gas_price: request.gas_price,
+        nonce: request.canonical_nonce().map_err(map_nonce_error)?,
+    };
+
+    let mut signed_tx = SignedTransaction::new(transaction);
+    signed_tx
+        .sign(&wallet.private_key, wallet.curve_type)
+        .context("Failed to sign package transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
 }

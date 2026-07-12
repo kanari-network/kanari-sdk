@@ -38,9 +38,10 @@ use crate::{
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         handle_build_call_function, handle_build_native_coin_consolidation,
-        handle_build_native_transfer, handle_build_publish_module, handle_build_token_transfer,
-        handle_call_function, handle_get_fungible_asset_transactions, handle_get_transaction,
-        handle_publish_module, handle_submit_object_transfer, handle_view_function,
+        handle_build_native_transfer, handle_build_publish_module, handle_build_publish_package,
+        handle_build_token_transfer, handle_call_function, handle_get_fungible_asset_transactions,
+        handle_get_transaction, handle_publish_module, handle_publish_package,
+        handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -215,6 +216,8 @@ async fn handle_rpc(
         // Module operations
         methods::BUILD_PUBLISH_MODULE => handle_build_publish_module(&state, &request).await,
         methods::PUBLISH_MODULE => handle_publish_module(&state, &request).await,
+        methods::BUILD_PUBLISH_PACKAGE => handle_build_publish_package(&state, &request).await,
+        methods::PUBLISH_PACKAGE => handle_publish_package(&state, &request).await,
         methods::GET_MODULE => handle_get_module(&state, &request).await,
         methods::LIST_MODULES => handle_list_modules(&state, &request).await,
         methods::VERIFY_MODULE => handle_verify_module(&state, &request).await,
@@ -628,7 +631,11 @@ mod tests {
         .await;
         let objects = owned["objects"].as_array().invariant("json array");
         assert!(!objects.is_empty());
-        assert!(objects.iter().all(|object| object["version"].as_u64().is_some()));
+        assert!(
+            objects
+                .iter()
+                .all(|object| object["version"].as_u64().is_some())
+        );
         drop(guard);
     }
 

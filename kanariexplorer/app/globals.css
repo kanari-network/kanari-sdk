@@ -788,10 +788,17 @@ h1, h2, h3, p { margin-top: 0; }
 .object-graph-details summary::after { content: "+"; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .object-graph-details[open] summary::after { content: "-"; }
 .tx-published-functions__meta { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tx-published-functions__badges { display: flex; flex-wrap: wrap; gap: 10px; }
+.tx-published-module-list { margin-top: 14px; display: grid; gap: 14px; }
+.tx-published-module-card { padding: 16px; border: 1px solid var(--line); border-radius: 20px; background: color-mix(in srgb, var(--paper) 42%, transparent); }
+.tx-published-module-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.tx-published-module-card__name { display: block; margin-top: 6px; color: var(--ink); font-size: 14px; line-height: 1.55; }
 .tx-published-functions__list { margin-top: 14px; display: grid; gap: 10px; }
 .tx-published-functions__item { padding: 14px 16px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--paper) 42%, transparent); }
 .tx-published-functions__name { display: block; margin: 0; color: var(--ink); font-size: 16px; line-height: 1.35; }
 .tx-published-functions__path { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.tx-publish-summary { display: grid; gap: 6px; }
+.tx-publish-summary strong { display: block; color: var(--ink); font-size: 14px; line-height: 1.5; }
 .object-graph-panel { margin-top: 22px; display: grid; gap: 18px; }
 .object-graph-panel__head { margin-bottom: -2px; }
 .graph-lane-list, .graph-change-groups { display: grid; gap: 16px; }
@@ -1076,6 +1083,7 @@ h1, h2, h3, p { margin-top: 0; }
   }
   .panel-head { align-items: flex-start; flex-direction: column; }
   .tx-published-functions__meta { align-items: flex-start; flex-direction: column; }
+  .tx-published-module-card__head { align-items: flex-start; flex-direction: column; }
   .tx-detail-item--wide { grid-column: auto; }
 }
 

@@ -64,7 +64,8 @@ fn divergence_reference_snapshot_path() -> Option<PathBuf> {
 }
 
 fn sanitize_path_component(value: &str) -> String {
-    value.chars()
+    value
+        .chars()
         .map(|ch| match ch {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => ch,
             _ => '_',
@@ -116,9 +117,10 @@ fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_pee
     );
 
     if let Some(reference_path) = divergence_reference_snapshot_path() {
-        match fs::read(&reference_path).ok().and_then(|bytes| {
-            serde_json::from_slice::<CanonicalStateSnapshotResponse>(&bytes).ok()
-        }) {
+        match fs::read(&reference_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<CanonicalStateSnapshotResponse>(&bytes).ok())
+        {
             Some(reference) => {
                 let diff = engine.compare_canonical_state_snapshot(
                     &CompareCanonicalStateSnapshotRequest {

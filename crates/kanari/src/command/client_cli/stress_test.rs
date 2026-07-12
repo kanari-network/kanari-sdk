@@ -271,7 +271,10 @@ impl StressTest {
                             && lane_retry_count < MAX_LANE_SATURATION_RETRIES =>
                     {
                         lane_retry_count += 1;
-                        let current_height = client.get_block_height().await.unwrap_or(last_observed_height);
+                        let current_height = client
+                            .get_block_height()
+                            .await
+                            .unwrap_or(last_observed_height);
                         let height_advanced = current_height > last_observed_height;
                         last_observed_height = current_height;
 

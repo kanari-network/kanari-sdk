@@ -184,15 +184,23 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
         owner_ids.contains(&bob.to_hex_literal()),
         "rebuilt owner index should include bob"
     );
-    assert_eq!(reopened.get_owned_objects(&alice)?, vec!["0xaaa1".to_string()]);
-    assert_eq!(reopened.get_owned_objects(&bob)?, vec!["0xbbb2".to_string()]);
+    assert_eq!(
+        reopened.get_owned_objects(&alice)?,
+        vec!["0xaaa1".to_string()]
+    );
+    assert_eq!(
+        reopened.get_owned_objects(&bob)?,
+        vec!["0xbbb2".to_string()]
+    );
     let object_index = reopened
         .load_internal::<Vec<String>>(b"object_index")?
         .invariant("object_index should be rebuilt");
     assert!(object_index.contains(&"0xaaa1".to_string()));
     assert!(object_index.contains(&"0xbbb2".to_string()));
     assert!(
-        reopened.load_internal::<Vec<String>>(b"account_index")?.is_none(),
+        reopened
+            .load_internal::<Vec<String>>(b"account_index")?
+            .is_none(),
         "legacy account_index should be deleted during startup repair"
     );
     assert_eq!(reopened.compute_state_root(), canonical_root_before);

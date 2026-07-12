@@ -1,6 +1,6 @@
 use super::BlockchainEngine;
-use crate::engine::MAX_PENDING_PER_PRIMARY_ACCESS_LANE;
 use crate::consensus::Checkpoint;
+use crate::engine::MAX_PENDING_PER_PRIMARY_ACCESS_LANE;
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::state::OwnerState;
@@ -517,11 +517,15 @@ fn restarted_engine_matches_reference_across_replay_and_multi_checkpoint_progres
         snapshot_preview(&restarted, 8)
     );
     assert!(
-        restarted.first_canonical_state_divergence(&restarted).is_none(),
+        restarted
+            .first_canonical_state_divergence(&restarted)
+            .is_none(),
         "self comparison should never diverge"
     );
 
-    let replay_err = restarted.submit_transactions_batch(vec![tx1.clone()]).unwrap_err();
+    let replay_err = restarted
+        .submit_transactions_batch(vec![tx1.clone()])
+        .unwrap_err();
     assert!(replay_err.to_string().contains("already executed"));
 
     let mut reference = BlockchainEngine::new_in_memory().unwrap();
@@ -537,7 +541,9 @@ fn restarted_engine_matches_reference_across_replay_and_multi_checkpoint_progres
         divergence_message(&restarted, &reference)
     );
 
-    restarted.submit_transactions_batch(vec![tx3.clone()]).unwrap();
+    restarted
+        .submit_transactions_batch(vec![tx3.clone()])
+        .unwrap();
     reference.submit_transactions_batch(vec![tx3]).unwrap();
 
     restarted.produce_checkpoint().unwrap();
@@ -620,9 +626,13 @@ fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints(
     let mut persistent = BlockchainEngine::new_dir(data_dir).unwrap();
     configure_engine(&mut persistent);
     fund_engine(&persistent);
-    persistent.submit_transactions_batch(vec![tx1.clone()]).unwrap();
+    persistent
+        .submit_transactions_batch(vec![tx1.clone()])
+        .unwrap();
     persistent.produce_checkpoint().unwrap();
-    persistent.submit_transactions_batch(vec![tx2.clone()]).unwrap();
+    persistent
+        .submit_transactions_batch(vec![tx2.clone()])
+        .unwrap();
     persistent.produce_checkpoint().unwrap();
 
     let mut in_memory = BlockchainEngine::new_in_memory().unwrap();
@@ -892,14 +902,21 @@ fn select_conflict_free_transactions_keeps_non_conflicting_transactions() {
         2,
     );
 
-    let selected = BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b.clone()]);
+    let selected =
+        BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b.clone()]);
     let hashes = selected
         .into_iter()
         .map(|tx| tx.transaction_hash().to_vec())
         .collect::<Vec<_>>();
 
     assert_eq!(hashes.len(), 2);
-    assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec(), tx_b.transaction_hash().to_vec()]);
+    assert_eq!(
+        hashes,
+        vec![
+            tx_a.transaction_hash().to_vec(),
+            tx_b.transaction_hash().to_vec()
+        ]
+    );
 }
 
 #[test]
@@ -909,7 +926,8 @@ fn select_conflict_free_transactions_returns_empty_for_empty_input() {
 }
 
 #[test]
-fn select_conflict_free_transactions_skips_later_conflicts_but_keeps_later_independent_transactions() {
+fn select_conflict_free_transactions_skips_later_conflicts_but_keeps_later_independent_transactions()
+ {
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let independent_sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
@@ -953,7 +971,10 @@ fn select_conflict_free_transactions_skips_later_conflicts_but_keeps_later_indep
 
     assert_eq!(
         hashes,
-        vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()]
+        vec![
+            tx_a.transaction_hash().to_vec(),
+            tx_c.transaction_hash().to_vec()
+        ]
     );
 }
 
@@ -992,7 +1013,8 @@ fn select_conflict_free_transactions_keeps_only_first_when_all_transactions_conf
         3,
     );
 
-    let selected = BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_c, tx_b]);
+    let selected =
+        BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_c, tx_b]);
     let hashes = selected
         .into_iter()
         .map(|tx| tx.transaction_hash().to_vec())
@@ -1044,7 +1066,10 @@ fn pending_conflict_free_snapshot_is_stable_regardless_of_submit_order() {
         3,
     );
 
-    let expected = vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()];
+    let expected = vec![
+        tx_a.transaction_hash().to_vec(),
+        tx_c.transaction_hash().to_vec(),
+    ];
 
     engine
         .submit_transactions_batch(vec![tx_c, tx_b, tx_a])
@@ -1268,7 +1293,10 @@ fn mempool_admission_caps_primary_access_lane_depth() {
         .unwrap_err();
 
     assert!(err.to_string().contains("is saturated"));
-    assert_eq!(engine.pending_transaction_len() as u64, MAX_PENDING_PER_PRIMARY_ACCESS_LANE);
+    assert_eq!(
+        engine.pending_transaction_len() as u64,
+        MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+    );
 }
 
 #[test]
@@ -1301,14 +1329,14 @@ fn mempool_admission_allows_independent_primary_access_lanes_when_one_lane_is_fu
 
     let independent_recipient = generate_keypair(CurveType::Ed25519).unwrap();
     let lane_b_tx = signed_transfer_with_refs(
-            &sender,
-            &independent_recipient.address,
-            "0xbbbb",
-            10_000_000,
-            &format!("0x{:0>4x}", MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 0x2000),
-            1_000_000,
-            MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 1,
-        );
+        &sender,
+        &independent_recipient.address,
+        "0xbbbb",
+        10_000_000,
+        &format!("0x{:0>4x}", MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 0x2000),
+        1_000_000,
+        MAX_PENDING_PER_PRIMARY_ACCESS_LANE + 1,
+    );
     let lane_b_key = lane_b_tx.transaction.primary_access_key();
     engine.submit_transactions_batch(vec![lane_b_tx]).unwrap();
 

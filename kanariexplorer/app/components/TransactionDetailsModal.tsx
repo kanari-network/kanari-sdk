@@ -64,26 +64,58 @@ function splitPublishedFunction(value: string) {
   };
 }
 
+function summarizePublishedModules(functions: string[]) {
+  const grouped = new Map<string, string[]>();
+
+  for (const item of functions) {
+    const split = splitPublishedFunction(item);
+    const modulePath = split.modulePath;
+    if (!modulePath) continue;
+    const bucket = grouped.get(modulePath) ?? [];
+    bucket.push(split.functionName);
+    grouped.set(modulePath, bucket);
+  }
+
+  return Array.from(grouped.entries()).map(([modulePath, names]) => ({
+    modulePath,
+    functions: names,
+    functionCount: names.length,
+  }));
+}
+
 function PublishedFunctionsList({ functions }: { functions: string[] }) {
   if (functions.length === 0) return null;
+
+  const modules = summarizePublishedModules(functions);
 
   return (
     <details className="object-graph-details tx-published-functions" aria-label="Published functions">
       <summary>Published Functions</summary>
       <div className="tx-published-functions__meta">
         <p className="panel-subtitle">Functions declared in the published module bytecode.</p>
-        <StatusPill label={`${functions.length} functions`} state="ok" />
+        <div className="tx-published-functions__badges">
+          <StatusPill label={`${modules.length || 1} modules`} state="ok" />
+          <StatusPill label={`${functions.length} functions`} state="ok" />
+        </div>
       </div>
-      <div className="tx-published-functions__list">
-        {functions.map((item) => (
-          <div className="tx-published-functions__item" key={item}>
-            <p className="tiny-label">Function</p>
-            <strong className="tx-published-functions__name mono">{splitPublishedFunction(item).functionName}</strong>
-            {splitPublishedFunction(item).modulePath ? (
-              <span className="tx-published-functions__path mono break-anywhere">
-                {splitPublishedFunction(item).modulePath}
-              </span>
-            ) : null}
+      <div className="tx-published-module-list">
+        {modules.map((module) => (
+          <div className="tx-published-module-card" key={module.modulePath}>
+            <div className="tx-published-module-card__head">
+              <div>
+                <p className="tiny-label">Module</p>
+                <strong className="tx-published-module-card__name mono break-anywhere">{module.modulePath}</strong>
+              </div>
+              <StatusPill label={`${module.functionCount} functions`} state="ok" />
+            </div>
+            <div className="tx-published-functions__list">
+              {module.functions.map((name) => (
+                <div className="tx-published-functions__item" key={`${module.modulePath}::${name}`}>
+                  <p className="tiny-label">Function</p>
+                  <strong className="tx-published-functions__name mono">{name}</strong>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
@@ -110,6 +142,7 @@ export default function TransactionDetailsModal({
   const transactionType = readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ");
   const publishedModule = readFirstString(transaction, ["module"]);
   const moduleFunctions = readOptionalArray(transaction, "module_functions");
+  const publishedModules = summarizePublishedModules(moduleFunctions);
   const effects = readObject(transaction, "effects");
   const objectInputs = readArrayLength(transaction, "object_inputs");
   const effectObjectChanges = readArrayLength(effects, "object_changes");
@@ -170,6 +203,16 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
                 <DetailItem label="Published Module" value={publishedModule} mono wide />
+                <DetailItem
+                  label="Published Package"
+                  value={
+                    publishedModules.length > 1
+                      ? `${publishedModules.length} modules / ${moduleFunctions.length} functions`
+                      : "-"
+                  }
+                  mono
+                  wide
+                />
                 <DetailItem label="Nonce" value={readFirstString(transaction, ["nonce"])} mono />
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />

@@ -88,9 +88,8 @@ impl Burn {
         check_node_connection(&client, &rpc).await?;
 
         let sender_for_tx = get_sender_for_tx(&wallet, &from_addr)?;
-        let burn_args = vec![
-            bcs::to_bytes(&amount_mist).context("Failed to serialize burn amount")?
-        ];
+        let burn_args =
+            vec![bcs::to_bytes(&amount_mist).context("Failed to serialize burn amount")?];
         let required_amount = amount_mist.saturating_add(gas_limit.saturating_mul(gas_price));
         let mut prepared = None;
 

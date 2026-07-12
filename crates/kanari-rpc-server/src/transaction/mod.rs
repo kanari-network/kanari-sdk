@@ -8,16 +8,17 @@ use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
     BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
-    BuildPublishModuleRequest, BuildTokenTransferRequest, CallFunctionRequest,
-    FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest, ObjectTransferData,
-    PublishModuleRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
-    ViewFunctionRequest,
+    BuildPublishModuleRequest, BuildPublishPackageRequest, BuildTokenTransferRequest,
+    CallFunctionRequest, FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest,
+    ObjectTransferData, PublishModuleRequest, PublishPackageRequest, TransactionDetails,
+    TransactionErrorData, TransactionErrorReason, ViewFunctionRequest,
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
 use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use kanari_types::transaction::{
-    GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
+    SignedTransaction, Transaction,
 };
 use move_binary_format::{
     CompiledModule,
@@ -650,7 +651,7 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
                 .iter()
                 .any(|input| input.object_ref.object_id.contains(token_type.as_str()))
         }
-        Transaction::PublishModule { .. } => false,
+        Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => false,
     }
 }
 
@@ -706,6 +707,29 @@ fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransacti
         nonce,
     });
     maybe_attach_signature(&mut signed_tx, module_data.signature);
+    signed_tx
+}
+
+fn build_publish_package_signed_tx(package_data: PublishPackageRequest) -> SignedTransaction {
+    let nonce = package_data
+        .canonical_nonce()
+        .expect("publish package request canonical nonce must be validated before signing");
+    let mut signed_tx = SignedTransaction::new(Transaction::PublishPackage {
+        sender: package_data.sender,
+        modules: package_data
+            .modules
+            .into_iter()
+            .map(|module| PublishedModule {
+                module_name: module.module_name,
+                module_bytes: module.module_bytes,
+            })
+            .collect(),
+        gas_payment: package_data.gas_payment,
+        gas_limit: package_data.gas_limit,
+        gas_price: package_data.gas_price,
+        nonce,
+    });
+    maybe_attach_signature(&mut signed_tx, package_data.signature);
     signed_tx
 }
 
@@ -844,6 +868,48 @@ fn map_transaction_to_details(
             );
             details.module = Some(format!("{}::{}", sender_address, module_name));
             details.module_functions = module_funcs;
+            details.gas_payment = gas_payment.clone();
+            details
+        }
+        Transaction::PublishPackage {
+            sender,
+            modules,
+            nonce,
+            gas_payment,
+            gas_limit,
+            gas_price,
+            ..
+        } => {
+            let published_modules = modules
+                .iter()
+                .map(|module| format!("{}::{}", sender_address, module.module_name))
+                .collect::<Vec<_>>();
+            let module_functions = modules
+                .iter()
+                .flat_map(|module| {
+                    extract_functions_from_bytes(&module.module_bytes)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|function| {
+                            format!("{}::{}::{}", sender_address, module.module_name, function)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            let mut details = base_transaction_details(
+                hash,
+                status_str,
+                block_height,
+                "publish_package",
+                sender.clone(),
+                sender_address.clone(),
+                *nonce,
+                *gas_limit,
+                *gas_price,
+            );
+            details.module = Some(published_modules.join(", "));
+            details.module_functions = Some(module_functions);
             details.gas_payment = gas_payment.clone();
             details
         }
@@ -1287,6 +1353,70 @@ pub async fn handle_build_publish_module(
             sender: build_data.sender,
             module_bytes: build_data.module_bytes,
             module_name: build_data.module_name,
+            gas_limit: build_data.gas_limit,
+            gas_price: build_data.gas_price,
+            nonce: Some(nonce),
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+pub async fn handle_build_publish_package(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildPublishPackageRequest =
+        match parse_labeled_params(request.id, &request.params, "build publish package data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    if build_data.modules.is_empty() {
+        return invalid_params_response(request.id, "Package publish requires at least one module");
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let pending_access_keys = state.engine.pending_access_keys_snapshot();
+    let gas_payment = match select_native_gas_payment(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit.saturating_mul(build_data.gas_price),
+        build_data.gas_limit,
+        build_data.gas_price,
+        &[],
+        &pending_access_keys,
+    ) {
+        Ok(payment) => payment,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+
+    respond_with_serialize(
+        request.id,
+        PublishPackageRequest {
+            sender: build_data.sender,
+            modules: build_data.modules,
             gas_limit: build_data.gas_limit,
             gas_price: build_data.gas_price,
             nonce: Some(nonce),
@@ -2109,6 +2239,42 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
         execute_immediate,
         "publish",
         "Module publication failed",
+    )
+    .await
+}
+
+pub async fn handle_publish_package(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let mut package_data: PublishPackageRequest =
+        match parse_labeled_params(request.id, &request.params, "package data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &package_data.sender, "sender address") {
+        return *response;
+    }
+    if package_data.modules.is_empty() {
+        return invalid_params_response(request.id, "Package publish requires at least one module");
+    }
+    if let Err(response) =
+        validate_object_inputs_and_gas(request.id, &[], package_data.gas_payment.as_ref())
+    {
+        return *response;
+    }
+    if let Err(message) = package_data.require_nonce() {
+        return invalid_params_response(request.id, &message);
+    }
+
+    let execute_immediate = package_data.execute_immediate.unwrap_or(false);
+    let signed_tx = build_publish_package_signed_tx(package_data);
+
+    execute_or_submit_response(
+        state,
+        request.id,
+        signed_tx,
+        execute_immediate,
+        "publish_package",
+        "Package publication failed",
     )
     .await
 }

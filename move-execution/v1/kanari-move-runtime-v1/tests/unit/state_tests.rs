@@ -121,7 +121,10 @@ fn native_supply_summary_prefers_cached_visible_supply_when_owner_index_is_stale
     state.store.save(b"owner_index", &Vec::<String>::new())?;
 
     let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
-    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 210);
+    assert_eq!(
+        summary.wallet_visible_supply,
+        base.wallet_visible_supply + 210
+    );
     assert_eq!(summary.object_locked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
     assert_eq!(summary.untracked_supply, 0);
@@ -146,7 +149,10 @@ fn state_root_ignores_owner_indexes_and_supply_caches() -> Result<()> {
         b"global_token_supplies",
         &BTreeMap::from([(KANARI_TOKEN_TYPE.to_string(), 1_000u64)]),
     )?;
-    state.save_internal(b"metadata_symbol:0x2::kanari::KANARI", &"KANARI".to_string())?;
+    state.save_internal(
+        b"metadata_symbol:0x2::kanari::KANARI",
+        &"KANARI".to_string(),
+    )?;
     state.save_internal(
         b"object_locked_coin_records",
         &vec![serde_json::json!({"not":"canonical"})],
