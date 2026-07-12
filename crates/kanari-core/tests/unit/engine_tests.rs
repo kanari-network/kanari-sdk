@@ -717,6 +717,50 @@ fn batch_submit_accepts_contiguous_sequences_for_same_sender() {
 }
 
 #[test]
+fn batch_submit_rejects_stale_object_version() {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    engine.set_authorities("0x1".to_string(), authorities.clone());
+    let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+    engine
+        .set_consensus_signing_key(local_key, public_keys)
+        .unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+
+    {
+        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+        let object = state.get_object("0xaaaa").unwrap().unwrap();
+        let mut updated = ChangeSet::new();
+        updated.created_objects.push((
+            "0xaaaa".to_string(),
+            CreatedObject {
+                owner: object.owner,
+                owner_kind: object.owner_kind,
+                uid: None,
+                id: None,
+                type_: object.type_,
+                data: object.data,
+                version: 2,
+            },
+        ));
+        state
+            .apply_changeset_without_supply_validation(&updated)
+            .unwrap();
+    }
+
+    let stale_tx = signed_transfer_from(&sender, 0);
+    let stale_hash = hex::encode(stale_tx.transaction_hash());
+    engine.submit_transactions_batch(vec![stale_tx]).unwrap();
+    let error = engine
+        .produce_checkpoint()
+        .expect_err("a stale object reference must be rejected during execution");
+    let error_text = format!("{error:#}");
+    assert!(error_text.contains("version mismatch"));
+    assert!(error_text.contains(&stale_hash));
+}
+
+#[test]
 fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
     let engine = BlockchainEngine::new().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();

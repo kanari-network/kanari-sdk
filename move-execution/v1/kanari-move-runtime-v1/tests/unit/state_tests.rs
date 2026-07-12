@@ -842,6 +842,9 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
             .wallet_visible_supply,
         base.wallet_visible_supply + 1_000
     );
+    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    assert_eq!(summary.accounted_supply, summary.total_supply);
+    assert_eq!(summary.untracked_supply, 0);
     state.validate_supply_invariants()?;
 
     Ok(())

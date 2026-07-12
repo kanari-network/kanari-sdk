@@ -669,7 +669,16 @@ pub async fn run_node(
                         sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                         sync_manager.request_dag_vertices_for_quorum().await;
                     } else if should_drop_invalid_pending_transaction(&error_text) {
-                        if let Some(tx_hash) = extract_failed_tx_hash(&error_text) {
+                        let failed_hash = extract_failed_tx_hash(&error_text).or_else(|| {
+                            // Older/nested error wrappers may omit the tx hash. The
+                            // producer executes the conflict-free snapshot in canonical
+                            // order, so its first transaction is the one that failed.
+                            engine
+                                .pending_conflict_free_transactions_snapshot()
+                                .first()
+                                .map(|tx| tx.transaction_hash().to_vec())
+                        });
+                        if let Some(tx_hash) = failed_hash {
                             let removed = engine.remove_pending_transactions_by_hashes(
                                 std::slice::from_ref(&tx_hash),
                             );
@@ -682,6 +691,9 @@ pub async fn run_node(
                                         "Dropped invalid pending transaction after deterministic execution failure"
                                     );
                                 }
+                                tracing::info!(
+                                    "Released object/gas reservations for invalid pending transaction"
+                                );
                                 idle_delay = Duration::from_millis(10);
                             } else {
                                 tracing::error!("Checkpoint production failed: {:#}", e);

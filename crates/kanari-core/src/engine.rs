@@ -803,6 +803,7 @@ impl BlockchainEngine {
         )
     }
 
+    #[warn(dead_code)]
     pub(crate) fn execute_tx_waves_deterministic_parallel(
         &self,
         transactions: Vec<SignedTransaction>,
@@ -878,14 +879,23 @@ impl BlockchainEngine {
                         signed_tx.transaction,
                         Transaction::PublishModule { .. } | Transaction::PublishPackage { .. }
                     );
-                let changeset = self.execute_transaction_with_runtime_internal(
-                    &signed_tx.transaction,
-                    &self.runtime_pool[0],
-                    state_arc,
-                    false,
-                    timestamp,
-                    persist_runtime_state,
-                )?;
+                let changeset = self
+                    .execute_transaction_with_runtime_internal(
+                        &signed_tx.transaction,
+                        &self.runtime_pool[0],
+                        state_arc,
+                        false,
+                        timestamp,
+                        persist_runtime_state,
+                    )
+                    .with_context(|| {
+                        format!(
+                            "Execution failed for tx {} (sender={}, nonce={})",
+                            hex::encode(signed_tx.transaction_hash()),
+                            signed_tx.transaction.sender_address(),
+                            signed_tx.transaction.nonce()
+                        )
+                    })?;
 
                 let mut state_write = match state_arc.write() {
                     Ok(guard) => guard,
@@ -897,7 +907,14 @@ impl BlockchainEngine {
 
                 state_write
                     .apply_changeset(&changeset)
-                    .require("Failed to apply changeset")?;
+                    .with_context(|| {
+                        format!(
+                            "Execution failed for tx {} (sender={}, nonce={}): Failed to apply changeset",
+                            hex::encode(signed_tx.transaction_hash()),
+                            signed_tx.transaction.sender_address(),
+                            signed_tx.transaction.nonce()
+                        )
+                    })?;
                 executed_count += 1;
             }
 
