@@ -203,6 +203,16 @@ impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
+        if changeset.treasuries.is_empty()
+            && self
+                .global_token_supplies
+                .get(KANARI_TOKEN_TYPE)
+                .copied()
+                .unwrap_or(0)
+                > self.total_supply
+        {
+            self.validate_supply_invariants()?;
+        }
         self.apply_changeset_with_options(changeset, true)
     }
 
@@ -386,6 +396,14 @@ impl StateManager {
             // Validate on a cloned snapshot so rejected transactions cannot poison live state.
             let mut candidate = self.clone();
             candidate.apply_changeset_with_options(changeset, false)?;
+            let cached_native_visible = candidate
+                .global_token_supplies
+                .get(KANARI_TOKEN_TYPE)
+                .copied()
+                .unwrap_or(0);
+            if cached_native_visible > candidate.total_supply {
+                candidate.validate_supply_invariants()?;
+            }
             candidate.repair_legacy_native_wallet_overcount()?;
             candidate.sync_native_visible_supply_cache()?;
             if let Err(error) = candidate.validate_supply_invariants() {

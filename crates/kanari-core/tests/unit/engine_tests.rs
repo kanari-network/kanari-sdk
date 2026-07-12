@@ -752,12 +752,20 @@ fn batch_submit_rejects_stale_object_version() {
     let stale_tx = signed_transfer_from(&sender, 0);
     let stale_hash = hex::encode(stale_tx.transaction_hash());
     engine.submit_transactions_batch(vec![stale_tx]).unwrap();
-    let error = engine
+    let checkpoint = engine
         .produce_checkpoint()
-        .expect_err("a stale object reference must be rejected during execution");
-    let error_text = format!("{error:#}");
-    assert!(error_text.contains("version mismatch"));
-    assert!(error_text.contains(&stale_hash));
+        .expect("a stale transaction should be recorded as a failed checkpoint effect");
+    assert_eq!(checkpoint.executed, 0);
+    assert_eq!(checkpoint.failed, 1);
+    assert_eq!(checkpoint.tx_count, 1);
+    assert!(
+        checkpoint
+            .vertex
+            .expect("failed transaction must remain auditable in the vertex")
+            .transactions
+            .iter()
+            .any(|tx| hex::encode(tx.transaction_hash()) == stale_hash)
+    );
 }
 
 #[test]

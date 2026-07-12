@@ -722,6 +722,7 @@ impl BlockchainEngine {
                         .sender_address()
                         .cmp(b.transaction.sender_address())
                 })
+                .then_with(|| a.transaction.nonce().cmp(&b.transaction.nonce()))
                 .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
         });
         Self::select_conflict_free_transactions(transactions)
@@ -817,7 +818,7 @@ impl BlockchainEngine {
             timestamp,
             persist_objects,
             false,
-            true,
+            false,
         )
     }
 
@@ -1058,7 +1059,7 @@ impl BlockchainEngine {
 
         if Self::strict_checkpoint_roots_required() {
             anyhow::bail!(
-                "[ENGINE] Strict checkpoint root verification failed for checkpoint {}",
+                "Checkpoint #{} state root mismatch: strict verification failed",
                 checkpoint_sequence
             );
         }
@@ -1558,6 +1559,7 @@ impl BlockchainEngine {
         &self,
         transactions: &[SignedTransaction],
         timestamp: Option<u64>,
+        allow_stale_object_versions: bool,
     ) -> Result<Vec<TransactionEffects>> {
         if transactions.is_empty() {
             return Ok(Vec::new());
@@ -1575,14 +1577,48 @@ impl BlockchainEngine {
 
         let mut effects = Vec::with_capacity(transactions.len());
         for signed_tx in transactions {
-            let changeset = self.execute_transaction_with_runtime_internal(
+            let changeset = match self.execute_transaction_with_runtime_internal(
                 &signed_tx.transaction,
                 &self.runtime_pool[0],
                 &state_arc,
                 false,
                 timestamp,
                 false,
-            )?;
+            ) {
+                Ok(changeset) => changeset,
+                Err(error)
+                    if allow_stale_object_versions
+                        && error.to_string().contains("Object version mismatch") =>
+                {
+                    effects.push(TransactionEffects {
+                        status: "failed".to_string(),
+                        gas_used: 0,
+                        gas_payment: signed_tx.transaction.gas_payment(),
+                        input_objects: signed_tx
+                            .transaction
+                            .object_inputs()
+                            .into_iter()
+                            .map(|input| input.object_ref)
+                            .collect(),
+                        shared_inputs: Vec::new(),
+                        immutable_inputs: Vec::new(),
+                        gas_object_refs: signed_tx
+                            .transaction
+                            .gas_payment()
+                            .map(|payment| payment.payment_objects)
+                            .unwrap_or_default(),
+                        object_changes: Vec::new(),
+                        created: Vec::new(),
+                        mutated: Vec::new(),
+                        deleted: Vec::new(),
+                        transferred: Vec::new(),
+                        causal_edges: Vec::new(),
+                        error_message: Some(error.to_string()),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
 
             let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());

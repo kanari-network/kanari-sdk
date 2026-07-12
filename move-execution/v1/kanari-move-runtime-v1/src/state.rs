@@ -614,16 +614,9 @@ impl StateManager {
     }
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
-        let canonical_object = key.starts_with(b"object:")
-            && key != b"object:0x0000000000000000000000000000000000000000000000000000000000000000";
-        let canonical_module = key.starts_with(b"module:")
-            && !key.starts_with(b"module:0x1:")
-            && !key.starts_with(b"module:0x2:");
-
         key == b"total_supply"
             || key.starts_with(b"resource:")
-            || canonical_object
-            || canonical_module
+            || key.starts_with(b"account:")
             || key.starts_with(b"df:")
             || key.starts_with(b"system:")
             || key.starts_with(b"supply:")
@@ -632,7 +625,42 @@ impl StateManager {
     }
 
     fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
-        entries.retain(|key, _| Self::is_canonical_state_root_key(key));
+        let mut canonical_object_keys = BTreeSet::new();
+        let mut canonical_module_keys = BTreeSet::new();
+
+        for (key, value) in entries.iter() {
+            if key == b"module_index" {
+                if let Ok(module_ids) = bcs::from_bytes::<Vec<String>>(value) {
+                    canonical_module_keys.extend(
+                        module_ids
+                            .into_iter()
+                            .filter(|id| id.starts_with("module:"))
+                            .map(String::into_bytes),
+                    );
+                }
+            } else if key.starts_with(b"owned_objects:") {
+                if let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value) {
+                    canonical_object_keys.extend(
+                        object_ids
+                            .into_iter()
+                            .filter_map(|id| canonical_object_id(&id))
+                            .filter(|id| {
+                                entries
+                                    .get(&object_key(id))
+                                    .and_then(|bytes| bcs::from_bytes::<StoredObject>(bytes).ok())
+                                    .is_some()
+                            })
+                            .map(|id| object_key(&id)),
+                    );
+                }
+            }
+        }
+
+        entries.retain(|key, _| {
+            Self::is_canonical_state_root_key(key)
+                || canonical_module_keys.contains(key)
+                || canonical_object_keys.contains(key)
+        });
     }
 
     fn is_canonical_smt_update(&self, key: &[u8], value: &[u8]) -> bool {

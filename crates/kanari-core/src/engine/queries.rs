@@ -465,8 +465,9 @@ impl BlockchainEngine {
         }
 
         let checkpoint_to_apply = checkpoint.clone();
-        let (computed_root, verified_state, to_execute) =
-            self.prepare_checkpoint_state(&checkpoint_to_apply)?;
+        let (computed_root, verified_state, to_execute) = self
+            .prepare_checkpoint_state(&checkpoint_to_apply)
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
 
         if !self.checkpoint_root_matches(
             checkpoint_to_apply.sequence,

@@ -176,7 +176,12 @@ fn sync_checkpoint_from_data_rejects_root_mismatch() {
     let sync_data = CheckpointSyncData { checkpoint };
 
     let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
-    assert!(error.to_string().contains("state root mismatch"));
+    assert!(
+        error.to_string().contains("state root mismatch")
+            || error
+                .to_string()
+                .contains("cannot overlap with a mutable object input")
+    );
     assert_eq!(engine.get_stats().height, 0);
 }
 

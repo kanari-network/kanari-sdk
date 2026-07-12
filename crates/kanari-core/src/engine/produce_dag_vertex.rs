@@ -570,9 +570,9 @@ impl DagEngine {
                 validate_supply,
             )
         };
-        let transaction_effects = self
-            .engine
-            .collect_transaction_effects_strict(&transactions, Some(timestamp))?;
+        let transaction_effects =
+            self.engine
+                .collect_transaction_effects_strict(&transactions, Some(timestamp), true)?;
         let checkpoint_object_changes =
             BlockchainEngine::aggregate_checkpoint_object_changes(&transaction_effects);
         let checkpoint_object_graph_edges =

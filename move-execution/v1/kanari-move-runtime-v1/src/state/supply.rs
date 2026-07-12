@@ -47,8 +47,13 @@ impl StateManager {
         native_ledger_balance: Option<u64>,
     ) -> Result<BTreeMap<String, u64>> {
         let mut aggregated: BTreeMap<String, u64> = BTreeMap::new();
+        let mut seen_objects = BTreeSet::new();
 
         for object_id in self.get_owned_objects(&owner)? {
+            let canonical_id = canonical_object_id(&object_id).unwrap_or(object_id.clone());
+            if !seen_objects.insert(canonical_id) {
+                continue;
+            }
             let Some(obj) = self.get_object(&object_id)? else {
                 continue;
             };
@@ -142,11 +147,7 @@ impl StateManager {
 
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
-        let mut owners = self
-            .owner_addresses()?
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-
+        let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
         // DAO/treasury fee coins are object-backed and may exist before their
         // owner account record is present in the legacy account index. Include
         // their owners from the canonical object index so gas is accounted for
@@ -156,10 +157,9 @@ impl StateManager {
                 continue;
             };
             if Self::is_balance_struct(&struct_tag)
-                && Self::token_type_from_balance_struct(&struct_tag)
-                    .is_some_and(|object_token| {
-                        Self::normalize_token_type(&object_token) == token_type
-                    })
+                && Self::token_type_from_balance_struct(&struct_tag).is_some_and(|object_token| {
+                    Self::normalize_token_type(&object_token) == token_type
+                })
             {
                 owners.insert(object.owner);
             }
@@ -172,7 +172,9 @@ impl StateManager {
     }
 
     pub(super) fn sync_native_visible_supply_cache(&mut self) -> Result<bool> {
-        let indexed_visible = self.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
+        let indexed_visible = self
+            .indexed_wallet_supply(KANARI_TOKEN_TYPE)?
+            .min(self.total_supply);
         let current = self
             .global_token_supplies
             .get(KANARI_TOKEN_TYPE)
@@ -284,6 +286,11 @@ impl StateManager {
             .copied()
             .unwrap_or(0);
         let indexed_visible = self.indexed_wallet_supply(&token_type)?;
+        let indexed_visible = if total_supply > 0 {
+            indexed_visible.min(total_supply)
+        } else {
+            indexed_visible
+        };
         let wallet_visible_supply = cached_visible.max(indexed_visible);
         let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
         // Only explicit object-locked records count as locked supply.
