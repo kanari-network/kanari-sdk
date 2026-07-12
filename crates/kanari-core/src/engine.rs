@@ -873,13 +873,18 @@ impl BlockchainEngine {
             let mut executed_count = 0;
             let failed_count = 0;
             for signed_tx in transactions {
+                let persist_runtime_state = persist_objects
+                    || matches!(
+                        signed_tx.transaction,
+                        Transaction::PublishModule { .. } | Transaction::PublishPackage { .. }
+                    );
                 let changeset = self.execute_transaction_with_runtime_internal(
                     &signed_tx.transaction,
                     &self.runtime_pool[0],
                     state_arc,
                     false,
                     timestamp,
-                    persist_objects,
+                    persist_runtime_state,
                 )?;
 
                 let mut state_write = match state_arc.write() {
@@ -913,13 +918,19 @@ impl BlockchainEngine {
             let results: Vec<Result<ChangeSet>> = if has_module_publish {
                 wave.iter()
                     .map(|signed_tx| {
+                        let persist_runtime_state = persist_objects
+                            || matches!(
+                                signed_tx.transaction,
+                                Transaction::PublishModule { .. }
+                                    | Transaction::PublishPackage { .. }
+                            );
                         self.execute_transaction_with_runtime_internal(
                             &signed_tx.transaction,
                             &self.runtime_pool[0],
                             state_arc,
                             false,
                             timestamp,
-                            persist_objects,
+                            persist_runtime_state,
                         )
                     })
                     .collect()
@@ -928,13 +939,19 @@ impl BlockchainEngine {
                     .enumerate()
                     .map(|(i, signed_tx)| {
                         let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
+                        let persist_runtime_state = persist_objects
+                            || matches!(
+                                signed_tx.transaction,
+                                Transaction::PublishModule { .. }
+                                    | Transaction::PublishPackage { .. }
+                            );
                         self.execute_transaction_with_runtime_internal(
                             &signed_tx.transaction,
                             runtime,
                             state_arc,
                             false,
                             timestamp,
-                            persist_objects,
+                            persist_runtime_state,
                         )
                     })
                     .collect()

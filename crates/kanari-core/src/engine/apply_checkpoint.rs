@@ -19,6 +19,7 @@ impl BlockchainEngine {
             matches!(
                 signed_tx.transaction,
                 kanari_types::transaction::Transaction::PublishModule { .. }
+                    | kanari_types::transaction::Transaction::PublishPackage { .. }
                     | kanari_types::transaction::Transaction::ExecuteFunction { .. }
             )
         })
