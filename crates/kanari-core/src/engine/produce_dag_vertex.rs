@@ -521,7 +521,15 @@ impl DagEngine {
                 .max(chain.height().saturating_add(1))
         };
 
-        let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
+        let (
+            state_root,
+            executed,
+            failed,
+            verified_state,
+            to_execute,
+            validate_supply,
+            transaction_effects,
+        ) = {
             let mut state_snapshot = self.engine.state_read().clone();
             state_snapshot
                 .repair_legacy_native_wallet_overcount()
@@ -532,20 +540,27 @@ impl DagEngine {
             self.engine
                 .execute_system_prologue_to_state_for_dag_v2(&state_arc, timestamp)?;
             let mut validate_supply = true;
-            let (executed, failed) = match self
+            let (executed, failed, transaction_effects) = match self
                 .engine
                 .apply_zero_effect_native_batch(&transactions, &state_arc)?
             {
                 Some(result) => {
                     validate_supply = false;
-                    result
+                    let effects = self.engine.collect_transaction_effects_strict(
+                        &transactions,
+                        Some(timestamp),
+                        true,
+                    )?;
+                    (result.0, result.1, effects)
                 }
-                None => self.engine.execute_tx_waves_deterministic_parallel(
-                    transactions.clone(),
-                    &state_arc,
-                    Some(timestamp),
-                    false,
-                )?,
+                None => self
+                    .engine
+                    .execute_tx_waves_deterministic_parallel_with_effects(
+                        transactions.clone(),
+                        &state_arc,
+                        Some(timestamp),
+                        false,
+                    )?,
             };
             {
                 let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
@@ -568,11 +583,9 @@ impl DagEngine {
                     Vec::new()
                 },
                 validate_supply,
+                transaction_effects,
             )
         };
-        let transaction_effects =
-            self.engine
-                .collect_transaction_effects_strict(&transactions, Some(timestamp), true)?;
         let checkpoint_object_changes =
             BlockchainEngine::aggregate_checkpoint_object_changes(&transaction_effects);
         let checkpoint_object_graph_edges =

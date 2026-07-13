@@ -893,13 +893,22 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
         .clone();
     let strict_state = Arc::new(RwLock::new(base_state.clone()));
     let parallel_state = Arc::new(RwLock::new(base_state));
+    let serial_effects = engine
+        .collect_transaction_effects_strict(&txs, Some(123), true)
+        .unwrap();
 
     let strict_counts = engine
         .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(123), false, true)
         .unwrap();
-    let parallel_counts = engine
-        .execute_tx_waves_deterministic_parallel(txs, &parallel_state, Some(123), false)
+    let (parallel_executed, parallel_failed, parallel_effects) = engine
+        .execute_tx_waves_deterministic_parallel_with_effects(
+            txs,
+            &parallel_state,
+            Some(123),
+            false,
+        )
         .unwrap();
+    let parallel_counts = (parallel_executed, parallel_failed);
 
     let strict_root = strict_state
         .read()
@@ -911,6 +920,8 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
         .compute_state_root();
 
     assert_eq!(strict_counts, parallel_counts);
+    assert_eq!(parallel_effects, serial_effects);
+    assert_eq!(parallel_effects.len(), parallel_executed + parallel_failed);
     assert_eq!(strict_root, parallel_root);
 }
 

@@ -411,17 +411,8 @@ impl StateManager {
             // Validate on a cloned snapshot so rejected transactions cannot poison live state.
             let mut candidate = self.clone();
             candidate.apply_changeset_with_options(changeset, false)?;
-            let cached_native_visible = candidate
-                .global_token_supplies
-                .get(KANARI_TOKEN_TYPE)
-                .copied()
-                .unwrap_or(0);
-            if cached_native_visible > candidate.total_supply {
-                candidate.validate_supply_invariants()?;
-            }
             candidate.repair_legacy_native_wallet_overcount()?;
-            candidate.sync_native_visible_supply_cache()?;
-            if let Err(error) = candidate.validate_supply_invariants() {
+            if let Err(error) = candidate.validate_cached_supply_invariants() {
                 Self::report_supply_invariant_violation("after apply_changeset", &error)?;
                 return Err(error);
             }
@@ -459,33 +450,9 @@ impl StateManager {
             None
         };
 
-        for (address, change) in &changeset.owner_deltas {
-            if change.balance_delta >= 0 {
-                continue;
-            }
-            let debit = u64::try_from(change.balance_delta.unsigned_abs())
-                .require("Native debit overflowed u64 owner balance")?;
-            let balance = self.resolve_owner_native_balance(*address)?;
-            ensure!(
-                balance >= debit,
-                "Insufficient native balance for {}: need {}, have {}",
-                address.to_hex_literal(),
-                debit,
-                balance
-            );
-        }
-
-        let mut supplies_dirty = false;
-        let mut owner_index_additions = Vec::with_capacity(changeset.owner_deltas.len());
-        let reconcile_object_locked = Self::needs_object_locked_reconciliation(changeset);
-        let (issued_before, visible_before) = if reconcile_object_locked {
-            self.capture_supply_snapshots(self.supply_tracking_token_types(changeset))?
-        } else {
-            (BTreeMap::new(), BTreeMap::new())
-        };
-        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
+        // Capture native balances once before mutating the state. Debit validation and
+        // post-object recomputation both need this snapshot; independently resolving the
+        // same owner here used to scan every owned Coin object twice before the write pass.
         let mut native_snapshot_owners = changeset
             .owner_deltas
             .keys()
@@ -519,6 +486,42 @@ impl StateManager {
                 .unwrap_or(0);
             native_balances_before.insert(owner, (ledger_balance, object_balance));
         }
+
+        for (address, change) in &changeset.owner_deltas {
+            if change.balance_delta >= 0 {
+                continue;
+            }
+            let debit = u64::try_from(change.balance_delta.unsigned_abs())
+                .require("Native debit overflowed u64 owner balance")?;
+            let (ledger_balance, object_balance) = native_balances_before
+                .get(address)
+                .copied()
+                .unwrap_or((0, 0));
+            let balance = if ledger_balance > 0 {
+                ledger_balance
+            } else {
+                object_balance
+            };
+            ensure!(
+                balance >= debit,
+                "Insufficient native balance for {}: need {}, have {}",
+                address.to_hex_literal(),
+                debit,
+                balance
+            );
+        }
+
+        let mut supplies_dirty = false;
+        let mut owner_index_additions = Vec::with_capacity(changeset.owner_deltas.len());
+        let reconcile_object_locked = Self::needs_object_locked_reconciliation(changeset);
+        let (issued_before, visible_before) = if reconcile_object_locked {
+            self.capture_supply_snapshots(self.supply_tracking_token_types(changeset))?
+        } else {
+            (BTreeMap::new(), BTreeMap::new())
+        };
+        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
 
         for (address, change) in &changeset.owner_deltas {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
@@ -839,10 +842,6 @@ impl StateManager {
 
         if reconcile_object_locked {
             self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
-        }
-
-        if self.sync_native_visible_supply_cache()? {
-            supplies_dirty = true;
         }
 
         if supplies_dirty {

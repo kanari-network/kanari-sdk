@@ -1117,24 +1117,24 @@ impl BlockchainEngine {
         persist_objects: bool,
         strict_mode: bool,
     ) -> Result<(usize, usize)> {
-        self.execute_tx_waves_parallel_inner(
+        let (executed, failed, _) = self.execute_tx_waves_parallel_inner(
             transactions,
             state_arc,
             timestamp,
             persist_objects,
             strict_mode,
             strict_mode,
-        )
+        )?;
+        Ok((executed, failed))
     }
 
-    #[warn(dead_code)]
-    pub(crate) fn execute_tx_waves_deterministic_parallel(
+    pub(crate) fn execute_tx_waves_deterministic_parallel_with_effects(
         &self,
         transactions: Vec<SignedTransaction>,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
         persist_objects: bool,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<(usize, usize, Vec<TransactionEffects>)> {
         self.execute_tx_waves_parallel_inner(
             transactions,
             state_arc,
@@ -1152,14 +1152,15 @@ impl BlockchainEngine {
         timestamp: Option<u64>,
         persist_objects: bool,
     ) -> Result<(usize, usize)> {
-        self.execute_tx_waves_parallel_inner(
+        let (executed, failed, _) = self.execute_tx_waves_parallel_inner(
             transactions,
             state_arc,
             timestamp,
             persist_objects,
             true,
             true,
-        )
+        )?;
+        Ok((executed, failed))
     }
 
     pub(crate) fn apply_zero_effect_native_batch(
@@ -1180,9 +1181,10 @@ impl BlockchainEngine {
         persist_objects: bool,
         serial_execution: bool,
         fail_hard: bool,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<(usize, usize, Vec<TransactionEffects>)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
+        let mut transaction_effects = Vec::with_capacity(transactions.len());
         let has_module_publish = transactions.iter().any(|tx| {
             matches!(
                 tx.transaction,
@@ -1221,6 +1223,8 @@ impl BlockchainEngine {
                         )
                     })?;
 
+                transaction_effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
+
                 let mut state_write = match state_arc.write() {
                     Ok(guard) => guard,
                     Err(poisoned) => {
@@ -1242,7 +1246,7 @@ impl BlockchainEngine {
                 executed_count += 1;
             }
 
-            return Ok((executed_count, failed_count));
+            return Ok((executed_count, failed_count, transaction_effects));
         }
 
         let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
@@ -1310,6 +1314,8 @@ impl BlockchainEngine {
                         )
                     })?;
 
+                    transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
+
                     // Apply each transaction against an isolated candidate so a
                     // bad gas/object change cannot partially mutate the wave or
                     // hide which pending transaction caused the failure.
@@ -1348,18 +1354,26 @@ impl BlockchainEngine {
                     }
                 };
 
-                for res in results {
+                for (signed_tx, res) in wave.iter().zip(results) {
                     match res {
                         Ok(cs) => {
                             if let Err(e) = state_write.apply_changeset(&cs) {
                                 log::warn!("apply_changeset failed: {}", e);
+                                transaction_effects.push(Self::failed_transaction_effects(
+                                    signed_tx,
+                                    e.to_string(),
+                                ));
                                 failed_count += 1;
                             } else {
+                                transaction_effects
+                                    .push(cs.effects(signed_tx.transaction.gas_payment()));
                                 executed_count += 1;
                             }
                         }
                         Err(e) => {
                             log::warn!("Parallel execution failed: {}", e);
+                            transaction_effects
+                                .push(Self::failed_transaction_effects(signed_tx, e.to_string()));
                             failed_count += 1;
                         }
                     }
@@ -1367,7 +1381,38 @@ impl BlockchainEngine {
             }
         }
 
-        Ok((executed_count, failed_count))
+        Ok((executed_count, failed_count, transaction_effects))
+    }
+
+    fn failed_transaction_effects(
+        signed_tx: &SignedTransaction,
+        error_message: String,
+    ) -> TransactionEffects {
+        TransactionEffects {
+            status: "failed".to_string(),
+            gas_used: 0,
+            gas_payment: signed_tx.transaction.gas_payment(),
+            input_objects: signed_tx
+                .transaction
+                .object_inputs()
+                .into_iter()
+                .map(|input| input.object_ref)
+                .collect(),
+            shared_inputs: Vec::new(),
+            immutable_inputs: Vec::new(),
+            gas_object_refs: signed_tx
+                .transaction
+                .gas_payment()
+                .map(|payment| payment.payment_objects)
+                .unwrap_or_default(),
+            object_changes: Vec::new(),
+            created: Vec::new(),
+            mutated: Vec::new(),
+            deleted: Vec::new(),
+            transferred: Vec::new(),
+            causal_edges: Vec::new(),
+            error_message: Some(error_message),
+        }
     }
 
     pub(crate) fn checkpoint_root_matches(
