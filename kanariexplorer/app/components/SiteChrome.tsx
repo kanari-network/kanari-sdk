@@ -14,6 +14,7 @@ export function ArrowIcon() {
 
 export function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const previousScrollY = useRef(0);
@@ -31,13 +32,13 @@ export function SiteHeader() {
       const currentScrollY = window.scrollY;
       const scrollingUp = currentScrollY < previousScrollY.current;
 
-      setHeaderVisible(menuOpen || currentScrollY < 80 || scrollingUp);
+      setHeaderVisible(menuOpen || toolsOpen || currentScrollY < 80 || scrollingUp);
       previousScrollY.current = currentScrollY;
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [menuOpen]);
+  }, [menuOpen, toolsOpen]);
 
   const toggleTheme = () => {
     const nextDarkMode = !darkMode;
@@ -58,11 +59,24 @@ export function SiteHeader() {
           <Link href="/" onClick={() => setMenuOpen(false)}>Overview</Link>
           <Link href="/tx" onClick={() => setMenuOpen(false)}>Transactions</Link>
           <Link href="/coins" onClick={() => setMenuOpen(false)}>Tokens</Link>
-          <Link href="/modules" onClick={() => setMenuOpen(false)}>Modules</Link>
           <Link href="/account" onClick={() => setMenuOpen(false)}>Accounts</Link>
-          <Link href="/checkpoint-object-graph" onClick={() => setMenuOpen(false)}>Checkpoint Graph</Link>
-          <Link href="/smt" onClick={() => setMenuOpen(false)}>SMT Status</Link>
           <Link href="/nft" onClick={() => setMenuOpen(false)}>NFTs</Link>
+          <div className={`site-nav__dropdown ${toolsOpen ? "site-nav__dropdown--open" : ""}`}>
+            <button
+              className="site-nav__dropdown-trigger"
+              type="button"
+              aria-expanded={toolsOpen}
+              aria-haspopup="menu"
+              onClick={() => setToolsOpen((open) => !open)}
+            >
+              Tools <span aria-hidden="true">⌄</span>
+            </button>
+            <div className="site-nav__dropdown-menu" role="menu">
+              <Link href="/modules" role="menuitem" onClick={() => { setMenuOpen(false); setToolsOpen(false); }}>Modules</Link>
+              <Link href="/checkpoint-object-graph" role="menuitem" onClick={() => { setMenuOpen(false); setToolsOpen(false); }}>Checkpoint Graph</Link>
+              <Link href="/smt" role="menuitem" onClick={() => { setMenuOpen(false); setToolsOpen(false); }}>SMT Status</Link>
+            </div>
+          </div>
         </nav>
         <div className="site-header__actions">
           <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
@@ -77,7 +91,10 @@ export function SiteHeader() {
             type="button"
             aria-label="Toggle navigation"
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={() => {
+              setMenuOpen((open) => !open);
+              setToolsOpen(false);
+            }}
           >
             <span />
             <span />
