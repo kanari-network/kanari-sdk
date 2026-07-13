@@ -6,8 +6,8 @@ The default mode is `production`, which exercises the full local blockchain prod
 an in-memory engine and a signed zero-gas native workload:
 
 1. Generate and sign deterministic native transactions.
-2. Submit every transaction through `BlockchainEngine::submit_transaction`.
-3. Produce a Mysticeti checkpoint through `BlockchainEngine::produce_checkpoint`.
+2. Submit every transaction through the batch mempool API.
+3. Produce a Mysticeti/DAG checkpoint through `BlockchainEngine::produce_checkpoint`.
 4. Report production TPS from the measured `produce_checkpoint` window and show submit time separately.
 
 ## Quick Checks
@@ -41,7 +41,10 @@ cargo run --release -p kanari-benchmarks -- --mode production --txs 10000 --send
 - `production`
   Full local production path: mempool submission plus `produce_checkpoint`.
 - `immediate`
-  Executes and applies transactions one by one. Useful as a correctness baseline, not a peak TPS number.
+  Executes and applies transactions one by one. The built-in workload is deliberately a
+  zero-effect native workload optimized for checkpoint production, so it has no spendable coin
+  object for direct execution and will be rejected in this mode. Do not use its result as a TPS
+  comparison; use a separately funded workload if testing direct execution.
 
 ## High Throughput Target
 
@@ -91,6 +94,8 @@ Important fields:
 
 - Use `--release` for throughput numbers.
 - Treat `production` as the honest local blockchain TPS benchmark without disk I/O.
+- Production may use the engine's zero-effect native fast path; its `executed`/`failed` counts
+  still come from checkpoint execution and state validation.
 - Larger `--txs` values can take much longer in production mode because they include signature verification, state-root work, and block production.
 - On the current Windows test machine, `production --txs 10000 --senders 10000 --runs 3` measured about 65k median TPS after the SMT/zero-effect fast-path work.
 
