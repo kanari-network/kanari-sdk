@@ -604,10 +604,17 @@ h1, h2, h3, p { margin-top: 0; }
 .search-icon { width: 42px; height: 42px; display: grid; place-items: center; color: var(--muted); }
 .search-box .button { width: auto; min-width: 132px; min-height: 46px; flex: 0 0 auto; padding-inline: 24px; border: 0; color: var(--on-accent); background: var(--lime); cursor: pointer; }
 
-.explorer-search-panel { margin: 0 0 18px; padding: 22px; display: grid; grid-template-columns: minmax(220px, .6fr) minmax(0, 1fr); gap: 18px; align-items: center; border: 1px solid var(--line); border-radius: 24px; background: color-mix(in srgb, var(--paper) 58%, transparent); }
+.explorer-search-panel { margin: 0 0 18px; padding: 34px; display: grid; grid-template-columns: 1fr; gap: 24px; align-items: start; border: 1px solid var(--line); border-radius: 24px; background: color-mix(in srgb, var(--paper) 58%, transparent); }
 .explorer-search-panel h2 { margin: 0; font-size: 25px; font-weight: 950; letter-spacing: -.07em; line-height: 1; }
 .explorer-search-panel .section-kicker { margin-bottom: 10px; }
 .explorer-search-panel .search-box { width: 100%; margin-left: auto; }
+.search-suggestions { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 22px; background: color-mix(in srgb, var(--paper) 80%, transparent); }
+.search-suggestions__label { margin: 0 0 8px 8px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.search-suggestion { width: 100%; min-height: 58px; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 16px; color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); cursor: pointer; text-align: left; }
+.search-suggestion__avatar { width: 36px; height: 36px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: var(--on-accent); background: var(--lime); font-size: 18px; }
+.search-suggestion strong { min-width: 0; flex: 1 1 auto; font-size: 13px; }
+.search-suggestion__arrow { width: 56px; height: 52px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 16px; color: #fffdf7; background: var(--ink); }
+.dark .search-suggestion__arrow { color: #111b18; }
 
 .explorer-stat-grid { margin: 18px 0 0; }
 .stat-card__detail { max-width: 220px; margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }

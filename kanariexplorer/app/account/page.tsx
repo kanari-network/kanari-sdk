@@ -16,6 +16,7 @@ import {
   SearchForm,
   shortHash,
   StatusPill,
+  stripHexPrefix,
 } from "../components/ExplorerUI";
 import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTransaction } from "../lib/rpc";
 
@@ -64,11 +65,11 @@ function dedupeObjects(values: unknown[]) {
 }
 
 function readTransactionHash(transaction: unknown, fallback: string) {
-  return readString(
+  return stripHexPrefix(readString(
     transaction,
     "hash",
     readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
-  );
+  ));
 }
 
 function readObject(source: unknown, key: string) {

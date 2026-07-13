@@ -17,6 +17,7 @@ import {
   readAddress,
   readString,
   shortHash,
+  stripHexPrefix,
 } from "../../components/ExplorerUI";
 import {
   getFungibleAsset,
@@ -244,7 +245,7 @@ function AssetTransactionsPanel({ transactions, loading }: { transactions: unkno
       {transactions.length > 0 ? (
         <div className="data-list">
           {transactions.map((transaction, index) => {
-            const hash = readString(transaction, "hash", `tx-${index}`);
+            const hash = stripHexPrefix(readString(transaction, "hash", `tx-${index}`));
             const lifecycle = describeTransactionLifecycle(transaction);
             const sender = readAddress(transaction, "sender_address", "sender");
             return (

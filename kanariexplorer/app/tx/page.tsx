@@ -15,15 +15,16 @@ import {
   readString,
   SearchForm,
   StatusPill,
+  stripHexPrefix,
 } from "../components/ExplorerUI";
 import { getAllTransactions, getTransaction } from "../lib/rpc";
 
 function readTransactionHash(transaction: unknown, fallback: string) {
-  return readString(
+  return stripHexPrefix(readString(
     transaction,
     "hash",
     readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
-  );
+  ));
 }
 
 function readObject(source: unknown, key: string) {

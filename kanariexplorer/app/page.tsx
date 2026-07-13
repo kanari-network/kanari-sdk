@@ -91,6 +91,13 @@ function readArrayLength(source: unknown, key: string) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function classifySearch(query: string) {
+  if (query.split("::").length >= 3) return "token";
+  if (/^0x[0-9a-f]{1,64}$/i.test(query) || query.includes(":")) return "account";
+  if (/^(?:0x)?[0-9a-f]{64}$/i.test(query)) return "transaction";
+  return "search";
+}
+
 function isLaggingAt(check: StateRootCheck, height: number | null) {
   return check.online && height !== null && check.nodeHeight !== null && check.nodeHeight < height;
 }
@@ -724,7 +731,14 @@ export default function Home() {
   function handleSearch() {
     const query = search.trim();
     if (!query) return;
-    router.push(query.length > 44 ? `/tx?hash=${encodeURIComponent(query)}` : `/account?address=${encodeURIComponent(query)}`);
+    const kind = classifySearch(query);
+    if (kind === "token") {
+      router.push(`/coins/${encodeURIComponent(query)}`);
+    } else if (kind === "account") {
+      router.push(`/account?address=${encodeURIComponent(query)}`);
+    } else {
+      router.push(`/tx?hash=${encodeURIComponent(query)}`);
+    }
   }
 
   return (
@@ -757,11 +771,29 @@ export default function Home() {
       </section>
 
       <section className="explorer-search-panel">
-        <div>
+        <div className="explorer-search-panel__heading">
           <p className="section-kicker">{networkStatusLabel}</p>
           <h2>Explorer search.</h2>
         </div>
-        <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address or transaction hash" />
+        <div className="explorer-search-panel__form">
+          <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address, token type, or transaction hash" />
+          {search.trim() ? (
+            <div className="search-suggestions">
+              <p className="search-suggestions__label">
+                {classifySearch(search.trim()) === "token" ? "Token type" : classifySearch(search.trim()) === "account" ? "Account" : "Transaction"}
+              </p>
+              <button className="search-suggestion" type="button" onClick={handleSearch}>
+                <span className="search-suggestion__avatar" aria-hidden="true">✦</span>
+                <strong className="mono break-anywhere">{search.trim()}</strong>
+                <span className="search-suggestion__arrow" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" width="24" height="24">
+                    <path d="M19 7v6H5m0 0 4-4m-4 4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       <section className="stat-grid explorer-stat-grid">

@@ -56,6 +56,10 @@ export function shortHash(value: unknown, head = 10, tail = 8) {
   return `${text.slice(0, head)}...${text.slice(-tail)}`;
 }
 
+export function stripHexPrefix(value: unknown) {
+  return String(value ?? "").replace(/^0x/i, "");
+}
+
 export function formatNumber(value: unknown) {
   const number = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(number)) return "-";

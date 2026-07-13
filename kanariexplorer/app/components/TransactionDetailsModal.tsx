@@ -1,4 +1,4 @@
-import { describeTransactionLifecycle, EmptyState, RawDetails, readAddress, readString, shortHash, StatusPill } from "./ExplorerUI";
+import { describeTransactionLifecycle, EmptyState, RawDetails, readAddress, readString, shortHash, StatusPill, stripHexPrefix } from "./ExplorerUI";
 import ObjectGraphView from "./ObjectGraphView";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
@@ -136,7 +136,7 @@ export default function TransactionDetailsModal({
 }) {
   if (!open) return null;
 
-  const hash = readFirstString(transaction, ["hash", "tx_hash"]);
+  const hash = stripHexPrefix(readFirstString(transaction, ["hash", "tx_hash"]));
   const status = describeTransactionLifecycle(transaction);
   const senderAddress = readAddress(transaction, "sender_address", "sender");
   const transactionType = readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ");
