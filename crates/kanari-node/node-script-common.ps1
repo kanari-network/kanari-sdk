@@ -55,6 +55,20 @@ function Get-NodeDataDir {
     return (Join-Path $BaseDataDir "node$NodeId")
 }
 
+function Get-GenesisManifestPath {
+    param(
+        [string]$Network,
+        [string]$GenesisPath = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($GenesisPath)) {
+        return [System.IO.Path]::GetFullPath($GenesisPath)
+    }
+
+    $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+    return Join-Path $repoRoot (Join-Path "genesis" "$Network-genesis.json")
+}
+
 function Get-NodeRpcUrl {
     param(
         [string]$HostIp,

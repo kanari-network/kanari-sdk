@@ -37,6 +37,54 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LegacyCheckpointMetadata {
+    sequence: u64,
+    vertices: Vec<[u8; 32]>,
+    transactions: Vec<SignedTransaction>,
+    state_root: Vec<u8>,
+    timestamp: u64,
+    prev_checkpoint_hash: Vec<u8>,
+}
+
+/// Portable identity shared by every node in a network.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct GenesisManifest {
+    pub format_version: u32,
+    pub network: String,
+    pub protocol_version: String,
+    pub state_schema_version: String,
+    pub genesis_checkpoint_hash: String,
+    pub genesis_state_root: String,
+}
+
+pub const GENESIS_MANIFEST_FORMAT_VERSION: u32 = 1;
+pub const STATE_SCHEMA_VERSION: &str = "canonical-state-root-v1";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct SnapshotEntry {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct StateSnapshot {
+    pub format_version: u32,
+    pub network: String,
+    pub genesis: GenesisManifest,
+    pub checkpoint_height: u64,
+    pub checkpoint_hash: String,
+    /// Root recorded in the historical checkpoint, before any explicit migration.
+    pub checkpoint_state_root: String,
+    pub state_root: String,
+    /// True only when export was explicitly authorized to migrate a legacy root.
+    pub state_root_migrated: bool,
+    pub entries_hash: String,
+    pub entries: Vec<SnapshotEntry>,
+}
+
+pub const STATE_SNAPSHOT_FORMAT_VERSION: u32 = 2;
+
 mod apply_checkpoint;
 mod bootstrap;
 mod mempool;
@@ -193,6 +241,262 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
+    fn snapshot_entries_hash(entries: &[SnapshotEntry]) -> Result<String> {
+        Ok(hex::encode(
+            blake3::hash(&bcs::to_bytes(entries)?).as_bytes(),
+        ))
+    }
+
+    pub fn export_state_snapshot(
+        &self,
+        path: &std::path::Path,
+        network: impl Into<String>,
+    ) -> Result<StateSnapshot> {
+        self.export_state_snapshot_with_options(path, network, false)
+    }
+
+    pub fn export_state_snapshot_with_options(
+        &self,
+        path: &std::path::Path,
+        network: impl Into<String>,
+        allow_state_root_migration: bool,
+    ) -> Result<StateSnapshot> {
+        let network = network.into();
+        let genesis = self.genesis_manifest(network.clone())?;
+        let checkpoint = self
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .latest_checkpoint()
+            .clone();
+        let current_state_root = self.state_read().compute_state_root();
+        let state_root_migrated =
+            checkpoint.sequence > 0 && checkpoint.state_root != current_state_root;
+        ensure!(
+            !state_root_migrated || allow_state_root_migration,
+            "Cannot export snapshot: checkpoint state root does not match committed state (height={}, checkpoint={}, computed={}); rerun with --allow-state-root-migration only after auditing the legacy database",
+            checkpoint.sequence,
+            hex::encode(&checkpoint.state_root),
+            hex::encode(&current_state_root)
+        );
+        if state_root_migrated {
+            log::warn!(
+                "[SNAPSHOT] Explicitly migrating legacy state root at height {}: checkpoint={}, computed={}",
+                checkpoint.sequence,
+                hex::encode(&checkpoint.state_root),
+                hex::encode(&current_state_root)
+            );
+        }
+        let entries = self
+            .state_read()
+            .store
+            .logical_entries()
+            .context("Failed to read state entries for snapshot")?
+            .into_iter()
+            .map(|(key, value)| SnapshotEntry {
+                key: hex::encode(key),
+                value: hex::encode(value),
+            })
+            .collect::<Vec<_>>();
+        let snapshot = StateSnapshot {
+            format_version: STATE_SNAPSHOT_FORMAT_VERSION,
+            network,
+            genesis,
+            checkpoint_height: checkpoint.sequence,
+            checkpoint_hash: hex::encode(checkpoint.hash()?),
+            checkpoint_state_root: hex::encode(&checkpoint.state_root),
+            state_root: hex::encode(current_state_root),
+            state_root_migrated,
+            entries_hash: Self::snapshot_entries_hash(&entries)?,
+            entries,
+        };
+        let bytes = serde_json::to_vec_pretty(&snapshot)?;
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create snapshot directory {}", parent.display())
+            })?;
+        }
+        std::fs::write(path, bytes)
+            .with_context(|| format!("Failed to write state snapshot {}", path.display()))?;
+        Ok(snapshot)
+    }
+
+    pub fn read_state_snapshot(path: &std::path::Path) -> Result<StateSnapshot> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to read state snapshot {}", path.display()))?;
+        serde_json::from_slice(&bytes)
+            .with_context(|| format!("Invalid state snapshot {}", path.display()))
+    }
+
+    pub fn import_state_snapshot(
+        snapshot_path: &std::path::Path,
+        target_dir: &std::path::Path,
+        network: &str,
+    ) -> Result<StateSnapshot> {
+        let snapshot = Self::read_state_snapshot(snapshot_path)?;
+        ensure!(
+            snapshot.format_version == STATE_SNAPSHOT_FORMAT_VERSION,
+            "Unsupported state snapshot format: {}",
+            snapshot.format_version
+        );
+        ensure!(
+            snapshot.network == network,
+            "Snapshot network mismatch: snapshot={}, local={}",
+            snapshot.network,
+            network
+        );
+        let verifier = Self::new_in_memory()?;
+        verifier.validate_genesis_manifest(&snapshot.genesis, network)?;
+        ensure!(
+            snapshot.entries_hash == Self::snapshot_entries_hash(&snapshot.entries)?,
+            "State snapshot entries hash mismatch"
+        );
+        let checkpoint_state_root = hex::decode(&snapshot.checkpoint_state_root)
+            .with_context(|| "Invalid checkpoint state root in snapshot")?;
+        let state_root =
+            hex::decode(&snapshot.state_root).with_context(|| "Invalid state root in snapshot")?;
+        ensure!(
+            snapshot.checkpoint_height == 0
+                || snapshot.state_root_migrated
+                || checkpoint_state_root == state_root,
+            "Snapshot root metadata is inconsistent"
+        );
+
+        let mut updates = Vec::with_capacity(snapshot.entries.len());
+        for entry in &snapshot.entries {
+            let key = hex::decode(&entry.key)
+                .with_context(|| format!("Invalid snapshot key {}", entry.key))?;
+            let value = hex::decode(&entry.value)
+                .with_context(|| format!("Invalid snapshot value for key {}", entry.key))?;
+            updates.push((key, value));
+        }
+        let store = PersistentStore::open_with_path(Some(target_dir.to_path_buf()))?;
+        ensure!(
+            store.logical_entries()?.is_empty(),
+            "Refusing to import snapshot into a non-empty data directory"
+        );
+        store.apply_raw_changes(&updates, &[])?;
+        drop(store);
+
+        let imported = Self::new_dir(
+            target_dir
+                .to_str()
+                .context("Invalid target data directory")?,
+        )?;
+        let chain = imported
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let checkpoint = chain.latest_checkpoint();
+        ensure!(
+            checkpoint.sequence == snapshot.checkpoint_height,
+            "Imported snapshot height mismatch"
+        );
+        ensure!(
+            hex::encode(checkpoint.hash()?) == snapshot.checkpoint_hash,
+            "Imported snapshot checkpoint hash mismatch"
+        );
+        ensure!(
+            checkpoint.state_root == checkpoint_state_root,
+            "Imported snapshot checkpoint state root mismatch"
+        );
+        let imported_state_root = hex::encode(imported.state_read().compute_state_root());
+        ensure!(
+            imported_state_root == snapshot.state_root,
+            "Imported snapshot state root mismatch: snapshot={}, imported={}",
+            snapshot.state_root,
+            imported_state_root
+        );
+        Ok(snapshot)
+    }
+
+    pub fn genesis_manifest(&self, network: impl Into<String>) -> Result<GenesisManifest> {
+        let genesis = self.get_block(0).context("Genesis checkpoint is missing")?;
+        Ok(GenesisManifest {
+            format_version: GENESIS_MANIFEST_FORMAT_VERSION,
+            network: network.into(),
+            protocol_version: env!("CARGO_PKG_VERSION").to_string(),
+            state_schema_version: STATE_SCHEMA_VERSION.to_string(),
+            genesis_checkpoint_hash: genesis.hash,
+            genesis_state_root: genesis.state_root,
+        })
+    }
+
+    pub fn validate_genesis_manifest(
+        &self,
+        manifest: &GenesisManifest,
+        network: &str,
+    ) -> Result<()> {
+        ensure!(
+            manifest.format_version == GENESIS_MANIFEST_FORMAT_VERSION,
+            "Unsupported genesis manifest format: {}",
+            manifest.format_version
+        );
+        ensure!(
+            manifest.network == network,
+            "Genesis network mismatch: manifest={}, local={}",
+            manifest.network,
+            network
+        );
+        ensure!(
+            manifest.protocol_version == env!("CARGO_PKG_VERSION"),
+            "Genesis protocol version mismatch: manifest={}, local={}",
+            manifest.protocol_version,
+            env!("CARGO_PKG_VERSION")
+        );
+        ensure!(
+            manifest.state_schema_version == STATE_SCHEMA_VERSION,
+            "Genesis state schema mismatch: manifest={}, local={}",
+            manifest.state_schema_version,
+            STATE_SCHEMA_VERSION
+        );
+        let local = self.genesis_manifest(network)?;
+        ensure!(
+            manifest.genesis_checkpoint_hash == local.genesis_checkpoint_hash,
+            "Genesis checkpoint hash mismatch: manifest={}, local={}",
+            manifest.genesis_checkpoint_hash,
+            local.genesis_checkpoint_hash
+        );
+        ensure!(
+            manifest.genesis_state_root == local.genesis_state_root,
+            "Genesis state root mismatch: manifest={}, local={}",
+            manifest.genesis_state_root,
+            local.genesis_state_root
+        );
+        Ok(())
+    }
+
+    pub fn write_genesis_manifest(
+        &self,
+        path: &std::path::Path,
+        network: impl Into<String>,
+    ) -> Result<()> {
+        let manifest = self.genesis_manifest(network)?;
+        let bytes = serde_json::to_vec_pretty(&manifest)?;
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Failed to create genesis manifest directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        std::fs::write(path, bytes)
+            .with_context(|| format!("Failed to write genesis manifest {}", path.display()))?;
+        Ok(())
+    }
+
+    pub fn read_genesis_manifest(path: &std::path::Path) -> Result<GenesisManifest> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to read genesis manifest {}", path.display()))?;
+        serde_json::from_slice(&bytes)
+            .with_context(|| format!("Invalid genesis manifest {}", path.display()))
+    }
+
     fn is_native_gas_coin_type(object_type: &str) -> bool {
         CoinModule::is_coin_type_for(object_type, KANARI_TOKEN_TYPE)
     }
@@ -402,18 +706,37 @@ impl BlockchainEngine {
     }
 
     fn load_checkpoint_metadata(store: &PersistentStore, sequence: u64) -> Option<Checkpoint> {
-        store
-            .load(&Self::checkpoint_metadata_key(sequence))
-            .map_err(|e| {
+        let key = Self::checkpoint_metadata_key(sequence);
+        match store.load::<Checkpoint>(&key) {
+            Ok(Some(checkpoint)) => Some(checkpoint),
+            Ok(None) => None,
+            Err(current_error) => {
                 tracing::warn!(
                     checkpoint = sequence,
-                    "Failed to load checkpoint metadata: {}",
-                    e
+                    "Current checkpoint metadata schema failed; trying legacy schema: {}",
+                    current_error
                 );
-                e
-            })
-            .ok()
-            .flatten()
+                match store.load::<LegacyCheckpointMetadata>(&key) {
+                    Ok(Some(legacy)) => Some(Checkpoint::new(
+                        legacy.sequence,
+                        legacy.vertices,
+                        legacy.transactions,
+                        legacy.state_root,
+                        legacy.timestamp,
+                        legacy.prev_checkpoint_hash,
+                    )),
+                    Ok(None) => None,
+                    Err(legacy_error) => {
+                        tracing::warn!(
+                            checkpoint = sequence,
+                            "Failed to load legacy checkpoint metadata: {}",
+                            legacy_error
+                        );
+                        None
+                    }
+                }
+            }
+        }
     }
 
     fn load_checkpoint_transactions(

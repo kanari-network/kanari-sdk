@@ -12,6 +12,7 @@ param(
     [string]$RpcHost = "0.0.0.0",
     [string]$Authorities = "",
     [string]$Bootstrap = "",
+    [string]$GenesisPath = "",
     [string]$ConsensusPrivateKeyHex = "",
     [string]$ConsensusPublicKeys = "",
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys"
@@ -27,6 +28,7 @@ $authId = "0x$NodeId"
 $localIp = Get-LanIpAddress
 $rpcConnectHost = Get-RpcConnectHost -RpcHost $RpcHost -LanIp $localIp
 $rpcUrl = Get-NodeRpcUrl -HostIp $rpcConnectHost -RpcPort $rpcPort
+$genesisPath = Get-GenesisManifestPath -Network $Network -GenesisPath $GenesisPath
 
 if (-not (Test-Path $dataDir)) {
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
@@ -40,6 +42,7 @@ Write-Host 'RPC Port:' $rpcPort -ForegroundColor Yellow
 Write-Host 'RPC Bind Host:' $RpcHost -ForegroundColor Yellow
 Write-Host 'Network:' $Network -ForegroundColor Yellow
 Write-Host 'Data Dir:' $dataDir -ForegroundColor Yellow
+Write-Host 'Genesis:' $genesisPath -ForegroundColor Yellow
 Write-Host "RPC URL:  $rpcUrl" -ForegroundColor Yellow
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host ''
@@ -80,6 +83,12 @@ if (-not (Test-Path $ConsensusPublicKeys)) {
     exit 1
 }
 
+if (-not (Test-Path $genesisPath)) {
+    Write-Host "Error: genesis manifest not found: $genesisPath" -ForegroundColor Red
+    Write-Host "Run setup-multi-node.ps1 or genesis-export first." -ForegroundColor Yellow
+    exit 1
+}
+
 $nodeArgs = @(
     "start",
     "--network", $Network,
@@ -89,6 +98,7 @@ $nodeArgs = @(
     "--data-dir", $dataDir,
     "--authority-id", $authId,
     "--authorities", $Authorities,
+    "--genesis", $genesisPath,
     "--consensus-private-key-hex", $ConsensusPrivateKeyHex,
     "--consensus-public-keys", $ConsensusPublicKeys
 )

@@ -145,6 +145,66 @@ cargo run --bin kanari-node -- start `
   --bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
 
+## Shared Genesis Manifest
+
+Create one manifest from the exact binary/release used by the cluster and copy
+it to every new node before startup:
+
+```powershell
+cargo run --bin kanari-node -- genesis-export `
+  --network devnet `
+  --data-dir .\data\node1 `
+  --output .\genesis\devnet-genesis.json
+```
+
+Start every node with the same manifest:
+
+```powershell
+--genesis .\genesis\devnet-genesis.json
+```
+
+The node validates the network, protocol version, state schema version,
+genesis checkpoint hash, and genesis state root before joining peers. If any
+value differs, startup stops. Do not disable this validation or copy a live
+database as a substitute for the manifest.
+
+`setup-multi-node.ps1` now creates this manifest automatically from the source
+node data directory when it is missing and passes it to every launched node.
+To use a different location, pass `-GenesisPath <PATH>` to the setup script.
+
+For a node that joins an already-running chain, create a snapshot while the
+source node is stopped:
+
+```powershell
+cargo run -p kanari-node -- snapshot-export `
+  --network devnet `
+  --data-dir "$env:USERPROFILE\.kanari\kanari-db" `
+  --output .\snapshots\devnet-height-5.json
+```
+
+If export reports a checkpoint/state-root mismatch because the source database
+uses an older state-root schema, audit that database first, then opt into an
+explicit migration export. The snapshot records both roots and does not
+silently rewrite checkpoint history:
+
+```powershell
+cargo run -p kanari-node -- snapshot-export `
+  --network devnet `
+  --data-dir "$env:USERPROFILE\.kanari\kanari-db" `
+  --output .\snapshots\devnet-migrated.json `
+  --allow-state-root-migration
+```
+
+Then import it into fresh replica directories during setup:
+
+```powershell
+.\setup-multi-node.ps1 -NodeCount 5 -Network devnet `
+  -SnapshotPath .\snapshots\devnet-height-5.json
+```
+
+Import verifies the snapshot hash, genesis identity, checkpoint height, and
+state root before writing. It refuses to overwrite a non-empty data directory.
+
 ## Important Start Options
 
 - `--network <NETWORK>`: selects `devnet`, `testnet`, or `mainnet`
@@ -157,6 +217,7 @@ cargo run --bin kanari-node -- start `
 - `--rpc-host <HOST>`: RPC bind address
 - `--data-dir <PATH>`: blockchain and state data directory
 - `--bootstrap <MULTIADDR>`: bootstrap peer, can be specified multiple times
+- `--genesis <PATH>`: shared genesis manifest required for safe node joining
 - `--relay-server`: enable circuit relay server mode
 
 ## Relay Server Mode

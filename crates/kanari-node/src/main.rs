@@ -15,7 +15,10 @@ mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
-use app::{configure_consensus_signing_key, create_engine, default_data_dir, run_node};
+use app::{
+    configure_consensus_signing_key, create_engine, create_engine_with_genesis, default_data_dir,
+    run_node,
+};
 
 #[derive(Clone, Debug, ValueEnum)]
 pub(crate) enum NetworkMode {
@@ -99,6 +102,40 @@ enum Commands {
         /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
         #[arg(long, value_name = "MULTIADDR")]
         bootstrap: Option<Vec<String>>,
+        /// Genesis manifest shared by the network; validated before startup
+        #[arg(long)]
+        genesis: Option<std::path::PathBuf>,
+    },
+    /// Export the deterministic genesis identity for other nodes
+    GenesisExport {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        /// Existing node data directory to read the authoritative genesis from
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Export a committed state snapshot for a new node
+    SnapshotExport {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
+        #[arg(long)]
+        output: std::path::PathBuf,
+        /// Allow exporting a legacy database whose checkpoint root differs from its current state root
+        #[arg(long, default_value_t = false)]
+        allow_state_root_migration: bool,
+    },
+    /// Import and verify a committed state snapshot into an empty data dir
+    SnapshotImport {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        #[arg(long)]
+        snapshot: std::path::PathBuf,
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
     },
     /// Run a local-only node
     Local,
@@ -226,6 +263,7 @@ fn main() -> Result<()> {
             consensus_private_key_hex,
             consensus_public_keys,
             bootstrap,
+            genesis,
         } => {
             validate_start_authority_config(&authority_id, &authorities)?;
             let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
@@ -241,7 +279,7 @@ fn main() -> Result<()> {
                 &rpc_host,
                 &data_dir_path,
             );
-            let mut engine = create_engine(&data_dir, &network)?;
+            let mut engine = create_engine_with_genesis(&data_dir, &network, genesis.as_deref())?;
             info!("Engine initialized. Configuring authority and consensus keys");
 
             let id = authority_id.invariant("validated authority_id must exist");
@@ -269,6 +307,54 @@ fn main() -> Result<()> {
                 relay_server,
                 bootstrap,
             ))
+        }
+        Commands::GenesisExport {
+            network,
+            data_dir,
+            output,
+        } => {
+            let engine = create_engine(&data_dir, &network)?;
+            engine.write_genesis_manifest(&output, network.as_str())?;
+            println!("Genesis manifest written to {}", output.display());
+            Ok(())
+        }
+        Commands::SnapshotExport {
+            network,
+            data_dir,
+            output,
+            allow_state_root_migration,
+        } => {
+            let engine = create_engine(&Some(data_dir), &network)?;
+            let snapshot = engine.export_state_snapshot_with_options(
+                &output,
+                network.as_str(),
+                allow_state_root_migration,
+            )?;
+            println!(
+                "Snapshot written to {} at height {} (state root {})",
+                output.display(),
+                snapshot.checkpoint_height,
+                snapshot.state_root
+            );
+            Ok(())
+        }
+        Commands::SnapshotImport {
+            network,
+            snapshot,
+            data_dir,
+        } => {
+            let imported = kanari_core::BlockchainEngine::import_state_snapshot(
+                &snapshot,
+                &data_dir,
+                network.as_str(),
+            )?;
+            println!(
+                "Snapshot imported into {} at height {} (state root {})",
+                data_dir.display(),
+                imported.checkpoint_height,
+                imported.state_root
+            );
+            Ok(())
         }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");

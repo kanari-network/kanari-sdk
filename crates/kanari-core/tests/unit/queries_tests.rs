@@ -114,6 +114,84 @@ fn fresh_persistent_engine_owner_query_exposes_separate_genesis_native_gas_coin(
     assert_fresh_engine_exposes_separate_genesis_native_gas_coin(&engine);
 }
 
+#[test]
+fn genesis_manifest_round_trips_and_matches_a_fresh_node() {
+    let source = BlockchainEngine::new_in_memory().unwrap();
+    let manifest = source.genesis_manifest("devnet").unwrap();
+    let target = BlockchainEngine::new_in_memory().unwrap();
+
+    target
+        .validate_genesis_manifest(&manifest, "devnet")
+        .unwrap();
+    assert_eq!(manifest, target.genesis_manifest("devnet").unwrap());
+}
+
+#[test]
+fn genesis_manifest_rejects_network_or_root_mismatch() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let mut manifest = engine.genesis_manifest("devnet").unwrap();
+
+    let error = engine
+        .validate_genesis_manifest(&manifest, "mainnet")
+        .unwrap_err();
+    assert!(error.to_string().contains("network mismatch"));
+
+    manifest.network = "devnet".to_string();
+    manifest.genesis_state_root = "deadbeef".to_string();
+    let error = engine
+        .validate_genesis_manifest(&manifest, "devnet")
+        .unwrap_err();
+    assert!(error.to_string().contains("state root mismatch"));
+}
+
+#[test]
+fn genesis_manifest_file_is_portable_json() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nested").join("genesis.json");
+
+    engine.write_genesis_manifest(&path, "devnet").unwrap();
+    let loaded = BlockchainEngine::read_genesis_manifest(&path).unwrap();
+    engine.validate_genesis_manifest(&loaded, "devnet").unwrap();
+}
+
+#[test]
+fn state_snapshot_round_trips_into_an_empty_data_dir() {
+    let source = BlockchainEngine::new_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot_path = directory.path().join("snapshots").join("devnet.json");
+    let target_dir = directory.path().join("node5");
+
+    let exported = source
+        .export_state_snapshot(&snapshot_path, "devnet")
+        .unwrap();
+    let imported =
+        BlockchainEngine::import_state_snapshot(&snapshot_path, &target_dir, "devnet").unwrap();
+
+    assert_eq!(exported.checkpoint_height, imported.checkpoint_height);
+    assert_eq!(exported.checkpoint_hash, imported.checkpoint_hash);
+    assert_eq!(exported.state_root, imported.state_root);
+}
+
+#[test]
+fn state_snapshot_rejects_tampered_entries_before_import() {
+    let source = BlockchainEngine::new_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot_path = directory.path().join("snapshot.json");
+    let target_dir = directory.path().join("node5");
+    source
+        .export_state_snapshot(&snapshot_path, "devnet")
+        .unwrap();
+
+    let mut snapshot = BlockchainEngine::read_state_snapshot(&snapshot_path).unwrap();
+    snapshot.entries[0].value.push('0');
+    std::fs::write(&snapshot_path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+
+    let error =
+        BlockchainEngine::import_state_snapshot(&snapshot_path, &target_dir, "devnet").unwrap_err();
+    assert!(error.to_string().contains("entries hash mismatch"));
+}
+
 fn assert_fresh_engine_exposes_separate_genesis_native_gas_coin(engine: &BlockchainEngine) {
     let owner = KanariAddress::DEV_ADDRESS;
     let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
@@ -180,9 +258,44 @@ fn sync_checkpoint_from_data_rejects_root_mismatch() {
         error.to_string().contains("state root mismatch")
             || error
                 .to_string()
-                .contains("cannot overlap with a mutable object input")
+                .contains("cannot overlap with a mutable object input"),
+        "unexpected sync rejection: {error:#}"
     );
     assert_eq!(engine.get_stats().height, 0);
+}
+
+#[test]
+fn sync_checkpoint_root_mismatch_does_not_mutate_local_state() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let height_before = engine.get_stats().height;
+    let root_before = engine.latest_checkpoint_state_root_hex();
+    let prev_hash = {
+        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        chain.latest_checkpoint().hash().unwrap()
+    };
+
+    // This models a peer built with a different genesis/state schema. The
+    // payload is otherwise structurally valid, but its advertised root is
+    // intentionally not the root produced by this node.
+    let signed_tx = signed_transfer(0);
+    let sender =
+        KanariAddress::parse_to_account_address(signed_tx.transaction.sender_address()).unwrap();
+    fund_sender_with_coin(&engine, sender, "0xaaaa", 1_000_000);
+    let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![0xabu8; 32], 42, prev_hash);
+
+    let error = engine
+        .sync_checkpoint_from_data(&CheckpointSyncData { checkpoint })
+        .unwrap_err();
+
+    assert!(
+        error.to_string().contains("state root mismatch")
+            || error
+                .to_string()
+                .contains("cannot overlap with a mutable object input"),
+        "unexpected sync rejection: {error:#}"
+    );
+    assert_eq!(engine.get_stats().height, height_before);
+    assert_eq!(engine.latest_checkpoint_state_root_hex(), root_before);
 }
 
 #[test]

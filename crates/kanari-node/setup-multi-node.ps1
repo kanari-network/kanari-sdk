@@ -12,6 +12,8 @@ param(
     [switch]$ResetSourceData,
     [switch]$AllowUnsafeResetPath,
     [switch]$AllowReuseData,
+    [string]$GenesisPath = "",
+    [string]$SnapshotPath = "",
     [switch]$DisableFailFast,
     [switch]$SkipHealthCheck,
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys",
@@ -19,6 +21,8 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'node-script-common.ps1')
+
+$genesisPath = Get-GenesisManifestPath -Network $Network -GenesisPath $GenesisPath
 
 function Test-DirectoryHasEntries {
     param(
@@ -78,6 +82,10 @@ Write-Host "RPC bind host: $RpcHost" -ForegroundColor Cyan
 Write-Host "Supply fail-fast: $($env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH)" -ForegroundColor Cyan
 Write-Host "Allow reuse existing data: $AllowReuseData" -ForegroundColor Cyan
 Write-Host "Consensus key dir: $ConsensusKeyDir" -ForegroundColor Cyan
+Write-Host "Genesis manifest: $genesisPath" -ForegroundColor Cyan
+if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
+    Write-Host "State snapshot: $SnapshotPath" -ForegroundColor Cyan
+}
 Write-Host ""
 
 if (-not (Test-Path $SourceNodeDataDir)) {
@@ -181,6 +189,42 @@ if ($missingConsensusKeys) {
     Write-Host "Using existing consensus keys in $ConsensusKeyDir" -ForegroundColor Cyan
 }
 
+if (-not (Test-Path $genesisPath)) {
+    $genesisParent = Split-Path -Parent $genesisPath
+    New-Item -ItemType Directory -Path $genesisParent -Force | Out-Null
+    Write-Host "Creating shared $Network genesis manifest..." -ForegroundColor Cyan
+    & $exePath genesis-export --network $Network --data-dir $SourceNodeDataDir --output $genesisPath
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $genesisPath)) {
+        Write-Host "Failed to create genesis manifest: $genesisPath" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "Using existing genesis manifest: $genesisPath" -ForegroundColor Green
+}
+
+if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
+    if (-not (Test-Path $SnapshotPath)) {
+        Write-Host "State snapshot not found: $SnapshotPath" -ForegroundColor Red
+        exit 1
+    }
+
+    for ($i = 2; $i -le $NodeCount; $i++) {
+        $nodeDir = Join-Path $ReplicaBaseDataDir "node$i"
+        if (Test-DirectoryHasEntries -Path $nodeDir) {
+            Write-Host "Cannot import snapshot into non-empty Node $i data dir: $nodeDir" -ForegroundColor Red
+            Write-Host "Use -ResetReplicaData or omit -SnapshotPath for existing nodes." -ForegroundColor Yellow
+            exit 1
+        }
+        New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
+        Write-Host "Importing snapshot into Node $i..." -ForegroundColor Cyan
+        & $exePath snapshot-import --network $Network --snapshot (Resolve-Path $SnapshotPath) --data-dir $nodeDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to import snapshot into Node $i." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+    }
+}
+
 $localIp = Get-LanIpAddress
 if (-not $localIp) {
     Write-Host "Warning: no LAN IPv4 detected. Using 127.0.0.1 for local bootstrap and RPC health checks." -ForegroundColor Yellow
@@ -205,11 +249,11 @@ for ($i = 1; $i -le $NodeCount; $i++) {
 
     if ($i -eq 1) {
         $dataDir = $SourceNodeDataDir
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -ConsensusKeyDir `"$ConsensusKeyDir`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`""
     } else {
         $dataDir = Get-NodeDataDir -NodeId $i -DataDir "" -BaseDataDir $ReplicaBaseDataDir
         $bootstrapAddr = "/ip4/$bootstrapHost/tcp/$BasePeerPort"
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`" -ConsensusKeyDir `"$ConsensusKeyDir`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`""
     }
 
     Write-Host "Launching node $i | Authority 0x$i | P2P $nodeP2pPort | RPC $RpcHost`:$nodeRpcPort | DataDir $dataDir" -ForegroundColor Cyan

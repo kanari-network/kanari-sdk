@@ -189,14 +189,30 @@ pub fn create_engine(
     data_dir: &Option<std::path::PathBuf>,
     network: &NetworkMode,
 ) -> Result<BlockchainEngine> {
+    create_engine_with_genesis(data_dir, network, None)
+}
+
+pub fn create_engine_with_genesis(
+    data_dir: &Option<std::path::PathBuf>,
+    network: &NetworkMode,
+    genesis_path: Option<&std::path::Path>,
+) -> Result<BlockchainEngine> {
     configure_engine_environment(data_dir.as_deref(), network)?;
-    if let Some(dir) = data_dir {
+    let engine = if let Some(dir) = data_dir {
         tracing::info!("Using data directory: {}", dir.display());
         let dir_str = path_to_env_value(dir)?;
-        Ok(BlockchainEngine::new_dir(dir_str)?)
+        BlockchainEngine::new_dir(dir_str)?
     } else {
-        Ok(BlockchainEngine::new()?)
+        BlockchainEngine::new()?
+    };
+
+    if let Some(path) = genesis_path {
+        let manifest = BlockchainEngine::read_genesis_manifest(path)?;
+        engine.validate_genesis_manifest(&manifest, network.as_str())?;
+        tracing::info!(path = %path.display(), "Genesis manifest validated");
     }
+
+    Ok(engine)
 }
 
 fn normalize_authority_id(authority_id: String) -> String {

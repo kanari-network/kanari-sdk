@@ -1318,6 +1318,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_peer_with_same_height_but_different_root_is_never_selected() {
+        let sync = new_sync_manager();
+        let stats = sync.engine.get_stats();
+        let local_checkpoint_hash = sync.engine.latest_checkpoint_hash_hex();
+        let local_root = sync.engine.latest_checkpoint_state_root_hex();
+
+        // A peer can advertise the same height and checkpoint hash while its
+        // local runtime computes a different state root (for example after a
+        // binary/genesis/schema mismatch). It must not become a sync source.
+        sync.handle_peer_info(peer_info(
+            stats.height,
+            &local_checkpoint_hash,
+            "different-runtime-root",
+        ))
+        .await;
+
+        assert_ne!(local_root, "different-runtime-root");
+        assert!(sync.is_peer_divergent("peer-1"));
+        assert_eq!(sync.best_peer_for_height(stats.height + 1), None);
+        assert_eq!(sync.max_eligible_peer_height(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_divergent_peer_does_not_block_a_healthy_sync_source() {
+        let sync = new_sync_manager();
+        let stats = sync.engine.get_stats();
+        let local_checkpoint_hash = sync.engine.latest_checkpoint_hash_hex();
+
+        sync.handle_peer_info(peer_info(
+            stats.height,
+            &local_checkpoint_hash,
+            "incompatible-state-root",
+        ))
+        .await;
+
+        let mut healthy = peer_info(stats.height + 1, "peer-checkpoint", "peer-root");
+        healthy.peer_id = "peer-2".to_string();
+        sync.handle_peer_info(healthy).await;
+
+        assert!(sync.is_peer_divergent("peer-1"));
+        assert_eq!(
+            sync.best_peer_for_height(stats.height + 1),
+            Some("peer-2".into())
+        );
+        assert_eq!(sync.max_eligible_peer_height(), stats.height + 1);
+    }
+
+    #[tokio::test]
+    async fn test_divergent_peer_is_released_only_after_matching_again() {
+        let sync = new_sync_manager();
+        let stats = sync.engine.get_stats();
+        let local_checkpoint_hash = sync.engine.latest_checkpoint_hash_hex();
+        let local_state_root = sync.engine.latest_checkpoint_state_root_hex();
+
+        sync.handle_peer_info(peer_info(
+            stats.height,
+            &local_checkpoint_hash,
+            "incompatible-state-root",
+        ))
+        .await;
+        assert!(sync.is_peer_divergent("peer-1"));
+
+        sync.handle_peer_info(peer_info(
+            stats.height,
+            &local_checkpoint_hash,
+            &local_state_root,
+        ))
+        .await;
+
+        assert!(!sync.is_peer_divergent("peer-1"));
+        assert_eq!(
+            sync.best_peer_for_height(stats.height),
+            Some("peer-1".into())
+        );
+    }
+
+    #[tokio::test]
     async fn test_checkpoint_hash_mismatch_with_same_state_root_is_eligible() {
         let sync = new_sync_manager();
         let stats = sync.engine.get_stats();
