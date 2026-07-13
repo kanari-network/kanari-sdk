@@ -105,6 +105,17 @@ impl SparseMerkleTree {
         Ok(out)
     }
 
+    pub fn persisted_leaf_count(&self) -> Result<usize> {
+        let mut count = 0;
+        for item in self.db.iterator(IteratorMode::Start) {
+            let (key, _) = item?;
+            if key.starts_with(b"d:") {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     pub fn root_hash(&self) -> Result<[u8; 32]> {
         // root is stored at depth 0 with empty prefix
         if let Ok(Some(v)) = self.db.get(ROOT_NODE_KEY) {
@@ -114,6 +125,24 @@ impl SparseMerkleTree {
         } else {
             Ok(self.default_hashes[0])
         }
+    }
+
+    /// Replace the persisted tree with a tree built from the supplied canonical
+    /// entries. This is intended for startup repair and schema migrations, not
+    /// the transaction hot path.
+    pub fn rebuild(&self, entries: &[(Vec<u8>, Vec<u8>)]) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        for item in self.db.iterator(IteratorMode::Start) {
+            let (key, _) = item?;
+            if key.starts_with(b"n:") || key.starts_with(b"d:") {
+                batch.delete(key);
+            }
+        }
+        self.db.write(batch)?;
+        if !entries.is_empty() {
+            self.insert(entries)?;
+        }
+        Ok(())
     }
 
     pub fn root_hash_with_changes(
@@ -667,6 +696,73 @@ mod tests {
         smt.insert(&entries)?;
 
         assert_eq!(compute_sparse_root(&entries), smt.root_hash()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_rebuild_removes_stale_entries() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+        smt.insert(&[
+            (b"stale".to_vec(), b"old".to_vec()),
+            (b"keep".to_vec(), b"old".to_vec()),
+        ])?;
+
+        let replacement = vec![(b"keep".to_vec(), b"new".to_vec())];
+        smt.rebuild(&replacement)?;
+
+        assert_eq!(compute_sparse_root(&replacement), smt.root_hash()?);
+        assert!(!smt.proof(b"stale")?.0);
+        assert!(smt.proof(b"keep")?.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_incremental_batches_match_full_materialization() -> Result<()> {
+        use std::collections::BTreeMap;
+
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+        let mut materialized = BTreeMap::new();
+        for i in 0..64u64 {
+            materialized.insert(
+                format!("object:{i:064x}").into_bytes(),
+                i.to_le_bytes().to_vec(),
+            );
+        }
+        let initial = materialized
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        smt.insert(&initial)?;
+        assert_eq!(compute_sparse_root(&initial), smt.root_hash()?);
+
+        let deletes = materialized.keys().step_by(3).cloned().collect::<Vec<_>>();
+        for key in &deletes {
+            materialized.remove(key);
+        }
+        let updates = (32..96u64)
+            .map(|i| {
+                (
+                    format!("object:{i:064x}").into_bytes(),
+                    i.wrapping_mul(17).to_le_bytes().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (key, value) in &updates {
+            materialized.insert(key.clone(), value.clone());
+        }
+
+        let expected = compute_sparse_root(
+            &materialized
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(expected, smt.root_hash_with_changes(&updates, &deletes)?);
+        smt.delete(&deletes)?;
+        smt.insert(&updates)?;
+        assert_eq!(expected, smt.root_hash()?);
         Ok(())
     }
 }

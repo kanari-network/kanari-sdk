@@ -33,6 +33,10 @@ const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
 const OWNER_INDEX_KEY: &[u8] = b"owner_index";
 const LEGACY_ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
 const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
+const RUNTIME_STATE_SCHEMA_KEY: &[u8] = b"runtime:state_schema_version";
+const RUNTIME_STATE_SCHEMA_VERSION: u32 = 1;
+const WALLET_SUPPLY_INDEX_VERSION_KEY: &[u8] = b"runtime:wallet_supply_index_version";
+const WALLET_SUPPLY_INDEX_VERSION: u32 = 1;
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
@@ -426,6 +430,10 @@ impl StateManager {
             );
         }
 
+        state
+            .migrate_runtime_state_schema()
+            .context("Failed to migrate runtime state schema")?;
+
         if state
             .repair_derived_indexes_on_startup()
             .context("Failed to rebuild derived indexes on startup")?
@@ -444,11 +452,41 @@ impl StateManager {
                 .context("Failed to persist repaired native wallet supply on startup")?;
         }
 
+        if state
+            .ensure_wallet_supply_index()
+            .context("Failed to initialize wallet supply index")?
+        {
+            state
+                .commit()
+                .context("Failed to persist wallet supply index")?;
+        }
+
         if let Err(e) = state.validate_supply_invariants() {
             Self::report_supply_invariant_violation("on startup", &e)?;
         }
 
+        state
+            .ensure_smt_consistent()
+            .context("Failed to verify state SMT")?;
+
         Ok(state)
+    }
+
+    fn migrate_runtime_state_schema(&mut self) -> Result<()> {
+        let persisted = self
+            .load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?
+            .unwrap_or(0);
+        ensure!(
+            persisted <= RUNTIME_STATE_SCHEMA_VERSION,
+            "State database schema {} is newer than runtime schema {}",
+            persisted,
+            RUNTIME_STATE_SCHEMA_VERSION
+        );
+        if persisted < RUNTIME_STATE_SCHEMA_VERSION {
+            self.save_internal(RUNTIME_STATE_SCHEMA_KEY, &RUNTIME_STATE_SCHEMA_VERSION)?;
+            self.commit()?;
+        }
+        Ok(())
     }
 
     fn ensure_smt_initialized(&self) -> Result<()> {
@@ -472,6 +510,121 @@ impl StateManager {
 
         let updates = entries.into_iter().collect::<Vec<_>>();
         smt.insert(&updates)?;
+        Ok(())
+    }
+
+    fn canonical_persisted_entries(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = self
+            .store
+            .logical_entries()
+            .context("Failed to read canonical state entries")?
+            .into_iter()
+            .collect();
+        Self::retain_canonical_state_root_entries(&mut entries);
+        Ok(entries.into_iter().collect())
+    }
+
+    fn ensure_smt_consistent(&self) -> Result<()> {
+        ensure!(
+            self.overlay.is_empty(),
+            "Cannot verify SMT with a pending overlay"
+        );
+        self.repair_persisted_smt().map(|_| ())
+    }
+
+    /// Reconcile the persisted SMT base after a component writes canonical
+    /// Move modules directly to the shared store.
+    pub fn repair_persisted_smt(&self) -> Result<bool> {
+        let Some(smt) = &self.smt else {
+            return Ok(false);
+        };
+        let entries = self.canonical_persisted_entries()?;
+        let expected = smt::compute_sparse_root(&entries);
+        if smt.root_hash()? != expected {
+            log::warn!("Persisted SMT is stale; rebuilding canonical state tree");
+            smt.rebuild(&entries)?;
+            ensure!(
+                smt.root_hash()? == expected,
+                "SMT rebuild produced wrong root"
+            );
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Audit the persisted incremental tree against canonical state. This is a
+    /// maintenance/diagnostic operation and intentionally performs a full scan.
+    pub fn validate_smt_consistency(&self) -> Result<()> {
+        let Some(smt) = &self.smt else {
+            return Ok(());
+        };
+        ensure!(
+            self.overlay.is_empty(),
+            "Cannot audit SMT with a pending overlay"
+        );
+        let entries = self.canonical_persisted_entries()?;
+        let mut mismatches = Vec::new();
+        for (key, expected) in &entries {
+            match smt.get(key)? {
+                Some(actual) if actual == *expected => {}
+                Some(actual) => mismatches.push(format!(
+                    "{}(expected_bytes={}, actual_bytes={})",
+                    String::from_utf8_lossy(key),
+                    expected.len(),
+                    actual.len()
+                )),
+                None => mismatches.push(format!("{}(missing)", String::from_utf8_lossy(key))),
+            }
+            if mismatches.len() == 8 {
+                break;
+            }
+        }
+        ensure!(
+            mismatches.is_empty(),
+            "SMT leaf mismatch for canonical keys: {}",
+            mismatches.join(", ")
+        );
+        let expected_root = smt::compute_sparse_root(&entries);
+        let stale_known_keys = if smt.persisted_leaf_count()? > entries.len() {
+            let canonical_keys = entries
+                .iter()
+                .map(|(key, _)| key.as_slice())
+                .collect::<HashSet<_>>();
+            self.store
+                .logical_entries()?
+                .into_iter()
+                .filter(|(key, _)| !canonical_keys.contains(key.as_slice()))
+                .filter_map(|(key, _)| {
+                    smt.get(&key).ok().flatten().map(|_| {
+                        let label = String::from_utf8_lossy(&key).into_owned();
+                        self.store
+                            .load::<StoredObject>(&key)
+                            .ok()
+                            .flatten()
+                            .map(|object| {
+                                format!(
+                                    "{}[owner={},kind={:?},type={}]",
+                                    label,
+                                    object.owner.to_hex_literal(),
+                                    object.owner_kind,
+                                    object.type_name
+                                )
+                            })
+                            .unwrap_or(label)
+                    })
+                })
+                .take(8)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        ensure!(
+            smt.root_hash()? == expected_root,
+            "SMT root mismatch after canonical leaf audit: canonical_leaves={} persisted_leaves={} stale_known_keys={}",
+            entries.len(),
+            smt.persisted_leaf_count()?,
+            stale_known_keys.join(",")
+        );
         Ok(())
     }
 
@@ -533,17 +686,25 @@ impl StateManager {
             }
         }
 
+        let canonical_membership_changed = self.canonical_membership_changed();
+        // Derive SMT deltas before writing the overlay so index transitions can
+        // compare the old persisted membership with the new overlay membership.
+        let smt_changes = self.smt.as_ref().map(|_| self.smt_changes_from_overlay());
+
         self.store.apply_raw_changes(&updates, &deletes)?;
 
         // Update SMT if available
-        if let Some(smt) = &self.smt {
-            let (smt_updates, smt_deletes) = self.smt_changes_from_overlay();
-            if !smt_updates.is_empty() {
-                smt.insert(&smt_updates)?;
-            }
+        if let (Some(smt), Some((smt_updates, smt_deletes))) = (&self.smt, smt_changes) {
             if !smt_deletes.is_empty() {
                 smt.delete(&smt_deletes)?;
             }
+            if !smt_updates.is_empty() {
+                smt.insert(&smt_updates)?;
+            }
+        }
+
+        if canonical_membership_changed {
+            self.repair_persisted_smt()?;
         }
 
         self.overlay.clear();
@@ -668,7 +829,23 @@ impl StateManager {
         if Self::is_canonical_state_root_key(key) {
             return true;
         }
-        let _ = value;
+        if let Some(module_id) = key.strip_prefix(b"module:")
+            && let Ok(module_id) = std::str::from_utf8(module_id)
+        {
+            return self
+                .load_index_list(b"module_index")
+                .is_ok_and(|ids| ids.iter().any(|id| id == &format!("module:{module_id}")));
+        }
+        if let Some(object_id) = key.strip_prefix(b"object:")
+            && let Ok(object_id) = std::str::from_utf8(object_id)
+            && let Ok(object) = bcs::from_bytes::<StoredObject>(value)
+            && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
+        {
+            let canonical_id = canonical_object_id(object_id).unwrap_or_else(|| object_id.into());
+            return self
+                .load_index_list(&owned_objects_key(&object.owner))
+                .is_ok_and(|ids| ids.binary_search(&canonical_id).is_ok());
+        }
         false
     }
 
@@ -681,6 +858,12 @@ impl StateManager {
                 Some(value) if self.is_canonical_smt_update(key, value) => {
                     updates.push((key.clone(), value.clone()));
                 }
+                // An object/module may transition out of the canonical root
+                // set (for example AddressOwner -> Shared). A non-canonical
+                // replacement must remove the previously indexed leaf.
+                Some(_) if key.starts_with(b"module:") || key.starts_with(b"object:") => {
+                    deletes.push(key.clone());
+                }
                 None if Self::is_canonical_state_root_key(key)
                     || key.starts_with(b"module:")
                     || key.starts_with(b"object:") =>
@@ -691,7 +874,69 @@ impl StateManager {
             }
         }
 
+        // Object membership in the canonical root is driven by owned_objects
+        // indexes. An index can drop/add an unchanged object without placing
+        // that object's bytes in the overlay, so derive those leaf deltas too.
+        for (index_key, value_opt) in self
+            .overlay
+            .iter()
+            .filter(|(key, _)| key.starts_with(b"owned_objects:"))
+        {
+            let old_ids = self
+                .store
+                .load::<Vec<String>>(index_key)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|id| canonical_object_id(&id))
+                .collect::<BTreeSet<_>>();
+            let new_ids = value_opt
+                .as_ref()
+                .and_then(|bytes| bcs::from_bytes::<Vec<String>>(bytes).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|id| canonical_object_id(&id))
+                .collect::<BTreeSet<_>>();
+
+            for removed in old_ids.difference(&new_ids) {
+                deletes.push(object_key(removed));
+            }
+            for added in new_ids.difference(&old_ids) {
+                let key = object_key(added);
+                if let Ok(Some(object)) = self.load_internal::<StoredObject>(&key)
+                    && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
+                    && let Ok(value) = bcs::to_bytes(&object)
+                {
+                    updates.push((key, value));
+                }
+            }
+        }
+
+        updates.sort_by(|left, right| left.0.cmp(&right.0));
+        updates.dedup_by(|left, right| left.0 == right.0);
+        let updated_keys = updates
+            .iter()
+            .map(|(key, _)| key.as_slice())
+            .collect::<HashSet<_>>();
+        deletes.retain(|key| !updated_keys.contains(key.as_slice()));
+        deletes.sort();
+        deletes.dedup();
+
         (updates, deletes)
+    }
+
+    fn canonical_membership_changed(&self) -> bool {
+        self.overlay.iter().any(|(key, value_opt)| {
+            if key != b"module_index" && !key.starts_with(b"owned_objects:") {
+                return false;
+            }
+            let old = self.store.load::<Vec<String>>(key).ok().flatten();
+            let new = value_opt
+                .as_ref()
+                .and_then(|bytes| bcs::from_bytes::<Vec<String>>(bytes).ok());
+            old != new
+        })
     }
 
     pub(crate) fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
@@ -912,6 +1157,17 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
+        if let Some(smt) = &self.smt
+            && !self.canonical_membership_changed()
+        {
+            let (updates, deletes) = self.smt_changes_from_overlay();
+            match smt.root_hash_with_changes(&updates, &deletes) {
+                Ok(root) => return root.to_vec(),
+                Err(error) => {
+                    log::error!("Failed to compute incremental state root: {}", error);
+                }
+            }
+        }
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
             Ok(entries) => entries.into_iter().collect(),
             Err(e) => {

@@ -1,12 +1,13 @@
 use super::BlockchainEngine;
 use crate::consensus::Checkpoint;
-use crate::engine::MAX_PENDING_PER_PRIMARY_ACCESS_LANE;
+use crate::engine::{MAX_PENDING_PER_PRIMARY_ACCESS_LANE, PersistedTransactionLocation};
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::state::OwnerState;
+use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
-use kanari_types::coin::{CoinModule, TreasuryCap};
+use kanari_types::coin::CoinModule;
 use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use kanari_types::transaction::{
     GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
@@ -113,12 +114,6 @@ fn fund_sender_with_coin_type(
     let mut coin_data = vec![0u8; 40];
     coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
     let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-    let previous_total = state.total_supply;
-    let previous_visible = state
-        .global_token_supplies
-        .get(KANARI_TOKEN_TYPE)
-        .copied()
-        .unwrap_or(previous_total);
 
     let mut create_coin = ChangeSet::new();
     create_coin.created_objects.push((
@@ -135,38 +130,12 @@ fn fund_sender_with_coin_type(
             version: 1,
         },
     ));
+    if token_type == KANARI_TOKEN_TYPE {
+        create_coin.mint(addr, balance);
+    }
     state
         .apply_changeset_without_supply_validation(&create_coin)
         .unwrap();
-
-    let mut owner_state = state
-        .get_owner_state(&addr)
-        .unwrap_or_else(|| OwnerState::new(addr));
-    owner_state.set_token_balance(token_type.to_string(), BalanceRecord::new(balance));
-    state.save_owner_state(&owner_state).unwrap();
-
-    if token_type == KANARI_TOKEN_TYPE {
-        let updated_total = previous_total.saturating_add(balance);
-        let updated_visible = previous_visible.saturating_add(balance);
-        state.total_supply = updated_total;
-        state.store.save(b"total_supply", &updated_total).unwrap();
-        state
-            .store
-            .save(
-                format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
-                &TreasuryCap {
-                    total_supply: updated_total,
-                },
-            )
-            .unwrap();
-        state
-            .global_token_supplies
-            .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
-        state
-            .store
-            .save(b"global_token_supplies", &state.global_token_supplies)
-            .unwrap();
-    }
 }
 
 #[test]
@@ -624,16 +593,30 @@ fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints(
     };
 
     let mut persistent = BlockchainEngine::new_dir(data_dir).unwrap();
+    persistent
+        .state_read()
+        .validate_smt_consistency()
+        .expect("fresh persistent engine SMT");
     configure_engine(&mut persistent);
     fund_engine(&persistent);
+    // Funding is still speculative until checkpoint production, so audit only
+    // after it is committed below.
     persistent
         .submit_transactions_batch(vec![tx1.clone()])
         .unwrap();
     persistent.produce_checkpoint().unwrap();
     persistent
+        .state_read()
+        .validate_smt_consistency()
+        .expect("checkpoint 1 persistent SMT");
+    persistent
         .submit_transactions_batch(vec![tx2.clone()])
         .unwrap();
     persistent.produce_checkpoint().unwrap();
+    persistent
+        .state_read()
+        .validate_smt_consistency()
+        .expect("checkpoint 2 persistent SMT");
 
     let mut in_memory = BlockchainEngine::new_in_memory().unwrap();
     configure_engine(&mut in_memory);
@@ -642,6 +625,8 @@ fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints(
     in_memory.produce_checkpoint().unwrap();
     in_memory.submit_transactions_batch(vec![tx2]).unwrap();
     in_memory.produce_checkpoint().unwrap();
+
+    persistent.state_read().validate_smt_consistency().unwrap();
 
     assert_eq!(
         persistent.latest_checkpoint_state_root_hex(),
@@ -704,8 +689,49 @@ fn committed_transaction_history_survives_metadata_stripping() {
 }
 
 #[test]
+fn history_pruning_keeps_permanent_replay_index() {
+    let store = PersistentStore::open_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx = signed_transfer_from(&sender, 0);
+    let tx_hash = tx.transaction_hash().to_vec();
+    let checkpoint = Checkpoint::new(
+        1,
+        vec![[7u8; 32]],
+        vec![tx],
+        vec![9u8; 32],
+        42,
+        vec![0u8; 32],
+    );
+    BlockchainEngine::persist_checkpoint_transactions(&store, &checkpoint).unwrap();
+
+    BlockchainEngine::prune_transaction_payloads(&store, 1).unwrap();
+
+    assert!(
+        store
+            .load::<SignedTransaction>(&BlockchainEngine::transaction_payload_key(&tx_hash))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .load::<Vec<SignedTransaction>>(&BlockchainEngine::checkpoint_transactions_key(1))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .load::<PersistedTransactionLocation>(&BlockchainEngine::transaction_index_key(
+                &tx_hash
+            ))
+            .unwrap()
+            .is_some(),
+        "pruning must retain the permanent replay guard"
+    );
+}
+
+#[test]
 fn batch_submit_accepts_contiguous_sequences_for_same_sender() {
-    let engine = BlockchainEngine::new().unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx0 = signed_transfer_from(&sender, 0);
     let tx1 = signed_transfer_from(&sender, 1);
@@ -770,7 +796,7 @@ fn batch_submit_rejects_stale_object_version() {
 
 #[test]
 fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
-    let engine = BlockchainEngine::new().unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx0 = signed_transfer_from(&sender, 0);
     let tx1 = signed_transfer_from(&sender, 1);
@@ -816,7 +842,7 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
 
 #[test]
 fn batch_submit_rejects_duplicate_transactions() {
-    let engine = BlockchainEngine::new().unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 0);
 
@@ -829,7 +855,7 @@ fn batch_submit_rejects_duplicate_transactions() {
 
 #[test]
 fn batch_submit_rejects_transaction_already_indexed_in_pending_pool() {
-    let engine = BlockchainEngine::new().unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 0);
 
@@ -841,7 +867,7 @@ fn batch_submit_rejects_transaction_already_indexed_in_pending_pool() {
 
 #[test]
 fn batch_submit_accepts_sequence_gaps() {
-    let engine = BlockchainEngine::new().unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 1);
 
@@ -862,6 +888,15 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
         let gas_object_id = format!("0x{:0>64x}", i + 101);
         fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
         fund_sender_with_coin(&engine, &sender.address, &gas_object_id, 1_000_000);
+        assert_eq!(
+            engine
+                .state_read()
+                .resolve_owner_native_balance(
+                    AccountAddress::from_hex_literal(&sender.address).unwrap()
+                )
+                .unwrap(),
+            2_000_000
+        );
 
         let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
             sender.tagged_address(),

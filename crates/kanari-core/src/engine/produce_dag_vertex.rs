@@ -569,6 +569,9 @@ impl DagEngine {
                     .context(
                         "Failed to repair legacy native wallet overcount after DAG state execution",
                     )?;
+                state_write
+                    .repair_persisted_smt()
+                    .context("Failed to reconcile SMT after DAG state execution")?;
             }
             let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
             let state_root = verified_state.compute_state_root();
@@ -959,6 +962,9 @@ impl BlockchainEngine {
         state_write
             .repair_legacy_native_wallet_overcount()
             .context("Failed to repair native wallet overcount after clock prologue")?;
+        state_write
+            .repair_persisted_smt()
+            .context("Failed to reconcile SMT after clock prologue")?;
         Ok(())
     }
 }

@@ -2,30 +2,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{Context, Result};
-use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use rocksdb::{DB, Options};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
-static GLOBAL_DB: OnceCell<Arc<DB>> = OnceCell::new();
-static GLOBAL_DB_PATH: OnceCell<PathBuf> = OnceCell::new();
+static OPEN_DATABASES: Lazy<Mutex<HashMap<PathBuf, Weak<DB>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Open (once) a RocksDB instance at the given path (or default) and return `Arc<DB>`.
-/// Subsequent calls will return the same Arc. If a different path is provided after
-/// the DB was opened, an error is returned to avoid multiple opens to different paths.
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn bytes_from_mb(value: u64) -> usize {
+    usize::try_from(value.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
+}
+
+/// Open one shared RocksDB instance per normalized path. Different paths may be
+/// open in the same process (needed by snapshot import/verification), while
+/// repeated opens of one path reuse the existing `Arc<DB>`.
 pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
-    if let Some(db) = GLOBAL_DB.get() {
-        // Already opened. If a path was provided, ensure it matches the existing one.
-        if let (Some(p), Some(existing)) = (path_opt.as_ref(), GLOBAL_DB_PATH.get())
-            && existing != p
-        {
-            anyhow::bail!("RocksDB already opened with a different path");
-        }
-        return Ok(db.clone());
-    }
-
     // Determine path
-    let path = if let Some(p) = path_opt {
+    let mut path = if let Some(p) = path_opt {
         p
     } else if let Ok(dir) = std::env::var("KANARI_DB") {
         let mut pb = PathBuf::from(dir);
@@ -45,6 +47,21 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
         pb.push("kanari_db");
         pb
     };
+    if path.is_relative() {
+        path = std::env::current_dir()
+            .context("Failed to resolve current directory for RocksDB")?
+            .join(path);
+    }
+
+    {
+        let mut registry = OPEN_DATABASES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        registry.retain(|_, db| db.strong_count() > 0);
+        if let Some(db) = registry.get(&path).and_then(Weak::upgrade) {
+            return Ok(db);
+        }
+    }
 
     std::fs::create_dir_all(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
         .context("Failed to create RocksDB parent directory")?;
@@ -63,8 +80,11 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     // 2. Optimize BlockBasedTable (Block Cache & Bloom Filter)
     let mut block_opts = rocksdb::BlockBasedOptions::default();
-    // 512MB Block Cache
-    block_opts.set_block_cache(&rocksdb::Cache::new_lru_cache(512 * 1024 * 1024));
+    // Keep memory sizing operator-configurable for long-running validators.
+    let block_cache_mb = env_u64("KANARI_DB_BLOCK_CACHE_MB", 512);
+    block_opts.set_block_cache(&rocksdb::Cache::new_lru_cache(bytes_from_mb(
+        block_cache_mb,
+    )));
     // Bloom filter: 10 bits per key
     block_opts.set_bloom_filter(10.0, false);
     // Cache index and filter blocks in block cache to save memory/IO
@@ -74,7 +94,8 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     // 3. MemTable & Compaction Tuning
     // 64MB MemTable size
-    opts.set_write_buffer_size(64 * 1024 * 1024);
+    let write_buffer_mb = env_u64("KANARI_DB_WRITE_BUFFER_MB", 64);
+    opts.set_write_buffer_size(bytes_from_mb(write_buffer_mb));
     // Keep up to 4 memtables in memory before blocking
     opts.set_max_write_buffer_number(4);
     // Target file size for L1 (same as MemTable)
@@ -88,13 +109,31 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     // 5. Bytes per sync (smoother IO)
     opts.set_bytes_per_sync(1024 * 1024); // 1MB
+    opts.set_wal_bytes_per_sync(1024 * 1024);
 
+    // Bound file descriptors, WAL growth, and old RocksDB logs. Periodic
+    // compaction reclaims obsolete versions without deleting canonical state.
+    let max_open_files = env_u64("KANARI_DB_MAX_OPEN_FILES", 4096).min(i32::MAX as u64) as i32;
+    opts.set_max_open_files(max_open_files);
+    opts.set_max_total_wal_size(env_u64("KANARI_DB_MAX_WAL_MB", 1024).saturating_mul(1024 * 1024));
+    opts.set_keep_log_file_num(
+        usize::try_from(env_u64("KANARI_DB_KEEP_LOG_FILES", 10)).unwrap_or(usize::MAX),
+    );
+    opts.set_periodic_compaction_seconds(env_u64(
+        "KANARI_DB_PERIODIC_COMPACTION_SECS",
+        7 * 24 * 60 * 60,
+    ));
+
+    // Serialize the final check/open step so two startup threads cannot race to
+    // open RocksDB twice for the same directory.
+    let mut registry = OPEN_DATABASES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(db) = registry.get(&path).and_then(Weak::upgrade) {
+        return Ok(db);
+    }
     let db = DB::open(&opts, &path).context("Failed to open RocksDB for kanari")?;
-
-    GLOBAL_DB_PATH.set(path.clone()).ok();
     let arc = Arc::new(db);
-    GLOBAL_DB
-        .set(arc.clone())
-        .map_err(|_| anyhow::anyhow!("Failed to set global RocksDB"))?;
+    registry.insert(path, Arc::downgrade(&arc));
     Ok(arc)
 }

@@ -219,6 +219,22 @@ impl PersistentStore {
         self.db.clone()
     }
 
+    /// Flush pending RocksDB writes before a node snapshot or clean shutdown.
+    pub fn flush(&self) -> std::result::Result<(), PersistentStoreError> {
+        if let Some(db) = &self.db {
+            db.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Request a full-range compaction. This only reclaims obsolete RocksDB
+    /// versions; it never prunes canonical blockchain keys.
+    pub fn compact(&self) {
+        if let Some(db) = &self.db {
+            db.compact_range::<&[u8], &[u8]>(None, None);
+        }
+    }
+
     fn is_internal_smt_key(key: &[u8]) -> bool {
         key.starts_with(b"n:") || key.starts_with(b"d:")
     }

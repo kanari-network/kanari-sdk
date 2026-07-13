@@ -1,6 +1,88 @@
 use super::*;
 
 impl StateManager {
+    fn compute_wallet_supply_index(&self) -> Result<BTreeMap<String, u64>> {
+        let mut object_balances = BTreeMap::<(AccountAddress, String), u64>::new();
+        let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
+        owners.insert(
+            AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
+                .expect("DAO_ADDRESS constant is valid"),
+        );
+
+        for (_, object) in self.query_objects(None, None, None, None, None)? {
+            let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
+                continue;
+            };
+            if !Self::is_balance_struct(&struct_tag) {
+                continue;
+            }
+            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
+                continue;
+            };
+            let Some(amount) = Self::extract_balance_from_object_bytes(&object.data, &struct_tag)
+            else {
+                continue;
+            };
+            owners.insert(object.owner);
+            let key = (object.owner, Self::normalize_token_type(&token_type));
+            let balance = object_balances.entry(key).or_insert(0);
+            *balance = balance
+                .checked_add(amount)
+                .require("Wallet supply index owner balance overflow")?;
+        }
+
+        let mut totals = BTreeMap::<String, u64>::new();
+        for ((_, token_type), amount) in &object_balances {
+            if token_type != KANARI_TOKEN_TYPE {
+                let total = totals.entry(token_type.clone()).or_insert(0);
+                *total = total
+                    .checked_add(*amount)
+                    .require("Wallet supply index token total overflow")?;
+            }
+        }
+        for owner in owners {
+            let ledger = self
+                .load_owner_state(&owner)?
+                .map(|state| state.native_balance())
+                .unwrap_or(0);
+            let object = object_balances
+                .get(&(owner, KANARI_TOKEN_TYPE.to_string()))
+                .copied()
+                .unwrap_or(0);
+            let amount = if ledger > 0 { ledger } else { object };
+            if amount > 0 {
+                let total = totals.entry(KANARI_TOKEN_TYPE.to_string()).or_insert(0);
+                *total = total
+                    .checked_add(amount)
+                    .require("Native wallet supply index overflow")?;
+            }
+        }
+        Ok(totals)
+    }
+
+    pub(super) fn ensure_wallet_supply_index(&mut self) -> Result<bool> {
+        let version = self
+            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
+            .unwrap_or(0);
+        ensure!(
+            version <= WALLET_SUPPLY_INDEX_VERSION,
+            "Wallet supply index version {} is newer than runtime version {}",
+            version,
+            WALLET_SUPPLY_INDEX_VERSION
+        );
+        if version == WALLET_SUPPLY_INDEX_VERSION {
+            return Ok(false);
+        }
+        self.global_token_supplies = self.compute_wallet_supply_index()?;
+        let supplies = self.global_token_supplies.clone();
+        self.save_internal(b"global_token_supplies", &supplies)?;
+        self.save_internal(
+            WALLET_SUPPLY_INDEX_VERSION_KEY,
+            &WALLET_SUPPLY_INDEX_VERSION,
+        )?;
+        Ok(true)
+    }
+
     pub fn resolve_owner_token_balances(
         &self,
         owner: AccountAddress,
@@ -77,7 +159,9 @@ impl StateManager {
 
             let token_type = Self::normalize_token_type(&token_type);
             let entry = aggregated.entry(token_type).or_insert(0);
-            *entry = entry.saturating_add(amount);
+            *entry = entry
+                .checked_add(amount)
+                .require("Owned token balance overflow")?;
         }
 
         if let Some(native_balance) = native_ledger_balance {
@@ -178,7 +262,9 @@ impl StateManager {
             };
             owners.insert(object.owner);
             let balance = object_balances.entry(object.owner).or_insert(0);
-            *balance = balance.saturating_add(amount);
+            *balance = balance
+                .checked_add(amount)
+                .require("Indexed owner token balance overflow")?;
         }
 
         let mut total = 0u64;
@@ -192,7 +278,9 @@ impl StateManager {
             } else {
                 object_balance
             };
-            total = total.saturating_add(balance);
+            total = total
+                .checked_add(balance)
+                .require("Indexed wallet supply overflow")?;
         }
         Ok(total)
     }
@@ -306,12 +394,14 @@ impl StateManager {
 
     fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
-        Ok(self
-            .load_object_locked_coin_records()?
+        self.load_object_locked_coin_records()?
             .into_iter()
             .filter(|record| record.token_type == token_type)
             .map(|record| record.amount)
-            .fold(0u64, |acc, amount| acc.saturating_add(amount)))
+            .try_fold(0u64, |acc, amount| {
+                acc.checked_add(amount)
+                    .require("Object-locked token supply overflow")
+            })
     }
 
     pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
@@ -322,19 +412,23 @@ impl StateManager {
             .get(&token_type)
             .copied()
             .unwrap_or(0);
-        let indexed_visible = self.indexed_wallet_supply(&token_type)?;
-        let indexed_visible = if total_supply > 0 {
-            indexed_visible.min(total_supply)
+        let index_version = self
+            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
+            .unwrap_or(0);
+        let wallet_visible_supply = if index_version == WALLET_SUPPLY_INDEX_VERSION {
+            cached_visible
         } else {
-            indexed_visible
+            let indexed = self.indexed_wallet_supply(&token_type)?;
+            cached_visible.max(indexed)
         };
-        let wallet_visible_supply = cached_visible.max(indexed_visible);
         let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
         // Only explicit object-locked records count as locked supply.
         // Any remaining gap between issued supply and accounted wallet/object balances
         // must stay visible as untracked instead of being silently re-labeled as locked.
         let object_locked_supply = ledger_locked_supply;
-        let accounted_supply = wallet_visible_supply.saturating_add(object_locked_supply);
+        let accounted_supply = wallet_visible_supply
+            .checked_add(object_locked_supply)
+            .require("Accounted token supply overflow")?;
 
         Ok(TokenSupplySummary {
             token_type,
@@ -456,7 +550,7 @@ impl StateManager {
         &mut self,
         old_balances: &BTreeMap<String, BalanceRecord>,
         new_balances: &BTreeMap<String, BalanceRecord>,
-    ) -> bool {
+    ) -> Result<bool> {
         let mut changed = false;
         let mut tokens = BTreeSet::new();
         tokens.extend(old_balances.keys().cloned());
@@ -484,9 +578,13 @@ impl StateManager {
                 .unwrap_or(0);
 
             let updated_supply = if new_amount >= old_amount {
-                current_supply.saturating_add(new_amount - old_amount)
+                current_supply
+                    .checked_add(new_amount - old_amount)
+                    .require("Wallet-visible token supply overflow")?
             } else {
-                current_supply.saturating_sub(old_amount - new_amount)
+                current_supply
+                    .checked_sub(old_amount - new_amount)
+                    .require("Wallet-visible token supply underflow")?
             };
 
             if updated_supply == 0 {
@@ -497,14 +595,14 @@ impl StateManager {
             }
         }
 
-        changed
+        Ok(changed)
     }
 
     pub(super) fn capture_supply_changed(
         &mut self,
         account: &OwnerState,
         old_balances: &BTreeMap<String, BalanceRecord>,
-    ) -> bool {
+    ) -> Result<bool> {
         self.adjust_global_supplies_for_account_delta(old_balances, &account.token_balances)
     }
 
@@ -533,8 +631,9 @@ impl StateManager {
             let prior_non_object_balance =
                 native_ledger_before.saturating_sub(native_object_before);
             let object_backed_with_ledger = object_balance
-                .saturating_add(prior_non_object_balance)
-                .saturating_add(native_gas_credit);
+                .checked_add(prior_non_object_balance)
+                .and_then(|amount| amount.checked_add(native_gas_credit))
+                .require("Native owner balance overflow during object reconciliation")?;
             if native_delta > 0 {
                 // Only gas credits are guaranteed not to be represented by
                 // the Move Coin objects. Other positive owner deltas may be
@@ -555,7 +654,7 @@ impl StateManager {
         owner_state.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
         self.save_owner_state(&owner_state)?;
 
-        Ok(self.capture_supply_changed(&owner_state, &old_balances))
+        self.capture_supply_changed(&owner_state, &old_balances)
     }
     /// Get token decimals for a specific token type
     pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {
@@ -623,6 +722,19 @@ impl StateManager {
             );
         }
 
+        let canonical_index = self.compute_wallet_supply_index()?;
+        let canonical_visible = canonical_index.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
+        ensure!(
+            canonical_visible == native_supply.wallet_visible_supply,
+            "native wallet supply index mismatch: indexed={} cached={}",
+            canonical_visible,
+            native_supply.wallet_visible_supply
+        );
+        ensure!(
+            canonical_index == self.global_token_supplies,
+            "wallet supply index mismatch for one or more token types"
+        );
+
         Ok(())
     }
 
@@ -653,7 +765,9 @@ impl StateManager {
             .copied()
             .unwrap_or(0);
         let object_locked_supply = self.object_locked_supply_for_token(KANARI_TOKEN_TYPE)?;
-        let accounted_supply = wallet_visible_supply.saturating_add(object_locked_supply);
+        let accounted_supply = wallet_visible_supply
+            .checked_add(object_locked_supply)
+            .require("Accounted native supply overflow")?;
         ensure!(
             wallet_visible_supply <= self.total_supply && accounted_supply <= self.total_supply,
             "native supply overcount: total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",

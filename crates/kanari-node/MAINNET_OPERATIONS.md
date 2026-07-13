@@ -158,6 +158,27 @@ Suggested alerts:
 - Warning: height drift between validators
 - Warning: validator not catching up after restart
 
+## Long-Running Database Policy
+
+RocksDB compaction is automatic. Tune it per validator capacity with:
+
+- `KANARI_DB_BLOCK_CACHE_MB` (default `512`)
+- `KANARI_DB_WRITE_BUFFER_MB` (default `64`)
+- `KANARI_DB_MAX_OPEN_FILES` (default `4096`)
+- `KANARI_DB_MAX_WAL_MB` (default `1024`)
+- `KANARI_DB_KEEP_LOG_FILES` (default `10`)
+- `KANARI_DB_PERIODIC_COMPACTION_SECS` (default `604800`, seven days)
+
+Archive nodes should leave transaction payload pruning disabled. A non-archive
+validator may set `KANARI_HISTORY_RETENTION_CHECKPOINTS` to a positive checkpoint
+count. This deletes only old transaction payloads; checkpoint metadata and the
+permanent transaction-hash replay index are retained. Take and verify a state
+snapshot before enabling or reducing this value. Explorer/indexer infrastructure
+must read historical payloads from an archive node.
+
+Never copy a live RocksDB directory. Stop the node or use the snapshot/backup
+workflow above so the state root and exported entries come from one committed view.
+
 ## Multi-Node Sync Rehearsal
 
 Run this before mainnet launch and after any consensus or state sync changes.

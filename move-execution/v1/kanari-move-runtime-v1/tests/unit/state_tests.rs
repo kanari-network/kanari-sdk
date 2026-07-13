@@ -18,6 +18,43 @@ fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Re
 }
 
 #[test]
+fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
+    let state = StateManager::new_in_memory();
+    assert_eq!(
+        state.load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?,
+        Some(RUNTIME_STATE_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        state.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?,
+        Some(WALLET_SUPPLY_INDEX_VERSION)
+    );
+    Ok(())
+}
+
+#[test]
+fn native_owner_overflow_is_rejected_without_mutating_state() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0xdead")?;
+    let mut state = StateManager::new_in_memory();
+    state.save_owner_state(&OwnerState::with_native_balance(owner, u64::MAX))?;
+    let root_before = state.compute_state_root();
+
+    let mut changeset = ChangeSet::new();
+    changeset.mint(owner, 1);
+    let error = state.apply_changeset(&changeset).unwrap_err();
+
+    assert!(error.to_string().contains("Native owner balance overflow"));
+    assert_eq!(state.compute_state_root(), root_before);
+    assert_eq!(
+        state
+            .get_owner_state(&owner)
+            .invariant("overflow test owner should exist")
+            .native_balance(),
+        u64::MAX
+    );
+    Ok(())
+}
+
+#[test]
 fn identical_system_clock_replay_does_not_increment_object_version() -> Result<()> {
     let clock_id = "0xaade8aa25002489bbcfca67637daf4dac78f4c88606e0dfd5724f323cbda6b5d";
     let mut clock_data = vec![0u8; UID_SIZE + U64_SIZE];

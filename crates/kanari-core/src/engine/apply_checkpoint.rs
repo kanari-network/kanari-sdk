@@ -49,6 +49,9 @@ impl BlockchainEngine {
         state_write
             .repair_legacy_native_wallet_overcount()
             .context("Failed to repair native wallet overcount after clock prologue")?;
+        state_write
+            .repair_persisted_smt()
+            .context("Failed to reconcile SMT after clock prologue")?;
 
         Ok(())
     }
@@ -85,17 +88,12 @@ impl BlockchainEngine {
                 "Failed to repair legacy native wallet overcount before checkpoint state execution",
             )?;
         let state_arc = Arc::new(RwLock::new(state_snapshot));
-        let to_execute: Vec<SignedTransaction> = {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            checkpoint
-                .transactions
-                .iter()
-                .filter(|signed_tx| {
-                    !chain.is_transaction_hash_executed(signed_tx.transaction_hash())
-                })
-                .cloned()
-                .collect()
-        };
+        let to_execute: Vec<SignedTransaction> = checkpoint
+            .transactions
+            .iter()
+            .filter(|signed_tx| !self.is_transaction_committed(signed_tx.transaction_hash()))
+            .cloned()
+            .collect();
 
         if !checkpoint.transactions.is_empty() {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
@@ -113,6 +111,9 @@ impl BlockchainEngine {
             state_write
                 .repair_legacy_native_wallet_overcount()
                 .context("Failed to repair legacy native wallet overcount after checkpoint state execution")?;
+            state_write
+                .repair_persisted_smt()
+                .context("Failed to reconcile SMT after checkpoint state execution")?;
         }
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();

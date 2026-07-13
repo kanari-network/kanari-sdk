@@ -165,6 +165,11 @@ impl BlockchainEngine {
             }
         }
         tracing::info!(workers = runtime_pool.len(), "Move runtime pool ready");
+        state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .repair_persisted_smt()
+            .context("Failed to reconcile state SMT after runtime initialization")?;
         tracing::info!("Preparing mempool, proof cache, and authority defaults");
 
         let mempool = Arc::new(RwLock::new(MempoolState::default()));

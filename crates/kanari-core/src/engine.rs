@@ -269,7 +269,16 @@ impl BlockchainEngine {
             .unwrap_or_else(|e| e.into_inner())
             .latest_checkpoint()
             .clone();
-        let current_state_root = self.state_read().compute_state_root();
+        let state = self.state_read();
+        ensure!(
+            state.overlay.is_empty(),
+            "Cannot export snapshot while state has uncommitted changes"
+        );
+        state
+            .store
+            .flush()
+            .context("Failed to flush state before snapshot")?;
+        let current_state_root = state.compute_state_root();
         let state_root_migrated =
             checkpoint.sequence > 0 && checkpoint.state_root != current_state_root;
         ensure!(
@@ -287,8 +296,7 @@ impl BlockchainEngine {
                 hex::encode(&current_state_root)
             );
         }
-        let entries = self
-            .state_read()
+        let entries = state
             .store
             .logical_entries()
             .context("Failed to read state entries for snapshot")?
@@ -615,6 +623,21 @@ impl BlockchainEngine {
         b"tx_recent"
     }
 
+    fn history_pruned_through_key() -> &'static [u8] {
+        b"runtime:history_pruned_through"
+    }
+
+    fn history_persisted_through_key() -> &'static [u8] {
+        b"runtime:history_persisted_through"
+    }
+
+    fn history_retention_checkpoints() -> Option<u64> {
+        std::env::var("KANARI_HISTORY_RETENTION_CHECKPOINTS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+    }
+
     fn checkpoint_without_transactions(checkpoint: &Checkpoint) -> Checkpoint {
         Checkpoint::new(
             checkpoint.sequence,
@@ -792,9 +815,16 @@ impl BlockchainEngine {
         store: &PersistentStore,
         chain: &Blockchain,
     ) -> Result<()> {
-        for checkpoint in &chain.dag_checkpoints {
+        let persisted_through = store
+            .load::<u64>(Self::history_persisted_through_key())?
+            .map(|sequence| sequence.min(chain.height()));
+        for checkpoint in chain.dag_checkpoints.iter().filter(|checkpoint| {
+            persisted_through.is_none_or(|sequence| checkpoint.sequence > sequence)
+        }) {
             Self::persist_checkpoint_transactions(store, checkpoint)?;
         }
+
+        store.save(Self::history_persisted_through_key(), &chain.height())?;
 
         let mut slim = chain.clone();
         for checkpoint in &mut slim.dag_checkpoints {
@@ -805,6 +835,48 @@ impl BlockchainEngine {
         store
             .save(b"blockchain", &slim)
             .context("Failed to persist blockchain metadata")?;
+        if let Some(retention) = Self::history_retention_checkpoints() {
+            Self::prune_transaction_payloads(store, chain.height().saturating_sub(retention))?;
+        }
+        Ok(())
+    }
+
+    /// Delete old transaction payloads while retaining checkpoint metadata and
+    /// transaction hash indexes. The retained hash index remains the permanent
+    /// replay guard even when an archival node no longer serves the payload.
+    fn prune_transaction_payloads(store: &PersistentStore, through: u64) -> Result<()> {
+        if through == 0 {
+            return Ok(());
+        }
+        let previous = store
+            .load::<u64>(Self::history_pruned_through_key())?
+            .unwrap_or(0);
+        if through <= previous {
+            return Ok(());
+        }
+
+        let mut pruned_hashes = HashSet::new();
+        for sequence in previous.saturating_add(1)..=through {
+            if let Some(transactions) = Self::load_checkpoint_transactions(store, sequence) {
+                for tx in transactions.iter() {
+                    let hash = tx.transaction_hash().to_vec();
+                    store.delete(&Self::transaction_payload_key(&hash))?;
+                    pruned_hashes.insert(hash);
+                }
+            }
+            store.delete(&Self::checkpoint_transactions_key(sequence))?;
+        }
+
+        if !pruned_hashes.is_empty() {
+            let recent = store
+                .load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())?
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|hash| !pruned_hashes.contains(hash))
+                .collect::<Vec<_>>();
+            store.save(Self::recent_transaction_hashes_key(), &recent)?;
+        }
+        store.save(Self::history_pruned_through_key(), &through)?;
         Ok(())
     }
 
@@ -870,6 +942,24 @@ impl BlockchainEngine {
         }
 
         None
+    }
+
+    pub(crate) fn is_transaction_committed(&self, tx_hash: &[u8]) -> bool {
+        if self
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_transaction_hash_executed(tx_hash)
+        {
+            return true;
+        }
+        self.persistent_store.as_ref().is_some_and(|store| {
+            store
+                .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
+                .ok()
+                .flatten()
+                .is_some()
+        })
     }
 
     pub fn list_committed_transactions_from_history<F>(
@@ -1303,7 +1393,19 @@ impl BlockchainEngine {
             };
 
             if fail_hard {
-                let mut wave_executed = 0usize;
+                // A conflict-free wave is committed as one deterministic unit:
+                // one write-lock acquisition and one StateManager clone. Besides
+                // reducing lock contention, a failed transaction can no longer
+                // leave an earlier prefix of the same wave applied.
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during wave execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+                let mut candidate = state_write.clone();
+                let mut wave_effects = Vec::with_capacity(wave.len());
 
                 for (signed_tx, res) in wave.iter().zip(results) {
                     let cs = res.with_context(|| {
@@ -1314,19 +1416,6 @@ impl BlockchainEngine {
                         )
                     })?;
 
-                    transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
-
-                    // Apply each transaction against an isolated candidate so a
-                    // bad gas/object change cannot partially mutate the wave or
-                    // hide which pending transaction caused the failure.
-                    let mut state_write = match state_arc.write() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => {
-                            log::error!("State lock poisoned during wave execution, recovering...");
-                            poisoned.into_inner()
-                        }
-                    };
-                    let mut candidate = state_write.clone();
                     candidate
                         .apply_changeset_without_supply_validation(&cs)
                         .with_context(|| {
@@ -1336,14 +1425,11 @@ impl BlockchainEngine {
                                 signed_tx.transaction.sender_address()
                             )
                         })?;
-                    *state_write = candidate;
-                    wave_executed += 1;
+                    wave_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
                 }
-
-                if wave_executed == 0 {
-                    continue;
-                }
-                executed_count += wave_executed;
+                *state_write = candidate;
+                executed_count += wave_effects.len();
+                transaction_effects.extend(wave_effects);
             } else {
                 // Apply changesets with proper error handling to prevent node crashes
                 let mut state_write = match state_arc.write() {

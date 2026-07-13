@@ -89,19 +89,22 @@ impl StateManager {
         holder: &(String, CreatedObject),
         token_type: &str,
         amount: u64,
-    ) {
+    ) -> Result<()> {
         if amount == 0 {
-            return;
+            return Ok(());
         }
 
         if let Some(existing) = records
             .iter_mut()
             .find(|record| record.holder_object_id == holder.0 && record.token_type == token_type)
         {
-            existing.amount = existing.amount.saturating_add(amount);
+            existing.amount = existing
+                .amount
+                .checked_add(amount)
+                .require("Object-locked coin record overflow")?;
             existing.holder_type = holder.1.type_.clone();
             existing.owner = holder.1.owner;
-            return;
+            return Ok(());
         }
 
         records.push(ObjectLockedCoinRecord {
@@ -111,6 +114,7 @@ impl StateManager {
             token_type: token_type.to_string(),
             amount,
         });
+        Ok(())
     }
 
     fn release_locked_coin_records(
@@ -196,7 +200,7 @@ impl StateManager {
                         holder,
                         &token_type,
                         locked_delta as u64,
-                    );
+                    )?;
                 }
             } else if locked_delta < 0 {
                 Self::release_locked_coin_records(
@@ -556,7 +560,7 @@ impl StateManager {
                 self.save_owner_record(&owner_state)?;
                 owner_index_additions.push(owner_state.address.to_hex_literal());
             }
-            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances);
+            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances)?;
         }
 
         self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)?;
@@ -630,9 +634,18 @@ impl StateManager {
                     )?;
                 }
                 self.overlay.insert(obj_key, None);
+                self.remove_from_index_list(b"object_index", &stored_id)?;
+                self.remove_from_index_list(
+                    b"object_index",
+                    &Self::canonical_owned_object_id(obj_id),
+                )?;
             } else {
                 let obj_key = object_key(obj_id);
                 self.overlay.insert(obj_key, None);
+                self.remove_from_index_list(
+                    b"object_index",
+                    &Self::canonical_owned_object_id(obj_id),
+                )?;
             }
         }
 
@@ -676,7 +689,8 @@ impl StateManager {
             let existing_stored_id = existing_obj
                 .as_ref()
                 .map(|(stored_id, _)| stored_id.clone());
-            let obj_key = object_key(obj_id);
+            let canonical_obj_id = Self::canonical_owned_object_id(obj_id);
+            let obj_key = object_key(&canonical_obj_id);
 
             if let Some((stored_id, existing)) = existing_obj {
                 // Canonical object versions must be derived from the visible state snapshot,
@@ -753,7 +767,7 @@ impl StateManager {
                         Some(&stored_id),
                     )?;
                 }
-                if stored_id != *obj_id {
+                if stored_id != canonical_obj_id {
                     self.overlay.insert(object_key(&stored_id), None);
                 }
                 Self::record_object_balance_owner_if_needed(
@@ -784,7 +798,7 @@ impl StateManager {
             }
 
             let stored_obj = StoredObject {
-                id: obj_id.clone(),
+                id: canonical_obj_id.clone(),
                 owner: new_obj.owner,
                 owner_kind: new_obj.owner_kind.clone(),
                 type_name: new_obj.type_.clone(),
@@ -792,6 +806,7 @@ impl StateManager {
                 version: new_obj.version,
             };
             self.save_internal(&obj_key, &stored_obj)?;
+            self.add_to_index_list(b"object_index", canonical_obj_id.clone())?;
 
             if matches!(new_obj.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
                 self.refresh_owned_object_index(

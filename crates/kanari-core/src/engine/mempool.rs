@@ -154,33 +154,26 @@ impl BlockchainEngine {
 
         // Check executed transactions in parallel
         let executed_hashes = {
-            let chain = match self.blockchain.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!(
-                        "Blockchain lock poisoned in submit_transactions_batch, recovering..."
-                    );
-                    poisoned.into_inner()
-                }
-            };
-
-            if !chain.has_executed_transactions() {
-                AHashSet::new()
-            } else {
-                use rayon::prelude::*;
-                batch_metadata
-                    .par_iter()
-                    .filter_map(|(tx_hash, _, _, _, _)| {
-                        if chain.is_transaction_hash_executed(tx_hash) {
-                            Some(tx_hash.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .collect::<AHashSet<_>>()
-            }
+            use rayon::prelude::*;
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            batch_metadata
+                .par_iter()
+                .filter_map(|(tx_hash, _, _, _, _)| {
+                    let committed = chain.is_transaction_hash_executed(tx_hash)
+                        || self.persistent_store.as_ref().is_some_and(|store| {
+                            store
+                                .load::<PersistedTransactionLocation>(&Self::transaction_index_key(
+                                    tx_hash,
+                                ))
+                                .ok()
+                                .flatten()
+                                .is_some()
+                        });
+                    committed.then(|| tx_hash.clone())
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .collect::<AHashSet<_>>()
         };
 
         // Account sequence is intentionally not a consensus admission rule. Object refs,
