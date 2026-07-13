@@ -3,7 +3,8 @@ use super::{
     parse_params, respond_with_serialize,
 };
 use kanari_rpc_api::{
-    BlockInfo, CompareCanonicalStateSnapshotRequest, GetCanonicalStateSnapshotRequest, RpcEvent,
+    BlockInfo, CompareCanonicalStateSnapshotRequest, GetCanonicalStateSnapshotRequest,
+    GetSmtStatusRequest, RpcEvent,
 };
 use serde_json;
 
@@ -85,6 +86,24 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
         state_root: stats.state_root,
     };
     respond_with_serialize(request.id, blockchain_stats)
+}
+
+pub async fn handle_get_smt_status(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req = if request.params.is_null() || request.params == serde_json::json!([]) {
+        GetSmtStatusRequest { audit: false }
+    } else {
+        match parse_params(request.id, &request.params) {
+            Ok(req) => req,
+            Err(response) => return *response,
+        }
+    };
+
+    match state.engine.smt_status(req.audit) {
+        Ok(status) => respond_with_serialize(request.id, status),
+        Err(error) => {
+            internal_error_response(request.id, format!("SMT diagnostics failed: {error}"))
+        }
+    }
 }
 
 pub async fn handle_get_canonical_state_snapshot(

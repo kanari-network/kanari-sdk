@@ -160,6 +160,10 @@ pub fn schema_integer() -> Value {
     json!({ "type": "integer", "minimum": 0 })
 }
 
+pub fn schema_boolean() -> Value {
+    json!({ "type": "boolean" })
+}
+
 pub fn schema_object() -> Value {
     json!({ "type": "object" })
 }

@@ -134,6 +134,31 @@ pub struct TokenSupplySummary {
     pub untracked_supply: u64,
 }
 
+/// Read-only diagnostics for the incremental sparse Merkle tree.
+///
+/// A full audit is intentionally opt-in because it scans canonical state and
+/// the persisted SMT leaves. The cheap status path only reads roots, schema
+/// versions, and the pending overlay summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SmtDiagnostics {
+    pub enabled: bool,
+    pub persisted_root: Option<String>,
+    pub effective_root: String,
+    pub overlay_entries: usize,
+    pub overlay_updates: usize,
+    pub overlay_deletes: usize,
+    pub canonical_membership_changed: bool,
+    pub runtime_schema_version: Option<u32>,
+    pub expected_runtime_schema_version: u32,
+    pub wallet_supply_index_version: Option<u32>,
+    pub expected_wallet_supply_index_version: u32,
+    pub audit_requested: bool,
+    pub audit_performed: bool,
+    pub persisted_leaf_count: Option<usize>,
+    pub consistent: Option<bool>,
+    pub consistency_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ObjectLockedCoinRecord {
     pub holder_object_id: String,
@@ -626,6 +651,57 @@ impl StateManager {
             stale_known_keys.join(",")
         );
         Ok(())
+    }
+
+    /// Return read-only SMT status. When `audit` is true this also performs the
+    /// expensive full canonical leaf/root comparison; it never repairs state.
+    pub fn smt_diagnostics(&self, audit: bool) -> Result<SmtDiagnostics> {
+        let (updates, deletes) = self.smt_changes_from_overlay();
+        let enabled = self.smt.is_some();
+        let persisted_root = self
+            .smt
+            .as_ref()
+            .map(|tree| tree.root_hash().map(hex::encode))
+            .transpose()?;
+
+        let mut persisted_leaf_count = None;
+        let mut consistent = None;
+        let mut consistency_error = None;
+        let audit_performed = audit && enabled;
+
+        if audit_performed {
+            persisted_leaf_count = self
+                .smt
+                .as_ref()
+                .map(|tree| tree.persisted_leaf_count())
+                .transpose()?;
+            match self.validate_smt_consistency() {
+                Ok(()) => consistent = Some(true),
+                Err(error) => {
+                    consistent = Some(false);
+                    consistency_error = Some(error.to_string());
+                }
+            }
+        }
+
+        Ok(SmtDiagnostics {
+            enabled,
+            persisted_root,
+            effective_root: hex::encode(self.compute_state_root()),
+            overlay_entries: self.overlay.len(),
+            overlay_updates: updates.len(),
+            overlay_deletes: deletes.len(),
+            canonical_membership_changed: self.canonical_membership_changed(),
+            runtime_schema_version: self.load_internal(RUNTIME_STATE_SCHEMA_KEY)?,
+            expected_runtime_schema_version: RUNTIME_STATE_SCHEMA_VERSION,
+            wallet_supply_index_version: self.load_internal(WALLET_SUPPLY_INDEX_VERSION_KEY)?,
+            expected_wallet_supply_index_version: WALLET_SUPPLY_INDEX_VERSION,
+            audit_requested: audit,
+            audit_performed,
+            persisted_leaf_count,
+            consistent,
+            consistency_error,
+        })
     }
 
     fn repair_derived_indexes_on_startup(&mut self) -> Result<bool> {

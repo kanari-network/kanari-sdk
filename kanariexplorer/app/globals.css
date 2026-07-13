@@ -770,6 +770,14 @@ h1, h2, h3, p { margin-top: 0; }
 .block-summary__top--triple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .block-summary__height { color: var(--ink); font-size: 32px; line-height: 1; }
 .block-summary__hash { margin: 0; line-height: 1.55; }
+.smt-page__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.smt-page__actions .button { width: auto; cursor: pointer; }
+.smt-page__actions .button:disabled { cursor: wait; opacity: .58; transform: none; }
+.smt-page__grid { margin-top: 22px; }
+.smt-root-list { padding: 8px 24px 24px; display: grid; gap: 12px; }
+.smt-root-row { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--paper) 56%, transparent); }
+.smt-root-row .tiny-label { margin: 0 0 9px; }
+.smt-root-row .mono { color: var(--ink); font-size: 12px; }
 .checkpoint-card-actions { padding: 0 24px 24px; }
 .checkpoint-card-actions__link,
 .checkpoint-graph-page__back { width: fit-content; }
@@ -1077,6 +1085,9 @@ h1, h2, h3, p { margin-top: 0; }
   .search-box input { width: 100%; }
   .search-box .button { width: auto; min-width: 108px; padding-inline: 16px; }
   .explorer-stat-grid, .nft-grid, .route-list, .tx-detail-grid, .tx-summary-grid { grid-template-columns: 1fr; }
+  .smt-page__actions { width: 100%; }
+  .smt-page__actions .button { width: 100%; }
+  .smt-root-list { padding: 14px; }
   .graph-lane__items, .graph-change-group__items, .checkpoint-effect-strip, .checkpoint-effect-card__summary, .checkpoint-effect-card__grid { grid-template-columns: 1fr; }
   .block-summary__top--triple { grid-template-columns: 1fr; }
   .panel > .data-list,

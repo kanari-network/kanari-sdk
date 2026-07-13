@@ -5,7 +5,7 @@ use kanari_rpc_api::ObjectInfo;
 use kanari_rpc_api::{
     BlockData, BlockchainStats, CanonicalStateDiffResponse, CanonicalStateEntry,
     CanonicalStateSnapshotResponse, CompareCanonicalStateSnapshotRequest, FullBlockData, OwnerInfo,
-    RpcObjectOwnerKindFilter,
+    RpcObjectOwnerKindFilter, SmtStatusResponse,
 };
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
@@ -15,6 +15,31 @@ use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
+    pub fn smt_status(&self, audit: bool) -> Result<SmtStatusResponse> {
+        let diagnostics = self.state_read().smt_diagnostics(audit)?;
+        let stats = self.get_stats();
+        Ok(SmtStatusResponse {
+            height: stats.height,
+            checkpoint_state_root: stats.state_root,
+            enabled: diagnostics.enabled,
+            persisted_root: diagnostics.persisted_root,
+            effective_root: diagnostics.effective_root,
+            overlay_entries: diagnostics.overlay_entries,
+            overlay_updates: diagnostics.overlay_updates,
+            overlay_deletes: diagnostics.overlay_deletes,
+            canonical_membership_changed: diagnostics.canonical_membership_changed,
+            runtime_schema_version: diagnostics.runtime_schema_version,
+            expected_runtime_schema_version: diagnostics.expected_runtime_schema_version,
+            wallet_supply_index_version: diagnostics.wallet_supply_index_version,
+            expected_wallet_supply_index_version: diagnostics.expected_wallet_supply_index_version,
+            audit_requested: diagnostics.audit_requested,
+            audit_performed: diagnostics.audit_performed,
+            persisted_leaf_count: diagnostics.persisted_leaf_count,
+            consistent: diagnostics.consistent,
+            consistency_error: diagnostics.consistency_error,
+        })
+    }
+
     pub fn canonical_state_snapshot_entries(
         &self,
         limit: Option<usize>,

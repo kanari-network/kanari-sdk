@@ -28,7 +28,8 @@ use crate::{
     },
     block::{
         handle_compare_canonical_state_snapshot, handle_get_block, handle_get_block_height,
-        handle_get_canonical_state_snapshot, handle_get_full_block, handle_get_stats,
+        handle_get_canonical_state_snapshot, handle_get_full_block, handle_get_smt_status,
+        handle_get_stats,
     },
     module::{
         handle_get_module, handle_get_object, handle_get_object_by_ref, handle_get_objects,
@@ -197,6 +198,7 @@ async fn handle_rpc(
         }
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
+        methods::GET_SMT_STATUS => handle_get_smt_status(&state, &request).await,
         methods::GET_CANONICAL_STATE_SNAPSHOT => {
             handle_get_canonical_state_snapshot(&state, &request).await
         }
@@ -538,6 +540,30 @@ mod tests {
         let stats = rpc_call(app.clone(), methods::GET_STATS, serde_json::json!([]), 2).await;
         assert!(stats["total_supply"].as_u64().invariant("total supply") >= 500);
         assert!(stats["total_owners"].as_u64().is_some());
+
+        let smt_status = rpc_call(
+            app.clone(),
+            methods::GET_SMT_STATUS,
+            serde_json::json!([]),
+            20,
+        )
+        .await;
+        assert_eq!(smt_status["enabled"], false);
+        assert_eq!(smt_status["audit_requested"], false);
+        assert_eq!(smt_status["audit_performed"], false);
+        assert!(smt_status["effective_root"].as_str().is_some());
+        assert!(smt_status["runtime_schema_version"].as_u64().is_some());
+
+        let smt_audit = rpc_call(
+            app.clone(),
+            methods::GET_SMT_STATUS,
+            serde_json::json!({ "audit": true }),
+            21,
+        )
+        .await;
+        assert_eq!(smt_audit["audit_requested"], true);
+        assert_eq!(smt_audit["audit_performed"], false);
+        assert!(smt_audit["consistent"].is_null());
 
         let height = rpc_call(
             app.clone(),

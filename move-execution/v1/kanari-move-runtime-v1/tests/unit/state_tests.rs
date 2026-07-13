@@ -32,6 +32,34 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
 }
 
 #[test]
+fn smt_diagnostics_are_read_only_and_full_audit_is_explicit() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let store = Arc::new(PersistentStore::open_with_path(Some(
+        temp_dir.path().join("state"),
+    ))?);
+    let state = StateManager::try_new(store)?;
+
+    let status = state.smt_diagnostics(false)?;
+    assert!(status.enabled);
+    assert!(!status.audit_requested);
+    assert!(!status.audit_performed);
+    assert!(status.persisted_root.is_some());
+    assert!(status.persisted_leaf_count.is_none());
+    assert!(status.consistent.is_none());
+    assert_eq!(status.overlay_entries, 0);
+
+    let audited = state.smt_diagnostics(true)?;
+    assert!(audited.audit_requested);
+    assert!(audited.audit_performed);
+    assert_eq!(audited.consistent, Some(true));
+    assert!(audited.consistency_error.is_none());
+    assert!(audited.persisted_leaf_count.is_some_and(|count| count > 0));
+    assert_eq!(audited.persisted_root, Some(audited.effective_root));
+
+    Ok(())
+}
+
+#[test]
 fn native_owner_overflow_is_rejected_without_mutating_state() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0xdead")?;
     let mut state = StateManager::new_in_memory();

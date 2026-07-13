@@ -336,6 +336,36 @@ pub struct BlockchainStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetSmtStatusRequest {
+    /// Run a full persisted-leaf and canonical-root audit. This can be
+    /// expensive on a large database and defaults to false.
+    #[serde(default)]
+    pub audit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SmtStatusResponse {
+    pub height: u64,
+    pub checkpoint_state_root: String,
+    pub enabled: bool,
+    pub persisted_root: Option<String>,
+    pub effective_root: String,
+    pub overlay_entries: usize,
+    pub overlay_updates: usize,
+    pub overlay_deletes: usize,
+    pub canonical_membership_changed: bool,
+    pub runtime_schema_version: Option<u32>,
+    pub expected_runtime_schema_version: u32,
+    pub wallet_supply_index_version: Option<u32>,
+    pub expected_wallet_supply_index_version: u32,
+    pub audit_requested: bool,
+    pub audit_performed: bool,
+    pub persisted_leaf_count: Option<usize>,
+    pub consistent: Option<bool>,
+    pub consistency_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CanonicalStateEntry {
     pub key: String,
     pub value: String,
@@ -1019,7 +1049,8 @@ pub struct FungibleAssetTransactionsResponse {
 #[kanari_open_rpc::open_rpc]
 pub mod methods {
     use kanari_open_rpc::{
-        object_schema, optional_schema, schema_array, schema_integer, schema_object, schema_string,
+        object_schema, optional_schema, schema_array, schema_boolean, schema_integer,
+        schema_object, schema_string,
     };
 
     // Owner & Balance
@@ -1197,6 +1228,19 @@ pub mod methods {
         tags = ["system"]
     )]
     pub const GET_STATS: &str = "kanari_getStats";
+    #[open_rpc_method(
+        summary = "Get sparse Merkle tree status",
+        description = "Returns read-only incremental SMT roots, overlay counters, and schema versions. Set audit=true to perform an expensive full canonical consistency audit; this endpoint never repairs state.",
+        params = [(
+            "request",
+            "Optional SMT diagnostics options.",
+            false,
+            object_schema(&[("audit", schema_boolean())])
+        )],
+        result = ("status", "Sparse Merkle tree diagnostics.", schema_object()),
+        tags = ["system", "debug"]
+    )]
+    pub const GET_SMT_STATUS: &str = "kanari_getSmtStatus";
     #[open_rpc_method(
         summary = "Get canonical state snapshot diagnostics",
         description = "Returns canonical state key/value entries for the current node state, with optional prefix and limit filters, for divergence debugging.",

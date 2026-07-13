@@ -20,6 +20,7 @@ export const RPC_METHODS = {
   GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
   GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
   GET_STATS: "kanari_getStats",
+  GET_SMT_STATUS: "kanari_getSmtStatus",
   SUBMIT_TRANSACTION: "kanari_submitObjectTransfer",
   HEALTH: "kanari_health",
   GET_NETWORK_STATUS: "kanari_getNetworkStatus",
@@ -65,6 +66,27 @@ export type NodeHealth = {
   pendingTransactions: number | null;
   latencyMs: number | null;
   error?: string;
+};
+
+export type SmtStatus = {
+  height: number;
+  checkpoint_state_root: string;
+  enabled: boolean;
+  persisted_root: string | null;
+  effective_root: string;
+  overlay_entries: number;
+  overlay_updates: number;
+  overlay_deletes: number;
+  canonical_membership_changed: boolean;
+  runtime_schema_version: number | null;
+  expected_runtime_schema_version: number;
+  wallet_supply_index_version: number | null;
+  expected_wallet_supply_index_version: number;
+  audit_requested: boolean;
+  audit_performed: boolean;
+  persisted_leaf_count: number | null;
+  consistent: boolean | null;
+  consistency_error: string | null;
 };
 
 export type RpcBytes = number[];
@@ -260,6 +282,10 @@ export async function getFungibleAssetTransactions(token_type: string, limit: nu
 
 export async function getStats(rpcUrl?: string) {
   return callRpc(RPC_METHODS.GET_STATS, [], rpcUrl);
+}
+
+export async function getSmtStatus(audit = false, rpcUrl?: string): Promise<SmtStatus> {
+  return callRpc(RPC_METHODS.GET_SMT_STATUS, audit ? { audit: true } : {}, rpcUrl);
 }
 
 export async function getHealth(rpcUrl?: string) {
