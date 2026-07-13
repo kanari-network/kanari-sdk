@@ -18,6 +18,62 @@ fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Re
 }
 
 #[test]
+fn identical_system_clock_replay_does_not_increment_object_version() -> Result<()> {
+    let clock_id = "0xaade8aa25002489bbcfca67637daf4dac78f4c88606e0dfd5724f323cbda6b5d";
+    let mut clock_data = vec![0u8; UID_SIZE + U64_SIZE];
+    clock_data[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
+    clock_data[UID_SIZE..].copy_from_slice(&7u64.to_le_bytes());
+
+    let mut prologue = ChangeSet::new();
+    prologue.created_objects.push((
+        clock_id.to_string(),
+        CreatedObject {
+            owner: AccountAddress::ZERO,
+            owner_kind: ObjectOwnerKind::Shared,
+            uid: None,
+            id: None,
+            type_: "0x3::clock::Clock".to_string(),
+            data: clock_data,
+            version: 1,
+        },
+    ));
+
+    let mut state = StateManager::new_in_memory();
+    state.set_system_clock_object_id(AccountAddress::from_hex_literal(clock_id)?)?;
+    state.apply_changeset(&prologue)?;
+    let root_after_first_apply = state.compute_state_root();
+    let version_after_first_apply = state
+        .get_object(clock_id)?
+        .invariant("clock must exist after first prologue")
+        .version;
+
+    state.apply_changeset(&prologue)?;
+
+    assert_eq!(state.compute_state_root(), root_after_first_apply);
+    assert_eq!(
+        state
+            .get_object(clock_id)?
+            .invariant("clock must exist after replay")
+            .version,
+        version_after_first_apply,
+        "replaying the same clock timestamp must not change its version"
+    );
+
+    let mut next_prologue = prologue.clone();
+    next_prologue.created_objects[0].1.data[UID_SIZE..].copy_from_slice(&8u64.to_le_bytes());
+    state.apply_changeset(&next_prologue)?;
+    assert_eq!(
+        state
+            .get_object(clock_id)?
+            .invariant("clock must exist after the next timestamp")
+            .version,
+        version_after_first_apply + 1,
+        "a new clock timestamp must advance the object version exactly once"
+    );
+    Ok(())
+}
+
+#[test]
 fn genesis_seeds_dev_wallet_with_separate_native_gas_coin() -> Result<()> {
     let state = StateManager::new_in_memory();
     let dev = AccountAddress::from_hex_literal(kanari_types::address::Address::DEV_ADDRESS)?;

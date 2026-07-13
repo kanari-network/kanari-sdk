@@ -2,6 +2,21 @@ use super::*;
 use kanari_types::transaction::ObjectOwnerKind;
 
 impl StateManager {
+    fn is_system_clock_object(&self, object_id: &str, type_name: &str) -> Result<bool> {
+        let Ok(struct_tag) = StructTag::from_str(type_name) else {
+            return Ok(false);
+        };
+        let is_clock_type = struct_tag.module.as_str() == ClockModule::CLOCK_MODULE
+            && struct_tag.name.as_str() == ClockModule::CLOCK_STRUCT
+            && struct_tag.type_params.is_empty();
+        if !is_clock_type {
+            return Ok(false);
+        }
+
+        let object_address = AccountAddress::from_hex_literal(object_id).ok();
+        Ok(self.get_system_clock_object_id()? == object_address)
+    }
+
     fn is_object_locked_coin_holder_type(type_name: &str) -> bool {
         let Ok(struct_tag) = StructTag::from_str(type_name) else {
             return false;
@@ -663,7 +678,21 @@ impl StateManager {
             if let Some((stored_id, existing)) = existing_obj {
                 // Canonical object versions must be derived from the visible state snapshot,
                 // not the runtime object cache, so every authority commits the same version.
-                new_obj.version = existing.version + 1;
+                // Replaying the consensus clock prologue for the same timestamp is idempotent.
+                // Some checkpoint paths can observe the same prologue more than once; allowing
+                // an identical replay to bump only the version would split state roots even
+                // though the canonical clock value is unchanged.
+                let identical_clock_replay = self
+                    .is_system_clock_object(obj_id, &existing.type_name)?
+                    && existing.type_name == new_obj.type_
+                    && existing.data == new_obj.data
+                    && existing.owner == new_obj.owner
+                    && existing.owner_kind == new_obj.owner_kind;
+                new_obj.version = if identical_clock_replay {
+                    existing.version
+                } else {
+                    existing.version + 1
+                };
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }

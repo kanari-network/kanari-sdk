@@ -10,6 +10,7 @@ use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
+use kanari_types::clock::ClockModule;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::event::Event;
