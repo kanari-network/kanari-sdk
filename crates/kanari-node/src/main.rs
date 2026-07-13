@@ -20,6 +20,13 @@ use app::{
     run_node,
 };
 
+fn write_cli_line(args: std::fmt::Arguments<'_>) -> Result<()> {
+    use std::io::Write;
+
+    writeln!(std::io::stdout(), "{args}")?;
+    Ok(())
+}
+
 #[derive(Clone, Debug, ValueEnum)]
 pub(crate) enum NetworkMode {
     Mainnet,
@@ -315,8 +322,10 @@ fn main() -> Result<()> {
         } => {
             let engine = create_engine(&data_dir, &network)?;
             engine.write_genesis_manifest(&output, network.as_str())?;
-            println!("Genesis manifest written to {}", output.display());
-            Ok(())
+            write_cli_line(format_args!(
+                "Genesis manifest written to {}",
+                output.display()
+            ))
         }
         Commands::SnapshotExport {
             network,
@@ -330,13 +339,12 @@ fn main() -> Result<()> {
                 network.as_str(),
                 allow_state_root_migration,
             )?;
-            println!(
+            write_cli_line(format_args!(
                 "Snapshot written to {} at height {} (state root {})",
                 output.display(),
                 snapshot.checkpoint_height,
                 snapshot.state_root
-            );
-            Ok(())
+            ))
         }
         Commands::SnapshotImport {
             network,
@@ -348,13 +356,12 @@ fn main() -> Result<()> {
                 &data_dir,
                 network.as_str(),
             )?;
-            println!(
+            write_cli_line(format_args!(
                 "Snapshot imported into {} at height {} (state root {})",
                 data_dir.display(),
                 imported.checkpoint_height,
                 imported.state_root
-            );
-            Ok(())
+            ))
         }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");

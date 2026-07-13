@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use kanari_core::{BlockchainEngine, CheckpointProductionInfo};
 use kanari_types::transaction::SignedTransaction;
 use std::time::Instant;
@@ -12,8 +12,23 @@ pub fn execute_production_path(
     let submit_secs = submit_start.elapsed().as_secs_f64();
 
     let produce_start = Instant::now();
-    let block_info = engine.produce_checkpoint()?;
+    let mut aggregate: Option<CheckpointProductionInfo> = None;
+    while engine.pending_transaction_len() > 0 {
+        let block_info = engine.produce_checkpoint()?;
+        if let Some(total) = &mut aggregate {
+            total.tx_count += block_info.tx_count;
+            total.executed += block_info.executed;
+            total.failed += block_info.failed;
+            total.vertex_id = block_info.vertex_id;
+            total.round = block_info.round;
+            total.checkpoint = block_info.checkpoint;
+            total.vertex = block_info.vertex;
+        } else {
+            aggregate = Some(block_info);
+        }
+    }
     let produce_secs = produce_start.elapsed().as_secs_f64();
+    let block_info = aggregate.context("No checkpoint was produced for submitted transactions")?;
 
     Ok((block_info, submit_secs, produce_secs))
 }

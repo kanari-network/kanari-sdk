@@ -558,11 +558,10 @@ mod tests {
         assert!(hex_ends_with(&owner["owner"], "1111"));
         assert_eq!(owner["balances"][KANARI_TOKEN_TYPE], 500);
         assert!(
-            owner["owned_objects"]
+            !owner["owned_objects"]
                 .as_array()
                 .invariant("json array")
-                .len()
-                >= 1
+                .is_empty()
         );
 
         let all_balances = rpc_call(

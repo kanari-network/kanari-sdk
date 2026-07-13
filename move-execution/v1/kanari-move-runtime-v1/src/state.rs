@@ -638,21 +638,21 @@ impl StateManager {
                             .map(String::into_bytes),
                     );
                 }
-            } else if key.starts_with(b"owned_objects:") {
-                if let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value) {
-                    canonical_object_keys.extend(
-                        object_ids
-                            .into_iter()
-                            .filter_map(|id| canonical_object_id(&id))
-                            .filter(|id| {
-                                entries
-                                    .get(&object_key(id))
-                                    .and_then(|bytes| bcs::from_bytes::<StoredObject>(bytes).ok())
-                                    .is_some()
-                            })
-                            .map(|id| object_key(&id)),
-                    );
-                }
+            } else if key.starts_with(b"owned_objects:")
+                && let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value)
+            {
+                canonical_object_keys.extend(
+                    object_ids
+                        .into_iter()
+                        .filter_map(|id| canonical_object_id(&id))
+                        .filter(|id| {
+                            entries
+                                .get(&object_key(id))
+                                .and_then(|bytes| bcs::from_bytes::<StoredObject>(bytes).ok())
+                                .is_some()
+                        })
+                        .map(|id| object_key(&id)),
+                );
             }
         }
 

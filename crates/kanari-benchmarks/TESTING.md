@@ -39,7 +39,10 @@ cargo run --release -p kanari-benchmarks -- --mode production --txs 10000 --send
 ## Modes
 
 - `production`
-  Full local production path: mempool submission plus `produce_checkpoint`.
+  Full local production path: mempool submission plus repeated `produce_checkpoint` calls until
+  the submitted batch is drained. Transactions sharing a primary access lane are intentionally
+  placed in later checkpoints, so this measures end-to-end local batch throughput rather than
+  silently measuring only the first conflict-free wave.
 - `immediate`
   Executes and applies transactions one by one. The built-in workload is deliberately a
   zero-effect native workload optimized for checkpoint production, so it has no spendable coin
