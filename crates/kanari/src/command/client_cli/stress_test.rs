@@ -39,6 +39,8 @@ fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
 fn is_object_busy_or_unavailable(error: &anyhow::Error) -> bool {
     let message = format!("{:#}", error);
     message.contains("No spendable native gas coin object found")
+        || message.contains("No single Coin<")
+        || message.contains("insufficient_transfer_coin_balance")
         || message.contains("Native transfer requires two distinct Coin<")
         || message.contains("native_transfer_policy_not_satisfied")
 }

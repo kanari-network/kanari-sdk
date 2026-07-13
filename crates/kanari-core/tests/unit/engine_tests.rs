@@ -790,25 +790,18 @@ fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
 }
 
 #[test]
-fn gas_application_creates_a_spendable_dao_fee_coin() {
+fn gas_application_credits_dao_ledger_without_creating_coin() {
     let sender = AccountAddress::random();
     let mut changeset = ChangeSet::new();
 
-    BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10, &[7; 32]).unwrap();
+    BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
 
     let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
     assert_eq!(sender_owner_delta.balance_delta, -10);
     let dao = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS).unwrap();
     assert_eq!(changeset.owner_deltas.get(&dao).unwrap().balance_delta, 10);
-    assert_eq!(changeset.created_objects.len(), 1);
-    let (object_id, fee_coin) = &changeset.created_objects[0];
-    assert_eq!(fee_coin.owner, dao);
-    assert_eq!(fee_coin.type_, CoinModule::coin_type(KANARI_TOKEN_TYPE));
-    assert_eq!(&fee_coin.data[..32], &hex::decode(&object_id[2..]).unwrap());
-    assert_eq!(
-        u64::from_le_bytes(fee_coin.data[32..40].try_into().unwrap()),
-        10
-    );
+    assert_eq!(changeset.native_gas_credits.get(&dao), Some(&10));
+    assert!(changeset.created_objects.is_empty());
 
     let mut state = kanari_move_runtime_v1::state::StateManager::new_in_memory();
     state
@@ -818,14 +811,7 @@ fn gas_application_creates_a_spendable_dao_fee_coin() {
         .apply_changeset_without_supply_validation(&changeset)
         .unwrap();
     assert_eq!(state.resolve_owner_native_balance(dao).unwrap(), 10);
-    assert_eq!(
-        state.get_owned_objects(&dao).unwrap(),
-        vec![object_id.clone()]
-    );
-    assert_eq!(
-        state.get_object(object_id).unwrap().unwrap().data,
-        fee_coin.data
-    );
+    assert!(state.get_owned_objects(&dao).unwrap().is_empty());
 }
 
 #[test]

@@ -148,6 +148,15 @@ impl StateManager {
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
+        // Gas fees are credited to the DAO owner ledger. The DAO may not have
+        // a normal account-index entry, so include it explicitly when
+        // calculating the native token's wallet-visible supply.
+        if token_type == KANARI_TOKEN_TYPE {
+            owners.insert(
+                AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
+                    .expect("DAO_ADDRESS constant is valid"),
+            );
+        }
         // DAO/treasury fee coins are object-backed and may exist before their
         // owner account record is present in the legacy account index. Include
         // their owners from the canonical object index so gas is accounted for
@@ -477,6 +486,9 @@ impl StateManager {
         native_delta: i128,
         native_object_changed: bool,
         _native_object_gas_adjusted: u64,
+        native_gas_credit: u64,
+        native_ledger_before: u64,
+        native_object_before: u64,
     ) -> Result<bool> {
         let mut owner_state = self.load_owner_state_or_default(owner)?;
         let old_balances = owner_state.token_balances.clone();
@@ -490,12 +502,22 @@ impl StateManager {
             .collect();
 
         let native_balance = if let Some(object_balance) = native_object_balance {
-            if native_delta < 0 {
-                object_balance.min(native_balance_after_owner_deltas)
-            } else if native_delta > 0 {
-                object_balance.max(native_balance_after_owner_deltas)
+            let prior_non_object_balance =
+                native_ledger_before.saturating_sub(native_object_before);
+            let object_backed_with_ledger = object_balance
+                .saturating_add(prior_non_object_balance)
+                .saturating_add(native_gas_credit);
+            if native_delta > 0 {
+                // Only gas credits are guaranteed not to be represented by
+                // the Move Coin objects. Other positive owner deltas may be
+                // mint/transfer effects already reflected in object_balance.
+                object_backed_with_ledger.max(native_balance_after_owner_deltas)
+            } else if native_delta < 0 {
+                // Keep the canonical object balance when it already reflects
+                // the debit; otherwise use the owner ledger's debited value.
+                object_backed_with_ledger.min(native_balance_after_owner_deltas)
             } else {
-                object_balance
+                object_backed_with_ledger
             }
         } else if native_object_changed {
             0

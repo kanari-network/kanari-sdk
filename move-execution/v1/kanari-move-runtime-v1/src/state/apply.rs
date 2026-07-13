@@ -471,6 +471,39 @@ impl StateManager {
         let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
         let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
         let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
+        let mut native_snapshot_owners = changeset
+            .owner_deltas
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        for (_, created) in &changeset.created_objects {
+            if Self::object_balance_token_for_type_and_data(&created.type_, &created.data)
+                .is_some_and(|token_type| token_type == KANARI_TOKEN_TYPE)
+            {
+                native_snapshot_owners.insert(created.owner);
+            }
+        }
+        for object_id in &changeset.deleted_objects {
+            if let Some((_, existing)) = self.load_stored_object_by_any_id(object_id)?
+                && Self::object_balance_token_for_type_and_data(&existing.type_name, &existing.data)
+                    .is_some_and(|token_type| token_type == KANARI_TOKEN_TYPE)
+            {
+                native_snapshot_owners.insert(existing.owner);
+            }
+        }
+        let mut native_balances_before = BTreeMap::new();
+        for owner in native_snapshot_owners {
+            let ledger_balance = self
+                .load_owner_state(&owner)?
+                .map(|state| state.native_balance())
+                .unwrap_or(0);
+            let object_balance = self
+                .compute_owned_token_balances(owner, None)?
+                .get(KANARI_TOKEN_TYPE)
+                .copied()
+                .unwrap_or(0);
+            native_balances_before.insert(owner, (ledger_balance, object_balance));
+        }
 
         for (address, change) in &changeset.owner_deltas {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
@@ -753,11 +786,23 @@ impl StateManager {
                 .unwrap_or(0i128);
             let native_object_changed = native_object_changed_owners.contains(&owner);
             let adjusted_gas = native_object_gas_adjusted.get(&owner).copied().unwrap_or(0);
+            let native_gas_credit = changeset
+                .native_gas_credits
+                .get(&owner)
+                .copied()
+                .unwrap_or(0);
+            let (native_ledger_before, native_object_before) = native_balances_before
+                .get(&owner)
+                .copied()
+                .unwrap_or((0, 0));
             if self.recompute_token_balances_for_owner(
                 owner,
                 native_delta,
                 native_object_changed,
                 adjusted_gas,
+                native_gas_credit,
+                native_ledger_before,
+                native_object_before,
             )? {
                 supplies_dirty = true;
             }

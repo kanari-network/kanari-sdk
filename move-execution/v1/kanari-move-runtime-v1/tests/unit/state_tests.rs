@@ -1172,25 +1172,37 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
 }
 
 #[test]
-fn native_transfer_recompute_uses_object_backed_balance_not_gas_only_delta() -> Result<()> {
+fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
-    let bob = AccountAddress::from_hex_literal("0x2222")?;
-    let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
+    let bob = AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)?;
+    let gas_collector = bob;
     let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
     let mut state = StateManager::new_in_memory();
     let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
-    state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
-    state.save_owner_state(&OwnerState::with_native_balance(bob, 0))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 1_000,
-    );
+
+    let mut sender_coin_before = vec![0u8; UID_SIZE + U64_SIZE];
+    sender_coin_before[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
+    sender_coin_before[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let mut initial = ChangeSet::new();
+    initial.created_objects.push((
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: sender_coin_before,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&initial)?;
 
     let mut sender_coin_after = vec![0u8; UID_SIZE + U64_SIZE];
     sender_coin_after[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
-    sender_coin_after[UID_SIZE..].copy_from_slice(&790u64.to_le_bytes());
+    sender_coin_after[UID_SIZE..].copy_from_slice(&800u64.to_le_bytes());
 
     let mut recipient_coin = vec![0u8; UID_SIZE + U64_SIZE];
     recipient_coin[..UID_SIZE].copy_from_slice(&[0xBB; UID_SIZE]);
@@ -1218,7 +1230,7 @@ fn native_transfer_recompute_uses_object_backed_balance_not_gas_only_delta() -> 
             owner_kind: address_owner(bob),
             uid: None,
             id: None,
-            type_: coin_type,
+            type_: coin_type.clone(),
             data: recipient_coin,
             version: 1,
         },
@@ -1232,9 +1244,58 @@ fn native_transfer_recompute_uses_object_backed_balance_not_gas_only_delta() -> 
     );
     assert_eq!(
         state.resolve_owner_native_balance(bob)?,
-        200,
-        "recipient must receive the transferred native coin amount"
+        210,
+        "recipient must receive the transferred native coin amount plus gas credit"
     );
+    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    assert_eq!(summary.untracked_supply, 0);
+    assert_eq!(summary.accounted_supply, summary.total_supply);
+
+    let mut sender_coin_second = vec![0u8; UID_SIZE + U64_SIZE];
+    sender_coin_second[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
+    sender_coin_second[UID_SIZE..].copy_from_slice(&690u64.to_le_bytes());
+    let mut recipient_coin_second = vec![0u8; UID_SIZE + U64_SIZE];
+    recipient_coin_second[..UID_SIZE].copy_from_slice(&[0xCC; UID_SIZE]);
+    recipient_coin_second[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+
+    let mut second_transfer = ChangeSet::new();
+    second_transfer.get_or_create_owner_delta(alice).debit(10);
+    second_transfer.collect_gas(bob, 10);
+    second_transfer.created_objects.push((
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        CreatedObject {
+            owner: alice,
+            owner_kind: address_owner(alice),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: sender_coin_second,
+            version: 3,
+        },
+    ));
+    second_transfer.created_objects.push((
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
+        CreatedObject {
+            owner: bob,
+            owner_kind: address_owner(bob),
+            uid: None,
+            id: None,
+            type_: coin_type.clone(),
+            data: recipient_coin_second,
+            version: 1,
+        },
+    ));
+    state.apply_changeset(&second_transfer)?;
+
+    assert_eq!(state.resolve_owner_native_balance(alice)?, 680);
+    assert_eq!(
+        state.resolve_owner_native_balance(bob)?,
+        320,
+        "DAO must preserve prior gas credits while receiving another object and gas credit"
+    );
+    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    assert_eq!(summary.untracked_supply, 0);
+    assert_eq!(summary.accounted_supply, summary.total_supply);
 
     Ok(())
 }

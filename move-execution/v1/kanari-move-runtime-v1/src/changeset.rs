@@ -84,6 +84,12 @@ impl OwnerDelta {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChangeSet {
     pub owner_deltas: BTreeMap<AccountAddress, OwnerDelta>,
+    /// Native gas credits keyed by collector. This is tracked separately from
+    /// owner deltas because object-backed balance recomputation must add gas
+    /// credits without double-counting transfer or mint deltas already
+    /// represented by Coin objects.
+    #[serde(default)]
+    pub native_gas_credits: BTreeMap<AccountAddress, u64>,
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
@@ -157,6 +163,7 @@ impl ChangeSet {
     fn with_status(gas_used: u64, success: bool, error_message: Option<String>) -> Self {
         Self {
             owner_deltas: BTreeMap::new(),
+            native_gas_credits: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
@@ -217,6 +224,8 @@ impl ChangeSet {
     pub fn collect_gas(&mut self, dao_address: AccountAddress, gas_amount: u64) {
         self.get_or_create_owner_delta(dao_address)
             .credit(gas_amount);
+        let collected = self.native_gas_credits.entry(dao_address).or_insert(0);
+        *collected = collected.saturating_add(gas_amount);
     }
 
     pub fn set_gas_used(&mut self, gas: u64) {
@@ -230,6 +239,7 @@ impl ChangeSet {
 
     pub fn is_empty(&self) -> bool {
         self.owner_deltas.is_empty()
+            && self.native_gas_credits.is_empty()
             && self.events.is_empty()
             && self.treasuries.is_empty()
             && self.token_balance_sets.is_empty()
@@ -258,6 +268,10 @@ impl ChangeSet {
                 .balance_delta
                 .saturating_add(other_change.balance_delta);
             existing.modules_added.extend(other_change.modules_added);
+        }
+        for (collector, amount) in other.native_gas_credits {
+            let collected = self.native_gas_credits.entry(collector).or_insert(0);
+            *collected = collected.saturating_add(amount);
         }
         self.events.extend(other.events);
         self.treasuries.extend(other.treasuries);

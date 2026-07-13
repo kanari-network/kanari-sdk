@@ -1395,55 +1395,45 @@ impl BlockchainEngine {
         sender: AccountAddress,
         gas_cost: u64,
         gas_used: u64,
-        tx_hash: &[u8],
     ) -> Result<()> {
         let sender_owner_delta = changeset.get_or_create_owner_delta(sender);
         sender_owner_delta.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
+        let dao_delta_before = changeset
+            .owner_deltas
+            .get(&dao_addr)
+            .map(|delta| delta.balance_delta)
+            .unwrap_or(0);
+        let dao_gas_credit_before = changeset
+            .native_gas_credits
+            .get(&dao_addr)
+            .copied()
+            .unwrap_or(0);
         changeset.collect_gas(dao_addr, gas_cost);
-        Self::materialize_dao_gas_fee(changeset, dao_addr, gas_cost, tx_hash)?;
-        changeset.set_gas_used(gas_used);
-        Ok(())
-    }
-
-    fn materialize_dao_gas_fee(
-        changeset: &mut ChangeSet,
-        dao_addr: AccountAddress,
-        gas_cost: u64,
-        tx_hash: &[u8],
-    ) -> Result<()> {
-        if gas_cost == 0 {
-            return Ok(());
-        }
-
-        // A distinct fee coin per transaction keeps the DAO collection path
-        // parallel-safe: no transaction needs to mutate a shared treasury object.
-        let mut id_material = b"kanari:dao-gas-fee:v1".to_vec();
-        id_material.extend_from_slice(tx_hash);
-        let object_id_bytes = kanari_crypto::hash_data_blake3(&id_material);
+        let dao_delta_after = changeset
+            .owner_deltas
+            .get(&dao_addr)
+            .map(|delta| delta.balance_delta)
+            .unwrap_or(0);
         ensure!(
-            object_id_bytes.len() == AccountAddress::LENGTH,
-            "DAO gas fee object id must be {} bytes",
-            AccountAddress::LENGTH
+            dao_delta_after
+                .checked_sub(dao_delta_before)
+                .is_some_and(|delta| delta == i128::from(gas_cost)),
+            "DAO gas credit mismatch: expected {} Mist",
+            gas_cost
         );
-        let object_id = format!("0x{}", hex::encode(&object_id_bytes));
-
-        let mut coin_data = object_id_bytes;
-        coin_data.extend_from_slice(&gas_cost.to_le_bytes());
-        changeset.created_objects.push((
-            object_id,
-            CreatedObject {
-                owner: dao_addr,
-                owner_kind: ObjectOwnerKind::AddressOwner(dao_addr.to_hex_literal()),
-                uid: None,
-                id: None,
-                type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
-                data: coin_data,
-                version: 1,
-            },
-        ));
-
+        ensure!(
+            changeset
+                .native_gas_credits
+                .get(&dao_addr)
+                .copied()
+                .and_then(|credit| credit.checked_sub(dao_gas_credit_before))
+                == Some(gas_cost),
+            "DAO gas-credit metadata mismatch: expected {} Mist",
+            gas_cost
+        );
+        changeset.set_gas_used(gas_used);
         Ok(())
     }
 
@@ -1516,7 +1506,6 @@ impl BlockchainEngine {
                         sender_addr,
                         gas_cost,
                         gas_meter.gas_used,
-                        &tx.hash(),
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -1595,7 +1584,6 @@ impl BlockchainEngine {
                         sender_addr,
                         gas_cost,
                         gas_meter.gas_used,
-                        &tx.hash(),
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -1643,13 +1631,7 @@ impl BlockchainEngine {
             }
         }
 
-        Self::apply_gas_and_sequence(
-            &mut changeset,
-            sender_addr,
-            gas_cost,
-            gas_meter.gas_used,
-            &tx.hash(),
-        )?;
+        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
         let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
