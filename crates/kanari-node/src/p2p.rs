@@ -828,12 +828,16 @@ impl P2PEventHandler {
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
                 for (peer_id, _) in peers {
-                    info!("Peer expired: {}", peer_id);
-                    self.network
-                        .swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .remove_explicit_peer(&peer_id);
+                    // mDNS expiry only means the discovery record timed out; it
+                    // does not mean the TCP connection or committee membership
+                    // ended. Removing a still-connected validator from the
+                    // explicit Gossipsub set can silently stop DAG and
+                    // transaction propagation in small networks after the mDNS
+                    // TTL expires.
+                    info!(
+                        "Peer discovery record expired for {}; retaining explicit Gossipsub peer",
+                        peer_id
+                    );
                 }
             }
             SwarmEvent::ConnectionEstablished {
@@ -842,6 +846,14 @@ impl P2PEventHandler {
                 num_established,
                 ..
             } => {
+                // Bootstrap/static peers may never arrive through mDNS. Treat
+                // every live connection as an explicit peer so the 4-node
+                // committee does not depend on a mesh tuned for 6+ peers.
+                self.network
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .add_explicit_peer(&peer_id);
                 info!(
                     "Connection established with {} at {} (total: {})",
                     peer_id,
