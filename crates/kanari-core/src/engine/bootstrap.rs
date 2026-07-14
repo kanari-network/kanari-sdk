@@ -78,6 +78,28 @@ impl BlockchainEngine {
         Self::init(persistent_store)
     }
 
+    /// Opens an engine backed by the requested directory without permitting an
+    /// in-memory fallback. Administrative operations such as snapshot export
+    /// must fail when the source database cannot be opened; otherwise they can
+    /// silently export a newly initialized genesis state instead of the real
+    /// node state.
+    pub fn new_dir_required(dir: &str) -> Result<Self> {
+        if cfg!(miri) {
+            anyhow::bail!("persistent storage is unavailable under Miri");
+        }
+
+        let store = PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))).map_err(
+            |error| {
+                anyhow::anyhow!(
+                    "Failed to open required persistent store at '{}': {}",
+                    dir,
+                    error
+                )
+            },
+        )?;
+        Self::init(Some(Arc::new(store)))
+    }
+
     pub fn new() -> Result<Self> {
         let persistent_store = Self::try_open_store(PersistentStore::open_default, "default")?;
         Self::init(persistent_store)

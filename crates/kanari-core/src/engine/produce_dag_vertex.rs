@@ -734,10 +734,18 @@ impl DagEngine {
         }
 
         let vertex_id_hex = hex::encode(vertex.id);
-        info!(
-            "[DAG v2] Produced Mysticeti-backed vertex {} round {} txs {}",
-            vertex_id_hex, vertex.round, tx_count
-        );
+        if tx_count == 0 {
+            log::debug!(
+                "[DAG v2] Produced idle Mysticeti vertex {} round {}",
+                vertex_id_hex,
+                vertex.round
+            );
+        } else {
+            info!(
+                "[DAG v2] Produced Mysticeti-backed vertex {} round {} txs {}",
+                vertex_id_hex, vertex.round, tx_count
+            );
+        }
 
         Ok(CheckpointProductionInfo {
             vertex_id: vertex_id_hex,
@@ -854,10 +862,7 @@ impl DagEngine {
         }
         let state = lock_read(&self.state);
         let block_reader = state.mysticeti.core.block_reader();
-        let mut blocks = block_reader.get_own_blocks(0, usize::MAX);
-        if blocks.len() > limit {
-            blocks.drain(..blocks.len() - limit);
-        }
+        let blocks = block_reader.get_latest_own_blocks(limit);
         blocks
             .iter()
             .filter_map(|block| state.mysticeti.block_to_vertex(block).ok())

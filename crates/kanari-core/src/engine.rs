@@ -1178,7 +1178,17 @@ impl BlockchainEngine {
     }
 
     pub fn pending_conflict_free_transactions_snapshot(&self) -> Vec<SignedTransaction> {
-        let mut transactions = self.pending_transactions_snapshot();
+        let mut transactions = {
+            let mempool = self.mempool_read();
+            if mempool.pending_txs.is_empty() {
+                return Vec::new();
+            }
+            mempool
+                .pending_txs
+                .iter()
+                .map(|record| record.signed_tx.clone())
+                .collect::<Vec<_>>()
+        };
         transactions.sort_by(|a, b| {
             a.transaction
                 .primary_access_key()

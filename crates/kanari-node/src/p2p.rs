@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use flate2::Compression;
 use flate2::read::GzDecoder;
@@ -295,10 +295,10 @@ impl P2PNetwork {
                 info!("[P2P] Publishing NewCheckpoint (size: {})", data.len());
             }
             P2PMessage::NewDagVertex(data) => {
-                info!("[P2P] Publishing NewDagVertex (size: {})", data.len());
+                debug!("[P2P] Publishing NewDagVertex (size: {})", data.len());
             }
             P2PMessage::DagVertexRebroadcast(msg) => {
-                info!(
+                debug!(
                     "[P2P] Publishing DagVertexRebroadcast: sender={}, nonce={}, size={}",
                     msg.sender_peer_id,
                     msg.nonce,
@@ -599,14 +599,14 @@ impl P2PEventHandler {
                 );
             }
             P2PMessage::NewDagVertex(data) => {
-                info!(
+                debug!(
                     "[P2P] Received NewDagVertex from {} (size: {})",
                     source,
                     data.len()
                 );
             }
             P2PMessage::DagVertexRebroadcast(msg) => {
-                info!(
+                debug!(
                     "[P2P] Received DagVertexRebroadcast from {}: sender={}, nonce={}, size={}",
                     source,
                     msg.sender_peer_id,

@@ -16,8 +16,8 @@ mod p2p;
 mod peer_store;
 mod sync;
 use app::{
-    configure_consensus_signing_key, create_engine, create_engine_with_genesis, default_data_dir,
-    run_node,
+    configure_consensus_signing_key, create_engine, create_engine_required,
+    create_engine_with_genesis, default_data_dir, run_node,
 };
 
 fn write_cli_line(args: std::fmt::Arguments<'_>) -> Result<()> {
@@ -333,7 +333,7 @@ fn main() -> Result<()> {
             output,
             allow_state_root_migration,
         } => {
-            let engine = create_engine(&Some(data_dir), &network)?;
+            let engine = create_engine_required(&data_dir, &network)?;
             let snapshot = engine.export_state_snapshot_with_options(
                 &output,
                 network.as_str(),

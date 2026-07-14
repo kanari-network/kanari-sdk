@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use std::time::Duration;
 
@@ -175,14 +175,14 @@ impl SyncManager {
                 self.handle_new_checkpoint(checkpoint_data).await;
             }
             P2PMessage::NewDagVertex(vertex_data) => {
-                info!("[P2P] Received NewDagVertex");
+                debug!("[P2P] Received NewDagVertex");
                 self.handle_new_dag_vertex(vertex_data).await;
             }
             P2PMessage::DagVertexRebroadcast(msg) => {
                 if msg.sender_peer_id == self.local_peer_id {
                     return;
                 }
-                info!(
+                debug!(
                     "[P2P] Received DagVertexRebroadcast from {}",
                     msg.sender_peer_id
                 );
@@ -771,7 +771,7 @@ impl SyncManager {
                 );
                 return;
             }
-            info!(
+            debug!(
                 "[SYNC] Received old {} #{} (current: {}) - ignoring",
                 received_label, checkpoint.sequence, stats.height
             );
@@ -970,7 +970,7 @@ impl SyncManager {
         // not as the higher-level block metadata wrapper.
 
         if let Some(vertex) = Self::parse_message::<DagVertex>(&vertex_data, "DAG vertex") {
-            info!(
+            debug!(
                 "Received DAG vertex {} (round {}) from network with {} transactions",
                 hex::encode(vertex.id),
                 vertex.round,
@@ -979,7 +979,7 @@ impl SyncManager {
 
             match self.engine.add_network_dag_vertex(vertex.clone()) {
                 Ok(()) => {
-                    info!(
+                    debug!(
                         "Successfully added DAG vertex {} to local consensus",
                         hex::encode(vertex.id)
                     );

@@ -191,6 +191,11 @@ impl BlockReader {
         self.read_index_vec(entries)
     }
 
+    pub fn get_latest_own_blocks(&self, limit: usize) -> Vec<Data<Block>> {
+        let entries = self.inner.read().get_latest_own_blocks(limit);
+        self.read_index_vec(entries)
+    }
+
     pub fn get_others_blocks(
         &self,
         from_excluded: RoundNumber,

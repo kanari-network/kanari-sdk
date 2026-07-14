@@ -705,6 +705,25 @@ fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints(
 }
 
 #[test]
+fn required_persistent_engine_never_falls_back_to_memory() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let invalid_db_path = temp_dir.path().join("not-a-directory");
+    std::fs::write(&invalid_db_path, b"occupied by a file").unwrap();
+
+    let error = match BlockchainEngine::new_dir_required(invalid_db_path.to_str().unwrap()) {
+        Ok(_) => panic!("a required persistent engine must reject an invalid database path"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("Failed to open required persistent store"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn committed_transaction_history_survives_metadata_stripping() {
     let temp_dir = tempfile::tempdir().unwrap();
     let data_dir = temp_dir.path().to_str().unwrap();

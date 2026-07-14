@@ -193,6 +193,15 @@ pub fn create_engine(
     create_engine_with_genesis(data_dir, network, None)
 }
 
+pub fn create_engine_required(
+    data_dir: &std::path::Path,
+    network: &NetworkMode,
+) -> Result<BlockchainEngine> {
+    configure_engine_environment(Some(data_dir), network)?;
+    tracing::info!("Using required data directory: {}", data_dir.display());
+    BlockchainEngine::new_dir_required(path_to_env_value(data_dir)?)
+}
+
 pub fn create_engine_with_genesis(
     data_dir: &Option<std::path::PathBuf>,
     network: &NetworkMode,
@@ -605,7 +614,10 @@ pub async fn run_node(
         let dag_attempt_interval = if stats.pending_transactions > 0 && pending_gossip_ready {
             Duration::from_millis(100)
         } else {
-            Duration::from_millis(500)
+            // Keep Mysticeti warm while idle without continuously signing,
+            // serializing, and gossiping empty blocks. Pending work still
+            // switches back to the low-latency cadence immediately.
+            Duration::from_secs(2)
         };
         let should_produce_pending =
             pending_gossip_ready && last_dag_attempt.elapsed() >= dag_attempt_interval;
@@ -616,13 +628,17 @@ pub async fn run_node(
                 Ok(block_info) => {
                     did_work = true;
 
-                    tracing::info!(
-                        "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
-                        block_info.round,
-                        block_info.tx_count,
-                        block_info.executed,
-                        block_info.failed
-                    );
+                    if block_info.tx_count == 0 {
+                        tracing::debug!("DAG idle vertex (round #{}) produced", block_info.round);
+                    } else {
+                        tracing::info!(
+                            "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
+                            block_info.round,
+                            block_info.tx_count,
+                            block_info.executed,
+                            block_info.failed
+                        );
+                    }
 
                     if let Some(vertex) = block_info.vertex {
                         if let Some(vertex_len) = serialize_and_queue_message(
@@ -632,13 +648,21 @@ pub async fn run_node(
                             "Failed to serialize DAG vertex for broadcast",
                             "Failed to queue DAG vertex broadcast",
                         ) {
-                            tracing::info!(
-                                "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
-                                block_info.vertex_id,
-                                block_info.round,
-                                vertex_len
-                            );
-                            tracing::info!("DAG vertex queued for broadcast successfully");
+                            if block_info.tx_count == 0 {
+                                tracing::debug!(
+                                    "Broadcasting idle DAG vertex {} (round {}, {} bytes)",
+                                    block_info.vertex_id,
+                                    block_info.round,
+                                    vertex_len
+                                );
+                            } else {
+                                tracing::info!(
+                                    "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
+                                    block_info.vertex_id,
+                                    block_info.round,
+                                    vertex_len
+                                );
+                            }
                         }
                     } else {
                         tracing::warn!("No vertex in block_info to broadcast");
