@@ -6,7 +6,7 @@ use kanari_crypto::wallet::Wallet;
 use kanari_rpc_api::{BuildCallFunctionRequest, ObjectInfo};
 use kanari_rpc_client::RpcClient;
 use kanari_types::coin::CoinModule;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::{GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef};
 
 use crate::command::rpc_helpers::{map_nonce_error, sign_and_call_function};
@@ -108,7 +108,7 @@ pub fn select_native_coin_object(
     owned_objects: &[ObjectInfo],
     required_amount: u64,
 ) -> Result<SelectedCoinObject> {
-    select_coin_object(owned_objects, KANARI_TOKEN_TYPE, required_amount)
+    select_coin_object(owned_objects, GAS_COIN, required_amount)
 }
 
 pub fn select_native_gas_coin_object(

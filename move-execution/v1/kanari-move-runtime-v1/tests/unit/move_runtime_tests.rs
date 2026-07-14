@@ -1,5 +1,6 @@
 use super::*;
 use anyhow::Context;
+use kanari_types::gas_coin::GasModule;
 use move_core_types::identifier::Identifier;
 use move_package::BuildConfig;
 use serde::Deserialize;
@@ -268,10 +269,7 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
     let recipient = AccountAddress::from_hex_literal(
         "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3",
     )?;
-    let coin_type = format!(
-        "0x2::coin::Coin<{}>",
-        kanari_types::kanari::KANARI_TOKEN_TYPE
-    );
+    let coin_type = format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN);
     let transfer_coin_id = "0x15fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a";
     let gas_coin_id = "0xdfa10cddb4fb9b10fdb5083fe6bc1e03970cbdd891b1e31e894070c33462e672";
     let owner_kind = ObjectOwnerKind::AddressOwner(sender.to_hex_literal());
@@ -298,8 +296,8 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
     let transfer_coin_before = coin_balance(&transfer_coin.data);
 
     let changeset = runtime.execute_entry_function_with_object_context_and_persistence(
-        &kanari_types::kanari::KanariModule::get_module_id()?,
-        kanari_types::kanari::KanariModule::function_names().transfer,
+        &GasModule::get_module_id()?,
+        GasModule::function_names().transfer,
         vec![],
         vec![
             vec![],

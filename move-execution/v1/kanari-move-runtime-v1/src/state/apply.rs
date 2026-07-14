@@ -35,7 +35,7 @@ impl StateManager {
     fn supply_tracking_token_types(&self, changeset: &ChangeSet) -> BTreeSet<String> {
         let mut token_types: BTreeSet<String> =
             self.global_token_supplies.keys().cloned().collect();
-        token_types.insert(KANARI_TOKEN_TYPE.to_string());
+        token_types.insert(GAS_COIN.to_string());
 
         for (_, token_type, _) in &changeset.treasuries {
             token_types.insert(Self::normalize_token_type(token_type));
@@ -225,7 +225,7 @@ impl StateManager {
         if changeset.treasuries.is_empty()
             && self
                 .global_token_supplies
-                .get(KANARI_TOKEN_TYPE)
+                .get(GAS_COIN)
                 .copied()
                 .unwrap_or(0)
                 > self.total_supply
@@ -256,7 +256,7 @@ impl StateManager {
         token_type: &str,
     ) {
         owners_to_recompute.insert(owner);
-        if token_type == KANARI_TOKEN_TYPE {
+        if token_type == GAS_COIN {
             native_object_changed_owners.insert(owner);
         }
     }
@@ -353,7 +353,7 @@ impl StateManager {
         self.save_internal(&key_owner, &owner)?;
         self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
 
-        if token_type == KANARI_TOKEN_TYPE {
+        if token_type == GAS_COIN {
             self.save_native_total_supply(total_supply)?;
         }
 
@@ -464,7 +464,7 @@ impl StateManager {
             .collect::<BTreeSet<_>>();
         for (_, created) in &changeset.created_objects {
             if Self::object_balance_token_for_type_and_data(&created.type_, &created.data)
-                .is_some_and(|token_type| token_type == KANARI_TOKEN_TYPE)
+                .is_some_and(|token_type| token_type == GAS_COIN)
             {
                 native_snapshot_owners.insert(created.owner);
             }
@@ -472,7 +472,7 @@ impl StateManager {
         for object_id in &changeset.deleted_objects {
             if let Some((_, existing)) = self.load_stored_object_by_any_id(object_id)?
                 && Self::object_balance_token_for_type_and_data(&existing.type_name, &existing.data)
-                    .is_some_and(|token_type| token_type == KANARI_TOKEN_TYPE)
+                    .is_some_and(|token_type| token_type == GAS_COIN)
             {
                 native_snapshot_owners.insert(existing.owner);
             }
@@ -485,7 +485,7 @@ impl StateManager {
                 .unwrap_or(0);
             let object_balance = self
                 .compute_owned_token_balances(owner, None)?
-                .get(KANARI_TOKEN_TYPE)
+                .get(GAS_COIN)
                 .copied()
                 .unwrap_or(0);
             native_balances_before.insert(owner, (ledger_balance, object_balance));
@@ -530,7 +530,7 @@ impl StateManager {
         for (address, change) in &changeset.owner_deltas {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
             let old_balances = owner_state.token_balances.clone();
-            let native_token = KANARI_TOKEN_TYPE.to_string();
+            let native_token = GAS_COIN.to_string();
 
             if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
@@ -581,7 +581,7 @@ impl StateManager {
 
             self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
 
-            if token_type == KANARI_TOKEN_TYPE {
+            if token_type == GAS_COIN {
                 self.save_native_total_supply(total_supply.total_supply)?;
             }
         }
@@ -599,7 +599,7 @@ impl StateManager {
         // inventory instead of a parallel per-owner cache.
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let normalized_token_type = Self::normalize_token_type(token_type);
-            if normalized_token_type == KANARI_TOKEN_TYPE {
+            if normalized_token_type == GAS_COIN {
                 // Native KANARI balance is applied from owner deltas so gas and
                 // transfers remain exact. Object-derived hints must not double count it.
                 continue;
@@ -715,11 +715,20 @@ impl StateManager {
                 }
                 let existing_native_coin =
                     Self::balance_token_amount(&existing.type_name, &existing.data)
-                        .is_some_and(|(token_type, _)| token_type == KANARI_TOKEN_TYPE);
+                        .is_some_and(|(token_type, _)| token_type == GAS_COIN);
                 let is_designated_gas_object = changeset.gas_object_refs.iter().any(|gas_ref| {
                     Self::canonical_owned_object_id(&gas_ref.object_id) == canonical_obj_id
                 });
-                if existing_native_coin && is_designated_gas_object {
+                // Older/internal ChangeSets do not carry an explicit gas object. In that
+                // case, charge a native coin already being written by the transaction so
+                // object-backed balance reconciliation cannot erase the owner debit.
+                // Explicit gas references always take precedence when they are present.
+                let is_implicit_gas_object = changeset.gas_object_refs.is_empty()
+                    && changeset
+                        .owner_deltas
+                        .get(&existing.owner)
+                        .is_some_and(|change| change.balance_delta < 0);
+                if existing_native_coin && (is_designated_gas_object || is_implicit_gas_object) {
                     let sender_native_debit: u64 = changeset
                         .owner_deltas
                         .get(&existing.owner)
@@ -863,7 +872,7 @@ impl StateManager {
             else {
                 continue;
             };
-            if token_type != KANARI_TOKEN_TYPE {
+            if token_type != GAS_COIN {
                 continue;
             }
             ensure!(

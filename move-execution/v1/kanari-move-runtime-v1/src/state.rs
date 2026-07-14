@@ -14,7 +14,7 @@ use kanari_types::clock::ClockModule;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::event::Event;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::object::{IDRecord, UIDRecord};
 use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
@@ -75,7 +75,7 @@ impl OwnerState {
     pub fn with_native_balance(address: AccountAddress, balance: u64) -> Self {
         let mut account = Self::new(address);
         if balance > 0 {
-            account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+            account.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(balance));
         }
         account
     }
@@ -104,7 +104,7 @@ impl OwnerState {
     }
 
     pub fn native_balance(&self) -> u64 {
-        self.get_token_balance(KANARI_TOKEN_TYPE)
+        self.get_token_balance(GAS_COIN)
     }
 
     pub fn owner_address(&self) -> AccountAddress {
@@ -410,8 +410,8 @@ impl StateManager {
         // Recover native total supply from older databases that persisted the
         // native treasury/global balances but never backfilled `total_supply`.
         let recovered_total_supply = if persisted_total_supply == 0 {
-            Self::load_persisted_supply_from_store(store.as_ref(), KANARI_TOKEN_TYPE)
-                .or_else(|| global_token_supplies.get(KANARI_TOKEN_TYPE).copied())
+            Self::load_persisted_supply_from_store(store.as_ref(), GAS_COIN)
+                .or_else(|| global_token_supplies.get(GAS_COIN).copied())
                 .unwrap_or(0)
         } else {
             persisted_total_supply
@@ -468,9 +468,13 @@ impl StateManager {
                 .context("Failed to persist rebuilt derived indexes on startup")?;
         }
 
-        if state
-            .repair_legacy_native_wallet_overcount()
-            .context("Failed to repair native wallet supply on startup")?
+        let wallet_supply_index_version = state
+            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
+            .unwrap_or(0);
+        if wallet_supply_index_version < WALLET_SUPPLY_INDEX_VERSION
+            && state
+                .repair_legacy_native_wallet_overcount()
+                .context("Failed to repair native wallet supply on startup")?
         {
             state
                 .commit()
@@ -1089,7 +1093,7 @@ impl StateManager {
         self.load_internal(&Self::owner_state_key(owner))
     }
 
-    pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
+    fn save_owner_state_without_supply_index(&mut self, owner_state: &OwnerState) -> Result<()> {
         if owner_state.is_empty() {
             self.overlay
                 .insert(Self::owner_state_key(&owner_state.address), None);
@@ -1098,6 +1102,33 @@ impl StateManager {
             self.save_owner_record(owner_state)?;
             self.add_to_index_list(OWNER_INDEX_KEY, owner_state.address.to_hex_literal())
         }
+    }
+
+    pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
+        let old_balances = self
+            .load_owner_state(&owner_state.address)?
+            .map(|state| state.token_balances)
+            .unwrap_or_default();
+        self.save_owner_state_without_supply_index(owner_state)?;
+        let old_native = old_balances
+            .get(GAS_COIN)
+            .map(|balance| balance.value())
+            .unwrap_or(0);
+        let new_native = owner_state.native_balance();
+        let cached_native = self
+            .global_token_supplies
+            .get(GAS_COIN)
+            .copied()
+            .unwrap_or(0);
+        let projected_native =
+            u128::from(cached_native.saturating_sub(old_native)) + u128::from(new_native);
+        let update_supply_index =
+            old_native == new_native || projected_native <= u128::from(self.total_supply);
+        if update_supply_index && self.capture_supply_changed(owner_state, &old_balances)? {
+            let supplies = self.global_token_supplies.clone();
+            self.save_internal(b"global_token_supplies", &supplies)?;
+        }
+        Ok(())
     }
 
     pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {

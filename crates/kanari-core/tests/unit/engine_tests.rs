@@ -8,7 +8,7 @@ use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::CoinModule;
-use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
+use kanari_types::gas_coin::{GAS_COIN, GasModule};
 use kanari_types::transaction::{
     GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
 };
@@ -95,7 +95,7 @@ fn fund_sender_with_coin(
     coin_object_id: &str,
     balance: u64,
 ) {
-    fund_sender_with_coin_type(engine, address, coin_object_id, balance, KANARI_TOKEN_TYPE);
+    fund_sender_with_coin_type(engine, address, coin_object_id, balance, GAS_COIN);
 }
 
 fn fund_sender_with_coin_type(
@@ -125,7 +125,7 @@ fn fund_sender_with_coin_type(
             version: 1,
         },
     ));
-    if token_type == KANARI_TOKEN_TYPE {
+    if token_type == GAS_COIN {
         create_coin.mint(addr, balance);
     }
     state
@@ -152,7 +152,7 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
             ),
             uid: None,
             id: None,
-            type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
+            type_: CoinModule::coin_type(GAS_COIN),
             data: coin_data,
             version: 1,
         },
@@ -164,7 +164,7 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
             .unwrap();
         let mut owner_state = OwnerState::with_native_balance(owner, ledger_balance_after_fee);
         owner_state.set_token_balance(
-            KANARI_TOKEN_TYPE.to_string(),
+            GAS_COIN.to_string(),
             BalanceRecord::new(ledger_balance_after_fee),
         );
         state.save_owner_state(&owner_state).unwrap();
@@ -172,7 +172,7 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
 
     let account = engine.get_owner_info("0x1111").unwrap();
     assert_eq!(
-        account.balances.get(KANARI_TOKEN_TYPE).copied(),
+        account.balances.get(GAS_COIN).copied(),
         Some(ledger_balance_after_fee)
     );
 }
@@ -194,7 +194,7 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
 
     let sender_before = engine
         .get_owner_info(&sender.address)
-        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .and_then(|owner| owner.balances.get(GAS_COIN).copied())
         .expect("funded sender balance");
     let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
@@ -224,7 +224,7 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     assert_eq!(
         engine
             .get_owner_info(&sender.address)
-            .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied()),
+            .and_then(|owner| owner.balances.get(GAS_COIN).copied()),
         Some(sender_before)
     );
     drive_consensus_until_mempool_empty(&engine);
@@ -238,11 +238,11 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     assert_eq!(effects[0].status, "success", "{effects:#?}");
     let sender_after = engine
         .get_owner_info(&sender.address)
-        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .and_then(|owner| owner.balances.get(GAS_COIN).copied())
         .expect("sender balance after commit");
     let recipient_after = engine
         .get_owner_info(&recipient.address)
-        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .and_then(|owner| owner.balances.get(GAS_COIN).copied())
         .expect("recipient balance after commit");
     assert!(sender_after < sender_before);
     assert_eq!(recipient_after, 3_000_000);
@@ -1506,7 +1506,7 @@ fn non_native_execute_function_requires_full_object_ref_metadata() {
         sender: sender.tagged_address(),
         module: CoinModule::module_path(),
         function: CoinModule::function_names().join_entry.to_string(),
-        type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+        type_args: vec![GAS_COIN.to_string()],
         args: vec![],
         object_inputs: vec![ObjectInput {
             object_ref: ObjectRef::new("0xaaaa", None, None),
@@ -1549,7 +1549,7 @@ fn gas_payment_object_must_be_native_kanari_coin() {
 
     let tx = Transaction::ExecuteFunction {
         sender: sender.tagged_address(),
-        module: KanariModule::module_path(),
+        module: GasModule::module_path(),
         function: "burn_amount".to_string(),
         type_args: vec![],
         args: vec![bcs::to_bytes(&1u64).unwrap()],
@@ -1610,7 +1610,7 @@ fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
         sender: sender.tagged_address(),
         module: CoinModule::module_path(),
         function: CoinModule::function_names().join_entry.to_string(),
-        type_args: vec![KANARI_TOKEN_TYPE.to_string()],
+        type_args: vec![GAS_COIN.to_string()],
         args: vec![],
         object_inputs: vec![ObjectInput {
             object_ref: native_coin_object_ref("0xaaaa", 1_000_000),

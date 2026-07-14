@@ -353,7 +353,7 @@ mod tests {
     use kanari_rpc_api::methods;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::error::KanariUnwrapExt;
-    use kanari_types::kanari::KANARI_TOKEN_TYPE;
+    use kanari_types::gas_coin::GAS_COIN;
     use kanari_types::transaction::{SignedTransaction, Transaction};
     use move_core_types::account_address::AccountAddress;
     use std::sync::OnceLock;
@@ -383,14 +383,10 @@ mod tests {
 
     fn seed_runtime_state(state: &mut StateManager) {
         let owner = AccountAddress::from_hex_literal("0x1111").invariant("valid owner address");
-        let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+        let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
 
         let mut cs = ChangeSet::new();
-        cs.add_treasury(
-            owner,
-            KANARI_TOKEN_TYPE.to_string(),
-            state.total_supply + 500,
-        );
+        cs.add_treasury(owner, GAS_COIN.to_string(), state.total_supply + 500);
         cs.created_objects.push((
             "0xaaa1".to_string(),
             CreatedObject {
@@ -425,7 +421,7 @@ mod tests {
         let mut owner_state = state
             .get_owner_state(&owner)
             .unwrap_or_else(|| OwnerState::new(owner));
-        owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(500));
+        owner_state.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(500));
         state
             .save_owner_state(&owner_state)
             .invariant("seed runtime state owner state");
@@ -433,7 +429,7 @@ mod tests {
             state
                 .get_owner_state(&owner)
                 .invariant("seeded owner state")
-                .get_token_balance(KANARI_TOKEN_TYPE),
+                .get_token_balance(GAS_COIN),
             500
         );
     }
@@ -582,7 +578,7 @@ mod tests {
         )
         .await;
         assert!(hex_ends_with(&owner["owner"], "1111"));
-        assert_eq!(owner["balances"][KANARI_TOKEN_TYPE], 500);
+        assert_eq!(owner["balances"][GAS_COIN], 500);
         assert!(
             !owner["owned_objects"]
                 .as_array()
@@ -599,7 +595,7 @@ mod tests {
         .await;
         let balances = all_balances["balances"].as_array().invariant("json array");
         assert_eq!(balances.len(), 1);
-        assert_eq!(balances[0]["token_type"], KANARI_TOKEN_TYPE);
+        assert_eq!(balances[0]["token_type"], GAS_COIN);
         assert_eq!(balances[0]["balance"], 500);
 
         let tokens = rpc_call(app.clone(), methods::LIST_TOKENS, serde_json::json!([]), 6).await;

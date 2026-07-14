@@ -6,7 +6,7 @@ use kanari_move_runtime_v1::state::OwnerState;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::{
     ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectRef,
     SignedTransaction, Transaction,
@@ -50,7 +50,7 @@ fn fund_sender_with_coin(
     let previous_total = state.total_supply;
     let previous_visible = state
         .global_token_supplies
-        .get(KANARI_TOKEN_TYPE)
+        .get(GAS_COIN)
         .copied()
         .unwrap_or(previous_total);
 
@@ -64,7 +64,7 @@ fn fund_sender_with_coin(
             ),
             uid: None,
             id: None,
-            type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+            type_: format!("0x2::coin::Coin<{}>", GAS_COIN),
             data: coin_data,
             version: 1,
         },
@@ -76,7 +76,7 @@ fn fund_sender_with_coin(
     let mut owner_state = state
         .get_owner_state(&owner)
         .unwrap_or_else(|| OwnerState::new(owner));
-    owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+    owner_state.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(balance));
     state.save_owner_state(&owner_state).unwrap();
 
     let updated_total = previous_total.saturating_add(balance);
@@ -86,7 +86,7 @@ fn fund_sender_with_coin(
     state
         .store
         .save(
-            format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
+            format!("supply:{}", GAS_COIN).as_bytes(),
             &TreasuryCap {
                 total_supply: updated_total,
             },
@@ -94,7 +94,7 @@ fn fund_sender_with_coin(
         .unwrap();
     state
         .global_token_supplies
-        .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
+        .insert(GAS_COIN.to_string(), updated_visible);
     state
         .store
         .save(b"global_token_supplies", &state.global_token_supplies)
@@ -194,7 +194,7 @@ fn state_snapshot_rejects_tampered_entries_before_import() {
 
 fn assert_fresh_engine_exposes_separate_genesis_native_gas_coin(engine: &BlockchainEngine) {
     let owner = KanariAddress::DEV_ADDRESS;
-    let native_coin_type = CoinModule::coin_type(KANARI_TOKEN_TYPE);
+    let native_coin_type = CoinModule::coin_type(GAS_COIN);
 
     let owner_info = engine
         .get_owner_info(owner)

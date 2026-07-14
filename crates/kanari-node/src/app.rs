@@ -6,7 +6,7 @@ use kanari_core::BlockchainEngine;
 use kanari_rpc_api::{CanonicalStateSnapshotResponse, CompareCanonicalStateSnapshotRequest};
 use kanari_rpc_server::start_server_with_transaction_broadcaster;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::KanariModule;
+use kanari_types::gas_coin::GasModule;
 use libp2p::identity::Keypair;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -500,7 +500,7 @@ pub async fn run_node(
     let runtime_guards = engine.runtime_guard_config();
     let stats = engine.get_stats();
 
-    let total_supply_str = KanariModule::format_kanari(stats.total_supply);
+    let total_supply_str = GasModule::format_gas(stats.total_supply);
 
     let (genesis_root, size_bytes) = genesis_root_info(&engine);
     let dao_addr = KanariAddress::DAO_ADDRESS;

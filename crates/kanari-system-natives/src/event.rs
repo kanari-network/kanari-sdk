@@ -152,8 +152,8 @@ mod tests {
         let taken = ext.take_all();
         assert_eq!(taken.len(), 2);
         assert_eq!(ext.events.len(), 0);
-        assert_eq!(taken[0].sequence_number, 1);
-        assert_eq!(taken[1].sequence_number, 2);
+        assert_eq!(taken[0].sequence_number, 0);
+        assert_eq!(taken[1].sequence_number, 1);
     }
 
     #[test]

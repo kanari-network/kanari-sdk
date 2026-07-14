@@ -4,7 +4,7 @@
 pub mod address;
 pub mod balance;
 pub mod coin;
-pub mod kanari;
+pub mod gas_coin;
 pub mod pay;
 pub mod transfer;
 

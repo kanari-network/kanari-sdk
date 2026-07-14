@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use kanari_rpc_api::BuildNativeTransferRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
@@ -27,7 +27,7 @@ const MAX_LANE_SATURATION_RETRIES: usize = 240;
 const LANE_SATURATION_RETRY_DELAY_MS: u64 = 250;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
-    let native_coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let native_coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     owner.owned_objects.as_ref().map_or(0, |objects| {
         objects
             .iter()
@@ -153,7 +153,7 @@ impl StressTest {
             .await
             .context("Failed to get sender owner state")?;
 
-        let native_balance = owner.balances.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
+        let native_balance = owner.balances.get(GAS_COIN).copied().unwrap_or(0);
         let total_needed = amount_mist.saturating_mul(self.count);
         let gas_per_tx = gas_limit.saturating_mul(gas_price);
         let total_gas = gas_per_tx.saturating_mul(self.count);
@@ -352,7 +352,7 @@ impl StressTest {
                         } else {
                             eprintln!(
                                 "           Hint: native transfer needs two distinct Coin<{}> objects",
-                                KANARI_TOKEN_TYPE
+                                GAS_COIN
                             );
                             eprintln!(
                                 "                 one mutable transfer coin and one separate gas coin"

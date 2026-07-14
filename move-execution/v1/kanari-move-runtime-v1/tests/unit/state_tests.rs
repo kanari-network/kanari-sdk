@@ -11,7 +11,7 @@ fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Re
     state.total_supply = total_supply;
     state.store.save(b"total_supply", &total_supply)?;
     state.store.save(
-        &StateManager::supply_key(KANARI_TOKEN_TYPE),
+        &StateManager::supply_key(GAS_COIN),
         &TreasuryCap { total_supply },
     )?;
     Ok(())
@@ -142,7 +142,7 @@ fn identical_system_clock_replay_does_not_increment_object_version() -> Result<(
 fn genesis_seeds_dev_wallet_with_separate_native_gas_coin() -> Result<()> {
     let state = StateManager::new_in_memory();
     let dev = AccountAddress::from_hex_literal(kanari_types::address::Address::DEV_ADDRESS)?;
-    let native_coin_type = kanari_types::coin::CoinModule::coin_type(KANARI_TOKEN_TYPE);
+    let native_coin_type = kanari_types::coin::CoinModule::coin_type(GAS_COIN);
 
     let native_coin_ids: Vec<_> = state
         .get_owned_objects(&dev)?
@@ -168,7 +168,7 @@ fn treasury_update_syncs_native_total_supply() -> Result<()> {
     let updated_supply = state.total_supply + 777;
 
     let mut cs = ChangeSet::new();
-    cs.add_treasury(owner, KANARI_TOKEN_TYPE.to_string(), updated_supply);
+    cs.add_treasury(owner, GAS_COIN.to_string(), updated_supply);
     state.apply_changeset(&cs)?;
 
     assert_eq!(state.total_supply, updated_supply);
@@ -179,14 +179,13 @@ fn treasury_update_syncs_native_total_supply() -> Result<()> {
 fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 400)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 500,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
     let err = state
         .validate_supply_invariants()
@@ -203,16 +202,15 @@ fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
 fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 600)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 500,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.total_supply, base.total_supply + 600);
     assert_eq!(
         summary.wallet_visible_supply,
@@ -230,18 +228,17 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
 fn native_supply_summary_prefers_cached_visible_supply_when_owner_index_is_stale() -> Result<()> {
     let dao = AccountAddress::from_hex_literal("0x2222")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(dao, 210))?;
     set_native_supply_for_test(&mut state, base.total_supply + 210)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 210,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 210);
 
     state.store.save(b"owner_index", &Vec::<String>::new())?;
 
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(
         summary.wallet_visible_supply,
         base.wallet_visible_supply + 210
@@ -268,7 +265,7 @@ fn state_root_ignores_owner_indexes_and_supply_caches() -> Result<()> {
     )?;
     state.save_internal(
         b"global_token_supplies",
-        &BTreeMap::from([(KANARI_TOKEN_TYPE.to_string(), 1_000u64)]),
+        &BTreeMap::from([(GAS_COIN.to_string(), 1_000u64)]),
     )?;
     state.save_internal(
         b"metadata_symbol:0x2::kanari::KANARI",
@@ -748,7 +745,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
     set_native_supply_for_test(&mut state, 400)?;
     state
         .global_token_supplies
-        .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+        .insert(GAS_COIN.to_string(), 500);
 
     let root_before = state.compute_state_root();
     let sender_balance_before = state
@@ -782,7 +779,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
         .get_owner_state(&owner)
         .invariant("owner state should exist")
         .native_balance();
-    let before_visible = state.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
+    let before_visible = state.indexed_wallet_supply(GAS_COIN)?;
 
     let mut changeset = ChangeSet::new();
     changeset.created_objects.push((
@@ -806,10 +803,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
             .native_balance(),
         before_balance
     );
-    assert_eq!(
-        state.indexed_wallet_supply(KANARI_TOKEN_TYPE)?,
-        before_visible
-    );
+    assert_eq!(state.indexed_wallet_supply(GAS_COIN)?, before_visible);
 
     Ok(())
 }
@@ -821,14 +815,13 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     let token_type = "0x2::test::TEST";
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(owner, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 500)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 500,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
     let before_balance = state
         .get_owner_state(&owner)
@@ -879,10 +872,10 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
     let bob = AccountAddress::from_hex_literal("0x2222")?;
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
     alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
     let mut init = ChangeSet::new();
@@ -958,12 +951,10 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
         10
     );
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 1_000
     );
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.accounted_supply, summary.total_supply);
     assert_eq!(summary.untracked_supply, 0);
     state.validate_supply_invariants()?;
@@ -976,19 +967,18 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let bob = AccountAddress::from_hex_literal("0x2222")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 1_000,
-    );
-    let before_summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
+    let before_summary = state.token_supply_summary(GAS_COIN)?;
 
     let mut transfer = ChangeSet::new();
     transfer.transfer(alice, bob, 100);
-    transfer.add_token_balance_set(bob, KANARI_TOKEN_TYPE.to_string(), 100);
+    transfer.add_token_balance_set(bob, GAS_COIN.to_string(), 100);
 
     state.apply_changeset(&transfer)?;
 
@@ -1007,9 +997,7 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
         100
     );
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         before_summary.wallet_visible_supply
     );
     state.validate_supply_invariants()?;
@@ -1021,14 +1009,13 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
 fn native_self_transfer_preserves_balance_except_explicit_gas() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
-    state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
-        base.wallet_visible_supply + 1_000,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
 
     let mut transfer = ChangeSet::new();
     transfer.transfer(alice, alice, 100);
@@ -1040,9 +1027,7 @@ fn native_self_transfer_preserves_balance_except_explicit_gas() -> Result<()> {
         "self-transfer must not mint or burn native balance"
     );
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 1_000
     );
     state.validate_supply_invariants()?;
@@ -1067,10 +1052,10 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     let bob = AccountAddress::from_hex_literal("0x2222")?;
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
     alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
     let mut init = ChangeSet::new();
@@ -1131,9 +1116,7 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
         10
     );
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 1_000
     );
     state.validate_supply_invariants()?;
@@ -1146,10 +1129,10 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let gas_collector = AccountAddress::from_hex_literal("0x3333")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
     coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
 
@@ -1231,12 +1214,12 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     let custom_token = "0x2::usdc::USDC";
     let custom_coin_type = format!("0x2::coin::Coin<{}>", custom_token);
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
     state.global_token_supplies.insert(
-        KANARI_TOKEN_TYPE.to_string(),
+        GAS_COIN.to_string(),
         base.wallet_visible_supply + 10_000 + 6_614,
     );
 
@@ -1262,9 +1245,7 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     state.apply_changeset(&mint)?;
 
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 10_000
     );
     assert_eq!(
@@ -1297,9 +1278,9 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let bob = AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)?;
     let gas_collector = bob;
-    let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+    let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
@@ -1368,7 +1349,7 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
         210,
         "recipient must receive the transferred native coin amount plus gas credit"
     );
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.untracked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
 
@@ -1414,7 +1395,7 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
         320,
         "DAO must preserve prior gas credits while receiving another object and gas credit"
     );
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.untracked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
 
@@ -1570,7 +1551,7 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     let custom_token = "0x2::usdc::USDC";
     let custom_coin_type = format!("0x2::coin::Coin<{}>", custom_token);
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     state.save_owner_state(&OwnerState::with_native_balance(stale_account, 6_614))?;
@@ -1619,9 +1600,7 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
         210
     );
     assert_eq!(
-        state
-            .token_supply_summary(KANARI_TOKEN_TYPE)?
-            .wallet_visible_supply,
+        state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 10_000
     );
     assert_eq!(
@@ -1647,7 +1626,7 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
     )?;
     let holder_owner = AccountAddress::from_hex_literal("0x2222")?;
     let mut state = StateManager::new_in_memory();
-    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let base = state.token_supply_summary(GAS_COIN)?;
 
     state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     state.save_owner_state(&OwnerState::with_native_balance(stale_account, 6_614))?;
@@ -1655,7 +1634,7 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
         holder_object_id: "0xlock".to_string(),
         holder_type: "0x2::escrow::Vault".to_string(),
         owner: holder_owner,
-        token_type: KANARI_TOKEN_TYPE.to_string(),
+        token_type: GAS_COIN.to_string(),
         amount: 1_000,
     }])?;
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
@@ -1677,7 +1656,7 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
         10_000
     );
 
-    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.total_supply, base.total_supply + 10_000);
     assert_eq!(
         summary.wallet_visible_supply,

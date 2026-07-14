@@ -15,13 +15,13 @@ fn test_all_modules_have_valid_module_ids() {
     // Test Kanari System Modules
     assert!(balance::BalanceModule::get_module_id().is_ok());
     assert!(coin::CoinModule::get_module_id().is_ok());
-    assert!(kanari::KanariModule::get_module_id().is_ok());
+    assert!(gas_coin::GasModule::get_module_id().is_ok());
     assert!(transfer::TransferModule::get_module_id().is_ok());
     assert!(tx_context::TxContextModule::get_module_id().is_ok());
 
     // Test Move Stdlib Modules
     assert!(ascii::AsciiModule::get_module_id().is_ok());
-    // assert!(error::ErrorModule::get_module_id().is_ok());
+    assert!(kanari_types::stdlib::error::ErrorModule::get_module_id().is_ok());
     assert!(option::OptionModule::get_module_id().is_ok());
     assert!(signer::SignerModule::get_module_id().is_ok());
     assert!(string::StringModule::get_module_id().is_ok());
@@ -57,7 +57,7 @@ fn test_module_names_match_move_modules() {
     let coin_module = coin::CoinModule::get_module_id().unwrap();
     assert_eq!(coin_module.name().as_str(), "coin");
 
-    let kanari_module = kanari::KanariModule::get_module_id().unwrap();
+    let kanari_module = gas_coin::GasModule::get_module_id().unwrap();
     assert_eq!(kanari_module.name().as_str(), "kanari");
 
     let ascii_module = ascii::AsciiModule::get_module_id().unwrap();
@@ -87,11 +87,11 @@ fn test_function_names_are_accessible() {
 #[test]
 fn test_kanari_constants_match_move() {
     // Test that Kanari constants are consistent
-    assert_eq!(kanari::KanariModule::MIST_PER_KANARI, 1_000_000_000);
-    assert_eq!(kanari::KanariModule::TOTAL_SUPPLY_KANARI, 11_000_000);
+    assert_eq!(gas_coin::GasModule::MIST_PER_GAS, 1_000_000_000);
+    assert_eq!(gas_coin::GasModule::TOTAL_SUPPLY_GAS, 11_000_000);
     assert_eq!(
-        kanari::KanariModule::TOTAL_SUPPLY_MIST,
-        kanari::KanariModule::TOTAL_SUPPLY_KANARI * kanari::KanariModule::MIST_PER_KANARI
+        gas_coin::GasModule::TOTAL_SUPPLY_MIST,
+        gas_coin::GasModule::TOTAL_SUPPLY_GAS * gas_coin::GasModule::MIST_PER_GAS
     );
 }
 
@@ -206,13 +206,13 @@ fn test_module_id_uniqueness() {
     // Kanari system modules
     module_ids.insert(balance::BalanceModule::get_module_id().unwrap());
     module_ids.insert(coin::CoinModule::get_module_id().unwrap());
-    module_ids.insert(kanari::KanariModule::get_module_id().unwrap());
+    module_ids.insert(gas_coin::GasModule::get_module_id().unwrap());
     module_ids.insert(transfer::TransferModule::get_module_id().unwrap());
     module_ids.insert(tx_context::TxContextModule::get_module_id().unwrap());
 
     // Stdlib modules
     module_ids.insert(ascii::AsciiModule::get_module_id().unwrap());
-    // module_ids.insert(error::ErrorModule::get_module_id().unwrap());
+    module_ids.insert(kanari_types::stdlib::error::ErrorModule::get_module_id().unwrap());
     module_ids.insert(option::OptionModule::get_module_id().unwrap());
     module_ids.insert(signer::SignerModule::get_module_id().unwrap());
     module_ids.insert(string::StringModule::get_module_id().unwrap());
@@ -225,14 +225,14 @@ fn test_module_id_uniqueness() {
 #[test]
 fn test_kanari_amount_conversions() {
     // Test Kanari amount conversions work correctly
-    let one_kanari = kanari::KanariModule::kanari_to_mist(1);
+    let one_kanari = gas_coin::GasModule::gas_to_mist(1);
     assert_eq!(one_kanari, 1_000_000_000);
 
-    let back_to_kanari = kanari::KanariModule::mist_to_kanari(one_kanari);
+    let back_to_kanari = gas_coin::GasModule::mist_to_gas(one_kanari);
     assert_eq!(back_to_kanari, 1);
 
     // Test formatting
-    let formatted = kanari::KanariModule::format_kanari(1_500_000_000);
+    let formatted = gas_coin::GasModule::format_gas(1_500_000_000);
     assert!(formatted.contains("1.5"));
     assert!(formatted.contains("KANARI"));
 }

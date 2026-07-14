@@ -4,7 +4,7 @@ use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::state::OwnerState;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 
@@ -42,7 +42,7 @@ fn fund_sender_with_coin(
     let previous_total = state.total_supply;
     let previous_visible = state
         .global_token_supplies
-        .get(KANARI_TOKEN_TYPE)
+        .get(GAS_COIN)
         .copied()
         .unwrap_or(previous_total);
 
@@ -56,7 +56,7 @@ fn fund_sender_with_coin(
             ),
             uid: None,
             id: None,
-            type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
+            type_: CoinModule::coin_type(GAS_COIN),
             data: coin_data,
             version: 1,
         },
@@ -70,13 +70,10 @@ fn fund_sender_with_coin(
         .unwrap_or_else(|| OwnerState::new(owner));
     let next_balance = owner_state
         .token_balances
-        .get(KANARI_TOKEN_TYPE)
+        .get(GAS_COIN)
         .map(|record| record.value.saturating_add(balance))
         .unwrap_or(balance);
-    owner_state.set_token_balance(
-        KANARI_TOKEN_TYPE.to_string(),
-        BalanceRecord::new(next_balance),
-    );
+    owner_state.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(next_balance));
     state.save_owner_state(&owner_state).unwrap();
 
     let updated_total = previous_total.saturating_add(balance);
@@ -86,7 +83,7 @@ fn fund_sender_with_coin(
     state
         .store
         .save(
-            format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
+            format!("supply:{}", GAS_COIN).as_bytes(),
             &TreasuryCap {
                 total_supply: updated_total,
             },
@@ -94,7 +91,7 @@ fn fund_sender_with_coin(
         .unwrap();
     state
         .global_token_supplies
-        .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
+        .insert(GAS_COIN.to_string(), updated_visible);
     state
         .store
         .save(b"global_token_supplies", &state.global_token_supplies)

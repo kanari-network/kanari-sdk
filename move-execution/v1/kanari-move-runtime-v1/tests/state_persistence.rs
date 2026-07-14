@@ -6,7 +6,7 @@ use kanari_move_runtime_v1::{
     state::{OwnerState, StateManager},
 };
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
 use std::collections::BTreeMap;
@@ -32,10 +32,10 @@ fn open_state(db_path: &Path) -> Result<StateManager> {
 fn seed_legacy_supply(db_path: &Path, total_supply: u64) -> Result<()> {
     let store = PersistentStore::open_with_path(Some(db_path.to_path_buf()))?;
     let mut global_supplies = BTreeMap::new();
-    global_supplies.insert(KANARI_TOKEN_TYPE.to_string(), total_supply);
+    global_supplies.insert(GAS_COIN.to_string(), total_supply);
 
     let mut supply_key = b"supply:".to_vec();
-    supply_key.extend_from_slice(KANARI_TOKEN_TYPE.as_bytes());
+    supply_key.extend_from_slice(GAS_COIN.as_bytes());
 
     // Simulate older databases that persisted the native supply but not `total_supply`.
     store.save(&supply_key, &total_supply)?;

@@ -33,7 +33,7 @@ impl StateManager {
 
         let mut totals = BTreeMap::<String, u64>::new();
         for ((_, token_type), amount) in &object_balances {
-            if token_type != KANARI_TOKEN_TYPE {
+            if token_type != GAS_COIN {
                 let total = totals.entry(token_type.clone()).or_insert(0);
                 *total = total
                     .checked_add(*amount)
@@ -46,12 +46,12 @@ impl StateManager {
                 .map(|state| state.native_balance())
                 .unwrap_or(0);
             let object = object_balances
-                .get(&(owner, KANARI_TOKEN_TYPE.to_string()))
+                .get(&(owner, GAS_COIN.to_string()))
                 .copied()
                 .unwrap_or(0);
             let amount = if ledger > 0 { ledger } else { object };
             if amount > 0 {
-                let total = totals.entry(KANARI_TOKEN_TYPE.to_string()).or_insert(0);
+                let total = totals.entry(GAS_COIN.to_string()).or_insert(0);
                 *total = total
                     .checked_add(amount)
                     .require("Native wallet supply index overflow")?;
@@ -98,7 +98,7 @@ impl StateManager {
             let native_balance = owner_state.native_balance();
             if native_balance > 0 {
                 balances
-                    .entry(KANARI_TOKEN_TYPE.to_string())
+                    .entry(GAS_COIN.to_string())
                     .or_insert(native_balance);
             }
         }
@@ -120,7 +120,7 @@ impl StateManager {
     }
 
     pub fn resolve_owner_native_balance(&self, owner: AccountAddress) -> Result<u64> {
-        self.resolve_owner_token_balance(owner, KANARI_TOKEN_TYPE)
+        self.resolve_owner_token_balance(owner, GAS_COIN)
     }
 
     pub fn compute_owned_token_balances(
@@ -165,7 +165,7 @@ impl StateManager {
         }
 
         if let Some(native_balance) = native_ledger_balance {
-            aggregated.insert(KANARI_TOKEN_TYPE.to_string(), native_balance);
+            aggregated.insert(GAS_COIN.to_string(), native_balance);
         }
 
         Ok(aggregated)
@@ -194,7 +194,7 @@ impl StateManager {
         self.total_supply = total_supply;
         self.save_internal(b"total_supply", &total_supply)?;
 
-        let supply_key = Self::supply_key(KANARI_TOKEN_TYPE);
+        let supply_key = Self::supply_key(GAS_COIN);
         if self
             .load_internal::<TreasuryCap>(&supply_key)
             .ok()
@@ -215,7 +215,7 @@ impl StateManager {
     }
 
     pub(super) fn issued_supply_for_token(&self, token_type: &str) -> u64 {
-        if token_type == KANARI_TOKEN_TYPE {
+        if token_type == GAS_COIN {
             return self.total_supply;
         }
 
@@ -236,7 +236,7 @@ impl StateManager {
         // Gas fees are credited to the DAO owner ledger. The DAO may not have
         // a normal account-index entry, so include it explicitly when
         // calculating the native token's wallet-visible supply.
-        if token_type == KANARI_TOKEN_TYPE {
+        if token_type == GAS_COIN {
             owners.insert(
                 AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
                     .expect("DAO_ADDRESS constant is valid"),
@@ -270,7 +270,7 @@ impl StateManager {
         let mut total = 0u64;
         for owner in owners {
             let object_balance = object_balances.get(&owner).copied().unwrap_or(0);
-            let balance = if token_type == KANARI_TOKEN_TYPE {
+            let balance = if token_type == GAS_COIN {
                 self.load_owner_state(&owner)?
                     .map(|state| state.native_balance())
                     .filter(|ledger_balance| *ledger_balance > 0)
@@ -286,12 +286,10 @@ impl StateManager {
     }
 
     pub(super) fn sync_native_visible_supply_cache(&mut self) -> Result<bool> {
-        let indexed_visible = self
-            .indexed_wallet_supply(KANARI_TOKEN_TYPE)?
-            .min(self.total_supply);
+        let indexed_visible = self.indexed_wallet_supply(GAS_COIN)?.min(self.total_supply);
         let current = self
             .global_token_supplies
-            .get(KANARI_TOKEN_TYPE)
+            .get(GAS_COIN)
             .copied()
             .unwrap_or(0);
         if current == indexed_visible {
@@ -299,10 +297,10 @@ impl StateManager {
         }
 
         if indexed_visible == 0 {
-            self.global_token_supplies.remove(KANARI_TOKEN_TYPE);
+            self.global_token_supplies.remove(GAS_COIN);
         } else {
             self.global_token_supplies
-                .insert(KANARI_TOKEN_TYPE.to_string(), indexed_visible);
+                .insert(GAS_COIN.to_string(), indexed_visible);
         }
         Ok(true)
     }
@@ -313,22 +311,22 @@ impl StateManager {
     /// effects must be rejected by supply invariants instead of being silently
     /// normalized.
     pub fn repair_legacy_native_wallet_overcount(&mut self) -> Result<bool> {
-        let indexed_visible = self.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
-        let ledger_locked_supply = self.object_locked_supply_for_token(KANARI_TOKEN_TYPE)?;
+        let indexed_visible = self.indexed_wallet_supply(GAS_COIN)?;
+        let ledger_locked_supply = self.object_locked_supply_for_token(GAS_COIN)?;
         let max_wallet_visible = self.total_supply.saturating_sub(ledger_locked_supply);
         if indexed_visible <= max_wallet_visible {
             let current = self
                 .global_token_supplies
-                .get(KANARI_TOKEN_TYPE)
+                .get(GAS_COIN)
                 .copied()
                 .unwrap_or(0);
             let changed = current != indexed_visible;
             if changed {
                 if indexed_visible == 0 {
-                    self.global_token_supplies.remove(KANARI_TOKEN_TYPE);
+                    self.global_token_supplies.remove(GAS_COIN);
                 } else {
                     self.global_token_supplies
-                        .insert(KANARI_TOKEN_TYPE.to_string(), indexed_visible);
+                        .insert(GAS_COIN.to_string(), indexed_visible);
                 }
                 let supplies_clone = self.global_token_supplies.clone();
                 self.save_internal(b"global_token_supplies", &supplies_clone)?;
@@ -355,7 +353,7 @@ impl StateManager {
             let current = account.native_balance();
             let debit = current.min(excess);
             let next = current - debit;
-            account.set_token_balance_value(KANARI_TOKEN_TYPE, next);
+            account.set_token_balance_value(GAS_COIN, next);
             self.save_owner_record(&account)?;
             excess -= debit;
         }
@@ -621,7 +619,7 @@ impl StateManager {
         let native_balance_after_owner_deltas = owner_state.native_balance();
         let mut aggregated = self.compute_owned_token_balances(owner, None)?;
 
-        let native_object_balance = aggregated.remove(KANARI_TOKEN_TYPE);
+        let native_object_balance = aggregated.remove(GAS_COIN);
         owner_state.token_balances = aggregated
             .into_iter()
             .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
@@ -651,8 +649,8 @@ impl StateManager {
         } else {
             native_balance_after_owner_deltas
         };
-        owner_state.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
-        self.save_owner_state(&owner_state)?;
+        owner_state.set_token_balance_value(GAS_COIN, native_balance);
+        self.save_owner_state_without_supply_index(&owner_state)?;
 
         self.capture_supply_changed(&owner_state, &old_balances)
     }
@@ -682,7 +680,7 @@ impl StateManager {
     }
 
     pub fn validate_supply_invariants(&self) -> Result<()> {
-        let supply_key = Self::supply_key(KANARI_TOKEN_TYPE);
+        let supply_key = Self::supply_key(GAS_COIN);
         let persisted_native_supply = self
             .load_internal::<TreasuryCap>(&supply_key)
             .ok()
@@ -699,7 +697,7 @@ impl StateManager {
             );
         }
 
-        let native_supply = self.token_supply_summary(KANARI_TOKEN_TYPE)?;
+        let native_supply = self.token_supply_summary(GAS_COIN)?;
         // Wallet-visible balance caches only reflect top-level wallet-owned
         // coin objects. Coins can also be held inside DeFi objects (for
         // example escrow funds), so visible supply may be lower than issued
@@ -723,7 +721,7 @@ impl StateManager {
         }
 
         let canonical_index = self.compute_wallet_supply_index()?;
-        let canonical_visible = canonical_index.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
+        let canonical_visible = canonical_index.get(GAS_COIN).copied().unwrap_or(0);
         ensure!(
             canonical_visible == native_supply.wallet_visible_supply,
             "native wallet supply index mismatch: indexed={} cached={}",
@@ -742,7 +740,7 @@ impl StateManager {
     /// reconciled. Full checkpoint/RPC validation still derives balances from
     /// canonical owner/object indexes via `validate_supply_invariants`.
     pub(super) fn validate_cached_supply_invariants(&self) -> Result<()> {
-        let supply_key = Self::supply_key(KANARI_TOKEN_TYPE);
+        let supply_key = Self::supply_key(GAS_COIN);
         let persisted_native_supply = self
             .load_internal::<TreasuryCap>(&supply_key)
             .ok()
@@ -761,10 +759,10 @@ impl StateManager {
 
         let wallet_visible_supply = self
             .global_token_supplies
-            .get(KANARI_TOKEN_TYPE)
+            .get(GAS_COIN)
             .copied()
             .unwrap_or(0);
-        let object_locked_supply = self.object_locked_supply_for_token(KANARI_TOKEN_TYPE)?;
+        let object_locked_supply = self.object_locked_supply_for_token(GAS_COIN)?;
         let accounted_supply = wallet_visible_supply
             .checked_add(object_locked_supply)
             .require("Accounted native supply overflow")?;

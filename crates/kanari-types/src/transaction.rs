@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Blockchain data structures and operations
-use crate::kanari::KanariModule;
+use crate::gas_coin::GasModule;
 use anyhow::Result;
 use kanari_crypto::keys::CurveType;
 use kanari_crypto::verify_signature;
@@ -570,14 +570,14 @@ impl Transaction {
             return None;
         };
 
-        let kanari_module = KanariModule::module_path();
+        let kanari_module = GasModule::module_path();
         if module != &kanari_module {
             return None;
         }
 
         match function.as_str() {
             function_name
-                if function_name == KanariModule::function_names().burn && !args.is_empty() =>
+                if function_name == GasModule::function_names().burn && !args.is_empty() =>
             {
                 let amount = bcs::from_bytes::<u64>(args.last()?).ok()?;
                 Some(NativeCall::Burn { amount })
@@ -600,15 +600,15 @@ impl Transaction {
             Transaction::PublishPackage { .. } => "publish_package",
             Transaction::ExecuteFunction {
                 module, function, ..
-            } if module == &KanariModule::module_path()
-                && function == KanariModule::function_names().transfer =>
+            } if module == &GasModule::module_path()
+                && function == GasModule::function_names().transfer =>
             {
                 "transfer"
             }
             Transaction::ExecuteFunction {
                 module, function, ..
-            } if module == &KanariModule::module_path()
-                && function == KanariModule::function_names().burn =>
+            } if module == &GasModule::module_path()
+                && function == GasModule::function_names().burn =>
             {
                 "burn"
             }
@@ -680,8 +680,8 @@ impl Transaction {
 
         Self::ExecuteFunction {
             sender: from.clone(),
-            module: KanariModule::module_path(),
-            function: KanariModule::function_names().transfer.to_string(),
+            module: GasModule::module_path(),
+            function: GasModule::function_names().transfer.to_string(),
             type_args: vec![],
             args: vec![
                 coin_object_addr.to_vec(),
@@ -719,8 +719,8 @@ impl Transaction {
     ) -> Self {
         Self::ExecuteFunction {
             sender: from.clone(),
-            module: KanariModule::module_path(),
-            function: KanariModule::function_names().burn.to_string(),
+            module: GasModule::module_path(),
+            function: GasModule::function_names().burn.to_string(),
             type_args: vec![],
             args: vec![bcs::to_bytes(&amount).unwrap_or_default()],
             object_inputs: Vec::new(),
@@ -758,8 +758,8 @@ mod tests {
                 nonce,
                 ..
             } => {
-                assert_eq!(module, &KanariModule::module_path());
-                assert_eq!(function, KanariModule::function_names().transfer);
+                assert_eq!(module, &GasModule::module_path());
+                assert_eq!(function, GasModule::function_names().transfer);
                 assert_eq!(*nonce, 7);
             }
             Transaction::PublishModule { .. } | Transaction::PublishPackage { .. } => {
@@ -789,8 +789,8 @@ mod tests {
                 args,
                 ..
             } => {
-                assert_eq!(module, &KanariModule::module_path());
-                assert_eq!(function, KanariModule::function_names().transfer);
+                assert_eq!(module, &GasModule::module_path());
+                assert_eq!(function, GasModule::function_names().transfer);
                 assert_eq!(*nonce, 7);
                 assert_eq!(args.len(), 3);
             }

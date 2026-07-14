@@ -9,7 +9,7 @@ use kanari_rpc_api::{
     GetTokenBalanceRequest,
 };
 use kanari_types::coin::CoinModule;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
 use std::collections::BTreeSet;
@@ -17,7 +17,7 @@ use std::str::FromStr;
 use tracing::warn;
 
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
-    if token_type == KANARI_TOKEN_TYPE {
+    if token_type == GAS_COIN {
         return 9;
     }
     if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
@@ -172,7 +172,7 @@ pub async fn handle_get_owner_balances(
     let balances: Vec<_> = owner_info
         .balances
         .into_iter()
-        .filter(|(token_type, amount)| *amount > 0 || token_type == KANARI_TOKEN_TYPE)
+        .filter(|(token_type, amount)| *amount > 0 || token_type == GAS_COIN)
         .map(|(token_type, balance)| build_balance_json(&state_guard, token_type, balance))
         .collect();
 
@@ -190,7 +190,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
     let mut token_types: BTreeSet<String> =
         state_guard.global_token_supplies.keys().cloned().collect();
-    token_types.insert(KANARI_TOKEN_TYPE.to_string());
+    token_types.insert(GAS_COIN.to_string());
 
     if let Ok(Some(keys)) = state_guard.load_internal::<Vec<String>>(b"treasury_index") {
         for key in keys {
@@ -294,7 +294,7 @@ pub async fn handle_get_fungible_asset(
             accounted_supply: summary.accounted_supply,
             untracked_supply: summary.untracked_supply,
             holders_count,
-            verified: token_type == KANARI_TOKEN_TYPE,
+            verified: token_type == GAS_COIN,
         },
     )
 }

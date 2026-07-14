@@ -6,7 +6,7 @@ use kanari_move_runtime_v1::{
     storage::persistent_store::PersistentStore,
 };
 use kanari_types::address::Address;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         .expect("Owner state should exist");
 
     assert_eq!(
-        owner_state.get_token_balance(KANARI_TOKEN_TYPE),
+        owner_state.get_token_balance(GAS_COIN),
         1000,
         "Balance should be 1000"
     );
@@ -66,10 +66,7 @@ fn main() -> Result<()> {
     );
 
     println!("   Owner-state verification successful!");
-    println!(
-        "   Balance: {}",
-        owner_state.get_token_balance(KANARI_TOKEN_TYPE)
-    );
+    println!("   Balance: {}", owner_state.get_token_balance(GAS_COIN));
     println!("   Nonce: {}", owner_state.nonce);
 
     // Verify state root matches

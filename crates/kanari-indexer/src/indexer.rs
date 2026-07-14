@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::Transaction;
-use kanari_types::{block::Block, kanari::KANARI_TOKEN_TYPE};
+use kanari_types::{block::Block, gas_coin::GAS_COIN};
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 
@@ -117,7 +117,7 @@ impl Indexer {
                     let coin = IndexedCoin {
                         id: format!("{}-{}", tx_hash, 0),
                         owner: recipient,
-                        coin_type: KANARI_TOKEN_TYPE.to_string(),
+                        coin_type: GAS_COIN.to_string(),
                         balance: amount,
                         is_frozen: false,
                         created_tx_hash: Some(tx_hash.clone()),

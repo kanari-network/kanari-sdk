@@ -13,7 +13,7 @@ use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
+use kanari_types::gas_coin::GAS_COIN;
 
 use kanari_types::transaction::{
     ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef, SignedTransaction,
@@ -509,7 +509,7 @@ impl BlockchainEngine {
     }
 
     fn is_native_gas_coin_type(object_type: &str) -> bool {
-        CoinModule::is_coin_type_for(object_type, KANARI_TOKEN_TYPE)
+        CoinModule::is_coin_type_for(object_type, GAS_COIN)
     }
 
     fn read_coin_balance(data: &[u8]) -> Option<u64> {
@@ -550,7 +550,7 @@ impl BlockchainEngine {
             Self::is_native_gas_coin_type(&gas_object.type_),
             "Native burn gas object {} must be Coin<{}>, found {}",
             gas_object_ref.object_id,
-            KANARI_TOKEN_TYPE,
+            GAS_COIN,
             gas_object.type_
         );
         ensure!(
@@ -572,7 +572,7 @@ impl BlockchainEngine {
         ensure!(
             object_balance >= total_required,
             "Native burn requires one Coin<{}> object with at least {} Mist for burn + gas; selected object {} only has {} Mist",
-            KANARI_TOKEN_TYPE,
+            GAS_COIN,
             total_required,
             gas_object_ref.object_id,
             object_balance
@@ -1991,7 +1991,7 @@ impl BlockchainEngine {
                     Self::is_native_gas_coin_type(&stored.type_),
                     "Gas payment object {} must be Coin<{}>, found {}",
                     payment.object_id,
-                    KANARI_TOKEN_TYPE,
+                    GAS_COIN,
                     stored.type_
                 );
                 if stored.owner != expected_owner {
