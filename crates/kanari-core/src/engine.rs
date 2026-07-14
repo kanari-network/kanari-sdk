@@ -1325,11 +1325,7 @@ impl BlockchainEngine {
             let mut executed_count = 0;
             let failed_count = 0;
             for signed_tx in transactions {
-                let persist_runtime_state = persist_objects
-                    || matches!(
-                        signed_tx.transaction,
-                        Transaction::PublishModule { .. } | Transaction::PublishPackage { .. }
-                    );
+                let persist_runtime_state = persist_objects;
                 let changeset = self
                     .execute_transaction_with_runtime_internal(
                         &signed_tx.transaction,
@@ -1388,12 +1384,7 @@ impl BlockchainEngine {
             let results: Vec<Result<ChangeSet>> = if has_module_publish {
                 wave.iter()
                     .map(|signed_tx| {
-                        let persist_runtime_state = persist_objects
-                            || matches!(
-                                signed_tx.transaction,
-                                Transaction::PublishModule { .. }
-                                    | Transaction::PublishPackage { .. }
-                            );
+                        let persist_runtime_state = persist_objects;
                         self.execute_transaction_with_runtime_internal(
                             &signed_tx.transaction,
                             &self.runtime_pool[0],
@@ -1409,12 +1400,7 @@ impl BlockchainEngine {
                     .enumerate()
                     .map(|(i, signed_tx)| {
                         let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
-                        let persist_runtime_state = persist_objects
-                            || matches!(
-                                signed_tx.transaction,
-                                Transaction::PublishModule { .. }
-                                    | Transaction::PublishPackage { .. }
-                            );
+                        let persist_runtime_state = persist_objects;
                         self.execute_transaction_with_runtime_internal(
                             &signed_tx.transaction,
                             runtime,
@@ -1648,9 +1634,13 @@ impl BlockchainEngine {
         };
 
         gas_meter.consume(gas_op.gas_units())?;
-        let gas_cost = gas_meter.total_cost();
+        let base_gas_cost = gas_meter.total_cost();
+        let max_gas_cost = tx
+            .gas_limit()
+            .checked_mul(tx.gas_price())
+            .context("Transaction maximum gas cost overflow")?;
 
-        if gas_cost > 0 {
+        if max_gas_cost > 0 {
             let state = match state_arc.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -1659,18 +1649,18 @@ impl BlockchainEngine {
                 }
             };
             Self::validate_transaction_object_access(&state, tx, sender_addr)?;
-            if gas_cost > 0 {
+            if max_gas_cost > 0 {
                 let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
-                if balance < gas_cost {
+                if balance < max_gas_cost {
                     let msg = format!(
-                        "Insufficient balance for gas: need {}, have {}",
-                        gas_cost, balance
+                        "Insufficient balance for maximum gas: need {}, have {}",
+                        max_gas_cost, balance
                     );
                     changeset.mark_failed(msg);
                     Self::apply_gas_and_sequence(
                         &mut changeset,
                         sender_addr,
-                        gas_cost,
+                        base_gas_cost.min(balance),
                         gas_meter.gas_used,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
@@ -1688,7 +1678,7 @@ impl BlockchainEngine {
                 match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    None,
+                    Some((tx.gas_limit(), tx.gas_price())),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -1709,7 +1699,7 @@ impl BlockchainEngine {
                 match runtime.publish_package_with_context_and_persistence(
                     package_modules,
                     KanariAddress::parse_to_account_address(sender)?,
-                    None,
+                    Some((tx.gas_limit(), tx.gas_price())),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -1737,7 +1727,7 @@ impl BlockchainEngine {
                         tx,
                         sender_addr,
                         amount,
-                        gas_cost,
+                        base_gas_cost,
                         &mut changeset,
                     ) {
                         Ok(()) => {}
@@ -1748,7 +1738,7 @@ impl BlockchainEngine {
                     Self::apply_gas_and_sequence(
                         &mut changeset,
                         sender_addr,
-                        gas_cost,
+                        base_gas_cost,
                         gas_meter.gas_used,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
@@ -1783,7 +1773,7 @@ impl BlockchainEngine {
                     EntryFunctionObjectContext {
                         object_inputs: tx.object_inputs(),
                         sender: Some(sender_addr),
-                        gas_info: None,
+                        gas_info: Some((tx.gas_limit(), tx.gas_price())),
                         timestamp,
                         tx_hash: Some(tx.hash()),
                         persist_runtime_state,
@@ -1792,12 +1782,28 @@ impl BlockchainEngine {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
                         changeset.mark_failed(format!("Execution failed: {}", e));
+                        changeset.set_gas_used(tx.gas_limit());
                     }
                 }
             }
         }
 
-        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+        let charged_gas_units = changeset.gas_used.max(gas_meter.gas_used);
+        ensure!(
+            charged_gas_units <= tx.gas_limit(),
+            "Runtime gas usage {} exceeds transaction gas limit {}",
+            charged_gas_units,
+            tx.gas_limit()
+        );
+        let charged_gas_cost = charged_gas_units
+            .checked_mul(tx.gas_price())
+            .context("Transaction gas cost overflow")?;
+        Self::apply_gas_and_sequence(
+            &mut changeset,
+            sender_addr,
+            charged_gas_cost,
+            charged_gas_units,
+        )?;
         let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)

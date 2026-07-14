@@ -2693,6 +2693,53 @@ mod tests {
     }
 
     #[test]
+    fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let owned_objects = [("0x1", 1_000u64), ("0x2", 100u64), ("0x3", 50u64)]
+            .into_iter()
+            .map(|(id, balance)| ObjectInfo {
+                id: id.to_string(),
+                owner: "0xa".to_string(),
+                owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+                type_: CoinModule::coin_type(GAS_COIN),
+                data: {
+                    let mut bytes = vec![0u8; 40];
+                    bytes[32..40].copy_from_slice(&balance.to_le_bytes());
+                    bytes
+                },
+                version: 1,
+                digest: Some(format!("{id}:digest")),
+            })
+            .collect::<Vec<_>>();
+
+        let pending_access_keys =
+            HashSet::from(["mut:object:0x1".to_string(), "mut:gas:0x2".to_string()]);
+        let pending_error = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            10,
+            1,
+            1,
+            &pending_access_keys,
+        )
+        .unwrap_err();
+        assert!(pending_error.to_string().contains("two distinct Coin<"));
+
+        let (transfer, gas) = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            10,
+            1,
+            1,
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert_ne!(transfer.object_id, gas.payment_objects[0].object_id);
+    }
+
+    #[test]
     fn selects_native_coin_consolidation_step_with_reserved_gas_coin() {
         use kanari_rpc_api::ObjectInfo;
         use kanari_types::transaction::ObjectOwnerKind;

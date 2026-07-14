@@ -30,6 +30,7 @@ mod apply;
 mod supply;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
+const GENESIS_INITIALIZED_KEY: &[u8] = b"system:genesis_initialized";
 const OWNER_INDEX_KEY: &[u8] = b"owner_index";
 const LEGACY_ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
 const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
@@ -396,10 +397,14 @@ impl StateManager {
     /// Create new state with genesis allocation and return initialization errors.
     pub fn try_new(store: Arc<PersistentStore>) -> Result<Self> {
         // Try to load total supply from DB
-        let persisted_total_supply = store
+        let persisted_total_supply_record = store
             .load::<u64>(b"total_supply")
-            .context("Failed to load total_supply")?
-            .unwrap_or(0);
+            .context("Failed to load total_supply")?;
+        let persisted_total_supply = persisted_total_supply_record.unwrap_or(0);
+        let genesis_marker = store
+            .load::<bool>(GENESIS_INITIALIZED_KEY)
+            .context("Failed to load genesis initialization marker")?
+            .unwrap_or(false);
 
         // Load existing global token supplies from RocksDB
         let global_token_supplies = store
@@ -416,6 +421,27 @@ impl StateManager {
         } else {
             persisted_total_supply
         };
+        let legacy_zero_supply_evidence = if persisted_total_supply_record == Some(0) {
+            store
+                .logical_entries()
+                .context("Failed to inspect legacy state for genesis evidence")?
+                .into_iter()
+                .any(|(key, _)| {
+                    key != b"total_supply"
+                        && (key == b"module_index"
+                            || key.starts_with(b"module:")
+                            || key.starts_with(b"resource:")
+                            || key.starts_with(b"account:")
+                            || key.starts_with(b"object:")
+                            || key.starts_with(b"system:"))
+                })
+        } else {
+            false
+        };
+        // Presence of the legacy total-supply record is itself evidence that genesis ran,
+        // only when other canonical chain state proves this is not a partial/empty DB.
+        let genesis_already_initialized =
+            genesis_marker || recovered_total_supply > 0 || legacy_zero_supply_evidence;
 
         // Initialize SMT if store is backed by RocksDB
         let smt = store
@@ -435,17 +461,32 @@ impl StateManager {
             .ensure_smt_initialized()
             .context("Failed to initialize state SMT")?;
 
-        if persisted_total_supply == 0 && recovered_total_supply > 0 {
+        let mut metadata_migration_pending = false;
+        if genesis_already_initialized && !genesis_marker {
+            state
+                .save_internal(GENESIS_INITIALIZED_KEY, &true)
+                .context("Failed to stage genesis initialization marker")?;
+            metadata_migration_pending = true;
+        }
+
+        if persisted_total_supply_record.is_none() && recovered_total_supply > 0 {
             state
                 .save_internal(b"total_supply", &recovered_total_supply)
                 .context("Failed to backfill recovered total_supply")?;
-            state
-                .commit()
-                .context("Failed to persist recovered total_supply")?;
+            metadata_migration_pending = true;
         }
 
-        // If total supply is 0, initialize genesis
-        if state.total_supply == 0 {
+        if metadata_migration_pending {
+            state
+                .commit()
+                .context("Failed to persist state initialization metadata")?;
+        }
+
+        // Genesis identity is explicit. Supply is protocol state and may legitimately be zero.
+        if !genesis_already_initialized {
+            state
+                .save_internal(GENESIS_INITIALIZED_KEY, &true)
+                .context("Failed to stage genesis initialization marker")?;
             crate::genesis::init_genesis(&mut state).context("Genesis initialization failed")?;
             // Flush genesis state to DB immediately
             state.commit().context("Failed to commit genesis state")?;
@@ -775,11 +816,21 @@ impl StateManager {
 
         // Update SMT if available
         if let (Some(smt), Some((smt_updates, smt_deletes))) = (&self.smt, smt_changes) {
-            if !smt_deletes.is_empty() {
-                smt.delete(&smt_deletes)?;
-            }
-            if !smt_updates.is_empty() {
-                smt.insert(&smt_updates)?;
+            let update_result = (|| -> Result<()> {
+                if !smt_deletes.is_empty() {
+                    smt.delete(&smt_deletes)?;
+                }
+                if !smt_updates.is_empty() {
+                    smt.insert(&smt_updates)?;
+                }
+                Ok(())
+            })();
+            if let Err(update_error) = update_result {
+                // Canonical state has already committed. Repair immediately so callers
+                // never receive a simple failure while the live DB remains split-brain.
+                self.repair_persisted_smt().with_context(|| {
+                    format!("SMT delta update failed ({update_error}); full repair also failed")
+                })?;
             }
         }
 
@@ -856,14 +907,15 @@ impl StateManager {
     }
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
-        key == b"total_supply"
-            || key.starts_with(b"resource:")
-            || key.starts_with(b"account:")
-            || key.starts_with(b"df:")
-            || key.starts_with(b"system:")
-            || key.starts_with(b"supply:")
-            || key.starts_with(b"treasury:")
-            || key.starts_with(b"nft:")
+        key != GENESIS_INITIALIZED_KEY
+            && (key == b"total_supply"
+                || key.starts_with(b"resource:")
+                || key.starts_with(b"account:")
+                || key.starts_with(b"df:")
+                || key.starts_with(b"system:")
+                || key.starts_with(b"supply:")
+                || key.starts_with(b"treasury:")
+                || key.starts_with(b"nft:"))
     }
 
     fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) {

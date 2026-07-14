@@ -36,7 +36,7 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
 }
 
 #[test]
-fn test_schedule_groups_non_overlapping_object_access() {
+fn test_schedule_serializes_transactions_until_access_sets_are_complete() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
@@ -50,9 +50,8 @@ fn test_schedule_groups_non_overlapping_object_access() {
         .collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
-    assert_eq!(waves.len(), 2);
-    assert_eq!(waves[0].len(), 2);
-    assert_eq!(waves[1].len(), 2);
+    assert_eq!(waves.len(), 4);
+    assert!(waves.iter().all(|wave| wave.len() == 1));
 
     let actual_hashes = waves
         .iter()
@@ -68,13 +67,13 @@ fn test_schedule_empty_batch() {
 }
 
 #[test]
-fn test_independent_transactions_are_parallelized_into_one_wave() {
+fn test_apparently_independent_transactions_remain_serial() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
     ];
 
     let waves = TransactionScheduler::schedule(txs);
-    assert_eq!(waves.len(), 1);
-    assert_eq!(waves[0].len(), 2);
+    assert_eq!(waves.len(), 2);
+    assert!(waves.iter().all(|wave| wave.len() == 1));
 }

@@ -32,6 +32,39 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
 }
 
 #[test]
+fn move_writes_commit_with_canonical_state_and_update_module_index() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let module_key = b"module:0x42:test".to_vec();
+    let module_bytes = vec![1, 2, 3, 4];
+    let mut changeset = ChangeSet::new();
+    changeset.record_move_write(module_key.clone(), Some(module_bytes.clone()));
+
+    state.apply_changeset(&changeset)?;
+    assert_eq!(
+        state.load_internal::<Vec<u8>>(&module_key)?,
+        Some(module_bytes)
+    );
+    assert!(
+        state
+            .load_internal::<Vec<String>>(b"module_index")?
+            .unwrap_or_default()
+            .contains(&"module:0x42:test".to_string())
+    );
+
+    changeset = ChangeSet::new();
+    changeset.record_move_write(module_key.clone(), None);
+    state.apply_changeset(&changeset)?;
+    assert_eq!(state.load_internal::<Vec<u8>>(&module_key)?, None);
+    assert!(
+        !state
+            .load_internal::<Vec<String>>(b"module_index")?
+            .unwrap_or_default()
+            .contains(&"module:0x42:test".to_string())
+    );
+    Ok(())
+}
+
+#[test]
 fn smt_diagnostics_are_read_only_and_full_audit_is_explicit() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let store = Arc::new(PersistentStore::open_with_path(Some(
@@ -550,9 +583,7 @@ fn compute_state_root_ignores_runtime_local_store_keys() -> Result<()> {
     state.commit()?;
     let root_before = state.compute_state_root();
 
-    state
-        .store
-        .save(b"module_index", &vec!["local".to_string()])?;
+    // An orphan module that is absent from the canonical module index is runtime-local.
     state.store.save(b"module:0x1:Local", &vec![1u8, 2, 3])?;
     state
         .store

@@ -44,6 +44,44 @@ fn seed_legacy_supply(db_path: &Path, total_supply: u64) -> Result<()> {
 }
 
 #[test]
+fn lone_zero_supply_record_does_not_suppress_genesis() -> Result<()> {
+    let temp_dir = tempdir()?;
+    let db_path = temp_dir.path().join("zero-supply-state-db");
+    {
+        let store = PersistentStore::open_with_path(Some(db_path.clone()))?;
+        store.save(b"total_supply", &0u64)?;
+    }
+
+    let state = open_state(&db_path)?;
+    assert_eq!(state.total_supply, GENESIS_SUPPLY);
+    assert_eq!(
+        state.store.load::<bool>(b"system:genesis_initialized")?,
+        Some(true)
+    );
+    Ok(())
+}
+
+#[test]
+fn legacy_zero_supply_with_canonical_state_is_preserved() -> Result<()> {
+    let temp_dir = tempdir()?;
+    let db_path = temp_dir.path().join("legacy-zero-supply-state-db");
+    {
+        let store = PersistentStore::open_with_path(Some(db_path.clone()))?;
+        store.save(b"total_supply", &0u64)?;
+        store.save(b"module_index", &vec!["module:0x1:legacy".to_string()])?;
+        store.save(b"module:0x1:legacy", &vec![1u8, 2, 3])?;
+    }
+
+    let state = open_state(&db_path)?;
+    assert_eq!(state.total_supply, 0);
+    assert_eq!(
+        state.store.load::<bool>(b"system:genesis_initialized")?,
+        Some(true)
+    );
+    Ok(())
+}
+
+#[test]
 fn restart_recovery_preserves_native_supply_invariants() -> Result<()> {
     let temp_dir = tempdir()?;
     let db_path: PathBuf = temp_dir.path().join("state-db");

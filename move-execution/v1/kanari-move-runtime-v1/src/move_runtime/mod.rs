@@ -326,7 +326,7 @@ impl MoveRuntime {
 
         let published_modules: HashSet<ModuleId> = state
             .get_all_module_ids()
-            .unwrap_or_default()
+            .context("Failed to load persistent Move module index")?
             .into_iter()
             .collect();
 
@@ -448,6 +448,16 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Refresh module identity and VM caches after canonical state has committed.
+    pub fn refresh_committed_modules(&self) -> Result<()> {
+        let module_ids = self.state.get_all_module_ids()?;
+        *self
+            .published_modules
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = module_ids.into_iter().collect();
+        self.reload_vm_cache()
+    }
+
     pub fn clear_object_cache(&self) -> Result<()> {
         self.object_storage
             .clear()
@@ -470,7 +480,7 @@ impl MoveRuntime {
 
         // Deserialize published modules so the fresh VM repopulates its caches.
         for module_id in module_ids {
-            if let Some(module_bytes) = self.state.get_module(&module_id)
+            if let Some(module_bytes) = self.state.try_get_module(&module_id)?
                 && CompiledModule::deserialize_with_defaults(&module_bytes).is_ok()
             {
                 log::debug!("[RUNTIME] Preloaded module into cache: {}", module_id);
@@ -487,31 +497,82 @@ impl MoveRuntime {
         &self,
         move_cs: move_core_types::effects::ChangeSet,
     ) -> Result<()> {
+        let store = self.state.store();
+        let _transaction_guard = store.transaction_guard();
+        let mut updates = Vec::<(Vec<u8>, Vec<u8>)>::new();
+        let mut deletes = Vec::<Vec<u8>>::new();
+        let mut module_index = store
+            .load::<Vec<String>>(b"module_index")?
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut published_module_updates = Vec::new();
+        let mut published_module_deletes = Vec::new();
+
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
-                if let move_core_types::effects::Op::New(bytes)
-                | move_core_types::effects::Op::Modify(bytes) = op
-                {
-                    let module_id = ModuleId::new(*addr, Identifier::new(module_name.as_str())?);
-                    self.state.save_module(&module_id, bytes)?;
-                    let mut modules = self
-                        .published_modules
-                        .write()
-                        .unwrap_or_else(|p| p.into_inner());
-                    modules.insert(module_id);
-                }
-            }
-            for (struct_tag, op) in account_changes.resources() {
+                let module_id = ModuleId::new(*addr, Identifier::new(module_name.as_str())?);
+                let key = format!(
+                    "module:{}:{}",
+                    module_id.address().to_hex_literal(),
+                    module_id.name()
+                );
                 match op {
                     move_core_types::effects::Op::New(bytes)
                     | move_core_types::effects::Op::Modify(bytes) => {
-                        self.state.save_resource(addr, struct_tag, bytes)?;
+                        updates.push((key.as_bytes().to_vec(), bcs::to_bytes(bytes)?));
+                        module_index.insert(key);
+                        published_module_updates.push(module_id);
                     }
                     move_core_types::effects::Op::Delete => {
-                        self.state.delete_resource(addr, struct_tag)?;
+                        deletes.push(key.as_bytes().to_vec());
+                        module_index.remove(&key);
+                        published_module_deletes.push(module_id);
                     }
                 }
             }
+            for (struct_tag, op) in account_changes.resources() {
+                let key = format!("resource:{}:{}", addr.to_hex_literal(), struct_tag);
+                match op {
+                    move_core_types::effects::Op::New(bytes)
+                    | move_core_types::effects::Op::Modify(bytes) => {
+                        updates.push((key.as_bytes().to_vec(), bcs::to_bytes(bytes)?));
+
+                        if struct_tag.module.as_str() == "coin"
+                            && struct_tag.name.as_str() == "Coin"
+                        {
+                            let object_key = format!("object:{}", addr.to_hex_literal());
+                            if let Some(mut object) =
+                                store.load::<StoredObject>(object_key.as_bytes())?
+                            {
+                                object.data = bytes.to_vec();
+                                updates.push((
+                                    object_key.as_bytes().to_vec(),
+                                    bcs::to_bytes(&object)?,
+                                ));
+                            }
+                        }
+                    }
+                    move_core_types::effects::Op::Delete => {
+                        deletes.push(key.into_bytes());
+                    }
+                }
+            }
+        }
+
+        updates.push((
+            b"module_index".to_vec(),
+            bcs::to_bytes(&module_index.into_iter().collect::<Vec<_>>())?,
+        ));
+        store.apply_raw_changes(&updates, &deletes)?;
+
+        let mut modules = self
+            .published_modules
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        modules.extend(published_module_updates);
+        for module_id in published_module_deletes {
+            modules.remove(&module_id);
         }
         Ok(())
     }
@@ -555,7 +616,7 @@ impl MoveRuntime {
         let module_id = compiled.self_id();
         self.verify_module_publish_safety(sender, &module_id, &compiled, &module_bytes)?;
 
-        let (move_changeset, events) = {
+        let (move_changeset, events, vm_gas_used) = {
             // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
             let vm_guard = self.read_vm();
             let mut session = self.create_session_with_storage_ext(&vm_guard);
@@ -567,18 +628,12 @@ impl MoveRuntime {
                 .publish_module(module_bytes.clone(), sender, &mut metered_gas)
                 .require("Move VM operation failed")?;
 
-            session
+            let result = session
                 .finish()
                 .0
-                .require("Failed to finish publish session")?
+                .require("Failed to finish publish session")?;
+            (result.0, result.1, metered_gas.gas_used())
         };
-
-        if persist_runtime_state {
-            self.apply_move_changeset(move_changeset.clone())?;
-
-            // 🟢 Perform Hot-Reload to clear Cache immediately after Publish is done!
-            self.reload_vm_cache()?;
-        }
 
         let mut cs = ChangeSet::new();
         cs.publish_module(sender, module_id.name().to_string());
@@ -589,7 +644,7 @@ impl MoveRuntime {
             let gas_op = GasOperation::PublishModule {
                 module_size: module_bytes.len(),
             };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
             self.apply_gas_info(
                 &mut cs,
                 Some(sender),
@@ -599,6 +654,12 @@ impl MoveRuntime {
                 written,
                 deleted,
             )?;
+        }
+        cs.set_gas_used(cs.gas_used.max(vm_gas_used));
+
+        if persist_runtime_state {
+            self.apply_move_changeset(move_changeset)?;
+            self.reload_vm_cache()?;
         }
 
         Ok(cs)
@@ -635,7 +696,7 @@ impl MoveRuntime {
             compiled_modules.push((module_id, module_bytes.clone()));
         }
 
-        let (move_changeset, events) = {
+        let (move_changeset, events, vm_gas_used) = {
             let vm_guard = self.read_vm();
             let mut session = self.create_session_with_storage_ext(&vm_guard);
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
@@ -647,16 +708,12 @@ impl MoveRuntime {
                     .require("Move VM package publish failed")?;
             }
 
-            session
+            let result = session
                 .finish()
                 .0
-                .require("Failed to finish publish package session")?
+                .require("Failed to finish publish package session")?;
+            (result.0, result.1, metered_gas.gas_used())
         };
-
-        if persist_runtime_state {
-            self.apply_move_changeset(move_changeset.clone())?;
-            self.reload_vm_cache()?;
-        }
 
         let mut cs = ChangeSet::new();
         for (module_id, _) in &compiled_modules {
@@ -669,7 +726,7 @@ impl MoveRuntime {
             let gas_op = GasOperation::PublishModule {
                 module_size: total_module_size,
             };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
             self.apply_gas_info(
                 &mut cs,
                 Some(sender),
@@ -679,6 +736,12 @@ impl MoveRuntime {
                 written,
                 deleted,
             )?;
+        }
+        cs.set_gas_used(cs.gas_used.max(vm_gas_used));
+
+        if persist_runtime_state {
+            self.apply_move_changeset(move_changeset)?;
+            self.reload_vm_cache()?;
         }
 
         Ok(cs)
@@ -711,7 +774,7 @@ impl MoveRuntime {
         compiled: &CompiledModule,
         module_bytes: &[u8],
     ) -> Result<()> {
-        let Some(old_bytes) = self.state.get_module(module_id) else {
+        let Some(old_bytes) = self.state.try_get_module(module_id)? else {
             return Ok(());
         };
         if old_bytes == module_bytes {
@@ -946,7 +1009,7 @@ impl MoveRuntime {
             .push((object_id.to_string(), updated_obj));
     }
 
-    pub fn persist_created_objects(&self, cs: &ChangeSet) {
+    pub fn persist_created_objects(&self, cs: &ChangeSet) -> Result<()> {
         for (id, created) in &cs.created_objects {
             let stored = StoredObject {
                 id: id.clone(),
@@ -956,14 +1019,20 @@ impl MoveRuntime {
                 data: created.data.clone(),
                 version: created.version,
             };
-            let _ = self.object_storage.store_object(stored);
+            self.object_storage
+                .store_object(stored)
+                .map_err(anyhow::Error::new)?;
         }
+        Ok(())
     }
 
-    pub fn persist_deleted_objects(&self, cs: &ChangeSet) {
+    pub fn persist_deleted_objects(&self, cs: &ChangeSet) -> Result<()> {
         for obj_id in &cs.deleted_objects {
-            let _ = self.object_storage.delete_object(obj_id);
+            self.object_storage
+                .delete_object(obj_id)
+                .map_err(anyhow::Error::new)?;
         }
+        Ok(())
     }
 
     pub fn preload_object_snapshot(
@@ -1011,8 +1080,8 @@ impl MoveRuntime {
         )?;
 
         state.apply_changeset(&cs)?;
-        self.persist_created_objects(&cs);
-        self.persist_deleted_objects(&cs);
+        self.persist_created_objects(&cs)?;
+        self.persist_deleted_objects(&cs)?;
 
         let (object_id, _) = cs
             .created_objects
@@ -1333,25 +1402,27 @@ impl MoveRuntime {
 
         // Extensions are already added by create_session_with_storage_ext() - no need to add again
 
-        let execution_result = if bypass_entry_check {
+        let (execution_result, vm_gas_used) = if bypass_entry_check {
             let mut unmetered_gas = UnmeteredGasMeter;
-            session.execute_function_bypass_visibility(
+            let result = session.execute_function_bypass_visibility(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
                 &mut unmetered_gas,
-            )
+            );
+            (result, 0)
         } else {
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
             let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
-            session.execute_entry_function(
+            let result = session.execute_entry_function(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
                 &mut metered_gas,
-            )
+            );
+            (result, metered_gas.gas_used())
         };
 
         let mut cs = ChangeSet::new();
@@ -1389,9 +1460,6 @@ impl MoveRuntime {
                     }
                 }
 
-                if persist_runtime_state {
-                    self.apply_move_changeset(move_changeset.clone())?;
-                }
                 self.parse_move_changeset(&move_changeset, &mut cs);
                 self.parse_move_events(&events, &mut cs);
 
@@ -1501,15 +1569,20 @@ impl MoveRuntime {
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1;
                     let gas_op = GasOperation::ExecuteFunction { complexity };
-                    let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+                    let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
                     self.apply_gas_info(
                         &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
                     )?;
                 }
+                cs.set_gas_used(cs.gas_used.max(vm_gas_used));
 
                 if persist_runtime_state {
-                    self.persist_created_objects(&cs);
-                    self.persist_deleted_objects(&cs);
+                    self.apply_move_changeset(move_changeset)?;
+                }
+
+                if persist_runtime_state {
+                    self.persist_created_objects(&cs)?;
+                    self.persist_deleted_objects(&cs)?;
                 }
 
                 Ok(cs)
@@ -1529,7 +1602,7 @@ impl MoveRuntime {
                         0,
                     );
                     if persist_runtime_state {
-                        self.persist_created_objects(&cs);
+                        self.persist_created_objects(&cs)?;
                     }
                 }
                 Err(anyhow::anyhow!("exec error: {:?}", e))

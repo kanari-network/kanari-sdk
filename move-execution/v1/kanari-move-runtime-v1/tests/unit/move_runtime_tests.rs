@@ -18,6 +18,29 @@ struct SerializedTxContext {
 }
 
 #[test]
+fn refresh_committed_modules_rebuilds_runtime_module_index() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let committed: HashSet<_> = runtime.state.get_all_module_ids()?.into_iter().collect();
+    assert!(!committed.is_empty());
+
+    runtime
+        .published_modules
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    runtime.refresh_committed_modules()?;
+
+    assert_eq!(
+        *runtime
+            .published_modules
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        committed
+    );
+    Ok(())
+}
+
+#[test]
 fn tx_context_without_timestamp_is_deterministic() -> Result<()> {
     let runtime = MoveRuntime::new_with_natives_in_memory(vec![])?;
     let sender = AccountAddress::from_hex_literal("0x1111")?;

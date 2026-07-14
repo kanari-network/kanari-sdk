@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+#[cfg(test)]
 use kanari_types::error::KanariUnwrapExt;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -9,6 +10,7 @@ use move_core_types::language_storage::ModuleId;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::storage::object_storage::StoredObject;
 use crate::storage::persistent_store::PersistentStore;
 
 /// Persistent storage wrapper for Move modules, resources, and framework metadata.
@@ -144,12 +146,9 @@ impl MoveVMState {
     }
 
     /// Load a previously persisted framework hash (if any).
-    pub(crate) fn get_framework_hash(&self, name: &str) -> Option<String> {
+    pub(crate) fn try_get_framework_hash(&self, name: &str) -> Result<Option<String>> {
         let hash_key = Self::framework_hash_key(name);
-        self.store
-            .load::<String>(hash_key.as_bytes())
-            .ok()
-            .flatten()
+        Ok(self.store.load::<String>(hash_key.as_bytes())?)
     }
 
     /// Get all module IDs from the persistent index.
@@ -163,14 +162,15 @@ impl MoveVMState {
         Ok(modules)
     }
 
-    /// Get module bytecode from persistent storage
-    pub(crate) fn get_module(&self, module_id: &ModuleId) -> Option<Vec<u8>> {
+    /// Get module bytecode from persistent storage without hiding backend errors.
+    pub(crate) fn try_get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>> {
         let key = Self::module_key(module_id);
-        self.store.load::<Vec<u8>>(key.as_bytes()).ok().flatten()
+        Ok(self.store.load::<Vec<u8>>(key.as_bytes())?)
     }
 
     /// Save a resource blob keyed by address and struct tag.
     /// Coin resources also update the mirrored object payload stored under the same address.
+    #[cfg(test)]
     pub(crate) fn save_resource(
         &self,
         address: &AccountAddress,
@@ -188,16 +188,11 @@ impl MoveVMState {
         if tag.module.as_str() == "coin" && tag.name.as_str() == "Coin" {
             let obj_key = Self::object_key(address);
 
-            if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
-                && let Ok(mut created_obj) =
-                    bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
-            {
+            if let Some(mut stored_object) = self.store.load::<StoredObject>(obj_key.as_bytes())? {
                 // Keep the mirrored payload current for VM resource reads, but leave
                 // object versioning to StateManager so authorities stay deterministic.
-                created_obj.data = blob.to_vec();
-
-                let updated_bytes = bcs::to_bytes(&created_obj)?;
-                self.store.save(obj_key.as_bytes(), &updated_bytes)?;
+                stored_object.data = blob.to_vec();
+                self.store.save(obj_key.as_bytes(), &stored_object)?;
             }
         }
 
@@ -205,27 +200,35 @@ impl MoveVMState {
     }
 
     /// Get resource blob from persistent storage
+    #[cfg(test)]
     pub(crate) fn get_resource(
         &self,
         address: &AccountAddress,
         tag: &move_core_types::language_storage::StructTag,
     ) -> Option<Vec<u8>> {
+        self.try_get_resource(address, tag).ok().flatten()
+    }
+
+    pub(crate) fn try_get_resource(
+        &self,
+        address: &AccountAddress,
+        tag: &move_core_types::language_storage::StructTag,
+    ) -> Result<Option<Vec<u8>>> {
         let key = Self::resource_key(address, tag);
-        self.store.load::<Vec<u8>>(key.as_bytes()).ok().flatten()
+        Ok(self.store.load::<Vec<u8>>(key.as_bytes())?)
     }
 
     /// Load object payload bytes from the stored `CreatedObject` wrapper.
-    pub(crate) fn get_object(&self, object_id: &AccountAddress) -> Option<Vec<u8>> {
+    pub(crate) fn try_get_object(&self, object_id: &AccountAddress) -> Result<Option<Vec<u8>>> {
         let obj_key = Self::object_key(object_id);
-        if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
-            && let Ok(created_obj) = bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
-        {
-            return Some(created_obj.data);
-        }
-        None
+        Ok(self
+            .store
+            .load::<StoredObject>(obj_key.as_bytes())?
+            .map(|object| object.data))
     }
 
     /// Delete a resource blob keyed by address and struct tag.
+    #[cfg(test)]
     pub(crate) fn delete_resource(
         &self,
         address: &AccountAddress,

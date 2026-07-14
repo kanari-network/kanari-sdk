@@ -24,7 +24,7 @@ impl MoveRuntime {
 
         // 2. Check all dependencies are available
         for dep in module.immediate_dependencies() {
-            if !self.has_module(&dep) {
+            if !self.has_module(&dep)? {
                 // Allow dependencies on stdlib (0x1) and system (0x2)
                 let addr = dep.address();
                 if addr != &KanariAddress::std_account_address()
@@ -50,23 +50,28 @@ impl MoveRuntime {
     }
 
     /// Check if a module is available in storage
-    fn has_module(&self, module_id: &ModuleId) -> bool {
+    fn has_module(&self, module_id: &ModuleId) -> Result<bool> {
         // Check by assuming stdlib/system modules are always available
         let addr = module_id.address();
         if addr == &KanariAddress::std_account_address()
             || addr == &KanariAddress::kanari_system_account_address()
         {
-            return true;
+            return Ok(true);
         }
 
         // Check if module exists in persistent storage
-        self.state.get_module(module_id).is_some()
+        Ok(self.state.try_get_module(module_id)?.is_some())
     }
 
     /// Get module bytecode if available
     pub fn get_module_bytes(&self, module_id: &ModuleId) -> Option<Vec<u8>> {
-        // Query from persistent storage
-        self.state.get_module(module_id)
+        match self.state.try_get_module(module_id) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log::error!("Failed to read module {module_id} from storage: {error:#}");
+                None
+            }
+        }
     }
 
     /// List all published modules in storage

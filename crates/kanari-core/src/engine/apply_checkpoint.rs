@@ -49,8 +49,8 @@ impl BlockchainEngine {
             .context("Failed to apply clock prologue changeset")?;
 
         if persist_objects {
-            runtime.persist_created_objects(&changeset);
-            runtime.persist_deleted_objects(&changeset);
+            runtime.persist_created_objects(&changeset)?;
+            runtime.persist_deleted_objects(&changeset)?;
         }
 
         state_write
@@ -141,6 +141,13 @@ impl BlockchainEngine {
         new_state: StateManager,
         validate_supply: bool,
     ) -> Result<()> {
+        let has_module_publish = checkpoint.transactions.iter().any(|signed_tx| {
+            matches!(
+                signed_tx.transaction,
+                kanari_types::transaction::Transaction::PublishModule { .. }
+                    | kanari_types::transaction::Transaction::PublishPackage { .. }
+            )
+        });
         if validate_supply {
             new_state
                 .validate_supply_invariants()
@@ -159,7 +166,17 @@ impl BlockchainEngine {
             runtime.clear_object_cache()?;
         }
 
-        self.finalize_checkpoint_metadata(checkpoint)
+        self.finalize_checkpoint_metadata(checkpoint)?;
+
+        if has_module_publish {
+            for runtime in &self.runtime_pool {
+                runtime
+                    .refresh_committed_modules()
+                    .context("Failed to refresh Move VM modules after checkpoint commit")?;
+            }
+        }
+
+        Ok(())
     }
 
     fn finalize_checkpoint_metadata(&self, checkpoint: Checkpoint) -> Result<()> {

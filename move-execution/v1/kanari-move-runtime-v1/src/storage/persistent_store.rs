@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use rocksdb::{DB, IteratorMode, WriteBatch};
 
@@ -68,9 +68,17 @@ pub struct PersistentStore {
     db: Option<Arc<DB>>,
     // In-memory store for when RocksDB is not used (e.g. tests, Miri)
     memory_store: Option<MemoryStore>,
+    transaction_lock: Mutex<()>,
 }
 
 impl PersistentStore {
+    /// Serialize read-modify-write transactions that maintain secondary indexes.
+    pub(crate) fn transaction_guard(&self) -> MutexGuard<'_, ()> {
+        self.transaction_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Open default store path (same behavior as previous implementation).
     pub fn open_default() -> Result<Self> {
         let db_path = std::env::var("KANARI_STATE_DB").ok().map(PathBuf::from);
@@ -83,6 +91,7 @@ impl PersistentStore {
         Ok(PersistentStore {
             db: Some(db),
             memory_store: None,
+            transaction_lock: Mutex::new(()),
         })
     }
 
@@ -92,6 +101,7 @@ impl PersistentStore {
         Ok(PersistentStore {
             db: None,
             memory_store: Some(Arc::new(RwLock::new(HashMap::new()))),
+            transaction_lock: Mutex::new(()),
         })
     }
 

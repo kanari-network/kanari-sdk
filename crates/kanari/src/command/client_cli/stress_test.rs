@@ -12,17 +12,18 @@ use crate::command::common::{
     get_rpc_endpoint, get_sender_for_tx, load_wallet_for, native_transfer_policy_hint,
     normalize_addr, resolve_sender, resolve_transaction_gas, transaction_error_reason,
 };
-use crate::command::rpc_helpers::sign_object_transfer_request;
+use crate::command::rpc_helpers::{sign_object_transfer_request, wait_for_transaction_commit};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use kanari_rpc_api::BuildNativeTransferRequest;
+use kanari_rpc_api::TransactionErrorReason;
 use kanari_rpc_client::RpcClient;
 use kanari_types::gas_coin::GAS_COIN;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-const MAX_OBJECT_BUSY_RETRIES: usize = 60;
-const OBJECT_BUSY_RETRY_DELAY_MS: u64 = 100;
+const MAX_OBJECT_BUSY_RETRIES: usize = 240;
+const OBJECT_BUSY_RETRY_DELAY_MS: u64 = 250;
 const MAX_LANE_SATURATION_RETRIES: usize = 240;
 const LANE_SATURATION_RETRY_DELAY_MS: u64 = 250;
 
@@ -38,9 +39,15 @@ fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
 
 fn is_object_busy_or_unavailable(error: &anyhow::Error) -> bool {
     let message = format!("{:#}", error);
-    message.contains("No spendable native gas coin object found")
+    matches!(
+        transaction_error_reason(error),
+        Some(TransactionErrorReason::NativeTransferPolicyNotSatisfied)
+            | Some(TransactionErrorReason::NativeCoinConsolidationBlocked)
+    ) || message.contains("No spendable native gas coin object found")
         || message.contains("No single Coin<")
         || message.contains("insufficient_transfer_coin_balance")
+        || message.contains("native_transfer_policy_not_satisfied")
+        || message.contains("Native transfer requires two distinct Coin<")
 }
 
 fn is_lane_saturated(error: &anyhow::Error) -> bool {
@@ -198,6 +205,7 @@ impl StressTest {
 
         let mut success_count = 0u64;
         let mut fail_count = 0u64;
+        let mut submitted_hashes = Vec::with_capacity(self.count as usize);
         let start_time = Instant::now();
         let report_interval = (self.count / 20).max(1);
 
@@ -255,7 +263,7 @@ impl StressTest {
                             && retry_count < MAX_OBJECT_BUSY_RETRIES =>
                     {
                         retry_count += 1;
-                        if retry_count == 1 || retry_count.is_multiple_of(10) {
+                        if retry_count == 1 || retry_count.is_multiple_of(20) {
                             eprintln!(
                                 "  [{}/{}] waiting for coin/gas object refs to commit (retry {}/{})",
                                 i + 1,
@@ -317,6 +325,7 @@ impl StressTest {
                     }
 
                     success_count += 1;
+                    submitted_hashes.push(status.hash.clone());
                     if i == 0 {
                         eprintln!("  First coin object: {}", coin_object_id);
                         if let Some(gas_object_id) = gas_object_id {
@@ -363,6 +372,51 @@ impl StressTest {
             }
         }
 
+        if !submitted_hashes.is_empty() {
+            eprintln!();
+            eprintln!(
+                "--- Verifying {} submitted transactions committed successfully ---",
+                submitted_hashes.len()
+            );
+            let mut committed_success = 0u64;
+            for (index, hash) in submitted_hashes.iter().enumerate() {
+                match wait_for_transaction_commit(
+                    &client,
+                    hash,
+                    Duration::from_secs(60),
+                    Duration::from_millis(250),
+                )
+                .await
+                {
+                    Ok(status) if status.success && status.committed => {
+                        committed_success += 1;
+                    }
+                    Ok(status) => {
+                        fail_count += 1;
+                        eprintln!(
+                            "  [{}/{}] COMMIT FAILED status={} committed={} hash={}",
+                            index + 1,
+                            submitted_hashes.len(),
+                            status.status,
+                            status.committed,
+                            hash
+                        );
+                    }
+                    Err(error) => {
+                        fail_count += 1;
+                        eprintln!(
+                            "  [{}/{}] COMMIT CHECK FAILED hash={}: {:#}",
+                            index + 1,
+                            submitted_hashes.len(),
+                            hash,
+                            error
+                        );
+                    }
+                }
+            }
+            success_count = committed_success;
+        }
+
         let total_elapsed = start_time.elapsed();
 
         eprintln!();
@@ -383,5 +437,24 @@ impl StressTest {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_object_busy_or_unavailable;
+
+    #[test]
+    fn retries_distinct_native_coin_policy_while_prior_refs_are_pending() {
+        let error = anyhow::anyhow!(
+            "RPC error: Native transfer requires two distinct Coin<0x2::kanari::KANARI> objects (reason: native_transfer_policy_not_satisfied)"
+        );
+        assert!(is_object_busy_or_unavailable(&error));
+    }
+
+    #[test]
+    fn does_not_retry_unrelated_transaction_errors() {
+        let error = anyhow::anyhow!("RPC error: invalid signature");
+        assert!(!is_object_busy_or_unavailable(&error));
     }
 }

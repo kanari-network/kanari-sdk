@@ -92,3 +92,41 @@ fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn ownership_transfer_after_cache_clear_updates_both_owner_indexes() -> Result<()> {
+    let store = Arc::new(PersistentStore::open_in_memory()?);
+    let old_owner = AccountAddress::from_hex_literal("0x11")?;
+    let new_owner = AccountAddress::from_hex_literal("0x22")?;
+    let object_id = "0xdddd".to_string();
+    let storage = ObjectStorage::new_with_store(store.clone())?;
+
+    storage.store_object(StoredObject {
+        id: object_id.clone(),
+        owner: old_owner,
+        owner_kind: address_owner(old_owner),
+        type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+        data: vec![4],
+        version: 1,
+    })?;
+
+    // Checkpoint finalization clears the live cache. The next update must still
+    // discover the persisted old owner before rewriting the canonical indexes.
+    storage.clear()?;
+    storage.store_object(StoredObject {
+        id: object_id.clone(),
+        owner: new_owner,
+        owner_kind: address_owner(new_owner),
+        type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+        data: vec![5],
+        version: 2,
+    })?;
+
+    assert!(ObjectStorage::load_id_index(&store, &owned_objects_key(&old_owner))?.is_empty());
+    assert_eq!(
+        ObjectStorage::load_id_index(&store, &owned_objects_key(&new_owner))?,
+        vec![object_id]
+    );
+
+    Ok(())
+}

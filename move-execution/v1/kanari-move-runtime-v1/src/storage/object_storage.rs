@@ -101,6 +101,7 @@ impl ObjectStorage {
         Ok(ids)
     }
 
+    #[cfg(test)]
     fn save_id_index(
         store: &PersistentStore,
         key: &[u8],
@@ -110,6 +111,35 @@ impl ObjectStorage {
         Ok(())
     }
 
+    fn encode_update<T: Serialize + ?Sized>(
+        key: Vec<u8>,
+        value: &T,
+    ) -> Result<(Vec<u8>, Vec<u8>), ObjectStorageError> {
+        let bytes = bcs::to_bytes(value)
+            .map_err(|error| ObjectStorageError::PersistenceError(error.into()))?;
+        Ok((key, bytes))
+    }
+
+    fn load_owned_object_ids_for_batch(
+        store: &PersistentStore,
+        owner: &AccountAddress,
+        deletes: &mut Vec<Vec<u8>>,
+    ) -> Result<Vec<String>, ObjectStorageError> {
+        let canonical_key = owned_objects_key(owner);
+        let canonical_ids = Self::load_id_index(store, &canonical_key)?;
+        if !canonical_ids.is_empty() {
+            return Ok(canonical_ids);
+        }
+
+        let legacy_key = Self::legacy_owner_key(owner);
+        let legacy_ids = Self::load_id_index(store, &legacy_key)?;
+        if !legacy_ids.is_empty() {
+            deletes.push(legacy_key);
+        }
+        Ok(legacy_ids)
+    }
+
+    #[cfg(test)]
     fn load_owned_object_ids(
         store: &PersistentStore,
         owner: &AccountAddress,
@@ -206,18 +236,34 @@ impl ObjectStorage {
         let owner = obj.owner;
         let mut old_owner = None;
         let mut old_owner_kind = None;
+        let _transaction_guard = self
+            .persistent
+            .as_ref()
+            .map(|store| store.transaction_guard());
 
         {
-            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = state.objects.get(&id) {
                 old_owner = Some(existing.owner);
                 old_owner_kind = Some(existing.owner_kind.clone());
             }
-            state.objects.insert(id.clone(), obj.clone());
+        }
+
+        if old_owner.is_none()
+            && let Some(store) = &self.persistent
+            && let Some(existing) =
+                store.load::<StoredObject>(format!("object:{}", id).as_bytes())?
+        {
+            old_owner = Some(existing.owner);
+            old_owner_kind = Some(existing.owner_kind);
         }
 
         if let Some(store) = &self.persistent {
-            store.save(format!("object:{}", id).as_bytes(), &obj)?;
+            let mut updates = vec![Self::encode_update(
+                format!("object:{}", id).into_bytes(),
+                &obj,
+            )?];
+            let mut deletes = Vec::new();
 
             let new_is_owned = matches!(obj.owner_kind, ObjectOwnerKind::AddressOwner(_));
             if let Some(old) = old_owner {
@@ -227,33 +273,46 @@ impl ObjectStorage {
                         let old_key = owned_objects_key(&old);
                         let mut old_ids = Self::load_id_index(store, &old_key)?;
                         if Self::remove_index_id(&mut old_ids, &id) {
-                            Self::save_id_index(store, &old_key, &old_ids)?;
+                            updates.push(Self::encode_update(old_key, &old_ids)?);
                         }
                     }
 
                     if new_is_owned {
                         let new_key = owned_objects_key(&owner);
-                        let mut new_ids = Self::load_owned_object_ids(store, &owner)?;
+                        let mut new_ids =
+                            Self::load_owned_object_ids_for_batch(store, &owner, &mut deletes)?;
                         if Self::add_index_id(&mut new_ids, &id) {
-                            Self::save_id_index(store, &new_key, &new_ids)?;
+                            updates.push(Self::encode_update(new_key, &new_ids)?);
                         }
                     }
                 }
             } else {
                 if new_is_owned {
                     let new_key = owned_objects_key(&owner);
-                    let mut new_ids = Self::load_owned_object_ids(store, &owner)?;
+                    let mut new_ids =
+                        Self::load_owned_object_ids_for_batch(store, &owner, &mut deletes)?;
                     if Self::add_index_id(&mut new_ids, &id) {
-                        Self::save_id_index(store, &new_key, &new_ids)?;
+                        updates.push(Self::encode_update(new_key, &new_ids)?);
                     }
                 }
             }
 
             let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
             if Self::add_index_id(&mut ids, &id) {
-                Self::save_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
+                updates.push(Self::encode_update(
+                    Self::OBJECT_INDEX_KEY.as_bytes().to_vec(),
+                    &ids,
+                )?);
             }
+            store.apply_raw_changes(&updates, &deletes)?;
         }
+
+        // Publish to the live cache only after every persistent write succeeded.
+        self.state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .objects
+            .insert(id, obj);
 
         Ok(())
     }
@@ -301,31 +360,52 @@ impl ObjectStorage {
     }
 
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
-        let mut old_owner = None;
+        let mut old_object = None;
+        let _transaction_guard = self
+            .persistent
+            .as_ref()
+            .map(|store| store.transaction_guard());
 
         {
-            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            if let Some(obj) = state.objects.remove(id) {
-                old_owner = Some(obj.owner);
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(obj) = state.objects.get(id) {
+                old_object = Some(obj.clone());
             }
         }
 
         if let Some(store) = &self.persistent {
-            store.delete(format!("object:{}", id).as_bytes())?;
+            if old_object.is_none() {
+                old_object = store.load::<StoredObject>(format!("object:{}", id).as_bytes())?;
+            }
+            let mut updates = Vec::new();
+            let deletes = vec![format!("object:{}", id).into_bytes()];
 
-            if let Some(owner) = old_owner {
-                let owner_key = owned_objects_key(&owner);
+            if let Some(object) = &old_object
+                && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
+            {
+                let owner_key = owned_objects_key(&object.owner);
                 let mut ids = Self::load_id_index(store, &owner_key)?;
                 if Self::remove_index_id(&mut ids, id) {
-                    Self::save_id_index(store, &owner_key, &ids)?;
+                    updates.push(Self::encode_update(owner_key, &ids)?);
                 }
             }
 
             let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
             if Self::remove_index_id(&mut ids, id) {
-                Self::save_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
+                updates.push(Self::encode_update(
+                    Self::OBJECT_INDEX_KEY.as_bytes().to_vec(),
+                    &ids,
+                )?);
             }
+            store.apply_raw_changes(&updates, &deletes)?;
         }
+
+        // Keep the old cache entry available if persistence failed above.
+        self.state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .objects
+            .remove(id);
 
         Ok(())
     }

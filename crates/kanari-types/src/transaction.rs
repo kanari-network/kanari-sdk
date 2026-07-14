@@ -511,10 +511,9 @@ impl Transaction {
         let mut keys = self
             .object_inputs()
             .into_iter()
-            .map(|input| {
-                let mutability = if input.mutable { "mut" } else { "ro" };
-                format!("{mutability}:object:{}", input.object_ref.object_id)
-            })
+            // Conflict identity is the object itself. Access role must not create a
+            // separate namespace, otherwise read/write and gas/input aliases look disjoint.
+            .map(|input| format!("object:{}", input.object_ref.object_id))
             .collect::<Vec<_>>();
 
         if let Some(gas_payment) = self.gas_payment() {
@@ -522,7 +521,7 @@ impl Transaction {
                 gas_payment
                     .payment_objects
                     .into_iter()
-                    .map(|payment| format!("mut:gas:{}", payment.object_id)),
+                    .map(|payment| format!("object:{}", payment.object_id)),
             );
         }
 
@@ -920,5 +919,33 @@ mod tests {
         }
 
         assert!(signed_tx.into_verified().is_err());
+    }
+
+    #[test]
+    fn object_access_identity_unifies_read_write_and_gas_roles() {
+        let object_ref = ObjectRef::new("0x42", Some(1), Some("digest".to_string()));
+        let tx = Transaction::ExecuteFunction {
+            sender: "0x1".to_string(),
+            module: "example".to_string(),
+            function: "call".to_string(),
+            type_args: Vec::new(),
+            args: Vec::new(),
+            object_inputs: vec![ObjectInput {
+                object_ref: object_ref.clone(),
+                owner: Some(ObjectOwnerKind::AddressOwner("0x1".to_string())),
+                mutable: false,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![object_ref],
+                owner: "0x1".to_string(),
+                budget: 100,
+                price: 1,
+            }),
+            gas_limit: 100,
+            gas_price: 1,
+            nonce: 0,
+        };
+
+        assert_eq!(tx.object_access_keys(), vec!["object:0x42".to_string()]);
     }
 }

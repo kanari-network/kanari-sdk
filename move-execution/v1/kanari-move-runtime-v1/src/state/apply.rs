@@ -962,6 +962,28 @@ impl StateManager {
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
         }
 
+        // Move modules/resources are part of the same canonical overlay as objects and
+        // balances. Keeping them here prevents speculative VM execution from mutating the
+        // shared database before the checkpoint is validated and committed.
+        for (key, value) in &changeset.move_writes {
+            match value {
+                Some(bytes) => self.save_internal(key, bytes)?,
+                None => {
+                    self.overlay.insert(key.clone(), None);
+                }
+            }
+
+            if key.starts_with(b"module:") {
+                let module_key =
+                    String::from_utf8(key.clone()).context("Move module key is not valid UTF-8")?;
+                if value.is_some() {
+                    self.add_to_index_list(b"module_index", module_key)?;
+                } else {
+                    self.remove_from_index_list(b"module_index", &module_key)?;
+                }
+            }
+        }
+
         // =====================================================================
         // Process Dynamic Fields into State Overlay.
         // =====================================================================

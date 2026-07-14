@@ -304,7 +304,7 @@ fn verify_framework_hash(
 ) -> Result<()> {
     let (manifest, hash_hex) = compute_framework_manifest_and_hash(modules);
     log::info!("{} framework hash (disk): {}", framework_id, hash_hex);
-    if let Some(prev) = state.get_framework_hash(framework_id)
+    if let Some(prev) = state.try_get_framework_hash(framework_id)?
         && prev != hash_hex
     {
         warn!(
@@ -332,11 +332,11 @@ fn prune_framework_modules(
     runtime: &super::MoveRuntime,
     modules: &[DiscoveredModule],
     framework_addr: AccountAddress,
-) {
+) -> Result<()> {
     #[cfg(feature = "framework-pruning")]
     {
         let keep: BTreeSet<ModuleId> = modules.iter().map(|m| m.module_id.clone()).collect();
-        for id in runtime.state.get_all_module_ids().unwrap_or_default() {
+        for id in runtime.state.get_all_module_ids()? {
             if *id.address() == framework_addr && !keep.contains(&id) {
                 if let Err(e) = runtime.state.delete_module(&id) {
                     warn!("Warning: Failed to prune module {}: {}", id, e);
@@ -349,6 +349,8 @@ fn prune_framework_modules(
 
     #[cfg(not(feature = "framework-pruning"))]
     let _ = (runtime, modules, framework_addr);
+
+    Ok(())
 }
 
 fn save_framework_modules(
@@ -359,7 +361,7 @@ fn save_framework_modules(
     let mut count = 0;
     for m in modules {
         let module_file = mv_filename(&m.file_name);
-        if let Some(old_bytes) = runtime.state.get_module(&m.module_id)
+        if let Some(old_bytes) = runtime.state.try_get_module(&m.module_id)?
             && old_bytes != m.bytes
         {
             let old_compiled = CompiledModule::deserialize_with_defaults(&old_bytes)?;
@@ -478,7 +480,7 @@ impl super::MoveRuntime {
             "KANARI_FRAMEWORK_EXPECTED_HASH_0X1",
             "Warning: stdlib framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
         )?;
-        prune_framework_modules(self, &modules, std_addr);
+        prune_framework_modules(self, &modules, std_addr)?;
         count += save_framework_modules(self, modules, "stdlib")?;
 
         tracing::info!(
@@ -544,7 +546,7 @@ impl super::MoveRuntime {
             })?;
         }
 
-        prune_framework_modules(self, &modules, system_addr);
+        prune_framework_modules(self, &modules, system_addr)?;
         count += save_framework_modules(self, modules, "system")?;
 
         tracing::info!(

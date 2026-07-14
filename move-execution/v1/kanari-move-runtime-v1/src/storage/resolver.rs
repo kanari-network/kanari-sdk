@@ -26,7 +26,7 @@ impl ModuleResolver for KanariMoveResolver {
 
     fn get_module(&self, id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
         // Fetch module directly from RocksDB via MoveVMState
-        Ok(self.state.get_module(id))
+        self.state.try_get_module(id)
     }
 }
 
@@ -38,11 +38,11 @@ impl ResourceResolver for KanariMoveResolver {
         address: &AccountAddress,
         tag: &StructTag,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
-        if let Some(data) = self.state.get_resource(address, tag) {
+        if let Some(data) = self.state.try_get_resource(address, tag)? {
             return Ok(Some(data));
         }
 
-        if let Some(data) = self.state.get_object(address) {
+        if let Some(data) = self.state.try_get_object(address)? {
             log::debug!("[RESOLVER] Loaded Sui-style object at {}", address);
             return Ok(Some(data));
         }

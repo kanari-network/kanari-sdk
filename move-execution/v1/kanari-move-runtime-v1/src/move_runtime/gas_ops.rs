@@ -65,7 +65,7 @@ impl super::MoveRuntime {
         &self,
         move_cs: &move_core_types::effects::ChangeSet,
         kanari_cs: &ChangeSet,
-    ) -> (u64, u64) {
+    ) -> Result<(u64, u64)> {
         let mut written = 0;
         let mut deleted = 0;
 
@@ -79,7 +79,11 @@ impl super::MoveRuntime {
                     }
                     move_core_types::effects::Op::Delete => {
                         let module_id = ModuleId::new(*addr, module_name.clone());
-                        if let Ok(Some(bytes)) = self.resolver.get_module(&module_id) {
+                        if let Some(bytes) = self.resolver.get_module(&module_id).map_err(|error| {
+                            anyhow::anyhow!(
+                                "Failed to read deleted module {module_id} for gas accounting: {error:?}"
+                            )
+                        })? {
                             deleted += bytes.len() as u64;
                         }
                     }
@@ -92,7 +96,13 @@ impl super::MoveRuntime {
                         written += bytes.len() as u64;
                     }
                     move_core_types::effects::Op::Delete => {
-                        if let Ok(Some(bytes)) = self.resolver.get_resource(addr, tag) {
+                        if let Some(bytes) =
+                            self.resolver.get_resource(addr, tag).map_err(|error| {
+                                anyhow::anyhow!(
+                                    "Failed to read deleted resource {addr}::{tag} for gas accounting: {error:?}"
+                                )
+                            })?
+                        {
                             deleted += bytes.len() as u64;
                         }
                     }
@@ -122,6 +132,6 @@ impl super::MoveRuntime {
             written += event.type_tag.len() as u64;
         }
 
-        (written, deleted)
+        Ok((written, deleted))
     }
 }

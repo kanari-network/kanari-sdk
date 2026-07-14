@@ -20,6 +20,10 @@ impl KanariGasMeter {
         }
     }
 
+    pub(crate) fn gas_used(&self) -> u64 {
+        self.gas_used
+    }
+
     /// Charge additional internal gas and fail once the limit is exceeded.
     #[inline]
     fn charge(&mut self, amount: u64) -> PartialVMResult<()> {
@@ -43,6 +47,11 @@ impl KanariGasMeter {
     #[inline]
     fn charge_with_len(&mut self, base: u64, len: usize) -> PartialVMResult<()> {
         self.charge(base.saturating_add(len as u64))
+    }
+
+    #[inline]
+    fn value_size(value: &impl move_vm_types::views::ValueView) -> u64 {
+        value.legacy_abstract_memory_size().into()
     }
 }
 
@@ -141,9 +150,9 @@ impl GasMeter for KanariGasMeter {
 
     fn charge_copy_loc(
         &mut self,
-        _val: impl move_vm_types::views::ValueView,
+        val: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(COPY_LOC_COST)
+        self.charge(COPY_LOC_COST.saturating_add(Self::value_size(&val)))
     }
 
     fn charge_move_loc(
@@ -155,9 +164,9 @@ impl GasMeter for KanariGasMeter {
 
     fn charge_store_loc(
         &mut self,
-        _val: impl move_vm_types::views::ValueView,
+        val: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(STORE_LOC_COST)
+        self.charge(STORE_LOC_COST.saturating_add(Self::value_size(&val)))
     }
 
     fn charge_pack(
@@ -178,33 +187,45 @@ impl GasMeter for KanariGasMeter {
 
     fn charge_read_ref(
         &mut self,
-        _val: impl move_vm_types::views::ValueView,
+        val: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(READ_REF_COST)
+        self.charge(READ_REF_COST.saturating_add(Self::value_size(&val)))
     }
 
     fn charge_write_ref(
         &mut self,
-        _new_val: impl move_vm_types::views::ValueView,
-        _old_val: impl move_vm_types::views::ValueView,
+        new_val: impl move_vm_types::views::ValueView,
+        old_val: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(WRITE_REF_COST)
+        self.charge(
+            WRITE_REF_COST
+                .saturating_add(Self::value_size(&new_val))
+                .saturating_add(Self::value_size(&old_val)),
+        )
     }
 
     fn charge_eq(
         &mut self,
-        _lhs: impl move_vm_types::views::ValueView,
-        _rhs: impl move_vm_types::views::ValueView,
+        lhs: impl move_vm_types::views::ValueView,
+        rhs: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(EQ_COST)
+        self.charge(
+            EQ_COST
+                .saturating_add(Self::value_size(&lhs))
+                .saturating_add(Self::value_size(&rhs)),
+        )
     }
 
     fn charge_neq(
         &mut self,
-        _lhs: impl move_vm_types::views::ValueView,
-        _rhs: impl move_vm_types::views::ValueView,
+        lhs: impl move_vm_types::views::ValueView,
+        rhs: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
-        self.charge(NEQ_COST)
+        self.charge(
+            NEQ_COST
+                .saturating_add(Self::value_size(&lhs))
+                .saturating_add(Self::value_size(&rhs)),
+        )
     }
 
     fn charge_vec_pack<'a>(
@@ -329,6 +350,16 @@ mod tests {
         let err = meter
             .charge_ld_const(NumBytes::new(4))
             .expect_err("large constants should consume more gas than tiny ones");
+        assert_eq!(err.major_status(), StatusCode::OUT_OF_GAS);
+    }
+
+    #[test]
+    fn copying_large_values_scales_with_value_size() {
+        let mut meter = KanariGasMeter::new(16);
+        let value = move_vm_types::values::Value::vector_u8(vec![0; 64]);
+        let err = meter
+            .charge_copy_loc(value)
+            .expect_err("copying a large value must consume size-dependent gas");
         assert_eq!(err.major_status(), StatusCode::OUT_OF_GAS);
     }
 }
