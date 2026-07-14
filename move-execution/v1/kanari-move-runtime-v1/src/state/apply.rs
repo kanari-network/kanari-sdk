@@ -716,7 +716,10 @@ impl StateManager {
                 let existing_native_coin =
                     Self::balance_token_amount(&existing.type_name, &existing.data)
                         .is_some_and(|(token_type, _)| token_type == KANARI_TOKEN_TYPE);
-                if existing_native_coin {
+                let is_designated_gas_object = changeset.gas_object_refs.iter().any(|gas_ref| {
+                    Self::canonical_owned_object_id(&gas_ref.object_id) == canonical_obj_id
+                });
+                if existing_native_coin && is_designated_gas_object {
                     let sender_native_debit: u64 = changeset
                         .owner_deltas
                         .get(&existing.owner)
@@ -823,6 +826,92 @@ impl StateManager {
                 let token_type = &new_obj.type_[start + 1..end];
                 self.persist_coin_metadata(token_type, &new_obj.data)?;
             }
+        }
+
+        // A separate gas coin is normally not passed into the Move function, so
+        // it will not appear in `created_objects`. Debit the explicitly declared
+        // gas object here instead of charging whichever native coin happened to
+        // be mutated first by the transfer. In particular, a transfer coin whose
+        // entire balance was split has amount zero and must never receive gas.
+        for gas_ref in &changeset.gas_object_refs {
+            let Some((stored_id, existing)) =
+                self.load_stored_object_by_any_id(&gas_ref.object_id)?
+            else {
+                continue;
+            };
+            let sender_native_debit = changeset
+                .owner_deltas
+                .get(&existing.owner)
+                .map(|change| change.balance_delta)
+                .filter(|delta| *delta < 0)
+                .map(|delta| {
+                    u64::try_from(delta.unsigned_abs())
+                        .require("Native debit overflowed u64 gas object adjustment")
+                })
+                .transpose()?
+                .unwrap_or(0);
+            let already_adjusted = native_object_gas_adjusted
+                .get(&existing.owner)
+                .copied()
+                .unwrap_or(0);
+            let remaining_debit = sender_native_debit.saturating_sub(already_adjusted);
+            if remaining_debit == 0 {
+                continue;
+            }
+            let Some((token_type, object_amount)) =
+                Self::balance_token_amount(&existing.type_name, &existing.data)
+            else {
+                continue;
+            };
+            if token_type != KANARI_TOKEN_TYPE {
+                continue;
+            }
+            ensure!(
+                object_amount >= remaining_debit,
+                "Insufficient native gas coin balance: balance={}, debit={}",
+                object_amount,
+                remaining_debit
+            );
+            let struct_tag = StructTag::from_str(&existing.type_name)
+                .context("Invalid native gas coin object type")?;
+            let mut next_data = existing.data.clone();
+            ensure!(
+                Self::write_balance_to_object_bytes(
+                    &mut next_data,
+                    &struct_tag,
+                    object_amount - remaining_debit,
+                ),
+                "Failed to write adjusted native gas coin balance"
+            );
+            let canonical_id = Self::canonical_owned_object_id(&gas_ref.object_id);
+            let next_object = StoredObject {
+                id: canonical_id.clone(),
+                owner: existing.owner,
+                owner_kind: existing.owner_kind.clone(),
+                type_name: existing.type_name.clone(),
+                data: next_data,
+                version: existing.version.saturating_add(1),
+            };
+            self.save_internal(&object_key(&canonical_id), &next_object)?;
+            if stored_id != canonical_id {
+                self.overlay.insert(object_key(&stored_id), None);
+            }
+            self.add_to_index_list(b"object_index", canonical_id.clone())?;
+            if matches!(next_object.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                self.refresh_owned_object_index(
+                    next_object.owner,
+                    &gas_ref.object_id,
+                    Some(&stored_id),
+                )?;
+            }
+            Self::record_object_balance_owner_if_needed(
+                &mut owners_to_recompute,
+                &mut native_object_changed_owners,
+                next_object.owner,
+                &next_object.type_name,
+                &next_object.data,
+            );
+            native_object_gas_adjusted.insert(existing.owner, sender_native_debit);
         }
 
         for owner in owners_to_recompute {

@@ -716,7 +716,7 @@ mod tests {
             ),
             recipient_address.clone(),
             1,
-            0,
+            1,
             1_000_000,
             1,
         );

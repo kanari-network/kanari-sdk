@@ -41,8 +41,6 @@ fn is_object_busy_or_unavailable(error: &anyhow::Error) -> bool {
     message.contains("No spendable native gas coin object found")
         || message.contains("No single Coin<")
         || message.contains("insufficient_transfer_coin_balance")
-        || message.contains("Native transfer requires two distinct Coin<")
-        || message.contains("native_transfer_policy_not_satisfied")
 }
 
 fn is_lane_saturated(error: &anyhow::Error) -> bool {

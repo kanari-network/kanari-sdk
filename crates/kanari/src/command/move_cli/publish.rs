@@ -187,7 +187,7 @@ impl Publish {
                             gas_limit,
                             gas_price,
                             nonce: None,
-                            execute_immediate: None,
+                            execute_immediate: Some(true),
                         })
                         .context("Failed to serialize build publish package request")?,
                     )?;

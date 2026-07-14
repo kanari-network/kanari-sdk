@@ -58,7 +58,10 @@ impl Transfer {
                 gas_limit,
                 gas_price,
                 nonce: None,
-                execute_immediate: None,
+                // Preview against the current object state before gossiping so
+                // Move argument/object failures are returned to the user instead
+                // of being committed as a failed transaction with unchanged balances.
+                execute_immediate: Some(true),
             })
             .await
             .map_err(|error| {
@@ -91,6 +94,9 @@ impl Transfer {
             .await
             .context("Failed to submit transaction")?;
         print_transaction_status("  ", &status);
+        if !status.success {
+            anyhow::bail!("Transfer preview failed (status: {})", status.status);
+        }
         if should_wait_for_commit(
             status.success,
             status.previewed,
@@ -106,6 +112,12 @@ impl Transfer {
             )
             .await?;
             print_transaction_status("  Final: ", &committed);
+            if !committed.success {
+                anyhow::bail!(
+                    "Transfer was committed but execution failed (status: {})",
+                    committed.status
+                );
+            }
         }
 
         Ok(())

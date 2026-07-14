@@ -423,13 +423,18 @@ fn select_native_transfer_and_gas_payment(
             (transfer_ref.clone(), *transfer_balance),
             (gas_ref, gas_balance),
         );
+        // Keep the smallest sufficient coin as the long-lived gas reserve.
+        // Preferring the smallest transfer coin can consume it completely and
+        // strand the wallet with one funded coin plus one zero-balance coin,
+        // making every subsequent native transfer violate the distinct-gas
+        // policy.
         match &best_pair {
             Some(((best_transfer_ref, best_transfer_balance), (_, best_gas_balance)))
                 if (
-                    *best_transfer_balance,
                     *best_gas_balance,
+                    *best_transfer_balance,
                     &best_transfer_ref.object_id,
-                ) <= (candidate.0.1, candidate.1.1, &candidate.0.0.object_id) => {}
+                ) <= (candidate.1.1, candidate.0.1, &candidate.0.0.object_id) => {}
             _ => best_pair = Some(candidate),
         }
     }
@@ -825,6 +830,28 @@ fn apply_pending_preview_metadata(
     if let Some(effects) = &record.metadata.preview_effects {
         details.effects = Some(effects.clone());
     }
+}
+
+fn apply_committed_effect(
+    details: &mut TransactionDetails,
+    effect: Option<&kanari_types::transaction::TransactionEffects>,
+) {
+    let Some(effect) = effect else {
+        return;
+    };
+    let execution_succeeded = effect.status == "success";
+    details.status = if execution_succeeded {
+        "committed".to_string()
+    } else {
+        "failed".to_string()
+    };
+    details.success = execution_succeeded;
+    details.previewed = false;
+    details.submitted = true;
+    // A failed Move execution is still final once its Mysticeti sub-DAG commits.
+    details.committed = true;
+    details.gas_used = Some(effect.gas_used);
+    details.effects = Some(effect.clone());
 }
 
 // =========================================================================
@@ -1936,8 +1963,10 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         p.into_inner()
     });
 
-    if let Some((tx, height, state_root)) = chain.get_transaction_location(&tx_hash_bytes) {
-        let details = map_transaction_to_details(
+    if let Some((tx, height, state_root, effect)) =
+        chain.get_transaction_location_with_effect(&tx_hash_bytes)
+    {
+        let mut details = map_transaction_to_details(
             state,
             &tx.transaction,
             &hex::encode(tx.transaction_hash()),
@@ -1945,6 +1974,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             Some(height),
             Some(hex::encode(state_root)),
         );
+        apply_committed_effect(&mut details, effect);
         return respond_with_serialize(request.id, details);
     }
     drop(chain);
@@ -1953,7 +1983,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         .engine
         .get_committed_transaction_from_history(&tx_hash_bytes)
     {
-        let details = map_transaction_to_details(
+        let mut details = map_transaction_to_details(
             state,
             &tx.transaction,
             &hex::encode(tx.transaction_hash()),
@@ -1961,6 +1991,10 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             Some(height),
             Some(hex::encode(state_root)),
         );
+        let effect = state
+            .engine
+            .get_committed_transaction_effect_from_history(&tx_hash_bytes);
+        apply_committed_effect(&mut details, effect.as_ref());
         return respond_with_serialize(request.id, details);
     }
 
@@ -2044,24 +2078,21 @@ pub async fn handle_get_all_transactions(
                 break;
             }
 
-            for tx in checkpoint.transactions.iter().rev() {
+            for (index, tx) in checkpoint.transactions.iter().enumerate().rev() {
                 if !tx_matches_owner(&tx.transaction, owner_norm.as_deref()) {
                     continue;
                 }
 
-                if !push_unique_tx_details(
-                    &mut results,
-                    &mut seen_hashes,
-                    limit,
-                    map_transaction_to_details(
-                        state,
-                        &tx.transaction,
-                        &hex::encode(tx.transaction_hash()),
-                        "committed",
-                        Some(checkpoint.sequence),
-                        Some(hex::encode(&checkpoint.state_root)),
-                    ),
-                ) {
+                let mut details = map_transaction_to_details(
+                    state,
+                    &tx.transaction,
+                    &hex::encode(tx.transaction_hash()),
+                    "committed",
+                    Some(checkpoint.sequence),
+                    Some(hex::encode(&checkpoint.state_root)),
+                );
+                apply_committed_effect(&mut details, checkpoint.transaction_effects.get(index));
+                if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                     break;
                 }
             }
@@ -2075,19 +2106,20 @@ pub async fn handle_get_all_transactions(
                 tx_matches_owner(tx, owner_norm.as_deref())
             })
         {
-            if !push_unique_tx_details(
-                &mut results,
-                &mut seen_hashes,
-                limit,
-                map_transaction_to_details(
-                    state,
-                    &tx.transaction,
-                    &hex::encode(tx.transaction_hash()),
-                    "committed",
-                    Some(height),
-                    Some(hex::encode(state_root)),
-                ),
-            ) {
+            let tx_hash = tx.transaction_hash().to_vec();
+            let effect = state
+                .engine
+                .get_committed_transaction_effect_from_history(&tx_hash);
+            let mut details = map_transaction_to_details(
+                state,
+                &tx.transaction,
+                &hex::encode(&tx_hash),
+                "committed",
+                Some(height),
+                Some(hex::encode(state_root)),
+            );
+            apply_committed_effect(&mut details, effect.as_ref());
+            if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                 break;
             }
         }
@@ -2154,26 +2186,23 @@ pub async fn handle_get_fungible_asset_transactions(
                 break;
             }
 
-            for tx in checkpoint.transactions.iter().rev() {
+            for (index, tx) in checkpoint.transactions.iter().enumerate().rev() {
                 if !tx_mentions_token_type(&tx.transaction, &token_type)
                     || !tx_matches_owner(&tx.transaction, owner_norm.as_deref())
                 {
                     continue;
                 }
 
-                if !push_unique_tx_details(
-                    &mut results,
-                    &mut seen_hashes,
-                    limit,
-                    map_transaction_to_details(
-                        state,
-                        &tx.transaction,
-                        &hex::encode(tx.transaction_hash()),
-                        "committed",
-                        Some(checkpoint.sequence),
-                        Some(hex::encode(&checkpoint.state_root)),
-                    ),
-                ) {
+                let mut details = map_transaction_to_details(
+                    state,
+                    &tx.transaction,
+                    &hex::encode(tx.transaction_hash()),
+                    "committed",
+                    Some(checkpoint.sequence),
+                    Some(hex::encode(&checkpoint.state_root)),
+                );
+                apply_committed_effect(&mut details, checkpoint.transaction_effects.get(index));
+                if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                     break;
                 }
             }
@@ -2189,19 +2218,20 @@ pub async fn handle_get_fungible_asset_transactions(
                         && tx_matches_owner(tx, owner_norm.as_deref())
                 })
         {
-            if !push_unique_tx_details(
-                &mut results,
-                &mut seen_hashes,
-                limit,
-                map_transaction_to_details(
-                    state,
-                    &tx.transaction,
-                    &hex::encode(tx.transaction_hash()),
-                    "committed",
-                    Some(height),
-                    Some(hex::encode(state_root)),
-                ),
-            ) {
+            let tx_hash = tx.transaction_hash().to_vec();
+            let effect = state
+                .engine
+                .get_committed_transaction_effect_from_history(&tx_hash);
+            let mut details = map_transaction_to_details(
+                state,
+                &tx.transaction,
+                &hex::encode(&tx_hash),
+                "committed",
+                Some(height),
+                Some(hex::encode(state_root)),
+            );
+            apply_committed_effect(&mut details, effect.as_ref());
+            if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                 break;
             }
         }
@@ -2390,10 +2420,11 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_transaction_error_data, derive_transaction_state_flags,
-        select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
-        transaction_error_with_reason,
+        apply_committed_effect, base_transaction_details, classify_transaction_error_data,
+        derive_transaction_state_flags, select_native_coin_consolidation_step,
+        select_native_transfer_and_gas_payment, transaction_error_with_reason,
     };
+    use kanari_move_runtime_v1::changeset::ChangeSet;
     use kanari_rpc_api::TransactionErrorReason;
     use kanari_types::coin::CoinModule;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -2416,6 +2447,37 @@ mod tests {
         assert!(!previewed);
         assert!(submitted);
         assert!(committed);
+    }
+
+    #[test]
+    fn committed_failed_effect_is_not_reported_as_success() {
+        let mut changeset = ChangeSet::new();
+        changeset.mark_failed("Move execution failed".to_string());
+        changeset.set_gas_used(210);
+        let effect = changeset.effects(None);
+        let mut details = base_transaction_details(
+            "hash".to_string(),
+            "committed".to_string(),
+            Some(1),
+            "transfer",
+            "sender".to_string(),
+            "0x1".to_string(),
+            1,
+            100_000,
+            1,
+        );
+
+        apply_committed_effect(&mut details, Some(&effect));
+
+        assert_eq!(details.status, "failed");
+        assert!(!details.success);
+        assert!(details.submitted);
+        assert!(details.committed);
+        assert_eq!(details.gas_used, Some(210));
+        assert_eq!(
+            details.effects.unwrap().error_message.as_deref(),
+            Some("Move execution failed")
+        );
     }
 
     #[test]
@@ -2520,6 +2582,43 @@ mod tests {
         assert_eq!(coin.object_id, "0x1");
         assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
         assert_eq!(gas.payment_objects[0].object_id, "0x2");
+    }
+
+    #[test]
+    fn native_transfer_preserves_small_coin_as_gas_reserve() {
+        use kanari_rpc_api::ObjectInfo;
+        use kanari_types::transaction::ObjectOwnerKind;
+
+        let coin = |id: &str, balance: u64| ObjectInfo {
+            id: id.to_string(),
+            owner: "0xa".to_string(),
+            owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+            type_: CoinModule::coin_type(KANARI_TOKEN_TYPE),
+            data: {
+                let mut bytes = vec![0u8; 40];
+                bytes[32..40].copy_from_slice(&balance.to_le_bytes());
+                bytes
+            },
+            version: 1,
+            digest: Some(format!("{id}:digest")),
+        };
+        let owned_objects = vec![
+            coin("0xsmall", 1_000_000_000),
+            coin("0xlarge", 11_000_000_000),
+        ];
+
+        let (transfer, gas) = select_native_transfer_and_gas_payment(
+            &owned_objects,
+            "0xa",
+            1_000_000_000,
+            100_000,
+            1,
+            &HashSet::new(),
+        )
+        .unwrap();
+
+        assert_eq!(transfer.object_id, "0xlarge");
+        assert_eq!(gas.payment_objects[0].object_id, "0xsmall");
     }
 
     #[test]

@@ -973,6 +973,30 @@ impl BlockchainEngine {
         None
     }
 
+    pub fn get_committed_transaction_effect_from_history(
+        &self,
+        tx_hash: &[u8],
+    ) -> Option<kanari_types::transaction::TransactionEffects> {
+        if let Some(store) = self.persistent_store.as_ref()
+            && let Some((_, location)) = Self::load_transaction_by_hash_from_index(store, tx_hash)
+            && let Some(transactions) =
+                Self::load_checkpoint_transactions(store, location.checkpoint_sequence)
+            && let Some(index) = transactions
+                .iter()
+                .position(|tx| tx.transaction_hash() == tx_hash)
+            && let Some(checkpoint) =
+                Self::load_checkpoint_metadata(store, location.checkpoint_sequence)
+            && let Some(effect) = checkpoint.transaction_effects.get(index)
+        {
+            return Some(effect.clone());
+        }
+
+        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        chain
+            .get_transaction_location_with_effect(tx_hash)
+            .and_then(|(_, _, _, effect)| effect.cloned())
+    }
+
     pub(crate) fn is_transaction_committed(&self, tx_hash: &[u8]) -> bool {
         if self
             .blockchain

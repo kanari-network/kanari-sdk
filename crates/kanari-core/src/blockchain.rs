@@ -4,7 +4,7 @@
 use crate::consensus::Checkpoint;
 use anyhow::Result;
 use kanari_types::error::KanariUnwrapExt;
-use kanari_types::transaction::SignedTransaction;
+use kanari_types::transaction::{SignedTransaction, TransactionEffects};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -207,19 +207,40 @@ impl Blockchain {
         &self,
         tx_hash: &[u8],
     ) -> Option<(&SignedTransaction, u64, &[u8])> {
+        self.get_transaction_location_with_effect(tx_hash)
+            .map(|(tx, sequence, state_root, _)| (tx, sequence, state_root))
+    }
+
+    pub fn get_transaction_location_with_effect(
+        &self,
+        tx_hash: &[u8],
+    ) -> Option<(&SignedTransaction, u64, &[u8], Option<&TransactionEffects>)> {
         if let Some((sequence, index)) = self.tx_location_index.get(tx_hash)
             && let Some(checkpoint) = self.get_checkpoint(*sequence)
             && let Some(tx) = checkpoint.transactions.get(*index)
         {
-            return Some((tx, checkpoint.sequence, checkpoint.state_root.as_slice()));
+            return Some((
+                tx,
+                checkpoint.sequence,
+                checkpoint.state_root.as_slice(),
+                checkpoint.transaction_effects.get(*index),
+            ));
         }
 
         self.dag_checkpoints.iter().rev().find_map(|checkpoint| {
             checkpoint
                 .transactions
                 .iter()
-                .find(|tx| tx.transaction_hash() == tx_hash)
-                .map(|tx| (tx, checkpoint.sequence, checkpoint.state_root.as_slice()))
+                .enumerate()
+                .find(|(_, tx)| tx.transaction_hash() == tx_hash)
+                .map(|(index, tx)| {
+                    (
+                        tx,
+                        checkpoint.sequence,
+                        checkpoint.state_root.as_slice(),
+                        checkpoint.transaction_effects.get(index),
+                    )
+                })
         })
     }
 }

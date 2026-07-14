@@ -178,6 +178,77 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
 }
 
 #[test]
+fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    configure_single_authority_consensus(&mut engine);
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 3_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|error| error.into_inner())
+        .commit()
+        .unwrap();
+
+    let sender_before = engine
+        .get_owner_info(&sender.address)
+        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .expect("funded sender balance");
+    let mut transaction = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 3_000_000),
+        recipient.address.clone(),
+        3_000_000,
+        1,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut transaction
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref("0x1001", 1_000_000)];
+    }
+    let mut transaction = SignedTransaction::new(transaction);
+    transaction
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+    let transaction_hash = transaction.transaction_hash().to_vec();
+    engine.submit_transactions_batch(vec![transaction]).unwrap();
+
+    // Submission alone is not execution. Owner balances become visible only
+    // after Mysticeti commits the transaction's sub-DAG.
+    assert_eq!(
+        engine
+            .get_owner_info(&sender.address)
+            .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied()),
+        Some(sender_before)
+    );
+    drive_consensus_until_mempool_empty(&engine);
+
+    assert!(engine.is_transaction_committed(&transaction_hash));
+    let effects = {
+        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        chain.latest_checkpoint().transaction_effects.to_vec()
+    };
+    assert_eq!(effects.len(), 1);
+    assert_eq!(effects[0].status, "success", "{effects:#?}");
+    let sender_after = engine
+        .get_owner_info(&sender.address)
+        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .expect("sender balance after commit");
+    let recipient_after = engine
+        .get_owner_info(&recipient.address)
+        .and_then(|owner| owner.balances.get(KANARI_TOKEN_TYPE).copied())
+        .expect("recipient balance after commit");
+    assert!(sender_after < sender_before);
+    assert_eq!(recipient_after, 3_000_000);
+}
+
+#[test]
 fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let owner = "0x1111";
