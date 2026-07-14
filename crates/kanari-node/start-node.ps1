@@ -13,7 +13,7 @@ param(
     [string]$Authorities = "",
     [string]$Bootstrap = "",
     [string]$GenesisPath = "",
-    [string]$ConsensusPrivateKeyHex = "",
+    [string]$ConsensusPrivateKeyFile = "",
     [string]$ConsensusPublicKeys = "",
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys"
 )
@@ -63,14 +63,23 @@ if ([string]::IsNullOrWhiteSpace($Authorities)) {
     exit 1
 }
 
-if ([string]::IsNullOrWhiteSpace($ConsensusPrivateKeyHex)) {
-    $privateKeyPath = Join-Path $ConsensusKeyDir "node$NodeId-consensus-private-key.hex"
-    if (-not (Test-Path $privateKeyPath)) {
-        Write-Host "Error: consensus private key not found: $privateKeyPath" -ForegroundColor Red
-        Write-Host "Run setup-multi-node.ps1 first, or pass -ConsensusPrivateKeyHex explicitly." -ForegroundColor Yellow
-        exit 1
+if ([string]::IsNullOrWhiteSpace($ConsensusPrivateKeyFile)) {
+    $ConsensusPrivateKeyFile = Join-Path $ConsensusKeyDir "node$NodeId-consensus-private-key.key"
+    if (-not (Test-Path $ConsensusPrivateKeyFile)) {
+        $legacyPrivateKeyPath = Join-Path $ConsensusKeyDir "node$NodeId-consensus-private-key.hex"
+        if (Test-Path $legacyPrivateKeyPath) {
+            $ConsensusPrivateKeyFile = $legacyPrivateKeyPath
+        } else {
+            Write-Host "Error: consensus private key not found: $ConsensusPrivateKeyFile" -ForegroundColor Red
+            Write-Host "Run setup-multi-node.ps1 first, or pass -ConsensusPrivateKeyFile explicitly." -ForegroundColor Yellow
+            exit 1
+        }
     }
-    $ConsensusPrivateKeyHex = (Get-Content -LiteralPath $privateKeyPath -Raw).Trim()
+}
+
+if (-not (Test-Path $ConsensusPrivateKeyFile)) {
+        Write-Host "Error: consensus private key not found: $ConsensusPrivateKeyFile" -ForegroundColor Red
+        exit 1
 }
 
 if ([string]::IsNullOrWhiteSpace($ConsensusPublicKeys)) {
@@ -99,7 +108,7 @@ $nodeArgs = @(
     "--authority-id", $authId,
     "--authorities", $Authorities,
     "--genesis", $genesisPath,
-    "--consensus-private-key-hex", $ConsensusPrivateKeyHex,
+    "--consensus-private-key-file", $ConsensusPrivateKeyFile,
     "--consensus-public-keys", $ConsensusPublicKeys
 )
 

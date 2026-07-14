@@ -391,14 +391,16 @@ fn mainnet_defaults_enable_strict_runtime_guards() {
 }
 
 #[test]
-fn devnet_defaults_enable_strict_checkpoint_roots() {
+fn devnet_defaults_enable_strict_runtime_guards() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     unsafe {
         std::env::set_var("KANARI_NETWORK", "devnet");
+        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
         std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
     }
 
+    assert!(BlockchainEngine::strict_persistence_required());
     assert!(BlockchainEngine::strict_checkpoint_roots_required());
 
     unsafe {
@@ -407,14 +409,16 @@ fn devnet_defaults_enable_strict_checkpoint_roots() {
 }
 
 #[test]
-fn local_network_defaults_allow_relaxed_checkpoint_roots() {
+fn local_network_defaults_allow_relaxed_runtime_guards() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     unsafe {
         std::env::set_var("KANARI_NETWORK", "local");
+        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
         std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
     }
 
+    assert!(!BlockchainEngine::strict_persistence_required());
     assert!(!BlockchainEngine::strict_checkpoint_roots_required());
 
     unsafe {

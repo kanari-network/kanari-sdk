@@ -32,10 +32,10 @@ This creates:
 ```text
 consensus-keys/
   consensus-public-keys.json
-  node1-consensus-private-key.hex
-  node2-consensus-private-key.hex
-  node3-consensus-private-key.hex
-  node4-consensus-private-key.hex
+  node1-consensus-private-key.key
+  node2-consensus-private-key.key
+  node3-consensus-private-key.key
+  node4-consensus-private-key.key
 ```
 
 Keep private key files out of git and do not reuse one private key across validators.
@@ -72,7 +72,7 @@ Start nodes in separate terminals:
 .\start-node.ps1 -NodeId 4 -Network devnet -Authorities "0x1,0x2,0x3,0x4" -Bootstrap "/ip4/127.0.0.1/tcp/19000"
 ```
 
-`start-node.ps1` reads the matching `node<N>-consensus-private-key.hex` file and the shared `consensus-public-keys.json` from the consensus key directory. RPC binds to `0.0.0.0` by default so explorer and wallet clients on the LAN can reach the node. Use firewall rules or pass a narrower `-RpcHost` value when running outside a trusted dev network.
+`start-node.ps1` passes the matching `node<N>-consensus-private-key.key` file path and the shared `consensus-public-keys.json`; private key contents never appear in process arguments. Set `KANARI_CONSENSUS_KEY_PASSWORD` before key generation/start to encrypt these files. RPC binds to `0.0.0.0` by default, so use firewall rules or a narrower `-RpcHost` outside a trusted dev network.
 
 ## Manual Start
 
@@ -81,8 +81,6 @@ Manual start commands must pass the consensus private key and public-key map exp
 ### Node 1
 
 ```powershell
-$node1Key = (Get-Content .\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
-
 cargo run --bin kanari-node -- start `
   --network devnet `
   --p2p-port 19000 `
@@ -90,15 +88,13 @@ cargo run --bin kanari-node -- start `
   --data-dir data/node1 `
   --authority-id 0x1 `
   --authorities 0x1,0x2,0x3,0x4 `
-  --consensus-private-key-hex $node1Key `
+  --consensus-private-key-file .\consensus-keys\node1-consensus-private-key.key `
   --consensus-public-keys .\consensus-keys\consensus-public-keys.json
 ```
 
 ### Node 2
 
 ```powershell
-$node2Key = (Get-Content .\consensus-keys\node2-consensus-private-key.hex -Raw).Trim()
-
 cargo run --bin kanari-node -- start `
   --network devnet `
   --p2p-port 19010 `
@@ -106,7 +102,7 @@ cargo run --bin kanari-node -- start `
   --data-dir data/node2 `
   --authority-id 0x2 `
   --authorities 0x1,0x2,0x3,0x4 `
-  --consensus-private-key-hex $node2Key `
+  --consensus-private-key-file .\consensus-keys\node2-consensus-private-key.key `
   --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
   --bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
@@ -114,8 +110,6 @@ cargo run --bin kanari-node -- start `
 ### Node 3
 
 ```powershell
-$node3Key = (Get-Content .\consensus-keys\node3-consensus-private-key.hex -Raw).Trim()
-
 cargo run --bin kanari-node -- start `
   --network devnet `
   --p2p-port 19020 `
@@ -123,7 +117,7 @@ cargo run --bin kanari-node -- start `
   --data-dir data/node3 `
   --authority-id 0x3 `
   --authorities 0x1,0x2,0x3,0x4 `
-  --consensus-private-key-hex $node3Key `
+  --consensus-private-key-file .\consensus-keys\node3-consensus-private-key.key `
   --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
   --bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
@@ -131,8 +125,6 @@ cargo run --bin kanari-node -- start `
 ### Node 4
 
 ```powershell
-$node4Key = (Get-Content .\consensus-keys\node4-consensus-private-key.hex -Raw).Trim()
-
 cargo run --bin kanari-node -- start `
   --network devnet `
   --p2p-port 19030 `
@@ -140,7 +132,7 @@ cargo run --bin kanari-node -- start `
   --data-dir data/node4 `
   --authority-id 0x4 `
   --authorities 0x1,0x2,0x3,0x4 `
-  --consensus-private-key-hex $node4Key `
+  --consensus-private-key-file .\consensus-keys\node4-consensus-private-key.key `
   --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
   --bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
@@ -210,7 +202,7 @@ state root before writing. It refuses to overwrite a non-empty data directory.
 - `--network <NETWORK>`: selects `devnet`, `testnet`, or `mainnet`
 - `--authority-id <ID>`: validator authority ID, for example `0x1`
 - `--authorities <IDS>`: comma-separated committee, for example `0x1,0x2,0x3,0x4`
-- `--consensus-private-key-hex <HEX>`: 32-byte Ed25519 seed hex for this validator
+- `--consensus-private-key-file <PATH>`: encrypted consensus key file (plaintext is rejected on mainnet)
 - `--consensus-public-keys <PATH>`: JSON map of authority ID to public key hex
 - `--p2p-port <PORT>`: P2P networking port
 - `--rpc-port <PORT>`: RPC server port
@@ -225,15 +217,13 @@ state root before writing. It refuses to overwrite a non-empty data directory.
 Relay mode also needs consensus keys when the node participates as a validator.
 
 ```powershell
-$node1Key = (Get-Content .\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
-
 kanari-node start `
   --network devnet `
   --p2p-port 19000 `
   --rpc-port 19001 `
   --authority-id 0x1 `
   --authorities 0x1,0x2,0x3,0x4 `
-  --consensus-private-key-hex $node1Key `
+  --consensus-private-key-file .\consensus-keys\node1-consensus-private-key.key `
   --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
   --relay-server
 ```
@@ -384,7 +374,7 @@ Stop the run and inspect logs immediately if any of these appear:
 
 ### Node Fails With Missing Consensus Key
 
-Run `consensus-keygen`, then pass `--consensus-private-key-hex` and `--consensus-public-keys`, or use `start-node.ps1` with the correct `-ConsensusKeyDir`.
+Run `consensus-keygen`, then pass `--consensus-private-key-file` and `--consensus-public-keys`, or use `start-node.ps1` with the correct `-ConsensusKeyDir`.
 
 ### Node Fails With Consensus Public Key Mismatch
 

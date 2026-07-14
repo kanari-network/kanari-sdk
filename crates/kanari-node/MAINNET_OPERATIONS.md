@@ -69,6 +69,7 @@ Use a staged rollout, not a simultaneous launch.
 Generate rehearsal keys with:
 
 ```powershell
+$env:KANARI_CONSENSUS_KEY_PASSWORD = Read-Host "Consensus key password"
 cargo run --bin kanari-node -- consensus-keygen --node-count 4 --output-dir C:\kanari\mainnet\consensus-keys --force
 ```
 
@@ -77,16 +78,17 @@ For production, use the generated layout as the required shape, then store and d
 ```text
 consensus-keys/
   consensus-public-keys.json
-  node1-consensus-private-key.hex
-  node2-consensus-private-key.hex
-  node3-consensus-private-key.hex
-  node4-consensus-private-key.hex
+  node1-consensus-private-key.key
+  node2-consensus-private-key.key
+  node3-consensus-private-key.key
+  node4-consensus-private-key.key
 ```
 
 Manual validator start shape:
 
 ```powershell
-$privateKey = (Get-Content C:\kanari\mainnet\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
+$env:KANARI_CONSENSUS_KEY_PASSWORD = Read-Host "Consensus key password"
+$env:KANARI_NODE_IDENTITY_PASSWORD = Read-Host "P2P identity password"
 
 kanari-node start `
   --network mainnet `
@@ -95,7 +97,7 @@ kanari-node start `
   --data-dir C:\kanari\mainnet\validator1 `
   --p2p-port 19000 `
   --rpc-port 19001 `
-  --consensus-private-key-hex $privateKey `
+  --consensus-private-key-file C:\kanari\mainnet\consensus-keys\node1-consensus-private-key.key `
   --consensus-public-keys C:\kanari\mainnet\consensus-keys\consensus-public-keys.json
 ```
 
@@ -105,19 +107,25 @@ The node should fail fast if the private key is missing or does not match the pu
 
 Create a backup before every rollout, restart window, or validator maintenance action.
 
-Example:
+Encrypted full-validator backup (the node must be stopped):
 
 ```powershell
-.\backup-node-data.ps1 `
-  -SourceDataDir C:\kanari\mainnet\validator1 `
-  -BackupRoot C:\kanari\backups `
-  -Label validator1-predeploy
+$env:KANARI_VALIDATOR_BACKUP_PASSWORD = Read-Host "Backup password"
+kanari-node validator-backup-export `
+  --network mainnet `
+  --data-dir C:\kanari\mainnet\validator1 `
+  --consensus-private-key-file C:\kanari\mainnet\consensus-keys\node1-consensus-private-key.key `
+  --consensus-public-keys C:\kanari\mainnet\consensus-keys\consensus-public-keys.json `
+  --genesis C:\kanari\mainnet\genesis.json `
+  --output C:\kanari\backups\validator1.kbackup.json
 ```
 
 Expected result:
 
-- A timestamped backup directory is created.
-- `backup-metadata.json` is written next to the copied data.
+- The encrypted archive contains state/checkpoint, Mysticeti WAL, persistent P2P identity,
+  consensus key material, public key map, and genesis.
+- Restore refuses a wrong password, network mismatch, checksum mismatch, path traversal,
+  or non-empty target directories.
 
 ## Restore Drill
 

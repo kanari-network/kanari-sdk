@@ -28,6 +28,7 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
 const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
+const MAX_DECOMPRESSED_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
 /// P2P message types
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -172,7 +173,7 @@ impl P2PNetwork {
         // Reference: https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#recommended-parameters
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
-            .validation_mode(ValidationMode::Permissive)
+            .validation_mode(ValidationMode::Strict)
             .message_id_fn(message_id_fn)
             // Parameters optimized for large networks (100-1000 nodes)
             .mesh_n_low(6) // Maintain at least 6 peers in mesh
@@ -454,22 +455,30 @@ impl P2PNetwork {
 
 /// Decompress a compressed UTF-8 P2P payload.
 pub fn decompress_payload(compressed_data: Vec<u8>) -> Result<String> {
-    let mut decoder = GzDecoder::new(&compressed_data[..]);
-    let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed)?;
-    Ok(decompressed)
+    let decoder = GzDecoder::new(&compressed_data[..]);
+    let mut limited = decoder.take((MAX_DECOMPRESSED_PAYLOAD_SIZE + 1) as u64);
+    let mut decompressed = Vec::new();
+    limited.read_to_end(&mut decompressed)?;
+    if decompressed.len() > MAX_DECOMPRESSED_PAYLOAD_SIZE {
+        anyhow::bail!(
+            "Decompressed P2P payload exceeds {} byte limit",
+            MAX_DECOMPRESSED_PAYLOAD_SIZE
+        );
+    }
+    String::from_utf8(decompressed)
+        .map_err(|error| anyhow::anyhow!("Decompressed P2P payload is not UTF-8: {error}"))
 }
 
 pub struct P2PEventHandler {
     pub network: P2PNetwork,
-    pub message_tx: mpsc::UnboundedSender<P2PMessage>,
-    pub outgoing_rx: Option<mpsc::UnboundedReceiver<P2PMessage>>,
+    pub message_tx: mpsc::Sender<P2PMessage>,
+    pub outgoing_rx: Option<mpsc::Receiver<P2PMessage>>,
     pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
     message_forwarding_closed: bool,
 }
 
 impl P2PEventHandler {
-    pub fn new(network: P2PNetwork, message_tx: mpsc::UnboundedSender<P2PMessage>) -> Self {
+    pub fn new(network: P2PNetwork, message_tx: mpsc::Sender<P2PMessage>) -> Self {
         Self {
             network,
             message_tx,
@@ -479,7 +488,7 @@ impl P2PEventHandler {
         }
     }
 
-    pub fn with_outgoing(mut self, outgoing_rx: mpsc::UnboundedReceiver<P2PMessage>) -> Self {
+    pub fn with_outgoing(mut self, outgoing_rx: mpsc::Receiver<P2PMessage>) -> Self {
         self.outgoing_rx = Some(outgoing_rx);
         self
     }
@@ -527,12 +536,16 @@ impl P2PEventHandler {
             return false;
         }
 
-        match self.message_tx.send(msg) {
+        match self.message_tx.try_send(msg) {
             Ok(_) => true,
-            Err(e) => {
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                debug!("{}: incoming P2P queue is full; dropping message", context);
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
                 warn!(
-                    "{}: {}; suppressing further incoming P2P forwards",
-                    context, e
+                    "{}: receiver closed; suppressing further incoming P2P forwards",
+                    context
                 );
                 self.message_forwarding_closed = true;
                 false
@@ -932,6 +945,35 @@ impl P2PEventHandler {
                 );
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use flate2::{Compression, write::GzEncoder};
+    use proptest::prelude::*;
+
+    use super::{MAX_DECOMPRESSED_PAYLOAD_SIZE, decompress_payload};
+
+    #[test]
+    fn decompression_bomb_is_rejected_at_configured_limit() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+        encoder
+            .write_all(&vec![b'x'; MAX_DECOMPRESSED_PAYLOAD_SIZE + 1])
+            .unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let error = decompress_payload(compressed).unwrap_err();
+        assert!(error.to_string().contains("exceeds"));
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_compressed_input_never_panics(input in prop::collection::vec(any::<u8>(), 0..65_536)) {
+            let _ = decompress_payload(input);
         }
     }
 }

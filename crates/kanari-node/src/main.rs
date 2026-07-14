@@ -9,16 +9,19 @@ use clap::{Parser, Subcommand, ValueEnum};
 use kanari_crypto::keys::{CurveType, KANARI_KEY_PREFIX, generate_keypair};
 use kanari_types::error::{KanariError, KanariUnwrapExt};
 use tracing::info;
+use zeroize::Zeroizing;
 
 mod app;
 mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
+mod validator_backup;
 use app::{
     configure_consensus_signing_key, create_engine, create_engine_required,
-    create_engine_with_genesis, default_data_dir, run_node,
+    create_engine_with_genesis, default_data_dir, load_or_create_p2p_identity, run_node,
 };
+use validator_backup::{export_validator_backup, import_validator_backup};
 
 fn write_cli_line(args: std::fmt::Arguments<'_>) -> Result<()> {
     use std::io::Write;
@@ -100,9 +103,9 @@ enum Commands {
         /// List of authority IDs for DAG consensus (comma-separated)
         #[arg(long, value_delimiter = ',')]
         authorities: Option<Vec<String>>,
-        /// Local Ed25519 consensus private key seed as 32-byte hex
+        /// File containing an encrypted (recommended) or development-only plaintext consensus key
         #[arg(long)]
-        consensus_private_key_hex: String,
+        consensus_private_key_file: std::path::PathBuf,
         /// JSON file mapping authority IDs to Ed25519 consensus public keys as hex
         #[arg(long)]
         consensus_public_keys: std::path::PathBuf,
@@ -144,6 +147,33 @@ enum Commands {
         #[arg(long)]
         data_dir: std::path::PathBuf,
     },
+    /// Export encrypted full-validator recovery data (state, WAL, identity, keys, and genesis)
+    ValidatorBackupExport {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
+        #[arg(long)]
+        consensus_private_key_file: std::path::PathBuf,
+        #[arg(long)]
+        consensus_public_keys: std::path::PathBuf,
+        #[arg(long)]
+        genesis: std::path::PathBuf,
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Restore an encrypted full-validator backup into empty directories
+    ValidatorBackupImport {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        #[arg(long)]
+        backup: std::path::PathBuf,
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
+        /// Empty directory receiving consensus keys and genesis
+        #[arg(long)]
+        recovery_dir: std::path::PathBuf,
+    },
     /// Run a local-only node
     Local,
     /// Generate Ed25519 consensus keys for local multi-node setup
@@ -155,6 +185,15 @@ enum Commands {
         #[arg(long)]
         output_dir: std::path::PathBuf,
         /// Overwrite existing key files
+        #[arg(long, default_value = "false")]
+        force: bool,
+    },
+    /// Encrypt an existing 32-byte consensus seed without changing the authority key
+    ConsensusKeyEncrypt {
+        #[arg(long)]
+        input: std::path::PathBuf,
+        #[arg(long)]
+        output: std::path::PathBuf,
         #[arg(long, default_value = "false")]
         force: bool,
     },
@@ -209,14 +248,16 @@ fn write_consensus_key_files(
                 context: "Failed to generate consensus key",
                 details: e.to_string(),
             })?;
-        let private_seed = keypair
-            .private_key
-            .strip_prefix(KANARI_KEY_PREFIX)
-            .require("Generated private key has unexpected format")?
-            .to_string();
+        let private_seed = Zeroizing::new(
+            keypair
+                .private_key
+                .strip_prefix(KANARI_KEY_PREFIX)
+                .require("Generated private key has unexpected format")?
+                .to_string(),
+        );
         let authority = format!("0x{}", node_id);
         let private_key_path =
-            output_dir.join(format!("node{}-consensus-private-key.hex", node_id));
+            output_dir.join(format!("node{}-consensus-private-key.key", node_id));
         if private_key_path.exists() && !force {
             anyhow::bail!(
                 "{} already exists; pass --force to overwrite consensus keys",
@@ -224,7 +265,22 @@ fn write_consensus_key_files(
             );
         }
 
-        std::fs::write(private_key_path, private_seed)?;
+        let key_file = match std::env::var("KANARI_CONSENSUS_KEY_PASSWORD") {
+            Ok(password) if !password.is_empty() => {
+                let password = Zeroizing::new(password);
+                let encrypted = kanari_crypto::encrypt_string(&private_seed, &password)
+                    .map_err(|error| anyhow::anyhow!("Failed to encrypt consensus key: {error}"))?;
+                serde_json::to_string_pretty(&encrypted)?
+            }
+            _ => {
+                tracing::warn!(
+                    path = %private_key_path.display(),
+                    "Writing a plaintext development consensus key; set KANARI_CONSENSUS_KEY_PASSWORD to encrypt it"
+                );
+                private_seed.to_string()
+            }
+        };
+        std::fs::write(private_key_path, key_file)?;
         public_keys.insert(authority, keypair.public_key);
     }
 
@@ -238,6 +294,47 @@ fn write_consensus_key_files(
         node_count,
         output_dir.display()
     );
+    Ok(())
+}
+
+fn encrypt_existing_consensus_key(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    force: bool,
+) -> Result<()> {
+    if output.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; pass --force to overwrite it",
+            output.display()
+        );
+    }
+    let private_seed = Zeroizing::new(std::fs::read_to_string(input)?);
+    let private_seed = Zeroizing::new(private_seed.trim().to_string());
+    let decoded = Zeroizing::new(
+        hex::decode(private_seed.as_str())
+            .map_err(|error| anyhow::anyhow!("Invalid consensus seed hex: {error}"))?,
+    );
+    if decoded.len() != 32 {
+        anyhow::bail!("Consensus private key seed must be exactly 32 bytes");
+    }
+    let password =
+        Zeroizing::new(std::env::var("KANARI_CONSENSUS_KEY_PASSWORD").map_err(|_| {
+            anyhow::anyhow!("KANARI_CONSENSUS_KEY_PASSWORD is required to encrypt a consensus key")
+        })?);
+    if password.len() < 12 {
+        anyhow::bail!("KANARI_CONSENSUS_KEY_PASSWORD must contain at least 12 characters");
+    }
+    let encrypted = kanari_crypto::encrypt_string(&private_seed, &password)
+        .map_err(|error| anyhow::anyhow!("Failed to encrypt consensus key: {error}"))?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = output.with_extension("tmp");
+    std::fs::write(&temporary, serde_json::to_vec_pretty(&encrypted)?)?;
+    if output.exists() {
+        std::fs::remove_file(output)?;
+    }
+    std::fs::rename(temporary, output)?;
     Ok(())
 }
 
@@ -258,6 +355,17 @@ fn main() -> Result<()> {
             output_dir,
             force,
         } => write_consensus_key_files(node_count, &output_dir, force),
+        Commands::ConsensusKeyEncrypt {
+            input,
+            output,
+            force,
+        } => {
+            encrypt_existing_consensus_key(&input, &output, force)?;
+            write_cli_line(format_args!(
+                "Encrypted consensus key written to {}",
+                output.display()
+            ))
+        }
         Commands::Start {
             network,
             p2p_port,
@@ -267,7 +375,7 @@ fn main() -> Result<()> {
             relay_server,
             authority_id,
             authorities,
-            consensus_private_key_hex,
+            consensus_private_key_file,
             consensus_public_keys,
             bootstrap,
             genesis,
@@ -299,7 +407,7 @@ fn main() -> Result<()> {
             engine.set_authorities(id, auths);
             configure_consensus_signing_key(
                 &mut engine,
-                &consensus_private_key_hex,
+                &consensus_private_key_file,
                 &consensus_public_keys,
             )?;
             info!("Consensus keys configured. Entering node runtime");
@@ -363,6 +471,50 @@ fn main() -> Result<()> {
                 imported.state_root
             ))
         }
+        Commands::ValidatorBackupExport {
+            network,
+            data_dir,
+            consensus_private_key_file,
+            consensus_public_keys,
+            genesis,
+            output,
+        } => {
+            let engine = create_engine_required(&data_dir, &network)?;
+            drop(load_or_create_p2p_identity(&data_dir, network.as_str())?);
+            let summary = export_validator_backup(
+                &engine,
+                network.as_str(),
+                &data_dir,
+                &consensus_private_key_file,
+                &consensus_public_keys,
+                &genesis,
+                &output,
+            )?;
+            write_cli_line(format_args!(
+                "Encrypted validator backup written to {} at height {} (state root {}, {} recovery files)",
+                output.display(),
+                summary.checkpoint_height,
+                summary.state_root,
+                summary.included_files
+            ))
+        }
+        Commands::ValidatorBackupImport {
+            network,
+            backup,
+            data_dir,
+            recovery_dir,
+        } => {
+            let summary =
+                import_validator_backup(&backup, network.as_str(), &data_dir, &recovery_dir)?;
+            write_cli_line(format_args!(
+                "Validator backup restored into {} at height {} (state root {}, {} recovery files in {})",
+                data_dir.display(),
+                summary.checkpoint_height,
+                summary.state_root,
+                summary.included_files,
+                recovery_dir.display()
+            ))
+        }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");
@@ -395,7 +547,11 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_start_authority_config;
+    use std::sync::Mutex;
+
+    use super::{encrypt_existing_consensus_key, validate_start_authority_config};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn start_requires_both_authority_fields() {
@@ -418,5 +574,32 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn existing_consensus_seed_encrypts_without_key_rotation() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("private.hex");
+        let output = temp.path().join("private.key");
+        let seed = "42".repeat(32);
+        std::fs::write(&input, &seed).unwrap();
+        unsafe {
+            std::env::set_var(
+                "KANARI_CONSENSUS_KEY_PASSWORD",
+                "migration regression password",
+            );
+        }
+
+        encrypt_existing_consensus_key(&input, &output, false).unwrap();
+        let encrypted: kanari_crypto::EncryptedData =
+            serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+        let decrypted =
+            kanari_crypto::decrypt_string(&encrypted, "migration regression password").unwrap();
+        assert_eq!(decrypted, seed);
+
+        unsafe {
+            std::env::remove_var("KANARI_CONSENSUS_KEY_PASSWORD");
+        }
     }
 }

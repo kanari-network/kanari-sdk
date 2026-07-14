@@ -171,8 +171,9 @@ if ($ResetConsensusKeys -and (Test-Path $ConsensusKeyDir)) {
 $publicKeysPath = Join-Path $ConsensusKeyDir "consensus-public-keys.json"
 $missingConsensusKeys = -not (Test-Path $publicKeysPath)
 for ($i = 1; $i -le $NodeCount; $i++) {
-    $privateKeyPath = Join-Path $ConsensusKeyDir "node$i-consensus-private-key.hex"
-    if (-not (Test-Path $privateKeyPath)) {
+    $privateKeyPath = Join-Path $ConsensusKeyDir "node$i-consensus-private-key.key"
+    $legacyPrivateKeyPath = Join-Path $ConsensusKeyDir "node$i-consensus-private-key.hex"
+    if (-not (Test-Path $privateKeyPath) -and -not (Test-Path $legacyPrivateKeyPath)) {
         $missingConsensusKeys = $true
         break
     }

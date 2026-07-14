@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
+use zeroize::Zeroizing;
 
 use crate::NetworkMode;
 use crate::indexer::NodeIndexer;
@@ -250,13 +251,60 @@ fn decode_hex_bytes(label: &str, value: &str, expected_len: usize) -> Result<Vec
 
 pub fn configure_consensus_signing_key(
     engine: &mut BlockchainEngine,
-    private_key_hex: &str,
+    private_key_path: &std::path::Path,
     public_keys_path: &std::path::Path,
 ) -> Result<()> {
-    let private_key = decode_hex_bytes("consensus private key seed", private_key_hex, 32)?;
+    let key_file = Zeroizing::new(std::fs::read_to_string(private_key_path).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to read consensus private key file {}: {}",
+            private_key_path.display(),
+            error
+        )
+    })?);
+    let trimmed = key_file.trim();
+    let private_key_hex = if trimmed.starts_with('{') {
+        let encrypted: kanari_crypto::EncryptedData =
+            serde_json::from_str(trimmed).map_err(|error| {
+                anyhow::anyhow!(
+                    "Invalid encrypted consensus key file {}: {}",
+                    private_key_path.display(),
+                    error
+                )
+            })?;
+        let password =
+            Zeroizing::new(std::env::var("KANARI_CONSENSUS_KEY_PASSWORD").map_err(|_| {
+                anyhow::anyhow!(
+                    "KANARI_CONSENSUS_KEY_PASSWORD is required to decrypt {}",
+                    private_key_path.display()
+                )
+            })?);
+        Zeroizing::new(
+            kanari_crypto::decrypt_string(&encrypted, &password)
+                .map_err(|error| anyhow::anyhow!("Failed to decrypt consensus key: {error}"))?,
+        )
+    } else {
+        if BlockchainEngine::network_name().eq_ignore_ascii_case("mainnet") {
+            anyhow::bail!(
+                "Mainnet refuses plaintext consensus key file {}; encrypt it by setting KANARI_CONSENSUS_KEY_PASSWORD when running consensus-keygen",
+                private_key_path.display()
+            );
+        }
+        tracing::warn!(
+            path = %private_key_path.display(),
+            "Using a plaintext consensus key for a non-mainnet network"
+        );
+        Zeroizing::new(trimmed.to_string())
+    };
+    let private_key = Zeroizing::new(decode_hex_bytes(
+        "consensus private key seed",
+        &private_key_hex,
+        32,
+    )?);
     let private_key: [u8; 32] = private_key
+        .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid consensus private key seed length"))?;
+    let private_key = Zeroizing::new(private_key);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key);
 
     let public_keys_json = std::fs::read_to_string(public_keys_path).map_err(|e| {
@@ -300,12 +348,79 @@ fn genesis_root_info(engine: &BlockchainEngine) -> (String, usize) {
     }
 }
 
+fn node_secret_password() -> Option<Zeroizing<String>> {
+    std::env::var("KANARI_NODE_IDENTITY_PASSWORD")
+        .or_else(|_| std::env::var("KANARI_CONSENSUS_KEY_PASSWORD"))
+        .ok()
+        .filter(|password| !password.is_empty())
+        .map(Zeroizing::new)
+}
+
+pub fn load_or_create_p2p_identity(data_dir: &std::path::Path, network: &str) -> Result<Keypair> {
+    let path = data_dir.join("p2p-identity.key");
+    let mainnet = network.eq_ignore_ascii_case("mainnet");
+
+    if path.exists() {
+        let stored = Zeroizing::new(std::fs::read(&path)?);
+        let encoded = if stored.first() == Some(&b'{') {
+            let encrypted: kanari_crypto::EncryptedData = serde_json::from_slice(&stored)
+                .map_err(|error| anyhow::anyhow!("Invalid encrypted P2P identity: {error}"))?;
+            let password = node_secret_password().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "KANARI_NODE_IDENTITY_PASSWORD (or KANARI_CONSENSUS_KEY_PASSWORD) is required to decrypt {}",
+                    path.display()
+                )
+            })?;
+            Zeroizing::new(
+                kanari_crypto::decrypt_data(&encrypted, password.as_str())
+                    .map_err(|error| anyhow::anyhow!("Failed to decrypt P2P identity: {error}"))?,
+            )
+        } else {
+            if mainnet {
+                anyhow::bail!(
+                    "Mainnet refuses plaintext P2P identity {}; remove it and set KANARI_NODE_IDENTITY_PASSWORD to generate an encrypted identity",
+                    path.display()
+                );
+            }
+            tracing::warn!(path = %path.display(), "Using plaintext P2P identity on a non-mainnet network");
+            Zeroizing::new(stored.to_vec())
+        };
+        return Keypair::from_protobuf_encoding(&encoded)
+            .map_err(|error| anyhow::anyhow!("Invalid P2P identity {}: {error}", path.display()));
+    }
+
+    std::fs::create_dir_all(data_dir)?;
+    let keypair = Keypair::generate_ed25519();
+    let encoded = Zeroizing::new(
+        keypair
+            .to_protobuf_encoding()
+            .map_err(|error| anyhow::anyhow!("Failed to encode P2P identity: {error}"))?,
+    );
+    let stored = match node_secret_password() {
+        Some(password) => serde_json::to_vec_pretty(
+            &kanari_crypto::encrypt_data(&encoded, password.as_str())
+                .map_err(|error| anyhow::anyhow!("Failed to encrypt P2P identity: {error}"))?,
+        )?,
+        None if mainnet => anyhow::bail!(
+            "Mainnet requires KANARI_NODE_IDENTITY_PASSWORD (or KANARI_CONSENSUS_KEY_PASSWORD) before generating its P2P identity"
+        ),
+        None => {
+            tracing::warn!(path = %path.display(), "Writing plaintext P2P identity for a non-mainnet network");
+            encoded.to_vec()
+        }
+    };
+    let temporary = data_dir.join("p2p-identity.key.tmp");
+    std::fs::write(&temporary, stored)?;
+    std::fs::rename(&temporary, &path)?;
+    Ok(keypair)
+}
+
 fn queue_network_message(
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    network_tx: &tokio::sync::mpsc::Sender<P2PMessage>,
     msg: P2PMessage,
     failure_context: &str,
 ) -> bool {
-    match network_tx.send(msg) {
+    match network_tx.try_send(msg) {
         Ok(_) => true,
         Err(e) => {
             tracing::warn!("{}: {}", failure_context, e);
@@ -315,7 +430,7 @@ fn queue_network_message(
 }
 
 fn serialize_and_queue_message<T: Serialize>(
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    network_tx: &tokio::sync::mpsc::Sender<P2PMessage>,
     value: &T,
     wrap: impl FnOnce(String) -> P2PMessage,
     serialize_context: &str,
@@ -412,10 +527,12 @@ pub async fn run_node(
         "System addresses"
     );
 
-    let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
-    let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
+    const P2P_CHANNEL_CAPACITY: usize = 4096;
+    let (p2p_msg_tx, mut p2p_msg_rx) =
+        tokio::sync::mpsc::channel::<P2PMessage>(P2P_CHANNEL_CAPACITY);
+    let (network_tx, network_rx) = tokio::sync::mpsc::channel::<P2PMessage>(P2P_CHANNEL_CAPACITY);
 
-    let keypair = Keypair::generate_ed25519();
+    let keypair = load_or_create_p2p_identity(&data_dir, &network)?;
     let peer_id = keypair.public().to_peer_id().to_string();
     tracing::info!(peer_id = %short_value(&peer_id), "Node peer identity ready");
     emit_startup_divergence_diagnostics(&engine, &peer_id);
@@ -542,7 +659,7 @@ pub async fn run_node(
             move |signed_tx| {
                 let payload = serde_json::to_string(&signed_tx)?;
                 network_tx_for_rpc
-                    .send(P2PMessage::NewTransaction(payload))
+                    .try_send(P2PMessage::NewTransaction(payload))
                     .map_err(|e| anyhow::anyhow!("failed to queue transaction broadcast: {}", e))?;
                 Ok(())
             },
@@ -781,4 +898,93 @@ pub async fn run_node(
 
     tracing::info!("Node shutdown complete.");
     Ok(())
+}
+
+#[cfg(test)]
+mod security_tests {
+    use std::sync::Mutex;
+
+    use kanari_core::BlockchainEngine;
+
+    use super::{
+        configure_consensus_signing_key, load_or_create_p2p_identity, queue_network_message,
+    };
+    use crate::p2p::P2PMessage;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn encrypted_p2p_identity_is_stable_across_restart() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var(
+                "KANARI_NODE_IDENTITY_PASSWORD",
+                "correct horse battery staple",
+            );
+        }
+
+        let first = load_or_create_p2p_identity(temp.path(), "devnet").unwrap();
+        let second = load_or_create_p2p_identity(temp.path(), "devnet").unwrap();
+        assert_eq!(first.public().to_peer_id(), second.public().to_peer_id());
+        let stored = std::fs::read(temp.path().join("p2p-identity.key")).unwrap();
+        assert_eq!(stored.first(), Some(&b'{'));
+
+        unsafe {
+            std::env::remove_var("KANARI_NODE_IDENTITY_PASSWORD");
+        }
+    }
+
+    #[test]
+    fn mainnet_requires_identity_encryption_password() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::remove_var("KANARI_NODE_IDENTITY_PASSWORD");
+            std::env::remove_var("KANARI_CONSENSUS_KEY_PASSWORD");
+        }
+
+        let error = load_or_create_p2p_identity(temp.path(), "mainnet").unwrap_err();
+        assert!(error.to_string().contains("Mainnet requires"));
+        assert!(!temp.path().join("p2p-identity.key").exists());
+    }
+
+    #[test]
+    fn mainnet_rejects_plaintext_consensus_key_file() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let private_key = temp.path().join("private.key");
+        std::fs::write(&private_key, "11".repeat(32)).unwrap();
+        unsafe {
+            std::env::set_var("KANARI_NETWORK", "mainnet");
+        }
+
+        let mut engine = BlockchainEngine::new_in_memory().unwrap();
+        let error = configure_consensus_signing_key(
+            &mut engine,
+            &private_key,
+            &temp.path().join("unused-public-keys.json"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("Mainnet refuses plaintext"));
+
+        unsafe {
+            std::env::remove_var("KANARI_NETWORK");
+        }
+    }
+
+    #[test]
+    fn bounded_outgoing_queue_applies_backpressure() {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        assert!(queue_network_message(
+            &sender,
+            P2PMessage::CheckpointRequest(1, 1),
+            "first"
+        ));
+        assert!(!queue_network_message(
+            &sender,
+            P2PMessage::CheckpointRequest(2, 2),
+            "full"
+        ));
+    }
 }
