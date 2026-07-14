@@ -12,6 +12,7 @@ impl BlockchainEngine {
             .filter_map(|(key, _)| {
                 let key = String::from_utf8(key).ok()?;
                 key.strip_prefix("checkpoint_meta/")
+                    .or_else(|| key.strip_prefix("checkpoint_meta_json_v1/"))
                     .or_else(|| key.strip_prefix("checkpoint_txs/"))?
                     .parse::<u64>()
                     .ok()
@@ -222,6 +223,28 @@ impl BlockchainEngine {
 
     fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
         if let Some(store) = store {
+            match store.load::<Vec<u8>>(Self::blockchain_json_key()) {
+                Ok(Some(json)) => match serde_json::from_slice::<Blockchain>(&json) {
+                    Ok(mut blockchain) => {
+                        Self::hydrate_blockchain_transactions(store, &mut blockchain);
+                        info!(
+                            "Successfully loaded JSON blockchain metadata (height: {}, checkpoints: {})",
+                            blockchain.height(),
+                            blockchain.dag_checkpoints.len()
+                        );
+                        blockchain.rebuild_tx_hash_index();
+                        return Arc::new(RwLock::new(blockchain));
+                    }
+                    Err(error) => {
+                        error!("Failed to decode JSON blockchain metadata: {}", error);
+                    }
+                },
+                Ok(None) => {}
+                Err(error) => {
+                    error!("Failed to load JSON blockchain metadata: {}", error);
+                }
+            }
+
             match store.load::<Blockchain>(b"blockchain") {
                 Ok(Some(mut blockchain)) => {
                     Self::hydrate_blockchain_transactions(store, &mut blockchain);

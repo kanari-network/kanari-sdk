@@ -33,6 +33,9 @@ pub struct Checkpoint {
     pub state_root: Vec<u8>,
     pub timestamp: u64,
     pub prev_checkpoint_hash: Vec<u8>,
+    /// Hash schema version. Legacy persisted checkpoints deserialize as version 0.
+    #[serde(default)]
+    pub hash_version: u8,
 }
 
 impl Checkpoint {
@@ -48,6 +51,7 @@ impl Checkpoint {
         T: Into<Arc<[SignedTransaction]>>,
     {
         Self {
+            hash_version: 1,
             sequence,
             vertices,
             transactions: transactions.into(),
@@ -90,17 +94,33 @@ impl Checkpoint {
             .iter()
             .map(|tx| tx.transaction_hash().to_vec())
             .collect();
-        let serialized = bcs::to_bytes(&(
-            self.sequence,
-            &tx_hashes,
-            &self.state_root,
-            &self.prev_checkpoint_hash,
-        ))?;
+        let serialized = if self.hash_version == 0 {
+            bcs::to_bytes(&(
+                self.sequence,
+                &tx_hashes,
+                &self.state_root,
+                &self.prev_checkpoint_hash,
+            ))?
+        } else {
+            bcs::to_bytes(&(
+                self.hash_version,
+                self.sequence,
+                &self.vertices,
+                &tx_hashes,
+                &self.transaction_effects,
+                &self.object_changes,
+                &self.object_graph_edges,
+                &self.state_root,
+                self.timestamp,
+                &self.prev_checkpoint_hash,
+            ))?
+        };
         Ok(hash_data_blake3(&serialized))
     }
 
     pub fn genesis() -> Self {
         Self {
+            hash_version: 0,
             sequence: 0,
             vertices: Vec::new(),
             transactions: Vec::new().into(),

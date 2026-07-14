@@ -77,6 +77,14 @@ impl<'de> Deserialize<'de> for SignatureBytes {
 pub struct PublicKey(pub(super) ed25519_consensus::VerificationKey);
 
 impl PublicKey {
+    /// Construct a verification key from its canonical 32-byte Ed25519 encoding.
+    pub fn from_bytes(bytes: [u8; 32]) -> eyre::Result<Self> {
+        let encoded = ed25519_consensus::VerificationKeyBytes::from(bytes);
+        let key = ed25519_consensus::VerificationKey::try_from(encoded)
+            .map_err(|e| eyre::eyre!("Invalid Ed25519 public key: {e:?}"))?;
+        Ok(Self(key))
+    }
+
     /// Returns a deterministic public key matching [`Signer::dummy`].
     pub(crate) fn dummy() -> Self {
         Signer::dummy().public_key()
@@ -99,6 +107,11 @@ impl PublicKey {
 pub struct Signer(Box<ed25519_consensus::SigningKey>);
 
 impl Signer {
+    /// Construct a signer from a canonical 32-byte Ed25519 seed.
+    pub fn from_bytes(seed: [u8; 32]) -> Self {
+        Self(Box::new(ed25519_consensus::SigningKey::from(seed)))
+    }
+
     /// Generates a new random signing key from the given CSPRNG.
     pub fn new<R: Rng + CryptoRng>(rng: &mut R) -> Self {
         Self(Box::new(ed25519_consensus::SigningKey::new(rng)))

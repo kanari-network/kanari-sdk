@@ -74,7 +74,10 @@ impl<C: Ctx> RealBlockHandler<C> {
             transaction_time.insert(locator, C::now());
             count += 1;
         }
-        self.pending_transactions -= count;
+        // Recovered WAL payloads can be proposed before this in-memory handler
+        // has reconstructed its pending counter. The block is authoritative;
+        // never let metrics bookkeeping panic consensus recovery.
+        self.pending_transactions = self.pending_transactions.saturating_sub(count);
     }
 
     pub fn cleanup(&self) {

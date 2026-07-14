@@ -9,7 +9,7 @@ use kanari_rpc_api::{
 };
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
-use log::{info, warn};
+use log::info;
 
 use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
@@ -411,7 +411,12 @@ impl BlockchainEngine {
         chain
             .get_checkpoint(sequence)
             .cloned()
-            .map(|checkpoint| CheckpointSyncData { checkpoint })
+            .map(|checkpoint| CheckpointSyncData {
+                checkpoint,
+                dag_vertices: self
+                    .dag_vertices_for_checkpoint_sync(usize::MAX)
+                    .unwrap_or_default(),
+            })
     }
 
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
@@ -446,76 +451,23 @@ impl BlockchainEngine {
         );
 
         if checkpoint.sequence <= stats.height {
-            info!(
-                "[SYNC] Already have checkpoint #{}, skipping",
+            let local = self
+                .get_checkpoint_sync(checkpoint.sequence)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Missing local checkpoint #{}", checkpoint.sequence)
+                })?;
+            anyhow::ensure!(
+                local.checkpoint.hash()? == checkpoint.hash()?,
+                "Conflicting checkpoint #{}",
                 checkpoint.sequence
             );
             return Ok(());
         }
 
-        if checkpoint.sequence != stats.height + 1 {
-            warn!(
-                "[SYNC] Checkpoint #{} is not consecutive (need {})",
-                checkpoint.sequence,
-                stats.height + 1
-            );
-            anyhow::bail!(
-                "Cannot sync checkpoint #{}: current height is {}",
-                checkpoint.sequence,
-                stats.height
-            );
-        }
-
-        info!(
-            "[SYNC] Verifying {} transaction signatures from checkpoint #{}",
-            checkpoint.transactions.len(),
+        anyhow::bail!(
+            "Checkpoint #{} has not been committed by the local Mysticeti DAG; apply its signed DAG evidence first",
             checkpoint.sequence
-        );
-        for (i, signed_tx) in checkpoint.transactions.iter().enumerate() {
-            signed_tx.verified_transaction_hash().map_err(|e| {
-                anyhow::anyhow!(
-                    "Invalid or missing signature for transaction {} in checkpoint #{}: {}",
-                    i + 1,
-                    checkpoint.sequence,
-                    e
-                )
-            })?;
-        }
-
-        if checkpoint.transactions.is_empty() {
-            anyhow::bail!(
-                "Refusing to sync empty checkpoint #{} from network",
-                checkpoint.sequence
-            );
-        }
-
-        let checkpoint_to_apply = checkpoint.clone();
-        let (computed_root, verified_state, to_execute) = self
-            .prepare_checkpoint_state(&checkpoint_to_apply)
-            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
-
-        if !self.checkpoint_root_matches(
-            checkpoint_to_apply.sequence,
-            &computed_root,
-            &checkpoint_to_apply.state_root,
-        )? {
-            anyhow::bail!(
-                "Checkpoint #{} state root mismatch: advertised={}, computed={}",
-                checkpoint_to_apply.sequence,
-                hex::encode(&checkpoint_to_apply.state_root),
-                hex::encode(&computed_root)
-            );
-        }
-
-        self.apply_prepared_checkpoint(checkpoint_to_apply, verified_state, to_execute, true)?;
-
-        info!(
-            "Synced checkpoint #{} with {} transactions",
-            checkpoint.sequence,
-            checkpoint.transactions.len()
-        );
-
-        Ok(())
+        )
     }
 
     pub fn execute_view_function(

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::BTreeMap,
     fmt,
     fs::{File, OpenOptions},
     io,
@@ -251,19 +251,33 @@ impl WalReader {
 
     fn map_offset(&self, offset: u64) -> io::Result<Bytes> {
         let mut maps = self.maps.lock();
-        let bytes = match maps.entry(offset) {
-            Entry::Vacant(va) => {
-                let mmap = unsafe {
-                    MmapOptions::new()
-                        .offset(offset)
-                        .len(MAP_SIZE as usize)
-                        .map(&self.file)?
-                };
-                va.insert(mmap.into())
-            }
-            Entry::Occupied(oc) => oc.into_mut(),
+        let file_len = self.file.metadata()?.len();
+        if offset >= file_len {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("WAL map offset {offset} is beyond file length {file_len}"),
+            ));
+        }
+        let map_len = (file_len - offset).min(MAP_SIZE) as usize;
+
+        // Windows rejects a memory map whose requested range extends beyond
+        // the current file length. Also refresh a cached partial map after the
+        // writer grows the file so newly appended entries become readable.
+        if let Some(bytes) = maps.get(&offset)
+            && bytes.len() >= map_len
+        {
+            return Ok(bytes.clone());
+        }
+
+        let mmap = unsafe {
+            MmapOptions::new()
+                .offset(offset)
+                .len(map_len)
+                .map(&self.file)?
         };
-        Ok(bytes.clone())
+        let bytes: Bytes = mmap.into();
+        maps.insert(offset, bytes.clone());
+        Ok(bytes)
     }
 
     #[inline]

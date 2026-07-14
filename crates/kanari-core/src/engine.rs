@@ -97,6 +97,9 @@ pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointSyncData {
     pub checkpoint: Checkpoint,
+    /// Signed native Mysticeti vertices needed to reproduce the local commit.
+    #[serde(default)]
+    pub dag_vertices: Vec<DagVertex>,
 }
 
 const MAX_MEMPOOL_SIZE: usize = 1_000_000;
@@ -607,6 +610,14 @@ impl BlockchainEngine {
         format!("checkpoint_meta/{sequence:020}").into_bytes()
     }
 
+    fn checkpoint_metadata_json_key(sequence: u64) -> Vec<u8> {
+        format!("checkpoint_meta_json_v1/{sequence:020}").into_bytes()
+    }
+
+    pub(crate) fn blockchain_json_key() -> &'static [u8] {
+        b"blockchain_json_v1"
+    }
+
     fn transaction_payload_key(tx_hash: &[u8]) -> Vec<u8> {
         let mut key = b"tx_payload/".to_vec();
         key.extend_from_slice(hex::encode(tx_hash).as_bytes());
@@ -639,7 +650,7 @@ impl BlockchainEngine {
     }
 
     fn checkpoint_without_transactions(checkpoint: &Checkpoint) -> Checkpoint {
-        Checkpoint::new(
+        let mut stripped = Checkpoint::new(
             checkpoint.sequence,
             checkpoint.vertices.clone(),
             Vec::new(),
@@ -649,7 +660,9 @@ impl BlockchainEngine {
         )
         .with_transaction_effects(checkpoint.transaction_effects.clone())
         .with_object_changes(checkpoint.object_changes.clone())
-        .with_object_graph_edges(checkpoint.object_graph_edges.clone())
+        .with_object_graph_edges(checkpoint.object_graph_edges.clone());
+        stripped.hash_version = checkpoint.hash_version;
+        stripped
     }
 
     pub(crate) fn aggregate_checkpoint_object_changes(
@@ -674,10 +687,12 @@ impl BlockchainEngine {
         store: &PersistentStore,
         checkpoint: &Checkpoint,
     ) -> Result<()> {
+        let metadata_json = serde_json::to_vec(&Self::checkpoint_without_transactions(checkpoint))
+            .context("Failed to encode checkpoint metadata as JSON")?;
         store
             .save(
-                &Self::checkpoint_metadata_key(checkpoint.sequence),
-                &Self::checkpoint_without_transactions(checkpoint),
+                &Self::checkpoint_metadata_json_key(checkpoint.sequence),
+                &metadata_json,
             )
             .context("Failed to persist checkpoint metadata")?;
 
@@ -729,6 +744,18 @@ impl BlockchainEngine {
     }
 
     fn load_checkpoint_metadata(store: &PersistentStore, sequence: u64) -> Option<Checkpoint> {
+        if let Ok(Some(json)) = store.load::<Vec<u8>>(&Self::checkpoint_metadata_json_key(sequence))
+        {
+            match serde_json::from_slice::<Checkpoint>(&json) {
+                Ok(checkpoint) => return Some(checkpoint),
+                Err(error) => tracing::warn!(
+                    checkpoint = sequence,
+                    "Failed to decode JSON checkpoint metadata: {}",
+                    error
+                ),
+            }
+        }
+
         let key = Self::checkpoint_metadata_key(sequence);
         match store.load::<Checkpoint>(&key) {
             Ok(Some(checkpoint)) => Some(checkpoint),
@@ -832,8 +859,10 @@ impl BlockchainEngine {
                 *checkpoint = Self::checkpoint_without_transactions(checkpoint);
             }
         }
+        let blockchain_json =
+            serde_json::to_vec(&slim).context("Failed to encode blockchain metadata as JSON")?;
         store
-            .save(b"blockchain", &slim)
+            .save(Self::blockchain_json_key(), &blockchain_json)
             .context("Failed to persist blockchain metadata")?;
         if let Some(retention) = Self::history_retention_checkpoints() {
             Self::prune_transaction_payloads(store, chain.height().saturating_sub(retention))?;
@@ -1233,34 +1262,6 @@ impl BlockchainEngine {
             false,
             false,
         )
-    }
-
-    pub(crate) fn execute_tx_waves_strict_serial(
-        &self,
-        transactions: Vec<SignedTransaction>,
-        state_arc: &Arc<RwLock<StateManager>>,
-        timestamp: Option<u64>,
-        persist_objects: bool,
-    ) -> Result<(usize, usize)> {
-        let (executed, failed, _) = self.execute_tx_waves_parallel_inner(
-            transactions,
-            state_arc,
-            timestamp,
-            persist_objects,
-            true,
-            true,
-        )?;
-        Ok((executed, failed))
-    }
-
-    pub(crate) fn apply_zero_effect_native_batch(
-        &self,
-        transactions: &[SignedTransaction],
-        state_arc: &Arc<RwLock<StateManager>>,
-    ) -> Result<Option<(usize, usize)>> {
-        let _ = transactions;
-        let _ = state_arc;
-        Ok(None)
     }
 
     fn execute_tx_waves_parallel_inner(
@@ -1991,6 +1992,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn collect_transaction_effects_strict(
         &self,
         transactions: &[SignedTransaction],
@@ -2096,12 +2098,6 @@ impl BlockchainEngine {
 
     pub fn produce_checkpoint(&self) -> Result<CheckpointProductionInfo> {
         let dag_engine = self.dag_engine_instance()?;
-        let has_pending_transactions = self.pending_transaction_len() > 0;
-
-        if !has_pending_transactions {
-            anyhow::bail!("No new transactions to checkpoint");
-        }
-
         dag_engine.produce_vertex()
     }
 
@@ -2112,6 +2108,10 @@ impl BlockchainEngine {
 
     pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
+    }
+
+    pub fn dag_vertices_for_checkpoint_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
+        Ok(self.dag_engine_instance()?.vertices_for_sync(limit))
     }
 
     pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<()> {

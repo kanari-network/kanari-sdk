@@ -179,6 +179,7 @@ fn configure_engine_environment(
         unsafe {
             std::env::set_var("KANARI_STATE_DB", dir_str);
             std::env::set_var("KANARI_MOVE_VM_DB", dir_str);
+            std::env::set_var("KANARI_DAG_WAL_DIR", dir_str);
         }
     }
 
@@ -557,6 +558,8 @@ pub async fn run_node(
     let mut last_stats_log = Instant::now() - Duration::from_secs(2);
     let mut last_pending_count = ready_stats.pending_transactions;
     let mut pending_gossip_ready_at: Option<Instant> = None;
+    let mut last_dag_attempt = Instant::now() - Duration::from_secs(1);
+    let mut last_dag_rebroadcast = Instant::now() - Duration::from_secs(1);
 
     loop {
         let stats = engine.get_stats();
@@ -599,9 +602,16 @@ pub async fn run_node(
             idle_delay = Duration::from_millis(10);
         }
 
-        let should_produce_pending = stats.pending_transactions > 0 && pending_gossip_ready;
+        let dag_attempt_interval = if stats.pending_transactions > 0 && pending_gossip_ready {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_millis(500)
+        };
+        let should_produce_pending =
+            pending_gossip_ready && last_dag_attempt.elapsed() >= dag_attempt_interval;
 
         if should_produce_pending {
+            last_dag_attempt = Instant::now();
             match engine.produce_checkpoint() {
                 Ok(block_info) => {
                     did_work = true;
@@ -682,8 +692,12 @@ pub async fn run_node(
                         if stats.pending_transactions > 0 {
                             idle_delay = Duration::from_millis(50);
                         }
-                        sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
-                        sync_manager.request_dag_vertices_for_quorum().await;
+                        if last_dag_rebroadcast.elapsed() >= Duration::from_secs(1) {
+                            last_dag_rebroadcast = Instant::now();
+                            sync_manager
+                                .broadcast_latest_dag_vertices(16, "while waiting for quorum");
+                            sync_manager.request_dag_vertices_for_quorum().await;
+                        }
                     } else if should_drop_invalid_pending_transaction(&error_text) {
                         let failed_hash = extract_failed_tx_hash(&error_text).or_else(|| {
                             // Older/nested error wrappers may omit the tx hash. The

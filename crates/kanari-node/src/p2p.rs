@@ -374,6 +374,17 @@ impl P2PNetwork {
                 );
                 Ok(P2PMessage::CompressedDagVertex(compressed_data))
             }
+            P2PMessage::DagVertexRebroadcast(msg)
+                if msg.vertex_data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
+            {
+                let compressed_data = gzip_string(&msg.vertex_data)?;
+                info!(
+                    "[P2P] Compressed rebroadcast DAG vertex from {} to {} bytes",
+                    msg.vertex_data.len(),
+                    compressed_data.len()
+                );
+                Ok(P2PMessage::CompressedDagVertex(compressed_data))
+            }
             P2PMessage::CheckpointResponse(data)
                 if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
             {

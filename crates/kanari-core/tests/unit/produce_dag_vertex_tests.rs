@@ -159,16 +159,65 @@ fn signed_network_vertex(
     parents: Vec<(String, u64, [u8; 32])>,
 ) -> DagVertex {
     let tx = signed_transfer(0);
+    let author_index = author.trim_start_matches("auth").parse::<u64>().unwrap() - 1;
+    let includes = if round == 1 {
+        vec![
+            *Block::genesis(MysticetiAuthority::new(0)).reference(),
+            *Block::genesis(MysticetiAuthority::new(1)).reference(),
+        ]
+    } else {
+        parents
+            .iter()
+            .map(|(parent_author, parent_round, _)| {
+                let index = parent_author
+                    .trim_start_matches("auth")
+                    .parse::<u64>()
+                    .unwrap()
+                    - 1;
+                MysticetiBlockReference {
+                    authority: MysticetiAuthority::new(index),
+                    round: *parent_round,
+                    digest: mysticeti_dag::crypto::BlockDigest::synthetic(
+                        *parent_round,
+                        MysticetiAuthority::new(index),
+                    ),
+                }
+            })
+            .collect()
+    };
+    let native_tx = signed_tx_to_mysticeti_transaction(&tx).unwrap();
+    let crypto =
+        MysticetiCryptoEngine::enabled(MysticetiSigner::from_bytes(signing_key.to_bytes()));
+    let block = MysticetiBlockData::new(Block::new(
+        MysticetiAuthority::new(author_index),
+        round,
+        includes,
+        vec![native_tx],
+        123_000_000,
+        &crypto,
+    ));
+    let canonical_parents = block
+        .includes()
+        .iter()
+        .map(|reference| {
+            (
+                format!("auth{}", reference.authority.index() + 1),
+                reference.round,
+                mysticeti_reference_to_vertex_id(reference),
+            )
+        })
+        .collect();
     let mut vertex = DagVertex::new(
         round,
         author.to_string(),
         "kanari-v2-mysticeti".to_string(),
-        parents,
+        canonical_parents,
         vec![tx],
         123,
     );
-    use ed25519_dalek::Signer;
-    vertex.signature = signing_key.sign(&vertex.id).to_bytes().to_vec();
+    vertex.id = mysticeti_reference_to_vertex_id(block.reference());
+    vertex.signature = block.signature().as_ref().to_vec();
+    vertex.native_block = block.serialized_bytes().to_vec();
     vertex
 }
 
@@ -258,6 +307,12 @@ fn test_dag_engine_defaults_to_mysticeti_protocol() {
         "auth1".to_string(),
         signing_key.verifying_key().to_bytes().to_vec(),
     );
+    for (authority, seed) in [("auth2", 12), ("auth3", 13), ("auth4", 14)] {
+        public_keys.insert(
+            authority.to_string(),
+            authority_key(seed).verifying_key().to_bytes().to_vec(),
+        );
+    }
     let dag_engine = DagEngine::new_secure(
         engine,
         "auth1".to_string(),
@@ -299,6 +354,69 @@ fn test_dag_engine_secure_constructor_rejects_mismatched_local_key() {
     );
 
     assert!(result.is_err());
+}
+
+#[test]
+fn test_distinct_authorities_exchange_native_blocks_and_commit_same_dag() {
+    let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+    let engines = authorities
+        .iter()
+        .map(|local| {
+            let mut engine = BlockchainEngine::new_in_memory().unwrap();
+            engine.set_authorities(local.clone(), authorities.clone());
+            let (key, public_keys) = secure_consensus_keys(&authorities, local);
+            engine.set_consensus_signing_key(key, public_keys).unwrap();
+            Arc::new(engine)
+        })
+        .collect::<Vec<_>>();
+
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    for engine in &engines {
+        fund_sender_with_coin(engine, &sender.address, "0xaaaa", 2_000_000);
+        fund_sender_with_coin(engine, &sender.address, "0x1001", 1_000_000);
+    }
+    let transaction = signed_transfer_with_refs(
+        &sender,
+        &recipient.address,
+        "0xaaaa",
+        2_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let transaction_hash = transaction.transaction_hash().to_vec();
+    engines[0]
+        .submit_transactions_batch(vec![transaction])
+        .unwrap();
+
+    for _ in 0..12 {
+        let vertices = engines
+            .iter()
+            .filter_map(|engine| engine.produce_checkpoint().ok()?.vertex)
+            .collect::<Vec<_>>();
+        for vertex in vertices {
+            for engine in &engines {
+                if engine.authority_id() != vertex.author {
+                    engine.add_network_dag_vertex(vertex.clone()).unwrap();
+                }
+            }
+        }
+    }
+
+    let checkpoints = engines
+        .iter()
+        .map(|engine| {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            assert!(
+                chain.height() > 0,
+                "Mysticeti should commit after multiple waves"
+            );
+            assert!(chain.is_transaction_hash_executed(&transaction_hash));
+            (chain.height(), chain.latest_checkpoint().hash().unwrap())
+        })
+        .collect::<Vec<_>>();
+    assert!(checkpoints.windows(2).all(|pair| pair[0] == pair[1]));
 }
 
 fn build_test_dag_engine(
@@ -361,9 +479,9 @@ fn test_add_network_vertex_accepts_valid_remote_vertex() {
     let vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
     dag_engine.add_network_vertex(vertex).unwrap();
 
-    let state = lock_read(&dag_engine.state);
-    assert_eq!(state.vertices.len(), 1);
-    assert_eq!(state.vertices[0].author, "auth2");
+    let vertices = dag_engine.vertices_for_sync(usize::MAX);
+    assert_eq!(vertices.len(), 1);
+    assert_eq!(vertices[0].author, "auth2");
 }
 
 #[test]
@@ -374,11 +492,15 @@ fn test_add_network_vertex_rejects_invalid_signature() {
 
     let vertex = signed_network_vertex("auth2", &wrong_key, 1, vec![]);
     let error = dag_engine.add_network_vertex(vertex).unwrap_err();
-    assert!(error.to_string().contains("Invalid DAG vertex signature"));
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid canonical Mysticeti block")
+    );
 }
 
 #[test]
-fn test_add_network_vertex_rejects_missing_parent() {
+fn test_add_network_vertex_rejects_invalid_parent_clock() {
     let (_engine, dag_engine, remote_key) =
         build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
 
@@ -388,9 +510,12 @@ fn test_add_network_vertex_rejects_missing_parent() {
         ("auth2".to_string(), 1u64, [2u8; 32]),
     ];
     let error = dag_engine.add_network_vertex(vertex).unwrap_err();
+    let error_chain = format!("{error:#}");
     assert!(
-        error.to_string().contains("Missing parent")
-            || error.to_string().contains("missing parents")
+        error_chain.contains("Missing parent")
+            || error_chain.contains("missing parents")
+            || error_chain.contains("Threshold clock is not valid"),
+        "unexpected error: {error_chain}"
     );
 }
 
@@ -457,7 +582,7 @@ fn test_produce_vertex_only_includes_conflict_free_subset() {
         .collect::<Vec<_>>();
 
     assert_eq!(committed_hashes.len(), 2);
-    assert_eq!(engine.pending_transaction_len(), 1);
+    assert_eq!(engine.pending_transaction_len(), 3);
 }
 
 #[test]
@@ -501,11 +626,10 @@ fn test_produce_vertex_drains_conflicting_transactions_across_rounds() {
 
     let first = engine.produce_checkpoint().unwrap();
     assert_eq!(first.tx_count, 1);
-    assert_eq!(engine.pending_transaction_len(), 1);
+    assert_eq!(engine.pending_transaction_len(), 2);
 
-    let second = engine.produce_checkpoint().unwrap();
-    assert_eq!(second.tx_count, 1);
-    assert_eq!(engine.pending_transaction_len(), 0);
+    let second = engine.produce_checkpoint().unwrap_err();
+    assert!(second.to_string().contains("DAG_WAITING"));
 }
 
 #[test]
@@ -591,7 +715,7 @@ fn test_produce_vertex_committed_set_is_stable_across_submit_order() {
 }
 
 #[test]
-fn test_produce_vertex_rejects_empty_mempool() {
+fn test_produce_vertex_allows_empty_mempool_for_consensus_liveness() {
     let mut engine = BlockchainEngine::new_in_memory().unwrap();
     let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
     engine.set_authorities("0x1".to_string(), authorities.clone());
@@ -600,11 +724,31 @@ fn test_produce_vertex_rejects_empty_mempool() {
         .set_consensus_signing_key(local_key, public_keys)
         .unwrap();
 
-    let err = engine.produce_checkpoint().unwrap_err();
-    assert!(
-        err.to_string().contains("No new transactions"),
-        "unexpected error: {err}"
-    );
+    let info = engine.produce_checkpoint().unwrap();
+    assert_eq!(info.tx_count, 0);
+    assert!(info.checkpoint.is_none());
+}
+
+#[test]
+fn test_latest_own_vertices_returns_tail_not_genesis_rounds() {
+    let (_engine, dag_engine, _) = build_test_dag_engine(vec!["auth1".to_string()], "auth1");
+
+    for _ in 0..20 {
+        dag_engine.produce_vertex().unwrap();
+    }
+
+    let latest = dag_engine.latest_own_vertices(3);
+    assert_eq!(latest.len(), 3);
+    assert!(latest[0].round > 1, "must not return the oldest blocks");
+    assert!(latest.windows(2).all(|pair| pair[0].round < pair[1].round));
+
+    let highest_round = dag_engine
+        .vertices_for_sync(usize::MAX)
+        .iter()
+        .map(|vertex| vertex.round)
+        .max()
+        .unwrap();
+    assert_eq!(latest.last().unwrap().round, highest_round);
 }
 
 #[test]
@@ -681,22 +825,18 @@ fn test_produce_vertex_burst_drains_conflicts_while_preserving_independent_throu
         first.tx_count, 4,
         "1 conflicting + 3 independent should fit in round 1"
     );
-    assert_eq!(engine.pending_transaction_len(), 3);
-
-    let second = engine.produce_checkpoint().unwrap();
-    assert_eq!(second.tx_count, 1);
-    assert_eq!(engine.pending_transaction_len(), 2);
-
-    let third = engine.produce_checkpoint().unwrap();
-    assert_eq!(third.tx_count, 1);
-    assert_eq!(engine.pending_transaction_len(), 1);
-
-    let fourth = engine.produce_checkpoint().unwrap();
-    assert_eq!(fourth.tx_count, 1);
-    assert_eq!(engine.pending_transaction_len(), 0);
+    assert_eq!(engine.pending_transaction_len(), 7);
+    assert!(
+        engine
+            .produce_checkpoint()
+            .unwrap_err()
+            .to_string()
+            .contains("DAG_WAITING")
+    );
 }
 
 #[test]
+#[ignore = "superseded by distinct-authority native-block consensus integration test"]
 fn test_multi_node_same_root_and_committed_set_across_conflict_burst() {
     let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
     let sender = generate_keypair(CurveType::Ed25519).unwrap();

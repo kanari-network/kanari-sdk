@@ -9,6 +9,13 @@ use kanari_types::transaction::SignedTransaction;
 use log::info;
 use std::sync::{Arc, RwLock};
 
+pub(crate) struct PreparedCheckpointState {
+    pub state_root: Vec<u8>,
+    pub state: StateManager,
+    pub transactions: Vec<SignedTransaction>,
+    pub effects: Vec<kanari_types::transaction::TransactionEffects>,
+}
+
 impl BlockchainEngine {
     fn requires_runtime_side_effect_persistence(transactions: &[SignedTransaction]) -> bool {
         transactions.iter().any(|signed_tx| {
@@ -80,7 +87,7 @@ impl BlockchainEngine {
     pub(crate) fn prepare_checkpoint_state(
         &self,
         checkpoint: &Checkpoint,
-    ) -> Result<(Vec<u8>, StateManager, Vec<SignedTransaction>)> {
+    ) -> Result<PreparedCheckpointState> {
         let mut state_snapshot = self.state_read().clone();
         state_snapshot
             .repair_legacy_native_wallet_overcount()
@@ -99,12 +106,13 @@ impl BlockchainEngine {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
         }
 
-        self.execute_tx_waves_strict_serial(
-            to_execute.clone(),
-            &state_arc,
-            Some(checkpoint.timestamp),
-            false, // persist_objects = false
-        )?;
+        let (_, _, transaction_effects) = self
+            .execute_tx_waves_deterministic_parallel_with_effects(
+                to_execute.clone(),
+                &state_arc,
+                Some(checkpoint.timestamp),
+                false, // persist_objects = false
+            )?;
 
         {
             let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
@@ -118,7 +126,12 @@ impl BlockchainEngine {
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
         let computed_root = verified_state.compute_state_root();
-        Ok((computed_root, verified_state, to_execute))
+        Ok(PreparedCheckpointState {
+            state_root: computed_root,
+            state: verified_state,
+            transactions: to_execute,
+            effects: transaction_effects,
+        })
     }
 
     /// Helper: Common steps for finalizing Checkpoint to database
@@ -234,10 +247,9 @@ impl BlockchainEngine {
             checkpoint.transactions.len()
         );
 
-        let (computed_root, verified_state, to_execute) =
-            self.prepare_checkpoint_state(&checkpoint)?;
-        self.ensure_checkpoint_root_matches(&checkpoint, &computed_root)?;
+        let prepared = self.prepare_checkpoint_state(&checkpoint)?;
+        self.ensure_checkpoint_root_matches(&checkpoint, &prepared.state_root)?;
 
-        self.apply_prepared_checkpoint(checkpoint, verified_state, to_execute, true)
+        self.apply_prepared_checkpoint(checkpoint, prepared.state, prepared.transactions, true)
     }
 }

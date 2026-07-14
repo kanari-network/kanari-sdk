@@ -736,6 +736,18 @@ impl SyncManager {
         buffered_label: &str,
         check_for_gap: bool,
     ) {
+        for vertex in checkpoint_data.dag_vertices.iter().cloned() {
+            if let Err(error) = self.engine.add_network_dag_vertex(vertex.clone()) {
+                let error_text = error.to_string();
+                if Self::should_buffer_dag_vertex_error(&error_text) {
+                    self.buffer_dag_vertex(vertex, &error_text);
+                } else if !error_text.contains("duplicate") {
+                    warn!("[SYNC] Rejected checkpoint DAG evidence: {}", error_text);
+                    return;
+                }
+            }
+        }
+        self.retry_buffered_dag_vertices();
         let stats = self.engine.get_stats();
         let checkpoint = &checkpoint_data.checkpoint;
         info!(
@@ -747,6 +759,18 @@ impl SyncManager {
         );
 
         if checkpoint.sequence <= stats.height {
+            let local_matches = self
+                .engine
+                .get_checkpoint_sync(checkpoint.sequence)
+                .and_then(|local| local.checkpoint.hash().ok())
+                == checkpoint.hash().ok();
+            if !local_matches {
+                warn!(
+                    "[SYNC] Rejected conflicting checkpoint #{} after DAG verification",
+                    checkpoint.sequence
+                );
+                return;
+            }
             info!(
                 "[SYNC] Received old {} #{} (current: {}) - ignoring",
                 received_label, checkpoint.sequence, stats.height
@@ -1467,6 +1491,7 @@ mod tests {
         };
         let bogus_checkpoint = CheckpointSyncData {
             checkpoint: Checkpoint::new(3, vec![], vec![], vec![0u8; 32], 3, prev_hash),
+            dag_vertices: Vec::new(),
         };
 
         let runtime = tokio::runtime::Builder::new_current_thread()

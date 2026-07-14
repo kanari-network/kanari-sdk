@@ -216,7 +216,7 @@ fn assert_fresh_engine_exposes_separate_genesis_native_gas_coin(engine: &Blockch
 }
 
 #[test]
-fn sync_checkpoint_from_data_rejects_empty_checkpoint() {
+fn sync_checkpoint_from_data_rejects_uncertified_checkpoint() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let prev_hash = {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
@@ -228,14 +228,13 @@ fn sync_checkpoint_from_data_rejects_empty_checkpoint() {
         .unwrap_or_else(|e| e.into_inner())
         .compute_state_root();
     let checkpoint = Checkpoint::new(1, vec![], vec![], state_root, 42, prev_hash);
-    let sync_data = CheckpointSyncData { checkpoint };
+    let sync_data = CheckpointSyncData {
+        checkpoint,
+        dag_vertices: Vec::new(),
+    };
 
     let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Refusing to sync empty checkpoint")
-    );
+    assert!(error.to_string().contains("has not been committed"));
     assert_eq!(engine.get_stats().height, 0);
 }
 
@@ -251,16 +250,13 @@ fn sync_checkpoint_from_data_rejects_root_mismatch() {
         KanariAddress::parse_to_account_address(signed_tx.transaction.sender_address()).unwrap();
     fund_sender_with_coin(&engine, sender, "0xaaaa", 1_000_000);
     let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![9u8; 32], 42, prev_hash);
-    let sync_data = CheckpointSyncData { checkpoint };
+    let sync_data = CheckpointSyncData {
+        checkpoint,
+        dag_vertices: Vec::new(),
+    };
 
     let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
-    assert!(
-        error.to_string().contains("state root mismatch")
-            || error
-                .to_string()
-                .contains("cannot overlap with a mutable object input"),
-        "unexpected sync rejection: {error:#}"
-    );
+    assert!(error.to_string().contains("has not been committed"));
     assert_eq!(engine.get_stats().height, 0);
 }
 
@@ -284,16 +280,13 @@ fn sync_checkpoint_root_mismatch_does_not_mutate_local_state() {
     let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![0xabu8; 32], 42, prev_hash);
 
     let error = engine
-        .sync_checkpoint_from_data(&CheckpointSyncData { checkpoint })
+        .sync_checkpoint_from_data(&CheckpointSyncData {
+            checkpoint,
+            dag_vertices: Vec::new(),
+        })
         .unwrap_err();
 
-    assert!(
-        error.to_string().contains("state root mismatch")
-            || error
-                .to_string()
-                .contains("cannot overlap with a mutable object input"),
-        "unexpected sync rejection: {error:#}"
-    );
+    assert!(error.to_string().contains("has not been committed"));
     assert_eq!(engine.get_stats().height, height_before);
     assert_eq!(engine.latest_checkpoint_state_root_hex(), root_before);
 }
