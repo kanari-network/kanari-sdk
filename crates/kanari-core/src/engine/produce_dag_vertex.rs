@@ -665,7 +665,7 @@ impl DagEngine {
         let block_reader = state.mysticeti.core.block_reader();
         let round = block_reader.highest_round();
         let chain = lock_read(&self.engine.blockchain);
-        let checkpoint_count = chain.dag_checkpoints.len().saturating_sub(1);
+        let checkpoint_count = chain.height();
         format!(
             "# HELP dag_vertices_created_total Total DAG vertices created\n\
              # TYPE dag_vertices_created_total counter\n\
@@ -766,25 +766,45 @@ impl DagEngine {
 
         let mut checkpoint_info = None;
         for batch in committed_batches {
-            let checkpoint = self.finalize_committed_batch(batch)?;
-            checkpoint_info = Some(CheckpointInfo {
-                sequence: checkpoint.sequence,
-                vertex_count: checkpoint.vertices.len(),
-                tx_count: checkpoint.transactions.len(),
-            });
+            if let Some(checkpoint) = self.finalize_committed_batch(batch)? {
+                checkpoint_info = Some(CheckpointInfo {
+                    sequence: checkpoint.sequence,
+                    vertex_count: checkpoint.vertices.len(),
+                    tx_count: checkpoint.transactions.len(),
+                });
+            }
         }
         lock_write(&self.state).mysticeti.ack_committed_batches();
         Ok(checkpoint_info)
     }
 
-    fn finalize_committed_batch(&self, batch: MysticetiCommittedBatch) -> Result<Checkpoint> {
+    fn finalize_committed_batch(
+        &self,
+        batch: MysticetiCommittedBatch,
+    ) -> Result<Option<Checkpoint>> {
         if let Some(existing) = lock_read(&self.engine.blockchain)
             .dag_checkpoints
             .iter()
             .find(|checkpoint| checkpoint.vertices == batch.vertices)
             .cloned()
         {
-            return Ok(existing);
+            return Ok(Some(existing));
+        }
+        let mut seen = HashSet::new();
+        let transactions = batch
+            .transactions
+            .into_iter()
+            .filter(|tx| {
+                let hash = tx.transaction_hash().to_vec();
+                seen.insert(hash.clone()) && !self.engine.is_transaction_committed(&hash)
+            })
+            .collect::<Vec<_>>();
+        if transactions.is_empty() {
+            info!(
+                "[DAG v2] Committed empty sub-DAG anchor {} without creating a blockchain checkpoint",
+                hex::encode(batch.anchor)
+            );
+            return Ok(None);
         }
         let (sequence, prev_hash, timestamp_ms) = {
             let chain = lock_read(&self.engine.blockchain);
@@ -796,15 +816,6 @@ impl DagEngine {
                     .max(chain.latest_checkpoint().timestamp.saturating_add(1)),
             )
         };
-        let mut seen = HashSet::new();
-        let transactions = batch
-            .transactions
-            .into_iter()
-            .filter(|tx| {
-                let hash = tx.transaction_hash().to_vec();
-                seen.insert(hash.clone()) && !self.engine.is_transaction_committed(&hash)
-            })
-            .collect::<Vec<_>>();
         let mut checkpoint = Checkpoint::new(
             sequence,
             batch.vertices,
@@ -834,7 +845,7 @@ impl DagEngine {
             hex::encode(batch.anchor),
             checkpoint.sequence
         );
-        Ok(checkpoint)
+        Ok(Some(checkpoint))
     }
 
     pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {

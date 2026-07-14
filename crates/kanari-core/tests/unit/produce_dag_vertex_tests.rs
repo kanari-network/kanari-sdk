@@ -376,6 +376,24 @@ fn test_distinct_authorities_exchange_native_blocks_and_commit_same_dag() {
         fund_sender_with_coin(engine, &sender.address, "0xaaaa", 2_000_000);
         fund_sender_with_coin(engine, &sender.address, "0x1001", 1_000_000);
     }
+
+    // Empty Mysticeti waves must keep consensus live without inflating the
+    // externally visible blockchain checkpoint height.
+    for _ in 0..8 {
+        let vertices = engines
+            .iter()
+            .filter_map(|engine| engine.produce_checkpoint().ok()?.vertex)
+            .collect::<Vec<_>>();
+        for vertex in vertices {
+            for engine in &engines {
+                if engine.authority_id() != vertex.author {
+                    engine.add_network_dag_vertex(vertex.clone()).unwrap();
+                }
+            }
+        }
+    }
+    assert!(engines.iter().all(|engine| engine.get_stats().height == 0));
+
     let transaction = signed_transfer_with_refs(
         &sender,
         &recipient.address,
