@@ -78,6 +78,24 @@ impl Blockchain {
         self.executed_tx_hashes.contains(tx_hash)
     }
 
+    /// Restore the deterministic genesis checkpoint in snapshots written by
+    /// older retention logic that evicted sequence zero.
+    pub(crate) fn ensure_genesis_retained(&mut self) -> bool {
+        if self
+            .dag_checkpoints
+            .front()
+            .is_some_and(|checkpoint| checkpoint.sequence == 0)
+        {
+            return false;
+        }
+
+        self.dag_checkpoints.push_front(Checkpoint::genesis());
+        while self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS {
+            self.dag_checkpoints.remove(1);
+        }
+        true
+    }
+
     pub fn has_executed_transactions(&self) -> bool {
         !self.executed_tx_hashes.is_empty()
     }
@@ -90,6 +108,11 @@ impl Blockchain {
     }
 
     pub fn rebuild_tx_hash_index(&mut self) {
+        // `total_transaction_count` is persisted independently from the
+        // bounded checkpoint window. Rebuilding the query indexes after a
+        // restart must not make the lifetime transaction count fall when old
+        // checkpoints have already been evicted.
+        let persisted_total = self.total_transaction_count;
         self.executed_tx_hashes.clear();
         self.tx_hash_queue.clear();
         self.tx_location_index.clear();
@@ -113,6 +136,7 @@ impl Blockchain {
                 }
             }
         }
+        self.total_transaction_count = self.total_transaction_count.max(persisted_total);
     }
 
     pub fn add_checkpoint_with_validation(
@@ -149,11 +173,13 @@ impl Blockchain {
         self.dag_checkpoints.push_back(checkpoint);
 
         if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS
-            && let Some(evicted) = self.dag_checkpoints.pop_front()
+            // Sequence zero anchors the network genesis manifest and must
+            // survive bounded history retention. Evict the oldest non-genesis
+            // checkpoint instead.
+            && let Some(evicted) = self.dag_checkpoints.remove(1)
         {
             for tx in evicted.transactions.iter() {
                 let hash = tx.transaction_hash().to_vec();
-                self.executed_tx_hashes.remove(&hash);
                 self.tx_location_index.remove(&hash);
             }
         }
@@ -186,7 +212,14 @@ impl Blockchain {
             .map(|checkpoint| checkpoint.sequence == sequence && sequence > 0)
             .unwrap_or(false);
         if should_remove {
-            self.dag_checkpoints.pop_back();
+            let removed_transactions = self
+                .dag_checkpoints
+                .pop_back()
+                .map(|checkpoint| checkpoint.transactions.len())
+                .unwrap_or(0);
+            self.total_transaction_count = self
+                .total_transaction_count
+                .saturating_sub(removed_transactions);
             self.rebuild_tx_hash_index();
         }
     }
@@ -198,8 +231,8 @@ impl Blockchain {
     }
 
     pub fn get_transaction_count(&self) -> usize {
-        self.tx_location_index
-            .len()
+        self.total_transaction_count
+            .max(self.tx_location_index.len())
             .max(self.retained_transaction_count())
     }
 

@@ -13,7 +13,7 @@ fn test_tx(nonce: u64) -> SignedTransaction {
 }
 
 #[test]
-fn transaction_count_uses_queryable_index_not_stale_snapshot_counter() {
+fn transaction_count_uses_monotonic_lifetime_counter() {
     let mut chain = Blockchain::new();
     let checkpoint = Checkpoint::new(
         1,
@@ -31,7 +31,89 @@ fn transaction_count_uses_queryable_index_not_stale_snapshot_counter() {
         .invariant("test operation");
     chain.total_transaction_count = 99;
 
+    assert_eq!(chain.get_transaction_count(), 99);
+}
+
+#[test]
+fn transaction_count_survives_checkpoint_retention_and_index_rebuild() {
+    let mut chain = Blockchain::new();
+    for sequence in 1..=1_005 {
+        let transactions = match sequence {
+            1 => vec![test_tx(1)],
+            2 => vec![test_tx(2)],
+            _ => Vec::new(),
+        };
+        let checkpoint = Checkpoint::new(
+            sequence,
+            vec![[sequence as u8; 32]],
+            transactions,
+            vec![sequence as u8; 32],
+            sequence,
+            chain
+                .latest_checkpoint()
+                .hash()
+                .invariant("checkpoint hash"),
+        );
+        chain
+            .add_checkpoint_with_validation(checkpoint, false)
+            .invariant("test operation");
+    }
+
+    assert_eq!(chain.dag_checkpoints.len(), 1_000);
+    assert_eq!(chain.dag_checkpoints.front().unwrap().sequence, 0);
+    assert_eq!(chain.retained_transaction_count(), 0);
     assert_eq!(chain.get_transaction_count(), 2);
+
+    let encoded = serde_json::to_vec(&chain).invariant("serialize blockchain");
+    let mut restarted: Blockchain =
+        serde_json::from_slice(&encoded).invariant("deserialize blockchain");
+    restarted.rebuild_tx_hash_index();
+
+    assert_eq!(restarted.get_transaction_count(), 2);
+}
+
+#[test]
+fn legacy_snapshot_missing_genesis_is_repaired_without_growing_retention_window() {
+    let mut chain = Blockchain::new();
+    for sequence in 1..=1_000 {
+        let checkpoint = Checkpoint::new(
+            sequence,
+            vec![[sequence as u8; 32]],
+            Vec::new(),
+            vec![sequence as u8; 32],
+            sequence,
+            chain
+                .latest_checkpoint()
+                .hash()
+                .invariant("checkpoint hash"),
+        );
+        chain
+            .add_checkpoint_with_validation(checkpoint, false)
+            .invariant("test operation");
+    }
+
+    chain.dag_checkpoints.pop_front();
+    let checkpoint = Checkpoint::new(
+        1_001,
+        vec![[233u8; 32]],
+        Vec::new(),
+        vec![233u8; 32],
+        1_001,
+        chain
+            .latest_checkpoint()
+            .hash()
+            .invariant("checkpoint hash"),
+    );
+    chain
+        .add_checkpoint_with_validation(checkpoint, false)
+        .invariant("test operation");
+    assert_eq!(chain.dag_checkpoints.len(), 1_000);
+    assert_ne!(chain.dag_checkpoints.front().unwrap().sequence, 0);
+
+    assert!(chain.ensure_genesis_retained());
+    assert_eq!(chain.dag_checkpoints.len(), 1_000);
+    assert_eq!(chain.dag_checkpoints.front().unwrap().sequence, 0);
+    assert!(!chain.ensure_genesis_retained());
 }
 
 #[test]

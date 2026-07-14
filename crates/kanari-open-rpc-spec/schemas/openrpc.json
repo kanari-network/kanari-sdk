@@ -545,6 +545,46 @@
       ]
     },
     {
+      "name": "kanari_getSmtStatus",
+      "summary": "Get sparse Merkle tree status",
+      "description": "Returns read-only incremental SMT roots, overlay counters, and schema versions. Set audit=true to perform an expensive full canonical consistency audit; this endpoint never repairs state.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Optional SMT diagnostics options.",
+          "required": false,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "audit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "audit"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "status",
+        "description": "Sparse Merkle tree diagnostics.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        },
+        {
+          "name": "debug"
+        }
+      ]
+    },
+    {
       "name": "kanari_getCanonicalStateSnapshot",
       "summary": "Get canonical state snapshot diagnostics",
       "description": "Returns canonical state key/value entries for the current node state, with optional prefix and limit filters, for divergence debugging.",

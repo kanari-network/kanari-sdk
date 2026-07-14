@@ -226,6 +226,7 @@ impl BlockchainEngine {
             match store.load::<Vec<u8>>(Self::blockchain_json_key()) {
                 Ok(Some(json)) => match serde_json::from_slice::<Blockchain>(&json) {
                     Ok(mut blockchain) => {
+                        let repaired_genesis = blockchain.ensure_genesis_retained();
                         Self::hydrate_blockchain_transactions(store, &mut blockchain);
                         info!(
                             "Successfully loaded JSON blockchain metadata (height: {}, checkpoints: {})",
@@ -233,6 +234,19 @@ impl BlockchainEngine {
                             blockchain.dag_checkpoints.len()
                         );
                         blockchain.rebuild_tx_hash_index();
+                        if repaired_genesis {
+                            tracing::warn!(
+                                "Restored deterministic genesis checkpoint evicted by legacy retention"
+                            );
+                            if let Err(error) =
+                                Self::persist_blockchain_snapshot_to_store(store, &blockchain)
+                            {
+                                tracing::warn!(
+                                    "Failed to persist repaired genesis checkpoint: {}",
+                                    error
+                                );
+                            }
+                        }
                         return Arc::new(RwLock::new(blockchain));
                     }
                     Err(error) => {
@@ -247,6 +261,7 @@ impl BlockchainEngine {
 
             match store.load::<Blockchain>(b"blockchain") {
                 Ok(Some(mut blockchain)) => {
+                    let repaired_genesis = blockchain.ensure_genesis_retained();
                     Self::hydrate_blockchain_transactions(store, &mut blockchain);
                     info!(
                         "Successfully loaded blockchain from persistent store (height: {}, checkpoints: {})",
@@ -254,6 +269,19 @@ impl BlockchainEngine {
                         blockchain.dag_checkpoints.len()
                     );
                     blockchain.rebuild_tx_hash_index();
+                    if repaired_genesis {
+                        tracing::warn!(
+                            "Restored deterministic genesis checkpoint evicted by legacy retention"
+                        );
+                        if let Err(error) =
+                            Self::persist_blockchain_snapshot_to_store(store, &blockchain)
+                        {
+                            tracing::warn!(
+                                "Failed to persist repaired genesis checkpoint: {}",
+                                error
+                            );
+                        }
+                    }
                     Arc::new(RwLock::new(blockchain))
                 }
                 Ok(None) => {

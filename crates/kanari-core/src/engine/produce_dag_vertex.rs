@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::consensus::Checkpoint;
@@ -168,6 +169,7 @@ struct MysticetiBackend {
     linearizer: MysticetiLinearizer,
     submitted_tx_hashes: HashSet<Vec<u8>>,
     pending_committed_subdags: Vec<MysticetiCommittedSubDag>,
+    last_cleanup: Instant,
 }
 
 impl MysticetiBackend {
@@ -313,7 +315,19 @@ impl MysticetiBackend {
             linearizer,
             submitted_tx_hashes: HashSet::new(),
             pending_committed_subdags: Vec::new(),
+            // The standard Mysticeti NetworkSyncer runs Core::cleanup every
+            // ten seconds. This wrapper drives Core directly, so mirror that
+            // maintenance task from the first producer tick.
+            last_cleanup: Instant::now() - Duration::from_secs(10),
         })
+    }
+
+    fn cleanup_if_due(&mut self) {
+        const CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
+        if self.last_cleanup.elapsed() >= CLEANUP_INTERVAL {
+            self.core.cleanup();
+            self.last_cleanup = Instant::now();
+        }
     }
 
     fn propose_block(
@@ -321,6 +335,7 @@ impl MysticetiBackend {
         transactions: &[SignedTransaction],
         _timestamp_ms: u64,
     ) -> Result<Option<MysticetiBlockSummary>> {
+        self.cleanup_if_due();
         let candidates = transactions
             .iter()
             .map(|tx| (tx, tx.transaction_hash().to_vec()))

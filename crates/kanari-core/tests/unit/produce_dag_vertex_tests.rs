@@ -730,6 +730,20 @@ fn test_produce_vertex_allows_empty_mempool_for_consensus_liveness() {
 }
 
 #[test]
+fn test_idle_producer_runs_periodic_mysticeti_cleanup() {
+    let (_engine, dag_engine, _) = build_test_dag_engine(vec!["auth1".to_string()], "auth1");
+    {
+        let mut state = lock_write(&dag_engine.state);
+        state.mysticeti.last_cleanup = Instant::now() - Duration::from_secs(11);
+    }
+
+    dag_engine.produce_vertex().unwrap();
+
+    let state = lock_read(&dag_engine.state);
+    assert!(state.mysticeti.last_cleanup.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
 fn test_latest_own_vertices_returns_tail_not_genesis_rounds() {
     let (_engine, dag_engine, _) = build_test_dag_engine(vec!["auth1".to_string()], "auth1");
 
