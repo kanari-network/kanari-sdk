@@ -415,7 +415,7 @@ impl StateManager {
         // Recover native total supply from older databases that persisted the
         // native treasury/global balances but never backfilled `total_supply`.
         let recovered_total_supply = if persisted_total_supply == 0 {
-            Self::load_persisted_supply_from_store(store.as_ref(), GAS_COIN)
+            Self::load_persisted_supply_from_store(store.as_ref(), GAS_COIN)?
                 .or_else(|| global_token_supplies.get(GAS_COIN).copied())
                 .unwrap_or(0)
         } else {
@@ -573,7 +573,7 @@ impl StateManager {
             .context("Failed to read state entries for SMT rebuild")?
             .into_iter()
             .collect();
-        Self::retain_canonical_state_root_entries(&mut entries);
+        Self::retain_canonical_state_root_entries(&mut entries)?;
         if entries.is_empty() {
             return Ok(());
         }
@@ -590,7 +590,7 @@ impl StateManager {
             .context("Failed to read canonical state entries")?
             .into_iter()
             .collect();
-        Self::retain_canonical_state_root_entries(&mut entries);
+        Self::retain_canonical_state_root_entries(&mut entries)?;
         Ok(entries.into_iter().collect())
     }
 
@@ -701,7 +701,7 @@ impl StateManager {
     /// Return read-only SMT status. When `audit` is true this also performs the
     /// expensive full canonical leaf/root comparison; it never repairs state.
     pub fn smt_diagnostics(&self, audit: bool) -> Result<SmtDiagnostics> {
-        let (updates, deletes) = self.smt_changes_from_overlay();
+        let (updates, deletes) = self.smt_changes_from_overlay()?;
         let enabled = self.smt.is_some();
         let persisted_root = self
             .smt
@@ -732,11 +732,11 @@ impl StateManager {
         Ok(SmtDiagnostics {
             enabled,
             persisted_root,
-            effective_root: hex::encode(self.compute_state_root()),
+            effective_root: hex::encode(self.try_compute_state_root()?),
             overlay_entries: self.overlay.len(),
             overlay_updates: updates.len(),
             overlay_deletes: deletes.len(),
-            canonical_membership_changed: self.canonical_membership_changed(),
+            canonical_membership_changed: self.canonical_membership_changed()?,
             runtime_schema_version: self.load_internal(RUNTIME_STATE_SCHEMA_KEY)?,
             expected_runtime_schema_version: RUNTIME_STATE_SCHEMA_VERSION,
             wallet_supply_index_version: self.load_internal(WALLET_SUPPLY_INDEX_VERSION_KEY)?,
@@ -796,7 +796,16 @@ impl StateManager {
 
     /// Commit pending overlay changes to the persistent store and update SMT
     pub fn commit(&mut self) -> Result<()> {
-        let mut updates = Vec::new();
+        self.commit_with_raw_updates(Vec::new())
+    }
+
+    /// Commit canonical state together with durable metadata owned by the caller.
+    /// The extra records share the same RocksDB write batch as the state overlay.
+    pub fn commit_with_raw_update(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
+        self.commit_with_raw_updates(vec![(key, value)])
+    }
+
+    fn commit_with_raw_updates(&mut self, mut updates: Vec<(Vec<u8>, Vec<u8>)>) -> Result<()> {
         let mut deletes = Vec::new();
 
         for (key, val_opt) in &self.overlay {
@@ -807,10 +816,14 @@ impl StateManager {
             }
         }
 
-        let canonical_membership_changed = self.canonical_membership_changed();
+        let canonical_membership_changed = self.canonical_membership_changed()?;
         // Derive SMT deltas before writing the overlay so index transitions can
         // compare the old persisted membership with the new overlay membership.
-        let smt_changes = self.smt.as_ref().map(|_| self.smt_changes_from_overlay());
+        let smt_changes = self
+            .smt
+            .as_ref()
+            .map(|_| self.smt_changes_from_overlay())
+            .transpose()?;
 
         self.store.apply_raw_changes(&updates, &deletes)?;
 
@@ -918,34 +931,47 @@ impl StateManager {
                 || key.starts_with(b"nft:"))
     }
 
-    fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
+    fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) -> Result<()> {
         let mut canonical_object_keys = BTreeSet::new();
         let mut canonical_module_keys = BTreeSet::new();
 
         for (key, value) in entries.iter() {
             if key == b"module_index" {
-                if let Ok(module_ids) = bcs::from_bytes::<Vec<String>>(value) {
-                    canonical_module_keys.extend(
-                        module_ids
-                            .into_iter()
-                            .filter(|id| id.starts_with("module:"))
-                            .map(String::into_bytes),
-                    );
-                }
-            } else if key.starts_with(b"owned_objects:")
-                && let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value)
-            {
+                let module_ids = bcs::from_bytes::<Vec<String>>(value)
+                    .context("Malformed canonical module index")?;
+                canonical_module_keys.extend(
+                    module_ids
+                        .into_iter()
+                        .filter(|id| id.starts_with("module:"))
+                        .map(String::into_bytes),
+                );
+            } else if key.starts_with(b"owned_objects:") {
+                let object_ids = bcs::from_bytes::<Vec<String>>(value).with_context(|| {
+                    format!(
+                        "Malformed owned-object index {:?}",
+                        String::from_utf8_lossy(key)
+                    )
+                })?;
                 canonical_object_keys.extend(
                     object_ids
                         .into_iter()
-                        .filter_map(|id| canonical_object_id(&id))
-                        .filter(|id| {
-                            entries
-                                .get(&object_key(id))
-                                .and_then(|bytes| bcs::from_bytes::<StoredObject>(bytes).ok())
-                                .is_some()
+                        .map(|id| {
+                            canonical_object_id(&id).ok_or_else(|| {
+                                anyhow::anyhow!("Invalid object id in owned-object index: {id}")
+                            })
                         })
-                        .map(|id| object_key(&id)),
+                        .collect::<Result<Vec<_>>>()?
+                        .into_iter()
+                        .map(|id| {
+                            let object_key = object_key(&id);
+                            let bytes = entries.get(&object_key).ok_or_else(|| {
+                                anyhow::anyhow!("Owned-object index references missing object {id}")
+                            })?;
+                            bcs::from_bytes::<StoredObject>(bytes)
+                                .with_context(|| format!("Malformed object record {id}"))?;
+                            Ok(object_key)
+                        })
+                        .collect::<Result<Vec<_>>>()?,
                 );
             }
         }
@@ -955,39 +981,44 @@ impl StateManager {
                 || canonical_module_keys.contains(key)
                 || canonical_object_keys.contains(key)
         });
+        Ok(())
     }
 
-    fn is_canonical_smt_update(&self, key: &[u8], value: &[u8]) -> bool {
+    fn is_canonical_smt_update(&self, key: &[u8], value: &[u8]) -> Result<bool> {
         if Self::is_canonical_state_root_key(key) {
-            return true;
+            return Ok(true);
         }
         if let Some(module_id) = key.strip_prefix(b"module:")
             && let Ok(module_id) = std::str::from_utf8(module_id)
         {
-            return self
-                .load_index_list(b"module_index")
-                .is_ok_and(|ids| ids.iter().any(|id| id == &format!("module:{module_id}")));
+            return Ok(self
+                .load_index_list(b"module_index")?
+                .iter()
+                .any(|id| id == &format!("module:{module_id}")));
         }
         if let Some(object_id) = key.strip_prefix(b"object:")
             && let Ok(object_id) = std::str::from_utf8(object_id)
-            && let Ok(object) = bcs::from_bytes::<StoredObject>(value)
+            && let object = bcs::from_bytes::<StoredObject>(value)
+                .with_context(|| format!("Malformed object record {object_id}"))?
             && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
         {
-            let canonical_id = canonical_object_id(object_id).unwrap_or_else(|| object_id.into());
-            return self
-                .load_index_list(&owned_objects_key(&object.owner))
-                .is_ok_and(|ids| ids.binary_search(&canonical_id).is_ok());
+            let canonical_id = canonical_object_id(object_id)
+                .ok_or_else(|| anyhow::anyhow!("Invalid canonical object id {object_id}"))?;
+            return Ok(self
+                .load_index_list(&owned_objects_key(&object.owner))?
+                .binary_search(&canonical_id)
+                .is_ok());
         }
-        false
+        Ok(false)
     }
 
-    fn smt_changes_from_overlay(&self) -> OverlaySmtChanges {
+    fn smt_changes_from_overlay(&self) -> Result<OverlaySmtChanges> {
         let mut updates = Vec::new();
         let mut deletes = Vec::new();
 
         for (key, value_opt) in &self.overlay {
             match value_opt {
-                Some(value) if self.is_canonical_smt_update(key, value) => {
+                Some(value) if self.is_canonical_smt_update(key, value)? => {
                     updates.push((key.clone(), value.clone()));
                 }
                 // An object/module may transition out of the canonical root
@@ -1016,16 +1047,18 @@ impl StateManager {
         {
             let old_ids = self
                 .store
-                .load::<Vec<String>>(index_key)
-                .ok()
-                .flatten()
+                .load::<Vec<String>>(index_key)?
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|id| canonical_object_id(&id))
                 .collect::<BTreeSet<_>>();
             let new_ids = value_opt
                 .as_ref()
-                .and_then(|bytes| bcs::from_bytes::<Vec<String>>(bytes).ok())
+                .map(|bytes| {
+                    bcs::from_bytes::<Vec<String>>(bytes)
+                        .context("Malformed pending owned-object index")
+                })
+                .transpose()?
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|id| canonical_object_id(&id))
@@ -1036,10 +1069,10 @@ impl StateManager {
             }
             for added in new_ids.difference(&old_ids) {
                 let key = object_key(added);
-                if let Ok(Some(object)) = self.load_internal::<StoredObject>(&key)
+                if let Some(object) = self.load_internal::<StoredObject>(&key)?
                     && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
-                    && let Ok(value) = bcs::to_bytes(&object)
                 {
+                    let value = bcs::to_bytes(&object)?;
                     updates.push((key, value));
                 }
             }
@@ -1055,20 +1088,27 @@ impl StateManager {
         deletes.sort();
         deletes.dedup();
 
-        (updates, deletes)
+        Ok((updates, deletes))
     }
 
-    fn canonical_membership_changed(&self) -> bool {
-        self.overlay.iter().any(|(key, value_opt)| {
+    fn canonical_membership_changed(&self) -> Result<bool> {
+        for (key, value_opt) in &self.overlay {
             if key != b"module_index" && !key.starts_with(b"owned_objects:") {
-                return false;
+                continue;
             }
-            let old = self.store.load::<Vec<String>>(key).ok().flatten();
+            let old = self.store.load::<Vec<String>>(key)?;
             let new = value_opt
                 .as_ref()
-                .and_then(|bytes| bcs::from_bytes::<Vec<String>>(bytes).ok());
-            old != new
-        })
+                .map(|bytes| {
+                    bcs::from_bytes::<Vec<String>>(bytes)
+                        .context("Malformed pending canonical membership index")
+                })
+                .transpose()?;
+            if old != new {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub(crate) fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
@@ -1315,25 +1355,16 @@ impl StateManager {
         Ok(objects)
     }
 
-    pub fn compute_state_root(&self) -> Vec<u8> {
+    /// Compute a canonical root and propagate storage/index corruption to the caller.
+    pub fn try_compute_state_root(&self) -> Result<Vec<u8>> {
         if let Some(smt) = &self.smt
-            && !self.canonical_membership_changed()
+            && !self.canonical_membership_changed()?
         {
-            let (updates, deletes) = self.smt_changes_from_overlay();
-            match smt.root_hash_with_changes(&updates, &deletes) {
-                Ok(root) => return root.to_vec(),
-                Err(error) => {
-                    log::error!("Failed to compute incremental state root: {}", error);
-                }
-            }
+            let (updates, deletes) = self.smt_changes_from_overlay()?;
+            return Ok(smt.root_hash_with_changes(&updates, &deletes)?.to_vec());
         }
-        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
-            Ok(entries) => entries.into_iter().collect(),
-            Err(e) => {
-                log::error!("Failed to materialize state root snapshot: {}", e);
-                BTreeMap::new()
-            }
-        };
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
+            self.store.logical_entries()?.into_iter().collect();
 
         for (key, value_opt) in &self.overlay {
             if let Some(value) = value_opt {
@@ -1343,30 +1374,38 @@ impl StateManager {
             }
         }
 
-        Self::retain_canonical_state_root_entries(&mut entries);
+        Self::retain_canonical_state_root_entries(&mut entries)?;
 
-        smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
+        Ok(smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec())
+    }
+
+    /// Legacy convenience API. Consensus and RPC paths must use
+    /// `try_compute_state_root` so persistent-state faults are returned rather
+    /// than converted into a different root.
+    pub fn compute_state_root(&self) -> Vec<u8> {
+        self.try_compute_state_root()
+            .expect("canonical state root requires readable, well-formed persistent state")
+    }
+
+    pub fn try_canonical_state_snapshot(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
+            self.store.logical_entries()?.into_iter().collect();
+
+        for (key, value_opt) in &self.overlay {
+            if let Some(value) = value_opt {
+                entries.insert(key.clone(), value.clone());
+            } else {
+                entries.remove(key);
+            }
+        }
+
+        Self::retain_canonical_state_root_entries(&mut entries)?;
+        Ok(entries)
     }
 
     pub fn canonical_state_snapshot(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
-        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
-            Ok(entries) => entries.into_iter().collect(),
-            Err(e) => {
-                log::error!("Failed to materialize canonical state snapshot: {}", e);
-                BTreeMap::new()
-            }
-        };
-
-        for (key, value_opt) in &self.overlay {
-            if let Some(value) = value_opt {
-                entries.insert(key.clone(), value.clone());
-            } else {
-                entries.remove(key);
-            }
-        }
-
-        Self::retain_canonical_state_root_entries(&mut entries);
-        entries
+        self.try_canonical_state_snapshot()
+            .expect("canonical snapshot requires readable, well-formed persistent state")
     }
 
     pub fn resolve_owner_nonce(&self, _owner: &AccountAddress) -> Result<u64> {

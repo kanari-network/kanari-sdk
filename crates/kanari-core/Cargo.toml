@@ -39,3 +39,4 @@ minibytes = { path = "../mysticeti/crates/minibytes", default-features = false }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+proptest = { workspace = true }

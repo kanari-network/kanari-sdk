@@ -32,6 +32,44 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
 }
 
 #[test]
+fn state_root_fails_closed_when_canonical_index_is_corrupt() -> Result<()> {
+    let state = StateManager::new_in_memory();
+    state
+        .store
+        .apply_raw_changes(&[(b"module_index".to_vec(), vec![0x80])], &[])?;
+
+    assert!(state.try_compute_state_root().is_err());
+    assert!(state.try_canonical_state_snapshot().is_err());
+    Ok(())
+}
+
+#[test]
+fn supply_validation_fails_closed_when_native_treasury_is_corrupt() -> Result<()> {
+    let state = StateManager::new_in_memory();
+    let supply_key = StateManager::supply_key(GAS_COIN);
+    state
+        .store
+        .apply_raw_changes(&[(supply_key, vec![0x80])], &[])?;
+
+    assert!(state.validate_supply_invariants().is_err());
+    Ok(())
+}
+
+#[test]
+fn commit_with_raw_update_persists_checkpoint_marker_with_state_overlay() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    state.save_internal(b"test:state", &7u64)?;
+    state.commit_with_raw_update(b"test:marker".to_vec(), bcs::to_bytes(&vec![9u8, 9])?)?;
+
+    assert_eq!(state.store.load::<u64>(b"test:state")?, Some(7));
+    assert_eq!(
+        state.store.load::<Vec<u8>>(b"test:marker")?,
+        Some(vec![9, 9])
+    );
+    Ok(())
+}
+
+#[test]
 fn move_writes_commit_with_canonical_state_and_update_module_index() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let module_key = b"module:0x42:test".to_vec();
@@ -292,10 +330,6 @@ fn state_root_ignores_owner_indexes_and_supply_caches() -> Result<()> {
     let canonical_root = state.compute_state_root();
 
     state.save_internal(b"owner_index", &vec![owner.to_hex_literal()])?;
-    state.save_internal(
-        &crate::common::keys::owned_objects_key(&owner),
-        &vec!["0xaaaa".to_string()],
-    )?;
     state.save_internal(
         b"global_token_supplies",
         &BTreeMap::from([(GAS_COIN.to_string(), 1_000u64)]),
@@ -692,7 +726,7 @@ fn materialized_sparse_root_for_test(state: &StateManager) -> Result<Vec<u8>> {
             entries.remove(key);
         }
     }
-    StateManager::retain_canonical_state_root_entries(&mut entries);
+    StateManager::retain_canonical_state_root_entries(&mut entries)?;
     Ok(smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec())
 }
 

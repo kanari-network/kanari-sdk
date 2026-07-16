@@ -122,10 +122,16 @@ pub async fn handle_get_canonical_state_snapshot(
         }
     };
 
-    let snapshot = state
+    match state
         .engine
-        .canonical_state_snapshot_response(req.limit, req.prefix.as_deref());
-    respond_with_serialize(request.id, snapshot)
+        .canonical_state_snapshot_response(req.limit, req.prefix.as_deref())
+    {
+        Ok(snapshot) => respond_with_serialize(request.id, snapshot),
+        Err(error) => internal_error_response(
+            request.id,
+            format!("Failed to read canonical state snapshot: {error:#}"),
+        ),
+    }
 }
 
 pub async fn handle_compare_canonical_state_snapshot(
@@ -138,6 +144,11 @@ pub async fn handle_compare_canonical_state_snapshot(
         Err(response) => return *response,
     };
 
-    let diff = state.engine.compare_canonical_state_snapshot(&req);
-    respond_with_serialize(request.id, diff)
+    match state.engine.compare_canonical_state_snapshot(&req) {
+        Ok(diff) => respond_with_serialize(request.id, diff),
+        Err(error) => internal_error_response(
+            request.id,
+            format!("Failed to compare canonical state snapshot: {error:#}"),
+        ),
+    }
 }

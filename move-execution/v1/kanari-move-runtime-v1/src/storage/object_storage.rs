@@ -46,7 +46,7 @@ impl From<PersistentStoreError> for ObjectStorageError {
 /// Trait abstraction for object storage backends.
 pub trait ObjectStore: Send + Sync {
     fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError>;
-    fn get_object(&self, id: &str) -> Option<StoredObject>;
+    fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError>;
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
     #[cfg(test)]
     fn count(&self) -> usize;
@@ -206,13 +206,15 @@ impl ObjectStorage {
     pub(crate) fn new_with_store(store: Arc<PersistentStore>) -> Result<Self> {
         let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
 
-        if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes()) {
-            for id in ids.into_iter() {
-                if let Ok(Some(obj)) =
-                    store.load::<StoredObject>(format!("object:{}", id).as_bytes())
-                {
-                    objects_map.insert(id, obj);
-                }
+        if let Some(ids) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes())? {
+            for id in ids {
+                let object_key = format!("object:{id}");
+                let object = store.load::<StoredObject>(object_key.as_bytes())?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "object index references missing object {id}; refusing to start with a partial object cache"
+                    )
+                })?;
+                objects_map.insert(id, object);
             }
         }
 
@@ -317,21 +319,21 @@ impl ObjectStorage {
         Ok(())
     }
 
-    fn get_object(&self, id: &str) -> Option<StoredObject> {
+    fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
         if let Some(obj) = state.objects.get(id) {
-            return Some(obj.clone());
+            return Ok(Some(obj.clone()));
         }
         drop(state);
 
         if let Some(store) = &self.persistent
-            && let Ok(Some(obj)) = store.load::<StoredObject>(format!("object:{}", id).as_bytes())
+            && let Some(obj) = store.load::<StoredObject>(format!("object:{}", id).as_bytes())?
         {
             let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
             write_state.objects.insert(id.to_string(), obj.clone());
-            return Some(obj);
+            return Ok(Some(obj));
         }
-        None
+        Ok(None)
     }
 
     #[cfg(test)]
@@ -340,7 +342,7 @@ impl ObjectStorage {
             let ids = Self::load_owned_object_ids(store, owner).unwrap_or_default();
             let mut results = Vec::with_capacity(ids.len());
             for id in ids {
-                if let Some(obj) = self.get_object(&id) {
+                if let Ok(Some(obj)) = self.get_object(&id) {
                     results.push(obj);
                 }
             }
@@ -431,7 +433,7 @@ impl ObjectStore for ObjectStorage {
         ObjectStorage::store_object(self, obj)
     }
 
-    fn get_object(&self, id: &str) -> Option<StoredObject> {
+    fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
         ObjectStorage::get_object(self, id)
     }
 

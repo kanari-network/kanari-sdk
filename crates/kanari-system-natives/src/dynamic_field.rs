@@ -56,7 +56,11 @@ pub enum DynamicFieldOp {
 }
 
 pub trait DynamicFieldResolver: Send + Sync {
-    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>>;
+    fn get_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+    ) -> Result<Option<Vec<u8>>, String>;
 }
 
 #[derive(Tid, Clone, Default)]
@@ -71,10 +75,15 @@ impl DynamicFieldStorageExt {
         }
     }
 
-    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
-        self.resolver
-            .as_ref()
-            .and_then(|resolver| resolver.get_dynamic_field(object_id, name_bytes))
+    fn get_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+    ) -> Result<Option<Vec<u8>>, String> {
+        match &self.resolver {
+            Some(resolver) => resolver.get_dynamic_field(object_id, name_bytes),
+            None => Ok(None),
+        }
     }
 }
 
@@ -287,20 +296,30 @@ fn parse_exists_location(
     parse_field_location(context, name_ty, uid_ref, name)
 }
 
-fn load_from_resolver(context: &mut NativeContext, location: &FieldLocation) -> Option<Vec<u8>> {
+fn load_from_resolver(
+    context: &mut NativeContext,
+    location: &FieldLocation,
+) -> PartialVMResult<Option<Vec<u8>>> {
     crate::native_ext::with_ext_mut_or_default::<DynamicFieldStorageExt, _>(context, |ext| {
         ext.get_dynamic_field(&location.object_id, &location.name_bytes)
     })
-    .flatten()
+    .unwrap_or(Ok(None))
+    .map_err(|error| {
+        PartialVMError::new(StatusCode::STORAGE_ERROR)
+            .with_message(format!("Failed to load dynamic field: {error}"))
+    })
 }
 
-fn field_exists(context: &mut NativeContext, location: &FieldLocation) -> bool {
+fn field_exists(context: &mut NativeContext, location: &FieldLocation) -> PartialVMResult<bool> {
     let mut cached = None;
     crate::native_ext::with_ext_mut_or_default::<DynamicFieldsExt, _>(context, |ext| {
         cached = ext.cached_exists(location);
     });
 
-    cached.unwrap_or_else(|| load_from_resolver(context, location).is_some())
+    match cached {
+        Some(exists) => Ok(exists),
+        None => Ok(load_from_resolver(context, location)?.is_some()),
+    }
 }
 
 fn ensure_field_loaded(
@@ -316,7 +335,7 @@ fn ensure_field_loaded(
         return Ok(exists);
     }
 
-    let Some(value_bytes) = load_from_resolver(context, location) else {
+    let Some(value_bytes) = load_from_resolver(context, location)? else {
         return Ok(false);
     };
     let Some(value) = Value::simple_deserialize(&value_bytes, &value_spec.layout) else {
@@ -417,7 +436,7 @@ fn native_add(
     let value_spec = parse_value_spec(context, &ty_args[1])?;
     let value_bytes = serialize_arg_with_layout(&value, &value_spec.layout)?;
 
-    if field_exists(context, &location) {
+    if field_exists(context, &location)? {
         return Ok(NR::err(context.gas_used(), E_FIELD_ALREADY_EXISTS));
     }
 
@@ -518,6 +537,6 @@ fn native_exists_(
     let location = parse_exists_location(context, &ty_args[0], &mut arguments)?;
     Ok(NR::ok(
         context.gas_used(),
-        smallvec![Value::bool(field_exists(context, &location))],
+        smallvec![Value::bool(field_exists(context, &location)?)],
     ))
 }

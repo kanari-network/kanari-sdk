@@ -141,6 +141,42 @@ impl BlockchainEngine {
     fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
         tracing::info!("Loading blockchain checkpoints");
         let blockchain = Self::load_blockchain(&persistent_store);
+        if let Some(store) = &persistent_store
+            && let Some(checkpoint) = store
+                .load::<Checkpoint>(Self::pending_checkpoint_commit_key())
+                .context("Failed to load pending checkpoint commit marker")?
+        {
+            let mut chain = blockchain.write().unwrap_or_else(|e| e.into_inner());
+            match checkpoint.sequence.cmp(&chain.height()) {
+                std::cmp::Ordering::Greater => {
+                    chain
+                        .add_checkpoint_with_validation(checkpoint.clone(), true)
+                        .context("Failed to recover checkpoint metadata from durable marker")?;
+                }
+                std::cmp::Ordering::Equal => {
+                    anyhow::ensure!(
+                        chain.latest_checkpoint().hash()? == checkpoint.hash()?,
+                        "Pending checkpoint marker conflicts with persisted checkpoint {}",
+                        checkpoint.sequence
+                    );
+                }
+                std::cmp::Ordering::Less => anyhow::bail!(
+                    "Pending checkpoint marker {} is behind persisted chain height {}",
+                    checkpoint.sequence,
+                    chain.height()
+                ),
+            }
+            Self::persist_blockchain_snapshot_to_store(store, &chain)
+                .context("Failed to recover blockchain metadata from durable checkpoint marker")?;
+            drop(chain);
+            store
+                .delete(Self::pending_checkpoint_commit_key())
+                .context("Failed to clear recovered checkpoint commit marker")?;
+            tracing::warn!(
+                checkpoint = checkpoint.sequence,
+                "Recovered checkpoint metadata from durable state-commit marker"
+            );
+        }
         tracing::info!("Opening state database");
         let state = Self::load_state(&persistent_store)?;
         let shared_runtime_store = {

@@ -120,7 +120,7 @@ impl super::MoveRuntime {
         // 3. Kanari Objects (Deleted)
         // We look up the object in storage to find its size for the rebate.
         for obj_id in &kanari_cs.deleted_objects {
-            if let Some(obj) = self.object_storage.get_object(obj_id) {
+            if let Some(obj) = self.object_storage.get_object(obj_id)? {
                 deleted += obj.data.len() as u64;
                 deleted += obj.type_name.len() as u64 + 32;
             }

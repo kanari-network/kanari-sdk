@@ -205,25 +205,6 @@ impl Blockchain {
         }
     }
 
-    pub fn rollback_latest_checkpoint(&mut self, sequence: u64) {
-        let should_remove = self
-            .dag_checkpoints
-            .back()
-            .map(|checkpoint| checkpoint.sequence == sequence && sequence > 0)
-            .unwrap_or(false);
-        if should_remove {
-            let removed_transactions = self
-                .dag_checkpoints
-                .pop_back()
-                .map(|checkpoint| checkpoint.transactions.len())
-                .unwrap_or(0);
-            self.total_transaction_count = self
-                .total_transaction_count
-                .saturating_sub(removed_transactions);
-            self.rebuild_tx_hash_index();
-        }
-    }
-
     pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
         self.dag_checkpoints
             .iter()

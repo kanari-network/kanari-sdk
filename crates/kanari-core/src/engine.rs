@@ -281,7 +281,7 @@ impl BlockchainEngine {
             .store
             .flush()
             .context("Failed to flush state before snapshot")?;
-        let current_state_root = state.compute_state_root();
+        let current_state_root = state.try_compute_state_root()?;
         let state_root_migrated =
             checkpoint.sequence > 0 && checkpoint.state_root != current_state_root;
         ensure!(
@@ -413,7 +413,7 @@ impl BlockchainEngine {
             checkpoint.state_root == checkpoint_state_root,
             "Imported snapshot checkpoint state root mismatch"
         );
-        let imported_state_root = hex::encode(imported.state_read().compute_state_root());
+        let imported_state_root = hex::encode(imported.state_read().try_compute_state_root()?);
         ensure!(
             imported_state_root == snapshot.state_root,
             "Imported snapshot state root mismatch: snapshot={}, imported={}",
@@ -616,6 +616,10 @@ impl BlockchainEngine {
 
     pub(crate) fn blockchain_json_key() -> &'static [u8] {
         b"blockchain_json_v1"
+    }
+
+    pub(crate) fn pending_checkpoint_commit_key() -> &'static [u8] {
+        b"runtime:pending_checkpoint_commit_v1"
     }
 
     fn transaction_payload_key(tx_hash: &[u8]) -> Vec<u8> {
@@ -1589,6 +1593,44 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Reject malformed payloads at admission so they cannot occupy a mempool
+    /// lane or later become zero-gas failed checkpoint effects.
+    pub(crate) fn validate_transaction_admission_shape(tx: &Transaction) -> Result<()> {
+        KanariAddress::parse_to_account_address(tx.sender_address())
+            .context("Invalid transaction sender address")?;
+
+        if let Transaction::ExecuteFunction {
+            module, type_args, ..
+        } = tx
+        {
+            let mut parts = module.split("::");
+            let address = parts
+                .next()
+                .filter(|part| !part.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Invalid module format. Expected: address::module")
+                })?;
+            let module_name = parts
+                .next()
+                .filter(|part| !part.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Invalid module format. Expected: address::module")
+                })?;
+            anyhow::ensure!(
+                parts.next().is_none(),
+                "Invalid module format. Expected: address::module"
+            );
+            KanariAddress::parse_to_account_address(address)
+                .context("Invalid entry-function module address")?;
+            move_core_types::identifier::Identifier::new(module_name)
+                .context("Invalid entry-function module name")?;
+            for type_arg in type_args {
+                parse_type_tag(type_arg).ok_or_else(|| anyhow::anyhow!("Invalid type argument"))?;
+            }
+        }
+        Ok(())
+    }
+
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
@@ -1747,42 +1789,37 @@ impl BlockchainEngine {
 
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
-                    changeset.mark_failed(
-                        "Invalid module format. Expected: address::module".to_string(),
+                    anyhow::bail!("Invalid module format. Expected: address::module");
+                } else {
+                    let addr = KanariAddress::parse_to_account_address(parts[0])?;
+                    let module_id = ModuleId::new(
+                        addr,
+                        move_core_types::identifier::Identifier::new(parts[1])?,
                     );
-                    changeset.set_gas_used(0);
-                    return Ok(changeset);
-                }
-
-                let addr = KanariAddress::parse_to_account_address(parts[0])?;
-                let module_id = ModuleId::new(
-                    addr,
-                    move_core_types::identifier::Identifier::new(parts[1])?,
-                );
-
-                let type_tags: Vec<move_core_types::language_storage::TypeTag> = type_args
-                    .iter()
-                    .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
-                    .collect::<Result<Vec<_>>>()?;
-
-                match runtime.execute_entry_function_with_object_context_and_persistence(
-                    &module_id,
-                    function,
-                    type_tags,
-                    args.clone(),
-                    EntryFunctionObjectContext {
-                        object_inputs: tx.object_inputs(),
-                        sender: Some(sender_addr),
-                        gas_info: Some((tx.gas_limit(), tx.gas_price())),
-                        timestamp,
-                        tx_hash: Some(tx.hash()),
-                        persist_runtime_state,
-                    },
-                ) {
-                    Ok(move_cs) => changeset.merge(move_cs),
-                    Err(e) => {
-                        changeset.mark_failed(format!("Execution failed: {}", e));
-                        changeset.set_gas_used(tx.gas_limit());
+                    let type_tags = type_args
+                        .iter()
+                        .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
+                        .collect::<Result<Vec<_>>>();
+                    let type_tags = type_tags?;
+                    match runtime.execute_entry_function_with_object_context_and_persistence(
+                        &module_id,
+                        function,
+                        type_tags,
+                        args.clone(),
+                        EntryFunctionObjectContext {
+                            object_inputs: tx.object_inputs(),
+                            sender: Some(sender_addr),
+                            gas_info: Some((tx.gas_limit(), tx.gas_price())),
+                            timestamp,
+                            tx_hash: Some(tx.hash()),
+                            persist_runtime_state,
+                        },
+                    ) {
+                        Ok(move_cs) => changeset.merge(move_cs),
+                        Err(e) => {
+                            changeset.mark_failed(format!("Execution failed: {}", e));
+                            changeset.set_gas_used(tx.gas_limit());
+                        }
                     }
                 }
             }
@@ -2150,8 +2187,13 @@ impl BlockchainEngine {
         Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
     }
 
-    pub fn dag_vertices_for_checkpoint_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
-        Ok(self.dag_engine_instance()?.vertices_for_sync(limit))
+    pub fn dag_vertices_for_checkpoint_sync(
+        &self,
+        checkpoint_vertices: &[[u8; 32]],
+        limit: usize,
+    ) -> Result<Vec<DagVertex>> {
+        self.dag_engine_instance()?
+            .checkpoint_vertices_for_sync(checkpoint_vertices, limit)
     }
 
     pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<()> {

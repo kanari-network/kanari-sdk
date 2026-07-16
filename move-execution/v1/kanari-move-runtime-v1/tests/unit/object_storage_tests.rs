@@ -54,6 +54,34 @@ fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()>
 }
 
 #[test]
+fn persistent_startup_rejects_object_index_entry_without_object() -> Result<()> {
+    let store = Arc::new(PersistentStore::open_in_memory()?);
+    store.save(
+        ObjectStorage::OBJECT_INDEX_KEY.as_bytes(),
+        &vec!["0xmissing".to_string()],
+    )?;
+
+    let err = ObjectStorage::new_with_store(store)
+        .err()
+        .expect("partial object index must fail startup");
+    assert!(
+        err.to_string()
+            .contains("object index references missing object")
+    );
+    Ok(())
+}
+
+#[test]
+fn persistent_object_load_error_is_not_reported_as_missing() -> Result<()> {
+    let store = Arc::new(PersistentStore::open_in_memory()?);
+    store.apply_raw_changes(&[(b"object:0xcorrupt".to_vec(), vec![0x80])], &[])?;
+    let storage = ObjectStorage::new_with_store(store)?;
+
+    assert!(storage.get_object("0xcorrupt").is_err());
+    Ok(())
+}
+
+#[test]
 fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let owner = AccountAddress::from_hex_literal("0x2")?;

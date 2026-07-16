@@ -125,7 +125,7 @@ impl BlockchainEngine {
         }
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let computed_root = verified_state.compute_state_root();
+        let computed_root = verified_state.try_compute_state_root()?;
         Ok(PreparedCheckpointState {
             state_root: computed_root,
             state: verified_state,
@@ -157,9 +157,17 @@ impl BlockchainEngine {
         {
             let mut state = self.state_write();
             *state = new_state;
-            state
-                .commit()
-                .context("Failed to commit state to RocksDB")?;
+            if self.persistent_store.is_some() {
+                let marker = bcs::to_bytes(&checkpoint)
+                    .context("Failed to serialize durable checkpoint commit marker")?;
+                state
+                    .commit_with_raw_update(Self::pending_checkpoint_commit_key().to_vec(), marker)
+                    .context("Failed to commit state and checkpoint marker to RocksDB")?;
+            } else {
+                state
+                    .commit()
+                    .context("Failed to commit state to RocksDB")?;
+            }
         }
 
         for runtime in &self.runtime_pool {
@@ -174,6 +182,12 @@ impl BlockchainEngine {
                     .refresh_committed_modules()
                     .context("Failed to refresh Move VM modules after checkpoint commit")?;
             }
+        }
+
+        if let Some(store) = &self.persistent_store {
+            store
+                .delete(Self::pending_checkpoint_commit_key())
+                .context("Failed to clear durable checkpoint commit marker")?;
         }
 
         Ok(())
@@ -191,10 +205,8 @@ impl BlockchainEngine {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             if let Err(e) = self.persist_blockchain_snapshot(&chain) {
                 drop(chain);
-                let mut rollback_chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
-                rollback_chain.rollback_latest_checkpoint(checkpoint.sequence);
                 anyhow::bail!(
-                    "Failed to persist blockchain metadata for checkpoint {}: {}",
+                    "Failed to persist blockchain metadata for checkpoint {}: {}. The committed state is protected by a durable recovery marker; restart the node to finish metadata recovery.",
                     checkpoint.sequence,
                     e
                 );

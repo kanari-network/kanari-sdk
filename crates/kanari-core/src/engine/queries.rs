@@ -15,6 +15,7 @@ use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
+    const MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 512;
     pub fn smt_status(&self, audit: bool) -> Result<SmtStatusResponse> {
         let diagnostics = self.state_read().smt_diagnostics(audit)?;
         let stats = self.get_stats();
@@ -44,10 +45,10 @@ impl BlockchainEngine {
         &self,
         limit: Option<usize>,
         prefix: Option<&str>,
-    ) -> Vec<CanonicalStateEntry> {
+    ) -> Result<Vec<CanonicalStateEntry>> {
         let state = self.state_read();
         let mut entries = state
-            .canonical_state_snapshot()
+            .try_canonical_state_snapshot()?
             .into_iter()
             .map(|(key, value)| CanonicalStateEntry {
                 key: String::from_utf8_lossy(&key).into_owned(),
@@ -61,30 +62,30 @@ impl BlockchainEngine {
         if let Some(limit) = limit {
             entries.truncate(limit);
         }
-        entries
+        Ok(entries)
     }
 
     pub fn canonical_state_snapshot_response(
         &self,
         limit: Option<usize>,
         prefix: Option<&str>,
-    ) -> CanonicalStateSnapshotResponse {
-        let entries = self.canonical_state_snapshot_entries(limit, prefix);
-        CanonicalStateSnapshotResponse {
+    ) -> Result<CanonicalStateSnapshotResponse> {
+        let entries = self.canonical_state_snapshot_entries(limit, prefix)?;
+        Ok(CanonicalStateSnapshotResponse {
             height: self.get_stats().height,
             state_root: self.latest_checkpoint_state_root_hex(),
             entry_count: entries.len(),
             entries,
-        }
+        })
     }
 
     pub fn compare_canonical_state_snapshot(
         &self,
         req: &CompareCanonicalStateSnapshotRequest,
-    ) -> CanonicalStateDiffResponse {
+    ) -> Result<CanonicalStateDiffResponse> {
         use std::collections::BTreeMap;
 
-        let local_entries = self.canonical_state_snapshot_entries(None, None);
+        let local_entries = self.canonical_state_snapshot_entries(None, None)?;
         let local_map = local_entries
             .iter()
             .map(|entry| (entry.key.clone(), entry.value.clone()))
@@ -115,61 +116,75 @@ impl BlockchainEngine {
             }
         }
 
-        CanonicalStateDiffResponse {
+        Ok(CanonicalStateDiffResponse {
             height: self.get_stats().height,
             state_root: self.latest_checkpoint_state_root_hex(),
             local_entry_count: local_map.len(),
             remote_entry_count: remote_map.len(),
             first_divergence,
-        }
+        })
     }
 
-    pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
+    pub fn try_canonical_state_snapshot_dump(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<(String, String)>> {
         let mut entries = self
-            .canonical_state_snapshot_entries(limit, None)
+            .canonical_state_snapshot_entries(limit, None)?
             .into_iter()
             .map(|entry| (entry.key, entry.value))
             .collect::<Vec<_>>();
         if let Some(limit) = limit {
             entries.truncate(limit);
         }
-        entries
+        Ok(entries)
     }
 
-    pub fn first_canonical_state_divergence(&self, other: &Self) -> Option<String> {
-        let left = self.state_read().canonical_state_snapshot();
-        let right = other.state_read().canonical_state_snapshot();
+    pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
+        self.try_canonical_state_snapshot_dump(limit)
+            .expect("canonical snapshot dump requires readable, well-formed persistent state")
+    }
+
+    pub fn try_first_canonical_state_divergence(&self, other: &Self) -> Result<Option<String>> {
+        let left = self.state_read().try_canonical_state_snapshot()?;
+        let right = other.state_read().try_canonical_state_snapshot()?;
 
         for key in left.keys().chain(right.keys()) {
             match (left.get(key), right.get(key)) {
                 (Some(left_value), Some(right_value)) if left_value == right_value => {}
                 (Some(left_value), Some(right_value)) => {
-                    return Some(format!(
+                    return Ok(Some(format!(
                         "key={} left={} right={}",
                         String::from_utf8_lossy(key),
                         hex::encode(left_value),
                         hex::encode(right_value)
-                    ));
+                    )));
                 }
                 (Some(left_value), None) => {
-                    return Some(format!(
+                    return Ok(Some(format!(
                         "key={} missing_on_right left={}",
                         String::from_utf8_lossy(key),
                         hex::encode(left_value)
-                    ));
+                    )));
                 }
                 (None, Some(right_value)) => {
-                    return Some(format!(
+                    return Ok(Some(format!(
                         "key={} missing_on_left right={}",
                         String::from_utf8_lossy(key),
                         hex::encode(right_value)
-                    ));
+                    )));
                 }
                 (None, None) => {}
             }
         }
 
-        None
+        Ok(None)
+    }
+
+    pub fn first_canonical_state_divergence(&self, other: &Self) -> Option<String> {
+        self.try_first_canonical_state_divergence(other).expect(
+            "canonical state divergence check requires readable, well-formed persistent state",
+        )
     }
 
     pub fn latest_checkpoint_hash_hex(&self) -> String {
@@ -400,7 +415,7 @@ impl BlockchainEngine {
             .map(Self::full_block_data_from_checkpoint)
     }
 
-    pub fn get_checkpoint_sync(&self, sequence: u64) -> Option<CheckpointSyncData> {
+    pub fn get_checkpoint_sync(&self, sequence: u64) -> Result<Option<CheckpointSyncData>> {
         let chain = match self.blockchain.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -408,15 +423,26 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
+        let Some(checkpoint) = chain.get_checkpoint(sequence).cloned() else {
+            return Ok(None);
+        };
+        drop(chain);
+        let dag_vertices = self.dag_vertices_for_checkpoint_sync(
+            &checkpoint.vertices,
+            Self::MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC,
+        )?;
+        Ok(Some(CheckpointSyncData {
+            checkpoint,
+            dag_vertices,
+        }))
+    }
+
+    pub fn checkpoint_hash(&self, sequence: u64) -> Result<Option<Vec<u8>>> {
+        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain
             .get_checkpoint(sequence)
-            .cloned()
-            .map(|checkpoint| CheckpointSyncData {
-                checkpoint,
-                dag_vertices: self
-                    .dag_vertices_for_checkpoint_sync(usize::MAX)
-                    .unwrap_or_default(),
-            })
+            .map(Checkpoint::hash)
+            .transpose()
     }
 
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
@@ -452,7 +478,7 @@ impl BlockchainEngine {
 
         if checkpoint.sequence <= stats.height {
             let local = self
-                .get_checkpoint_sync(checkpoint.sequence)
+                .get_checkpoint_sync(checkpoint.sequence)?
                 .ok_or_else(|| {
                     anyhow::anyhow!("Missing local checkpoint #{}", checkpoint.sequence)
                 })?;

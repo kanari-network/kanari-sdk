@@ -870,9 +870,14 @@ impl DagEngine {
     }
 
     pub fn vertices_for_sync(&self, limit: usize) -> Vec<DagVertex> {
+        const MAX_SYNC_ROUND_WINDOW: u64 = 256;
         let state = lock_read(&self.state);
         let reader = state.mysticeti.core.block_reader();
-        let mut vertices = (1..=reader.highest_round())
+        let highest_round = reader.highest_round();
+        let first_round = highest_round
+            .saturating_sub(MAX_SYNC_ROUND_WINDOW.saturating_sub(1))
+            .max(1);
+        let mut vertices = (first_round..=highest_round)
             .flat_map(|round| reader.get_blocks_by_round(round))
             .filter_map(|block| state.mysticeti.block_to_vertex(&block).ok())
             .collect::<Vec<_>>();
@@ -886,6 +891,94 @@ impl DagEngine {
             vertices.drain(..vertices.len() - limit);
         }
         vertices
+    }
+
+    /// Return the exact checkpoint vertices plus every available non-genesis
+    /// parent required to inject them into Mysticeti. A bounded recent window
+    /// locates checkpoint roots; parents are then resolved by their explicit
+    /// round/id references rather than silently omitted.
+    pub fn checkpoint_vertices_for_sync(
+        &self,
+        checkpoint_vertices: &[[u8; 32]],
+        limit: usize,
+    ) -> Result<Vec<DagVertex>> {
+        const ROOT_LOOKUP_ROUND_WINDOW: u64 = 256;
+        if checkpoint_vertices.is_empty() {
+            return Ok(Vec::new());
+        }
+        anyhow::ensure!(limit > 0, "Checkpoint DAG sync limit must be non-zero");
+
+        let state = lock_read(&self.state);
+        let reader = state.mysticeti.core.block_reader();
+        let highest_round = reader.highest_round();
+        let first_round = highest_round
+            .saturating_sub(ROOT_LOOKUP_ROUND_WINDOW.saturating_sub(1))
+            .max(1);
+
+        let mut recent = BTreeMap::new();
+        for round in first_round..=highest_round {
+            for block in reader.get_blocks_by_round(round) {
+                let vertex = state.mysticeti.block_to_vertex(&block)?;
+                recent.insert(vertex.id, vertex);
+            }
+        }
+
+        let mut pending = Vec::with_capacity(checkpoint_vertices.len());
+        for vertex_id in checkpoint_vertices {
+            let vertex = recent.get(vertex_id).cloned().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Checkpoint DAG vertex {} is outside the bounded root lookup window; use snapshot recovery",
+                    hex::encode(vertex_id)
+                )
+            })?;
+            pending.push(vertex);
+        }
+
+        let mut closure = BTreeMap::new();
+        while let Some(vertex) = pending.pop() {
+            if closure.contains_key(&vertex.id) {
+                continue;
+            }
+            anyhow::ensure!(
+                closure.len() < limit,
+                "Checkpoint DAG parent closure exceeds sync limit {limit}; use snapshot recovery"
+            );
+            for (parent_author, parent_round, parent_id) in &vertex.parents {
+                // Mysticeti genesis references are implicit and are never sent as
+                // network blocks.
+                if *parent_round == 0 || closure.contains_key(parent_id) {
+                    continue;
+                }
+                let parent = reader
+                    .get_blocks_by_round(*parent_round)
+                    .into_iter()
+                    .find(|block| mysticeti_reference_to_vertex_id(block.reference()) == *parent_id)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Missing DAG parent {} for checkpoint vertex {}",
+                            hex::encode(parent_id),
+                            hex::encode(vertex.id)
+                        )
+                    })?;
+                let parent_vertex = state.mysticeti.block_to_vertex(&parent)?;
+                anyhow::ensure!(
+                    &parent_vertex.author == parent_author,
+                    "DAG parent author mismatch for {}",
+                    hex::encode(parent_id)
+                );
+                pending.push(parent_vertex);
+            }
+            closure.insert(vertex.id, vertex);
+        }
+
+        let mut vertices = closure.into_values().collect::<Vec<_>>();
+        vertices.sort_by(|left, right| {
+            left.round
+                .cmp(&right.round)
+                .then_with(|| left.author.cmp(&right.author))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(vertices)
     }
 
     /// Validate a network `DagVertex` against both kanari rules and mysticeti storage.

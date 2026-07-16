@@ -14,7 +14,7 @@ impl super::MoveRuntime {
         cs: &mut ChangeSet,
         transferred: Vec<TransferredObject>,
         persist_runtime_state: bool,
-    ) {
+    ) -> anyhow::Result<()> {
         let count = transferred.len();
         debug!("Processing {} transferred objects", count);
 
@@ -50,12 +50,12 @@ impl super::MoveRuntime {
 
             let next_version = self
                 .object_storage
-                .get_object(&canonical_id)
+                .get_object(&canonical_id)?
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
             let owner_kind = self
                 .object_storage
-                .get_object(&canonical_id)
+                .get_object(&canonical_id)?
                 .map(|existing| existing.owner_kind)
                 .unwrap_or_else(|| {
                     if obj.is_frozen {
@@ -77,13 +77,16 @@ impl super::MoveRuntime {
                     version: next_version,
                 };
 
-                match self.object_storage.store_object(stored_obj) {
-                    Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
-                    Err(e) => debug!(
-                        "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
-                        canonical_id, e
-                    ),
-                }
+                self.object_storage
+                    .store_object(stored_obj)
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "Failed to persist transferred object {} to storage: {}",
+                            canonical_id,
+                            error
+                        )
+                    })?;
+                debug!("Object {} persisted to ObjectStorage", canonical_id);
             }
 
             cs.created_objects
@@ -129,6 +132,7 @@ impl super::MoveRuntime {
         if count > 0 {
             debug!("Total {} objects added to changeset", count);
         }
+        Ok(())
     }
 }
 

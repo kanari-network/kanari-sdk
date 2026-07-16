@@ -107,7 +107,16 @@ fn write_snapshot_dump(path: &Path, snapshot: &CanonicalStateSnapshotResponse) {
 }
 
 fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_peer_id: &str) {
-    let snapshot = engine.canonical_state_snapshot_response(None, None);
+    let snapshot = match engine.canonical_state_snapshot_response(None, None) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::error!(
+                peer_id = local_peer_id,
+                "Failed to read startup canonical state snapshot: {error:#}"
+            );
+            return;
+        }
+    };
 
     tracing::info!(
         height = snapshot.height,
@@ -123,11 +132,17 @@ fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_pee
             .and_then(|bytes| serde_json::from_slice::<CanonicalStateSnapshotResponse>(&bytes).ok())
         {
             Some(reference) => {
-                let diff = engine.compare_canonical_state_snapshot(
+                let diff = match engine.compare_canonical_state_snapshot(
                     &CompareCanonicalStateSnapshotRequest {
                         entries: reference.entries.clone(),
                     },
-                );
+                ) {
+                    Ok(diff) => diff,
+                    Err(error) => {
+                        tracing::error!(reference_file = %reference_path.display(), "Failed to compare startup canonical state snapshot: {error:#}");
+                        return;
+                    }
+                };
                 if let Some(first_divergence) = diff.first_divergence {
                     tracing::warn!(
                         reference_file = %reference_path.display(),
@@ -812,14 +827,25 @@ pub async fn run_node(
 
                     if block_info.checkpoint.is_some() {
                         let current_height = current_chain_height(&engine);
-                        if let Some(checkpoint_sync) = engine.get_checkpoint_sync(current_height) {
-                            serialize_and_queue_message(
-                                &network_tx,
-                                &checkpoint_sync,
-                                P2PMessage::NewCheckpoint,
-                                "Failed to serialize checkpoint for broadcast",
-                                "Failed to queue checkpoint broadcast",
-                            );
+                        match engine.get_checkpoint_sync(current_height) {
+                            Ok(Some(checkpoint_sync)) => {
+                                serialize_and_queue_message(
+                                    &network_tx,
+                                    &checkpoint_sync,
+                                    P2PMessage::NewCheckpoint,
+                                    "Failed to serialize checkpoint for broadcast",
+                                    "Failed to queue checkpoint broadcast",
+                                );
+                            }
+                            Ok(None) => tracing::warn!(
+                                checkpoint = current_height,
+                                "Produced checkpoint is missing from the local checkpoint index; not broadcasting"
+                            ),
+                            Err(error) => tracing::error!(
+                                checkpoint = current_height,
+                                error = %error,
+                                "Failed to prepare locally produced checkpoint for broadcast"
+                            ),
                         }
                     }
                 }

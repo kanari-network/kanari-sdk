@@ -73,7 +73,7 @@ impl StateManager {
         for token_type in token_types {
             issued.insert(
                 token_type.clone(),
-                self.issued_supply_for_token(&token_type),
+                self.issued_supply_for_token(&token_type)?,
             );
             visible.insert(
                 token_type.clone(),
@@ -186,7 +186,7 @@ impl StateManager {
         for token_type in token_types {
             let issued_before_value = issued_before.get(&token_type).copied().unwrap_or(0);
             let visible_before_value = visible_before.get(&token_type).copied().unwrap_or(0);
-            let issued_after_value = self.issued_supply_for_token(&token_type);
+            let issued_after_value = self.issued_supply_for_token(&token_type)?;
             let visible_after_value = self.visible_supply_snapshot(&token_type)?;
 
             let issued_delta = issued_after_value as i128 - issued_before_value as i128;

@@ -184,7 +184,7 @@ impl MoveRuntime {
     fn load_object_by_ref_checked(&self, object_ref: &ObjectRef) -> Result<StoredObject> {
         let stored_obj = self
             .object_storage
-            .get_object(&object_ref.object_id)
+            .get_object(&object_ref.object_id)?
             .with_context(|| format!("Object input {} was not found", object_ref.object_id))?;
         if let Some(version) = object_ref.version {
             ensure!(
@@ -948,27 +948,27 @@ impl MoveRuntime {
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> (
+    ) -> anyhow::Result<(
         AccountAddress,
         kanari_types::transaction::ObjectOwnerKind,
         u64,
-    ) {
+    )> {
         if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
             .iter()
             .find(|(_, id, _, _, _, _)| id == object_id)
         {
-            return (*owner, owner_kind.clone(), *version + 1);
+            return Ok((*owner, owner_kind.clone(), *version + 1));
         }
-        if let Some(stored) = self.object_storage.get_object(object_id) {
-            return (stored.owner, stored.owner_kind, stored.version + 1);
+        if let Some(stored) = self.object_storage.get_object(object_id)? {
+            return Ok((stored.owner, stored.owner_kind, stored.version + 1));
         }
-        (
+        Ok((
             AccountAddress::ZERO,
             kanari_types::transaction::ObjectOwnerKind::AddressOwner(
                 AccountAddress::ZERO.to_hex_literal(),
             ),
             1,
-        )
+        ))
     }
 
     fn build_created_object(
@@ -1358,7 +1358,7 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                    if let Some(stored_obj) = self.object_storage.get_object(&object_id)? {
                         if !bound_from_explicit_input && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
@@ -1491,7 +1491,7 @@ impl MoveRuntime {
                     }
 
                     let (owner, owner_kind, version) = self
-                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &saved.object_id);
+                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &saved.object_id)?;
 
                     self.upsert_created_object(
                         &mut cs,
@@ -1512,8 +1512,10 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    let (owner, owner_kind, version) = self
-                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &borrowed.object_id);
+                    let (owner, owner_kind, version) = self.resolve_saved_owner_metadata(
+                        &loaded_mutable_objects,
+                        &borrowed.object_id,
+                    )?;
 
                     self.upsert_created_object(
                         &mut cs,
@@ -1532,7 +1534,7 @@ impl MoveRuntime {
                     &mut cs,
                     transferred,
                     persist_runtime_state,
-                );
+                )?;
 
                 for ev in captured_events.into_iter() {
                     cs.add_event(Event {

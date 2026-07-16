@@ -22,15 +22,25 @@ fn speculative_transferred_objects_do_not_mutate_object_storage() {
     let baseline_count = runtime.object_storage.count();
 
     let mut speculative = ChangeSet::new();
-    runtime.add_transferred_objects_to_changeset(&mut speculative, vec![object.clone()], false);
+    runtime
+        .add_transferred_objects_to_changeset(&mut speculative, vec![object.clone()], false)
+        .unwrap();
 
     assert_eq!(runtime.object_storage.count(), baseline_count);
     assert_eq!(speculative.created_objects.len(), 1);
 
     let mut canonical = ChangeSet::new();
-    runtime.add_transferred_objects_to_changeset(&mut canonical, vec![object], true);
+    runtime
+        .add_transferred_objects_to_changeset(&mut canonical, vec![object], true)
+        .unwrap();
 
     assert_eq!(runtime.object_storage.count(), baseline_count + 1);
     let canonical_id = canonical_object_id(&object_id).invariant("canonical object id");
-    assert!(runtime.object_storage.get_object(&canonical_id).is_some());
+    assert!(
+        runtime
+            .object_storage
+            .get_object(&canonical_id)
+            .unwrap()
+            .is_some()
+    );
 }

@@ -759,11 +759,26 @@ impl SyncManager {
         );
 
         if checkpoint.sequence <= stats.height {
-            let local_matches = self
-                .engine
-                .get_checkpoint_sync(checkpoint.sequence)
-                .and_then(|local| local.checkpoint.hash().ok())
-                == checkpoint.hash().ok();
+            let local_matches = match self.engine.checkpoint_hash(checkpoint.sequence) {
+                Ok(Some(local_hash)) => match checkpoint.hash() {
+                    Ok(remote_hash) => local_hash == remote_hash,
+                    Err(error) => {
+                        warn!(
+                            "Failed to hash checkpoint during sync comparison: {}",
+                            error
+                        );
+                        false
+                    }
+                },
+                Ok(None) => false,
+                Err(error) => {
+                    warn!(
+                        "Failed to load local checkpoint during sync comparison: {}",
+                        error
+                    );
+                    false
+                }
+            };
             if !local_matches {
                 warn!(
                     "[SYNC] Rejected conflicting checkpoint #{} after DAG verification",
@@ -1008,33 +1023,41 @@ impl SyncManager {
             "[SYNC] Received checkpoint request for sequence {}",
             sequence
         );
-        if let Some(checkpoint_sync) = self.engine.get_checkpoint_sync(sequence) {
-            info!(
-                "[SYNC] Found checkpoint #{} with {} txs, sending response",
-                sequence,
-                checkpoint_sync.checkpoint.transactions.len()
-            );
-            if let Ok(data_str) = serde_json::to_string(&checkpoint_sync) {
-                let msg = if let (Some(requester_peer_id), Some(responder_peer_id)) =
-                    (requester_peer_id, responder_peer_id)
-                {
-                    P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
-                        sequence,
-                        request_timestamp,
-                        requester_peer_id: requester_peer_id.to_string(),
-                        responder_peer_id: responder_peer_id.to_string(),
-                        checkpoint_data: data_str,
-                    })
-                } else {
-                    P2PMessage::CheckpointResponse(data_str)
-                };
-                self.send_network_message(msg, "[SYNC] Failed to send checkpoint response");
+        match self.engine.get_checkpoint_sync(sequence) {
+            Ok(Some(checkpoint_sync)) => {
+                info!(
+                    "[SYNC] Found checkpoint #{} with {} txs, sending response",
+                    sequence,
+                    checkpoint_sync.checkpoint.transactions.len()
+                );
+                match serde_json::to_string(&checkpoint_sync) {
+                    Ok(data_str) => {
+                        let msg = if let (Some(requester_peer_id), Some(responder_peer_id)) =
+                            (requester_peer_id, responder_peer_id)
+                        {
+                            P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
+                                sequence,
+                                request_timestamp,
+                                requester_peer_id: requester_peer_id.to_string(),
+                                responder_peer_id: responder_peer_id.to_string(),
+                                checkpoint_data: data_str,
+                            })
+                        } else {
+                            P2PMessage::CheckpointResponse(data_str)
+                        };
+                        self.send_network_message(msg, "[SYNC] Failed to send checkpoint response");
+                    }
+                    Err(error) => warn!(
+                        "[SYNC] Failed to serialize checkpoint #{} response: {}",
+                        sequence, error
+                    ),
+                }
             }
-        } else {
-            warn!(
+            Ok(None) => warn!(
                 "[SYNC] Checkpoint #{} not found in our engine for request",
                 sequence
-            );
+            ),
+            Err(error) => warn!("[SYNC] Unable to serve checkpoint #{}: {}", sequence, error),
         }
     }
 
@@ -1441,11 +1464,27 @@ mod tests {
 
     #[test]
     fn test_buffered_empty_checkpoint_is_not_applied_when_gap_is_filled() {
-        let source_engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let mut source = BlockchainEngine::new_in_memory().unwrap();
+        let authority = "0x1".to_string();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        source.set_authorities(authority.clone(), vec![authority.clone()]);
+        source
+            .set_consensus_signing_key(
+                signing_key.clone(),
+                BTreeMap::from([(authority, signing_key.verifying_key().to_bytes().to_vec())]),
+            )
+            .unwrap();
+        let source_engine = Arc::new(source);
         apply_empty_checkpoint(source_engine.as_ref(), 1);
         apply_empty_checkpoint(source_engine.as_ref(), 2);
-        let checkpoint_one = source_engine.get_checkpoint_sync(1).unwrap();
-        let checkpoint_two = source_engine.get_checkpoint_sync(2).unwrap();
+        let checkpoint_one = source_engine
+            .get_checkpoint_sync(1)
+            .unwrap()
+            .expect("checkpoint one must exist");
+        let checkpoint_two = source_engine
+            .get_checkpoint_sync(2)
+            .unwrap()
+            .expect("checkpoint two must exist");
 
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
         let (network_tx, _network_rx) = mpsc::channel(128);

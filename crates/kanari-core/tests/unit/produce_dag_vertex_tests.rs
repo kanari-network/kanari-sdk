@@ -7,6 +7,7 @@ use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
+use proptest::prelude::*;
 
 fn authority_key(seed: u8) -> ed25519_dalek::SigningKey {
     ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
@@ -501,7 +502,7 @@ fn test_add_network_vertex_accepts_valid_remote_vertex() {
 
 #[test]
 fn test_add_network_vertex_rejects_invalid_signature() {
-    let (_engine, dag_engine, _remote_key) =
+    let (engine, dag_engine, _remote_key) =
         build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
     let wrong_key = authority_key(33);
 
@@ -512,11 +513,12 @@ fn test_add_network_vertex_rejects_invalid_signature() {
             .to_string()
             .contains("Invalid canonical Mysticeti block")
     );
+    assert_eq!(engine.get_stats().height, 0);
 }
 
 #[test]
 fn test_add_network_vertex_rejects_invalid_parent_clock() {
-    let (_engine, dag_engine, remote_key) =
+    let (engine, dag_engine, remote_key) =
         build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
 
     let mut vertex = signed_network_vertex("auth2", &remote_key, 2, vec![]);
@@ -532,6 +534,27 @@ fn test_add_network_vertex_rejects_invalid_parent_clock() {
             || error_chain.contains("Threshold clock is not valid"),
         "unexpected error: {error_chain}"
     );
+    assert_eq!(engine.get_stats().height, 0);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+
+    #[test]
+    fn arbitrary_byzantine_native_block_never_advances_checkpoint(
+        payload in prop::collection::vec(any::<u8>(), 0..2048),
+    ) {
+        let (engine, dag_engine, remote_key) = build_test_dag_engine(
+            vec!["auth1".to_string(), "auth2".to_string()],
+            "auth1",
+        );
+        let mut vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
+        vertex.native_block = payload;
+        vertex.signature = vec![0; 64];
+
+        let _ = dag_engine.add_network_vertex(vertex);
+        prop_assert_eq!(engine.get_stats().height, 0);
+    }
 }
 
 #[test]

@@ -512,6 +512,59 @@ fn restarted_engine_allows_empty_dag_progress_without_committing_checkpoint() {
 }
 
 #[test]
+fn restart_recovers_checkpoint_metadata_from_durable_commit_marker() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+
+    {
+        let engine = BlockchainEngine::new_dir(data_dir).unwrap();
+        let Some(store) = engine.persistent_store.as_ref() else {
+            return;
+        };
+        let checkpoint = Checkpoint::new(
+            1,
+            vec![],
+            vec![],
+            engine.state_read().try_compute_state_root().unwrap(),
+            1,
+            engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_checkpoint()
+                .hash()
+                .unwrap(),
+        );
+        // Persist exactly as `commit_with_raw_update` does: raw BCS checkpoint
+        // bytes in the same batch as the state changes.
+        store
+            .apply_raw_changes(
+                &[(
+                    BlockchainEngine::pending_checkpoint_commit_key().to_vec(),
+                    bcs::to_bytes(&checkpoint).unwrap(),
+                )],
+                &[],
+            )
+            .unwrap();
+    }
+
+    let restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+    if restarted.persistent_store.is_none() {
+        return;
+    }
+    assert_eq!(restarted.get_stats().height, 1);
+    assert!(
+        restarted
+            .persistent_store
+            .as_ref()
+            .unwrap()
+            .load::<Checkpoint>(BlockchainEngine::pending_checkpoint_commit_key())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn restarted_engine_preserves_replay_protection_and_multi_checkpoint_progress() {
     let temp_dir = tempfile::tempdir().unwrap();
     let data_dir = temp_dir.path().to_str().unwrap();
@@ -1533,6 +1586,34 @@ fn non_native_execute_function_requires_full_object_ref_metadata() {
         err.to_string()
             .contains("must include (object_id, version, digest)")
     );
+}
+
+#[test]
+fn mempool_rejects_malformed_move_module_path_before_dag_admission() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.tagged_address(),
+        module: "not-a-move-module".to_string(),
+        function: "entry".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![],
+        gas_payment: None,
+        gas_limit: 0,
+        gas_price: 0,
+        nonce: 0,
+    };
+    let mut signed_tx = SignedTransaction::new(tx);
+    signed_tx
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+
+    let err = engine
+        .submit_transactions_batch(vec![signed_tx])
+        .unwrap_err();
+    assert!(err.to_string().contains("address::module"));
+    assert_eq!(engine.get_stats().pending_transactions, 0);
 }
 
 #[test]

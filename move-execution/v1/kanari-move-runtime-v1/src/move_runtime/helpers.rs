@@ -26,9 +26,15 @@ impl RuntimeDynamicFieldResolver {
 }
 
 impl DynamicFieldResolver for RuntimeDynamicFieldResolver {
-    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
+    fn get_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+    ) -> Result<Option<Vec<u8>>, String> {
         let key = Self::dynamic_field_key(object_id, name_bytes);
-        self.store.load::<Vec<u8>>(&key).ok().flatten()
+        self.store
+            .load::<Vec<u8>>(&key)
+            .map_err(|error| format!("persistent dynamic-field read failed: {error}"))
     }
 }
 
@@ -59,7 +65,10 @@ impl super::MoveRuntime {
         let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
 
         for input in object_inputs {
-            if let Some(stored_obj) = self.object_storage.get_object(&input.object_ref.object_id) {
+            if let Some(stored_obj) = self
+                .object_storage
+                .get_object(&input.object_ref.object_id)?
+            {
                 loaded_ext.insert(
                     input.object_ref.object_id.clone(),
                     stored_obj.type_name,
@@ -97,7 +106,7 @@ impl super::MoveRuntime {
             }
 
             let object_id = format!("0x{}", hex::encode(arg));
-            let Some(stored_obj) = self.object_storage.get_object(&object_id) else {
+            let Some(stored_obj) = self.object_storage.get_object(&object_id)? else {
                 continue;
             };
 

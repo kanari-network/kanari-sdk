@@ -109,6 +109,7 @@ impl BlockchainEngine {
                 let verified = signed_tx.into_verified()?;
                 let tx_hash = verified.hash().to_vec();
                 let tx = verified.transaction();
+                Self::validate_transaction_admission_shape(tx)?;
                 let sender = tx.sender_address();
                 let normalized_sender = sender_cache
                     .get(sender)

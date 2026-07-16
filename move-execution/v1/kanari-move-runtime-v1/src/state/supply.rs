@@ -180,14 +180,12 @@ impl StateManager {
     pub(super) fn load_persisted_supply_from_store(
         store: &PersistentStore,
         token_type: &str,
-    ) -> Option<u64> {
+    ) -> Result<Option<u64>> {
         let key = Self::supply_key(token_type);
-        store
-            .load::<TreasuryCap>(&key)
-            .ok()
-            .flatten()
-            .map(|cap| cap.total_supply)
-            .or_else(|| store.load::<u64>(&key).ok().flatten())
+        if let Some(cap) = store.load::<TreasuryCap>(&key)? {
+            return Ok(Some(cap.total_supply));
+        }
+        Ok(store.load::<u64>(&key)?)
     }
 
     pub(super) fn save_native_total_supply(&mut self, total_supply: u64) -> Result<()> {
@@ -214,19 +212,23 @@ impl StateManager {
         Ok(())
     }
 
-    pub(super) fn issued_supply_for_token(&self, token_type: &str) -> u64 {
+    pub(super) fn issued_supply_for_token(&self, token_type: &str) -> Result<u64> {
         if token_type == GAS_COIN {
-            return self.total_supply;
+            return Ok(self.total_supply);
         }
 
         let supply_key = Self::supply_key(token_type);
-        self.load_internal::<TreasuryCap>(&supply_key)
-            .ok()
-            .flatten()
-            .map(|cap| cap.total_supply)
-            .or_else(|| self.load_internal::<u64>(&supply_key).ok().flatten())
-            .or_else(|| self.global_token_supplies.get(token_type).copied())
-            .unwrap_or(0)
+        if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
+            return Ok(cap.total_supply);
+        }
+        if let Some(supply) = self.load_internal::<u64>(&supply_key)? {
+            return Ok(supply);
+        }
+        Ok(self
+            .global_token_supplies
+            .get(token_type)
+            .copied()
+            .unwrap_or(0))
     }
 
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
@@ -338,7 +340,10 @@ impl StateManager {
         let mut accounts = self
             .owner_addresses()?
             .into_iter()
-            .filter_map(|address| self.load_owner_state(&address).ok().flatten())
+            .map(|address| self.load_owner_state(&address))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
             .filter(|account| account.native_balance() > 0)
             .collect::<Vec<_>>();
 
@@ -404,7 +409,7 @@ impl StateManager {
 
     pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
         let token_type = Self::normalize_token_type(token_type);
-        let total_supply = self.issued_supply_for_token(&token_type);
+        let total_supply = self.issued_supply_for_token(&token_type)?;
         let cached_visible = self
             .global_token_supplies
             .get(&token_type)
@@ -681,12 +686,12 @@ impl StateManager {
 
     pub fn validate_supply_invariants(&self) -> Result<()> {
         let supply_key = Self::supply_key(GAS_COIN);
-        let persisted_native_supply = self
-            .load_internal::<TreasuryCap>(&supply_key)
-            .ok()
-            .flatten()
-            .map(|cap| cap.total_supply)
-            .or_else(|| self.load_internal::<u64>(&supply_key).ok().flatten());
+        let persisted_native_supply =
+            if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
+                Some(cap.total_supply)
+            } else {
+                self.load_internal::<u64>(&supply_key)?
+            };
         if let Some(persisted) = persisted_native_supply
             && persisted != self.total_supply
         {
@@ -741,12 +746,12 @@ impl StateManager {
     /// canonical owner/object indexes via `validate_supply_invariants`.
     pub(super) fn validate_cached_supply_invariants(&self) -> Result<()> {
         let supply_key = Self::supply_key(GAS_COIN);
-        let persisted_native_supply = self
-            .load_internal::<TreasuryCap>(&supply_key)
-            .ok()
-            .flatten()
-            .map(|cap| cap.total_supply)
-            .or_else(|| self.load_internal::<u64>(&supply_key).ok().flatten());
+        let persisted_native_supply =
+            if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
+                Some(cap.total_supply)
+            } else {
+                self.load_internal::<u64>(&supply_key)?
+            };
         if let Some(persisted) = persisted_native_supply
             && persisted != self.total_supply
         {
