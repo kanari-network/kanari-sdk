@@ -8,11 +8,11 @@ import {
   deriveAuthorityRpcEndpoints,
   getBlock,
   getBlockHeight,
+  getActiveRpcUrl,
   getFullBlock,
   getNetworkStatus,
   getNodeHealth,
   getTokens,
-  RPC_ENDPOINTS,
   type NodeHealth,
   type RpcEndpoint,
 } from "./lib/rpc";
@@ -609,7 +609,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [tokenCount, setTokenCount] = useState<number | null>(null);
   const [blockHeight, setBlockHeight] = useState<number | null>(null);
-  const [configuredEndpoints, setConfiguredEndpoints] = useState<RpcEndpoint[]>(RPC_ENDPOINTS);
+  const [configuredEndpoints, setConfiguredEndpoints] = useState<RpcEndpoint[]>([]);
   const [latestBlock, setLatestBlock] = useState<unknown>(null);
   const [nodes, setNodes] = useState<NodeHealth[]>([]);
   const [lastRecoveryMs, setLastRecoveryMs] = useState<number | null>(null);
@@ -644,17 +644,19 @@ export default function Home() {
 
   useEffect(() => {
     async function fetchNetworkData() {
-      const seedEndpoint = RPC_ENDPOINTS[0];
+      // The selected browser RPC is the source of truth. Do not retain the
+      // build-time endpoint here or the dashboard will keep polling the old node.
+      const seedEndpoint: RpcEndpoint = { name: "Selected RPC", url: getActiveRpcUrl() };
       const [tokensRes, heightRes, networkStatus] = await Promise.all([
         getTokens().catch(() => null),
         getBlockHeight().catch(() => null),
-        getNetworkStatus(seedEndpoint?.url).catch(() => null),
+        getNetworkStatus(seedEndpoint.url).catch(() => null),
       ]);
 
       const nextEndpoints =
-        RPC_ENDPOINTS.length === 1 && seedEndpoint && networkStatus?.authorities?.length
+        networkStatus?.authorities?.length
           ? deriveAuthorityRpcEndpoints(seedEndpoint.url, networkStatus)
-          : RPC_ENDPOINTS;
+          : [seedEndpoint];
       const nodeResults = await Promise.all(nextEndpoints.map((endpoint) => getNodeHealth(endpoint)));
       const parsedHeight = typeof heightRes === "number" ? heightRes : Number(heightRes);
       const latestHeight = Number.isFinite(parsedHeight) ? parsedHeight : null;

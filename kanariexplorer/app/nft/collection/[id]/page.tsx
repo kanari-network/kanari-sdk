@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { asArray, EmptyState, PageHeader, RawDetails, readString, shortHash, StatusPill } from "../../../components/ExplorerUI";
+import { NftArtwork } from "../../../components/NftArtwork";
 import { getNftsByCollection } from "../../../lib/rpc";
 
 export default function CollectionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -56,7 +57,7 @@ export default function CollectionPage({ params }: { params: Promise<{ id: strin
             const objectId = readString(item, "object_id", `nft-${index}`);
             return (
               <article className="nft-card" key={objectId}>
-                <div className="nft-art">#{objectId.slice(-4)}</div>
+                <NftArtwork item={item} fallback={`#${objectId.slice(-4)}`} alt={readString(item, "name", "NFT artwork")} />
                 <div className="nft-copy">
                   <strong className="primary-text mono">{shortHash(objectId)}</strong>
                   <p className="muted-text">{readString(item, "name", readString(item, "type", "NFT Object"))}</p>

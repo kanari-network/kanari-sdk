@@ -5,6 +5,25 @@ import { asArray } from "../components/ExplorerUI";
 // ตั้งค่า URL ให้ชี้ไปที่ RPC Server ของ Kanari (ค่าเริ่มต้น 127.0.0.1 พอร์ต 19001)
 const DEFAULT_RPC_URL = "http://192.168.1.101:19001";
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_RPC_URL;
+export const ACTIVE_RPC_STORAGE_KEY = "kanari-explorer-rpc-url";
+
+/**
+ * Returns the RPC selected by the visitor. This deliberately resolves at request
+ * time (rather than module-load time) so every explorer page follows a newly
+ * selected endpoint without needing a rebuild.
+ */
+export function getActiveRpcUrl(): string {
+  if (typeof window === "undefined") {
+    return RPC_URL;
+  }
+
+  const selected = window.localStorage.getItem(ACTIVE_RPC_STORAGE_KEY)?.trim();
+  return selected || RPC_URL;
+}
+
+export function setActiveRpcUrl(rpcUrl: string): void {
+  window.localStorage.setItem(ACTIVE_RPC_STORAGE_KEY, rpcUrl);
+}
 
 export const RPC_METHODS = {
   GET_ACCOUNT: "kanari_getOwner",
@@ -177,6 +196,18 @@ function parseRpcEndpoints(): RpcEndpoint[] {
 
 export const RPC_ENDPOINTS = parseRpcEndpoints();
 
+/** Endpoints that can be selected without typing. Deployment configuration is
+ * included too, so an operator-provided NEXT_PUBLIC_RPC_URL remains available. */
+export const RPC_PRESETS: RpcEndpoint[] = [
+  { name: "Local", url: "http://127.0.0.1:6767" },
+  { name: "devnet", url: "http://192.168.1.101:19001" },
+  { name: "testnet", url: "1" },
+  { name: "mainnet", url: "2" },
+  ...RPC_ENDPOINTS,
+].filter((endpoint, index, endpoints) =>
+  endpoints.findIndex((candidate) => candidate.url === endpoint.url) === index
+);
+
 function replacePort(url: string, port: number): string {
   try {
     const parsed = new URL(url);
@@ -211,9 +242,10 @@ export async function callRpc(
   method: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   params: any = [],
-  rpcUrl: string = RPC_URL
+  rpcUrl?: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
+  const targetRpcUrl = rpcUrl || getActiveRpcUrl();
   const body = {
     jsonrpc: "2.0",
     method,
@@ -222,7 +254,7 @@ export async function callRpc(
   };
 
   try {
-    const res = await fetch(rpcUrl, {
+    const res = await fetch(targetRpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

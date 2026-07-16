@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
+import { NftArtwork } from "../components/NftArtwork";
 import {
   asArray,
   CopyButton,
@@ -18,7 +19,7 @@ import {
   StatusPill,
   stripHexPrefix,
 } from "../components/ExplorerUI";
-import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTransaction } from "../lib/rpc";
+import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTokens, getTransaction } from "../lib/rpc";
 
 type AccountTab = "coins" | "nfts" | "objects" | "activity";
 
@@ -51,6 +52,26 @@ function readCoinBalanceMist(bytes: number[]) {
 
 function isCoinType(type: string) {
   return type.includes("::coin::Coin<");
+}
+
+function tokenIconUrl(token: unknown, symbol: string) {
+  const icon = readString(token, "icon_url", readString(token, "logo_url", readString(token, "image_url", "")));
+  return icon || (symbol.toUpperCase() === "KANARI" ? "/kariicon1.png" : "");
+}
+
+function TokenLogo({ token, symbol }: { token: unknown; symbol: string }) {
+  const [failed, setFailed] = useState(false);
+  const icon = tokenIconUrl(token, symbol);
+
+  return (
+    <span className="token-logo" aria-hidden="true">
+      {icon && !failed ? <img src={icon} alt="" onError={() => setFailed(true)} /> : symbol.slice(0, 2).toUpperCase()}
+    </span>
+  );
+}
+
+function normalizeTokenType(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function dedupeObjects(values: unknown[]) {
@@ -110,6 +131,7 @@ function AccountContent() {
   const [address, setAddress] = useState(searchParams.get("address") ?? "");
   const [account, setAccount] = useState<unknown>(null);
   const [balances, setBalances] = useState<unknown[]>([]);
+  const [tokenRegistry, setTokenRegistry] = useState<unknown[]>([]);
   const [transactions, setTransactions] = useState<unknown[]>([]);
   const [nfts, setNfts] = useState<unknown[]>([]);
   const [objects, setObjects] = useState<unknown[]>([]);
@@ -125,15 +147,17 @@ function AccountContent() {
 
     setLoading(true);
     try {
-      const [accountData, balanceData, transactionData, nftData, objectData] = await Promise.all([
+      const [accountData, balanceData, transactionData, nftData, objectData, registryData] = await Promise.all([
         getAccount(trimmed).catch(() => null),
         getAllBalances(trimmed).catch(() => []),
         getAllTransactions(50, trimmed).catch(() => []),
         getOwnedNfts(trimmed).catch(() => []),
         getOwnedObjects(trimmed).catch(() => []),
+        getTokens().catch(() => []),
       ]);
       setAccount(accountData);
       setBalances(asArray(balanceData));
+      setTokenRegistry(asArray(registryData));
       setTransactions(asArray(transactionData));
       setNfts(asArray(nftData));
       setObjects(dedupeObjects([...asArray(objectData), ...readArrayField(accountData, "owned_objects")]));
@@ -219,15 +243,21 @@ function AccountContent() {
             {balances.map((token, index) => {
               const tokenType = readString(token, "token_type", readString(token, "token", readString(token, "symbol", "-")));
               const symbol = readString(token, "symbol", tokenType.split("::").slice(-1)[0] || "Token");
+              const metadata = tokenRegistry.find((entry) =>
+                normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) === normalizeTokenType(tokenType),
+              );
               return (
                 <div className="data-row data-row--account" key={`${tokenType}-${index}`}>
-                  <div className="primary-text">
-                    <strong>
-                      <Link className="text-link" href={`/coins/${encodeURIComponent(tokenType)}`}>
-                        {readString(token, "name", symbol)}
-                      </Link>
-                    </strong>
-                    <div className="muted-text mono break-anywhere">{tokenType}</div>
+                  <div className="token-identity primary-text">
+                    <TokenLogo token={metadata ?? token} symbol={symbol} />
+                    <span>
+                      <strong>
+                        <Link className="text-link" href={`/coins/${encodeURIComponent(tokenType)}`}>
+                          {readString(token, "name", readString(metadata, "name", symbol))}
+                        </Link>
+                      </strong>
+                      <span className="muted-text mono">{tokenType}</span>
+                    </span>
                   </div>
                   <div>
                     <p className="tiny-label">Balance</p>
@@ -251,7 +281,11 @@ function AccountContent() {
               const objectId = readString(nft, "object_id", `nft-${index}`);
               return (
                 <article className="nft-card" key={objectId}>
-                  <div className="nft-art">#{objectId.slice(-4)}</div>
+                  <NftArtwork
+                    item={nft}
+                    fallback={`#${objectId.slice(-4)}`}
+                    alt={readString(nft, "name", "Owned NFT artwork")}
+                  />
                   <div className="nft-copy">
                     <strong className="primary-text mono">{shortHash(objectId)}</strong>
                     <p className="muted-text">{readString(nft, "type", "NFT")}</p>

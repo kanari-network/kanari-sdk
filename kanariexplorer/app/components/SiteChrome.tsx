@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { getActiveRpcUrl, RPC_PRESETS, setActiveRpcUrl } from '../lib/rpc';
 
 export function ArrowIcon() {
   return (
@@ -18,6 +19,9 @@ export function SiteHeader() {
   const [darkMode, setDarkMode] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const previousScrollY = useRef(0);
+  const [rpcDialogOpen, setRpcDialogOpen] = useState(false);
+  const [rpcUrl, setRpcUrl] = useState('');
+  const [rpcError, setRpcError] = useState('');
 
   useEffect(() => {
     const syncTheme = window.setTimeout(() => {
@@ -45,6 +49,29 @@ export function SiteHeader() {
     document.documentElement.classList.toggle('dark', nextDarkMode);
     localStorage.setItem('theme', nextDarkMode ? 'dark' : 'light');
     setDarkMode(nextDarkMode);
+  };
+
+  const openRpcDialog = () => {
+    setRpcUrl(getActiveRpcUrl());
+    setRpcError('');
+    setRpcDialogOpen(true);
+  };
+
+  const connectRpc = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalized = rpcUrl.trim().replace(/\/$/, '');
+
+    try {
+      const parsed = new URL(normalized);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+        throw new Error('invalid RPC URL');
+      }
+      setActiveRpcUrl(normalized);
+      setRpcDialogOpen(false);
+      window.location.reload();
+    } catch {
+      setRpcError('Enter a valid HTTP or HTTPS RPC URL.');
+    }
   };
 
   return (
@@ -86,6 +113,9 @@ export function SiteHeader() {
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M20.5 14.4A8 8 0 0 1 9.6 3.5 8.5 8.5 0 1 0 20.5 14.4Z" /></svg>
             )}
           </button>
+          <button className="rpc-selector-button" type="button" onClick={openRpcDialog} aria-haspopup="dialog">
+            RPC
+          </button>
           <button
             className="menu-toggle"
             type="button"
@@ -105,6 +135,61 @@ export function SiteHeader() {
         </div>
       </header>
       <div className="site-header-space" aria-hidden="true" />
+      {rpcDialogOpen ? (
+        <div className="rpc-dialog-backdrop" role="presentation" onMouseDown={() => setRpcDialogOpen(false)}>
+          <section
+            className="rpc-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rpc-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="rpc-dialog__header">
+              <p id="rpc-dialog-title">Choose RPC endpoint</p>
+              <button type="button" onClick={() => setRpcDialogOpen(false)} aria-label="Close RPC selector">Close</button>
+            </div>
+            <form onSubmit={connectRpc}>
+              <p className="rpc-dialog__copy">Choose the Kanari RPC node this explorer should read. Your selection is saved in this browser.</p>
+              <div className="rpc-preset-list" role="group" aria-label="RPC endpoint presets">
+                {RPC_PRESETS.map((preset) => {
+                  const selected = rpcUrl.trim().replace(/\/$/, '') === preset.url;
+                  return (
+                    <button
+                      className={`rpc-preset ${selected ? 'rpc-preset--selected' : ''}`}
+                      type="button"
+                      key={preset.url}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setRpcUrl(preset.url);
+                        setRpcError('');
+                      }}
+                    >
+                      <span>{preset.name}</span>
+                      <small>{preset.url}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              <label htmlFor="custom-rpc-url">Custom RPC URL</label>
+              <input
+                id="custom-rpc-url"
+                type="url"
+                inputMode="url"
+                autoFocus
+                required
+                placeholder="http://127.0.0.1:6767"
+                value={rpcUrl}
+                onChange={(event) => setRpcUrl(event.target.value)}
+              />
+              {rpcError ? <p className="rpc-dialog__error" role="alert">{rpcError}</p> : null}
+              <div className="rpc-dialog__actions">
+                <button type="button" onClick={() => setRpcDialogOpen(false)}>Cancel</button>
+                <button className="rpc-dialog__connect" type="submit">Connect</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

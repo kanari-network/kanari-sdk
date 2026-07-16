@@ -17,7 +17,6 @@ import {
   readAddress,
   readString,
   shortHash,
-  stripHexPrefix,
 } from "../../components/ExplorerUI";
 import {
   getFungibleAsset,
@@ -245,15 +244,18 @@ function AssetTransactionsPanel({ transactions, loading }: { transactions: unkno
       {transactions.length > 0 ? (
         <div className="data-list">
           {transactions.map((transaction, index) => {
-            const hash = stripHexPrefix(readString(transaction, "hash", `tx-${index}`));
+            const rawHash = readString(transaction, "hash", `tx-${index}`);
+            const hash = rawHash.startsWith("0x") ? rawHash : `0x${rawHash}`;
             const lifecycle = describeTransactionLifecycle(transaction);
             const sender = readAddress(transaction, "sender_address", "sender");
             return (
               <div className="data-row" key={`${hash}-${index}`}>
                 <div>
                   <p className="tiny-label">Txn Hash</p>
-                  <span className="copy-row copy-row--wrap">
-                    <span className="mono break-anywhere">{shortHash(hash, 18, 14)}</span>
+                    <span className="copy-row copy-row--wrap">
+                      <Link className="text-link mono break-anywhere" href={`/tx?hash=${encodeURIComponent(hash)}`}>
+                        {shortHash(hash, 18, 14)}
+                      </Link>
                     <CopyButton value={hash} label="Copy transaction hash" />
                   </span>
                 </div>
