@@ -17,6 +17,8 @@ use move_package::BuildConfig;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+include!(concat!(env!("OUT_DIR"), "/embedded_framework_modules.rs"));
+
 pub(crate) const MOVE_STDLIB_BYTECODE_SEGMENTS: &[&str] = &[
     "crates",
     "kanari-frameworks",
@@ -189,6 +191,34 @@ fn discover_modules_in_dir(
 
     modules.sort_by(|a, b| a.file_name.cmp(&b.file_name));
     modules
+}
+
+fn discover_embedded_modules(
+    entries: &[(&str, &[u8])],
+    expected_addr: AccountAddress,
+) -> Vec<DiscoveredModule> {
+    entries
+        .iter()
+        .filter_map(|(file_name, bytes)| {
+            let compiled = CompiledModule::deserialize_with_defaults(bytes).ok()?;
+            let module_id = compiled.self_id();
+            let module_name = module_id.name().to_string();
+            if is_test_module_artifact(file_name, &module_name)
+                || *module_id.address() != expected_addr
+                || verify_module_unmetered(&compiled).is_err()
+            {
+                return None;
+            }
+            Some(DiscoveredModule {
+                module_id,
+                module_name,
+                file_name: (*file_name).to_string(),
+                bytes: (*bytes).to_vec(),
+                deps: compiled.immediate_dependencies(),
+                compiled,
+            })
+        })
+        .collect()
 }
 
 fn topo_sort_modules(
@@ -440,26 +470,29 @@ impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
     pub(crate) fn load_move_stdlib(&self) -> Result<()> {
         let modules_dir = find_move_stdlib_modules_dir();
-        ensure_production_build_artifacts(&modules_dir)?;
+        if modules_dir.exists() {
+            ensure_production_build_artifacts(&modules_dir)?;
+        }
 
         if verbose_startup_enabled() {
             tracing::info!("Looking for Move stdlib modules at {:?}", modules_dir);
-        }
-
-        if !modules_dir.exists() {
-            warn!(
-                "Warning: Move stdlib modules not found at {:?}",
-                modules_dir
-            );
-            warn!("Standard library will not be pre-loaded.");
-            return Ok(());
         }
 
         // Load stdlib modules in dependency order
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
 
         let mut count = 0;
-        let modules = topo_sort_modules(discover_modules_in_dir(&modules_dir, std_addr))?;
+        let modules = if modules_dir.exists() {
+            topo_sort_modules(discover_modules_in_dir(&modules_dir, std_addr))?
+        } else {
+            warn!(
+                "Move stdlib artifacts not found on disk; using bytecode embedded in this binary"
+            );
+            topo_sort_modules(discover_embedded_modules(
+                EMBEDDED_MOVE_STDLIB_MODULES,
+                std_addr,
+            ))?
+        };
         if modules.is_empty() {
             return Err(anyhow::anyhow!(
                 "No Move stdlib modules (*.mv) found at {:?}",
@@ -494,29 +527,28 @@ impl super::MoveRuntime {
     /// Load Kanari system modules (0x2::*)
     pub(crate) fn load_kanari_system(&self) -> Result<()> {
         let modules_dir = find_kanari_system_modules_dir();
-        ensure_production_build_artifacts(&modules_dir)?;
+        if modules_dir.exists() {
+            ensure_production_build_artifacts(&modules_dir)?;
+        }
 
         if verbose_startup_enabled() {
             tracing::info!("Looking for Kanari system modules at {:?}", modules_dir);
         }
 
-        if !modules_dir.exists() {
-            warn!(
-                "Warning: Kanari system modules not found at {:?}",
-                modules_dir
-            );
-            warn!("System modules will not be pre-loaded. You may need to publish them manually.");
-            warn!("To fix this:");
-            warn!("  cd crates/kanari-frameworks/packages/move-stdlib");
-            warn!("  cd crates/kanari-frameworks/packages/kanari-system");
-            warn!("  kanari move build");
-            return Ok(());
-        }
-
         let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
         let mut count = 0;
 
-        let modules = topo_sort_modules(discover_modules_in_dir(&modules_dir, system_addr))?;
+        let modules = if modules_dir.exists() {
+            topo_sort_modules(discover_modules_in_dir(&modules_dir, system_addr))?
+        } else {
+            warn!(
+                "Kanari system artifacts not found on disk; using bytecode embedded in this binary"
+            );
+            topo_sort_modules(discover_embedded_modules(
+                EMBEDDED_KANARI_SYSTEM_MODULES,
+                system_addr,
+            ))?
+        };
         if modules.is_empty() {
             return Err(anyhow::anyhow!(
                 "No kanari-system modules (*.mv) found at {:?}",
@@ -534,7 +566,14 @@ impl super::MoveRuntime {
 
         let stdlib_dir = find_move_stdlib_modules_dir();
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
-        let stdlib_modules = topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?;
+        let stdlib_modules = if stdlib_dir.exists() {
+            topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?
+        } else {
+            topo_sort_modules(discover_embedded_modules(
+                EMBEDDED_MOVE_STDLIB_MODULES,
+                std_addr,
+            ))?
+        };
         let all_deps: Vec<&CompiledModule> = stdlib_modules
             .iter()
             .map(|m| &m.compiled)
@@ -579,4 +618,30 @@ pub(crate) fn load_system_modules_from_dir(modules_dir: &Path) -> Result<Vec<Dis
     let sorted_modules = topo_sort_modules(discovered_modules)?;
 
     Ok(sorted_modules)
+}
+
+pub(crate) fn load_embedded_kanari_system_modules() -> Result<Vec<DiscoveredModule>> {
+    let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
+    topo_sort_modules(discover_embedded_modules(
+        EMBEDDED_KANARI_SYSTEM_MODULES,
+        system_addr,
+    ))
+}
+
+#[cfg(test)]
+mod embedded_framework_tests {
+    use super::*;
+
+    #[test]
+    fn embedded_kanari_framework_is_nonempty_and_address_bound() {
+        let modules = load_embedded_kanari_system_modules().unwrap();
+        assert!(!modules.is_empty());
+        let expected =
+            AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
+        assert!(
+            modules
+                .iter()
+                .all(|module| *module.module_id.address() == expected)
+        );
+    }
 }

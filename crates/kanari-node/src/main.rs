@@ -529,8 +529,27 @@ fn main() -> Result<()> {
                 "127.0.0.1",
                 &data_dir_path,
             );
-            let engine = create_engine(&data_dir, &NetworkMode::Devnet)?;
-            info!("Engine initialized. Starting local RPC node");
+            let mut engine = create_engine(&data_dir, &NetworkMode::Devnet)?;
+            let consensus_dir = data_dir_path.join("consensus-keys");
+            let private_key_path = consensus_dir.join("node1-consensus-private-key.key");
+            let public_keys_path = consensus_dir.join("consensus-public-keys.json");
+            match (private_key_path.exists(), public_keys_path.exists()) {
+                (false, false) => {
+                    write_consensus_key_files(1, &consensus_dir, false)?;
+                    tracing::info!(
+                        path = %consensus_dir.display(),
+                        "Generated persistent single-validator consensus key for local mode"
+                    );
+                }
+                (true, true) => {}
+                _ => anyhow::bail!(
+                    "Local consensus key set is incomplete in {}; remove the incomplete consensus-keys directory and retry",
+                    consensus_dir.display()
+                ),
+            }
+            engine.set_authorities("0x1".to_string(), vec!["0x1".to_string()]);
+            configure_consensus_signing_key(&mut engine, &private_key_path, &public_keys_path)?;
+            info!("Engine initialized. Local consensus key configured; starting RPC node");
             runtime()?.block_on(run_node(
                 std::sync::Arc::new(engine),
                 NetworkMode::Devnet.as_str().to_string(),

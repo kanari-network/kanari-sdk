@@ -22,14 +22,13 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     // Find the framework bytecode directory
     let bytecode_dir = load_system_modules::find_kanari_system_modules_dir();
 
-    if !bytecode_dir.exists() {
-        anyhow::bail!(
-            "Framework bytecode directory not found at {}. Set KANARI_FRAMEWORK_PATH or run 'kanari move build' first.",
-            bytecode_dir.display()
+    if bytecode_dir.exists() {
+        log::info!("Loading framework modules from: {}", bytecode_dir.display());
+    } else {
+        log::warn!(
+            "Framework bytecode artifacts not found on disk; using embedded framework bytecode"
         );
     }
-
-    log::info!("Loading framework modules from: {}", bytecode_dir.display());
 
     // Build an in-memory runtime and preload framework/system natives.
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()
@@ -39,8 +38,12 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     let system_addr = KanariAddress::kanari_system_account_address();
 
     // Discover framework modules and publish them in dependency order.
-    let sorted_modules = load_system_modules::load_system_modules_from_dir(&bytecode_dir)
-        .context("Failed to load system modules")?;
+    let sorted_modules = if bytecode_dir.exists() {
+        load_system_modules::load_system_modules_from_dir(&bytecode_dir)
+    } else {
+        load_system_modules::load_embedded_kanari_system_modules()
+    }
+    .context("Failed to load system modules")?;
 
     log::info!("Discovered {} framework modules", sorted_modules.len());
     log::info!(
