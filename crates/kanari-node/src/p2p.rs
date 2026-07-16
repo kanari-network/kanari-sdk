@@ -976,4 +976,26 @@ mod tests {
             let _ = decompress_payload(input);
         }
     }
+
+    /// Explicitly opt-in because this exercises 2k attacker-controlled payloads.
+    /// It is intended for the adversarial soak runner, not ordinary developer CI.
+    #[test]
+    #[ignore = "long-running P2P decompression/DoS soak test"]
+    fn long_run_malformed_compressed_payloads_are_bounded() {
+        use proptest::test_runner::{Config, TestRunner};
+
+        let mut runner = TestRunner::new(Config {
+            cases: 2_048,
+            max_shrink_iters: 0,
+            ..Config::default()
+        });
+        let strategy = prop::collection::vec(any::<u8>(), 0..16_384);
+
+        runner
+            .run(&strategy, |input| {
+                let _ = decompress_payload(input);
+                Ok(())
+            })
+            .expect("untrusted compressed payload must never panic");
+    }
 }

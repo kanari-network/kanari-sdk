@@ -557,6 +557,37 @@ proptest! {
     }
 }
 
+/// Opt-in high-volume Byzantine corpus. Every malformed native block must be
+/// rejected without allowing a checkpoint to advance.
+#[test]
+#[ignore = "long-running Byzantine Mysticeti soak test"]
+fn long_run_byzantine_native_blocks_cannot_advance_checkpoint() {
+    use proptest::test_runner::{Config, TestRunner};
+
+    let mut runner = TestRunner::new(Config {
+        cases: 64,
+        max_shrink_iters: 0,
+        ..Config::default()
+    });
+    let strategy = prop::collection::vec(any::<u8>(), 0..2_048);
+
+    runner
+        .run(&strategy, |payload| {
+            let (engine, dag_engine, remote_key) = build_test_dag_engine(
+                vec!["auth1".to_string(), "auth2".to_string()],
+                "auth1",
+            );
+            let mut vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
+            vertex.native_block = payload;
+            vertex.signature = vec![0; 64];
+
+            let _ = dag_engine.add_network_vertex(vertex);
+            prop_assert_eq!(engine.get_stats().height, 0);
+            Ok(())
+        })
+        .expect("Byzantine native data must never advance a checkpoint");
+}
+
 #[test]
 fn test_produce_vertex_only_includes_conflict_free_subset() {
     let mut engine = BlockchainEngine::new_in_memory().unwrap();
