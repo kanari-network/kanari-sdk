@@ -495,7 +495,7 @@ fn test_add_network_vertex_accepts_valid_remote_vertex() {
     let vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
     dag_engine.add_network_vertex(vertex).unwrap();
 
-    let vertices = dag_engine.vertices_for_sync(usize::MAX);
+    let vertices = dag_engine.vertices_for_sync(usize::MAX).unwrap();
     assert_eq!(vertices.len(), 1);
     assert_eq!(vertices[0].author, "auth2");
 }
@@ -820,13 +820,14 @@ fn test_latest_own_vertices_returns_tail_not_genesis_rounds() {
         dag_engine.produce_vertex().unwrap();
     }
 
-    let latest = dag_engine.latest_own_vertices(3);
+    let latest = dag_engine.latest_own_vertices(3).unwrap();
     assert_eq!(latest.len(), 3);
     assert!(latest[0].round > 1, "must not return the oldest blocks");
     assert!(latest.windows(2).all(|pair| pair[0].round < pair[1].round));
 
     let highest_round = dag_engine
         .vertices_for_sync(usize::MAX)
+        .unwrap()
         .iter()
         .map(|vertex| vertex.round)
         .max()

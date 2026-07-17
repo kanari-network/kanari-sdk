@@ -856,20 +856,25 @@ impl DagEngine {
         Ok(Some(checkpoint))
     }
 
-    pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {
+    pub fn latest_own_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         if limit == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let state = lock_read(&self.state);
         let block_reader = state.mysticeti.core.block_reader();
         let blocks = block_reader.get_latest_own_blocks(limit);
         blocks
             .iter()
-            .filter_map(|block| state.mysticeti.block_to_vertex(block).ok())
+            .map(|block| {
+                state
+                    .mysticeti
+                    .block_to_vertex(block)
+                    .context("Failed to convert local Mysticeti block for DAG gossip")
+            })
             .collect()
     }
 
-    pub fn vertices_for_sync(&self, limit: usize) -> Vec<DagVertex> {
+    pub fn vertices_for_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
         const MAX_SYNC_ROUND_WINDOW: u64 = 256;
         let state = lock_read(&self.state);
         let reader = state.mysticeti.core.block_reader();
@@ -877,10 +882,17 @@ impl DagEngine {
         let first_round = highest_round
             .saturating_sub(MAX_SYNC_ROUND_WINDOW.saturating_sub(1))
             .max(1);
-        let mut vertices = (first_round..=highest_round)
-            .flat_map(|round| reader.get_blocks_by_round(round))
-            .filter_map(|block| state.mysticeti.block_to_vertex(&block).ok())
-            .collect::<Vec<_>>();
+        let mut vertices = Vec::new();
+        for round in first_round..=highest_round {
+            for block in reader.get_blocks_by_round(round) {
+                vertices.push(
+                    state
+                        .mysticeti
+                        .block_to_vertex(&block)
+                        .with_context(|| format!("Failed to convert Mysticeti block from round {round} for DAG sync"))?,
+                );
+            }
+        }
         vertices.sort_by(|left, right| {
             left.round
                 .cmp(&right.round)
@@ -890,7 +902,7 @@ impl DagEngine {
         if vertices.len() > limit {
             vertices.drain(..vertices.len() - limit);
         }
-        vertices
+        Ok(vertices)
     }
 
     /// Return the exact checkpoint vertices plus every available non-genesis

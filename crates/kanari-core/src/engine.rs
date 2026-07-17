@@ -2184,7 +2184,7 @@ impl BlockchainEngine {
     }
 
     pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
-        Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
+        self.dag_engine_instance()?.latest_own_vertices(limit)
     }
 
     pub fn dag_vertices_for_checkpoint_sync(
