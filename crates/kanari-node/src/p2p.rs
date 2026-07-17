@@ -17,9 +17,11 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     io::{Read, Write},
-    time::Duration,
+    time::{Duration, Instant},
 };
+use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -28,7 +30,15 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
 const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
-const MAX_DECOMPRESSED_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
+const MAX_DECOMPRESSED_PAYLOAD_SIZE: usize = 32 * 1024 * 1024;
+const MAX_GOSSIP_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+const P2P_CHUNK_SIZE: usize = 512 * 1024;
+const MAX_CHUNKED_PAYLOAD_SIZE: usize = 32 * 1024 * 1024;
+const MAX_CHUNKS_PER_PAYLOAD: usize = 64;
+const MAX_INFLIGHT_CHUNKED_PAYLOADS: usize = 4;
+const MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER: usize = 2;
+const MAX_CONCURRENT_DECOMPRESSIONS: usize = 4;
+const CHUNK_TTL: Duration = Duration::from_secs(30);
 
 /// P2P message types
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -48,6 +58,42 @@ pub enum P2PMessage {
     CompressedDagVertex(Vec<u8>),  // Compressed DAG vertex (gzip)
     CompressedCheckpointResponse(Vec<u8>), // Compressed checkpoint response (gzip)
     CompressedTargetedCheckpointResponse(CompressedCheckpointResponseMsg),
+    Chunk(P2PMessageChunk),
+}
+
+/// Internal envelope binding a decoded gossip payload to the libp2p identity
+/// that signed the original message. This is never serialized on the wire.
+#[derive(Debug)]
+pub struct AuthenticatedP2PMessage {
+    pub source: PeerId,
+    pub message: P2PMessage,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode,
+)]
+pub enum P2PTopicKind {
+    Checkpoint,
+    Transaction,
+    Peer,
+    DagVertex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+pub struct P2PMessageChunk {
+    pub transfer_id: [u8; 32],
+    pub topic: P2PTopicKind,
+    pub index: u16,
+    pub total: u16,
+    pub data: Vec<u8>,
+}
+
+struct ChunkAssembly {
+    created_at: Instant,
+    topic: P2PTopicKind,
+    chunks: Vec<Option<Vec<u8>>>,
+    received: usize,
+    bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -181,7 +227,7 @@ impl P2PNetwork {
             .mesh_n_high(24) // Allow up to 24 peers in mesh
             .gossip_factor(0.25) // Gossip 25% of known messages to mesh peers
             .heartbeat_initial_delay(Duration::from_millis(100))
-            .max_transmit_size(1_000_000) // Increase max message size to 1MB for checkpoint payloads
+            .max_transmit_size(MAX_GOSSIP_MESSAGE_SIZE)
             .do_px() // Enable peer exchange for better discovery
             // Add flood publishing for critical messages (checkpoints, vertices)
             .flood_publish(true)
@@ -273,14 +319,51 @@ impl P2PNetwork {
             | P2PMessage::TargetedCheckpointResponse(_)
             | P2PMessage::CompressedCheckpoint(_)
             | P2PMessage::CompressedCheckpointResponse(_)
-            | P2PMessage::CompressedTargetedCheckpointResponse(_) => &self.topics.checkpoints,
-            P2PMessage::NewTransaction(_) => &self.topics.transactions,
-            P2PMessage::PeerInfo(_) => &self.topics.peers,
+            | P2PMessage::CompressedTargetedCheckpointResponse(_)
+            | P2PMessage::Chunk(P2PMessageChunk {
+                topic: P2PTopicKind::Checkpoint,
+                ..
+            }) => &self.topics.checkpoints,
+            P2PMessage::NewTransaction(_)
+            | P2PMessage::Chunk(P2PMessageChunk {
+                topic: P2PTopicKind::Transaction,
+                ..
+            }) => &self.topics.transactions,
+            P2PMessage::PeerInfo(_)
+            | P2PMessage::Chunk(P2PMessageChunk {
+                topic: P2PTopicKind::Peer,
+                ..
+            }) => &self.topics.peers,
             P2PMessage::NewDagVertex(_)
             | P2PMessage::DagVertexRebroadcast(_)
             | P2PMessage::DagVertexRequest(_)
             | P2PMessage::DagVertexResponse(_)
-            | P2PMessage::CompressedDagVertex(_) => &self.topics.dag_vertices,
+            | P2PMessage::CompressedDagVertex(_)
+            | P2PMessage::Chunk(P2PMessageChunk {
+                topic: P2PTopicKind::DagVertex,
+                ..
+            }) => &self.topics.dag_vertices,
+        }
+    }
+
+    fn message_topic_kind(msg: &P2PMessage) -> P2PTopicKind {
+        match msg {
+            P2PMessage::NewCheckpoint(_)
+            | P2PMessage::CheckpointResponse(_)
+            | P2PMessage::CheckpointRequest(_, _)
+            | P2PMessage::TargetedCheckpointRequest(_)
+            | P2PMessage::TargetedCheckpointResponse(_)
+            | P2PMessage::CompressedCheckpoint(_)
+            | P2PMessage::CompressedCheckpointResponse(_)
+            | P2PMessage::CompressedTargetedCheckpointResponse(_) => P2PTopicKind::Checkpoint,
+            P2PMessage::NewTransaction(_) => P2PTopicKind::Transaction,
+            P2PMessage::PeerInfo(_) => P2PTopicKind::Peer,
+            P2PMessage::NewDagVertex(_)
+            | P2PMessage::DagVertexRebroadcast(_)
+            | P2PMessage::DagVertexRequest(_)
+            | P2PMessage::DagVertexResponse(_)
+            | P2PMessage::CompressedDagVertex(_) => P2PTopicKind::DagVertex,
+            P2PMessage::Chunk(chunk) => chunk.topic,
         }
     }
 
@@ -421,21 +504,50 @@ impl P2PNetwork {
     }
 
     pub fn publish_message(&mut self, msg: P2PMessage) -> Result<()> {
-        let topic = self.message_topic(&msg).clone();
         Self::log_published_message(&msg);
         let final_msg = Self::compress_large_message(msg)?;
-
         let config = bincode::config::standard();
         let data = bincode::encode_to_vec(&final_msg, config)
             .map_err(|e| anyhow::anyhow!("Failed to encode message: {}", e))?;
 
+        if data.len() > MAX_GOSSIP_MESSAGE_SIZE {
+            anyhow::ensure!(
+                data.len() <= MAX_CHUNKED_PAYLOAD_SIZE,
+                "Encoded P2P payload exceeds {} byte chunked-message limit",
+                MAX_CHUNKED_PAYLOAD_SIZE
+            );
+            let total = data.len().div_ceil(P2P_CHUNK_SIZE);
+            anyhow::ensure!(
+                total <= MAX_CHUNKS_PER_PAYLOAD,
+                "Encoded P2P payload requires too many chunks"
+            );
+            let digest = kanari_crypto::hash_data_blake3(&data);
+            let mut transfer_id = [0u8; 32];
+            transfer_id.copy_from_slice(&digest);
+            let topic_kind = Self::message_topic_kind(&final_msg);
+            for (index, bytes) in data.chunks(P2P_CHUNK_SIZE).enumerate() {
+                let chunk = P2PMessage::Chunk(P2PMessageChunk {
+                    transfer_id,
+                    topic: topic_kind,
+                    index: index as u16,
+                    total: total as u16,
+                    data: bytes.to_vec(),
+                });
+                let topic = self.message_topic(&chunk).clone();
+                let encoded = bincode::encode_to_vec(&chunk, config)
+                    .map_err(|e| anyhow::anyhow!("Failed to encode P2P chunk: {e}"))?;
+                self.publish_encoded(topic, encoded)?;
+            }
+            return Ok(());
+        }
+
+        let topic = self.message_topic(&final_msg).clone();
+        self.publish_encoded(topic, data)
+    }
+
+    fn publish_encoded(&mut self, topic: IdentTopic, data: Vec<u8>) -> Result<()> {
         // Publish and handle duplicate gracefully
-        match self
-            .swarm
-            .behaviour_mut()
-            .gossipsub
-            .publish(topic.clone(), data)
-        {
+        match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
             Ok(_) => Ok(()),
             Err(e) => {
                 if is_duplicate_publish_error(&e) {
@@ -446,8 +558,7 @@ impl P2PNetwork {
                     return Ok(());
                 }
 
-                warn!("Publish warning: {}", e);
-                Ok(())
+                Err(anyhow::anyhow!("Failed to publish P2P message: {e}"))
             }
         }
     }
@@ -471,20 +582,26 @@ pub fn decompress_payload(compressed_data: Vec<u8>) -> Result<String> {
 
 pub struct P2PEventHandler {
     pub network: P2PNetwork,
-    pub message_tx: mpsc::Sender<P2PMessage>,
+    pub message_tx: mpsc::Sender<AuthenticatedP2PMessage>,
     pub outgoing_rx: Option<mpsc::Receiver<P2PMessage>>,
     pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
     message_forwarding_closed: bool,
+    chunk_assemblies: HashMap<(PeerId, [u8; 32]), ChunkAssembly>,
+    decompression_permits: std::sync::Arc<Semaphore>,
 }
 
 impl P2PEventHandler {
-    pub fn new(network: P2PNetwork, message_tx: mpsc::Sender<P2PMessage>) -> Self {
+    pub fn new(network: P2PNetwork, message_tx: mpsc::Sender<AuthenticatedP2PMessage>) -> Self {
         Self {
             network,
             message_tx,
             outgoing_rx: None,
             peer_store: None,
             message_forwarding_closed: false,
+            chunk_assemblies: HashMap::new(),
+            decompression_permits: std::sync::Arc::new(Semaphore::new(
+                MAX_CONCURRENT_DECOMPRESSIONS,
+            )),
         }
     }
 
@@ -524,7 +641,7 @@ impl P2PEventHandler {
         }
     }
 
-    fn forward_message(&mut self, msg: P2PMessage, context: &str) -> bool {
+    fn forward_message(&mut self, source: PeerId, msg: P2PMessage, context: &str) -> bool {
         if self.message_forwarding_closed || self.message_tx.is_closed() {
             if !self.message_forwarding_closed {
                 warn!(
@@ -536,7 +653,10 @@ impl P2PEventHandler {
             return false;
         }
 
-        match self.message_tx.try_send(msg) {
+        match self.message_tx.try_send(AuthenticatedP2PMessage {
+            source,
+            message: msg,
+        }) {
             Ok(_) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
                 debug!("{}: incoming P2P queue is full; dropping message", context);
@@ -553,47 +673,35 @@ impl P2PEventHandler {
         }
     }
 
-    fn forward_decompressed_message(
-        &mut self,
-        compressed_data: &[u8],
-        decompress: fn(Vec<u8>) -> Result<String>,
-        make_message: fn(String) -> P2PMessage,
-        failure_context: &str,
-        send_context: &str,
-    ) -> bool {
-        match decompress(compressed_data.to_vec()) {
-            Ok(data) => self.forward_message(make_message(data), send_context),
-            Err(e) => {
-                warn!("{}: {}", failure_context, e);
-                false
+    fn spawn_decompressed_message<F>(
+        &self,
+        source: PeerId,
+        compressed_data: Vec<u8>,
+        make_message: F,
+        failure_context: &'static str,
+    ) where
+        F: FnOnce(String) -> P2PMessage + Send + 'static,
+    {
+        let Ok(permit) = self.decompression_permits.clone().try_acquire_owned() else {
+            debug!("{failure_context}: decompression pool is full; dropping message");
+            return;
+        };
+        let message_tx = self.message_tx.clone();
+        tokio::spawn(async move {
+            let result =
+                tokio::task::spawn_blocking(move || decompress_payload(compressed_data)).await;
+            match result {
+                Ok(Ok(data)) => {
+                    let _ = message_tx.try_send(AuthenticatedP2PMessage {
+                        source,
+                        message: make_message(data),
+                    });
+                }
+                Ok(Err(error)) => warn!("{failure_context}: {error}"),
+                Err(error) => warn!("{failure_context}: worker failed: {error}"),
             }
-        }
-    }
-
-    fn forward_targeted_checkpoint_response(
-        &mut self,
-        resp: &CompressedCheckpointResponseMsg,
-        send_context: &str,
-    ) -> bool {
-        match decompress_payload(resp.compressed_checkpoint_data.clone()) {
-            Ok(checkpoint_data) => self.forward_message(
-                P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
-                    sequence: resp.sequence,
-                    request_timestamp: resp.request_timestamp,
-                    requester_peer_id: resp.requester_peer_id.clone(),
-                    responder_peer_id: resp.responder_peer_id.clone(),
-                    checkpoint_data,
-                }),
-                send_context,
-            ),
-            Err(e) => {
-                warn!(
-                    "[P2P] Failed to decompress targeted checkpoint response: {}",
-                    e
-                );
-                false
-            }
-        }
+            drop(permit);
+        });
     }
 
     fn log_received_message(source: &PeerId, msg: &P2PMessage) {
@@ -717,6 +825,154 @@ impl P2PEventHandler {
         }
     }
 
+    fn process_decoded_message(&mut self, source: PeerId, msg: P2PMessage) {
+        Self::log_received_message(&source, &msg);
+        match msg {
+            P2PMessage::CompressedCheckpoint(compressed_data) => {
+                self.spawn_decompressed_message(
+                    source,
+                    compressed_data,
+                    P2PMessage::NewCheckpoint,
+                    "[P2P] Failed to decompress checkpoint",
+                );
+            }
+            P2PMessage::CompressedDagVertex(compressed_data) => {
+                self.spawn_decompressed_message(
+                    source,
+                    compressed_data,
+                    P2PMessage::NewDagVertex,
+                    "[P2P] Failed to decompress DAG vertex",
+                );
+            }
+            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
+                self.spawn_decompressed_message(
+                    source,
+                    compressed_data,
+                    P2PMessage::CheckpointResponse,
+                    "[P2P] Failed to decompress checkpoint response",
+                );
+            }
+            P2PMessage::CompressedTargetedCheckpointResponse(resp) => {
+                let sequence = resp.sequence;
+                let request_timestamp = resp.request_timestamp;
+                let requester_peer_id = resp.requester_peer_id;
+                let responder_peer_id = resp.responder_peer_id;
+                self.spawn_decompressed_message(
+                    source,
+                    resp.compressed_checkpoint_data,
+                    move |checkpoint_data| {
+                        P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
+                            sequence,
+                            request_timestamp,
+                            requester_peer_id,
+                            responder_peer_id,
+                            checkpoint_data,
+                        })
+                    },
+                    "[P2P] Failed to decompress targeted checkpoint response",
+                );
+            }
+            P2PMessage::Chunk(_) => warn!("[P2P] Nested chunk message rejected"),
+            message => {
+                self.forward_message(source, message, "[P2P] Failed to forward P2P message");
+            }
+        }
+    }
+
+    fn accept_chunk(&mut self, source: PeerId, chunk: P2PMessageChunk) -> Option<P2PMessage> {
+        self.chunk_assemblies
+            .retain(|_, assembly| assembly.created_at.elapsed() <= CHUNK_TTL);
+        let total = usize::from(chunk.total);
+        let index = usize::from(chunk.index);
+        if total == 0
+            || total > MAX_CHUNKS_PER_PAYLOAD
+            || index >= total
+            || chunk.data.len() > P2P_CHUNK_SIZE
+        {
+            warn!("[P2P] Rejected malformed chunked payload");
+            return None;
+        }
+        let key = (source, chunk.transfer_id);
+        if !self.chunk_assemblies.contains_key(&key)
+            && self.chunk_assemblies.len() >= MAX_INFLIGHT_CHUNKED_PAYLOADS
+        {
+            warn!("[P2P] Chunk assembly limit reached; dropping new transfer");
+            return None;
+        }
+        if !self.chunk_assemblies.contains_key(&key)
+            && self
+                .chunk_assemblies
+                .keys()
+                .filter(|(peer, _)| peer == &source)
+                .count()
+                >= MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER
+        {
+            warn!("[P2P] Per-peer chunk assembly limit reached; dropping new transfer");
+            return None;
+        }
+        let (reject, complete) = {
+            let assembly = self
+                .chunk_assemblies
+                .entry(key)
+                .or_insert_with(|| ChunkAssembly {
+                    created_at: Instant::now(),
+                    topic: chunk.topic,
+                    chunks: vec![None; total],
+                    received: 0,
+                    bytes: 0,
+                });
+            if assembly.chunks.len() != total || assembly.topic != chunk.topic {
+                (true, false)
+            } else {
+                if assembly.chunks[index].is_none() {
+                    assembly.bytes = assembly.bytes.saturating_add(chunk.data.len());
+                    if assembly.bytes <= MAX_CHUNKED_PAYLOAD_SIZE {
+                        assembly.chunks[index] = Some(chunk.data);
+                        assembly.received += 1;
+                    }
+                }
+                (
+                    assembly.bytes > MAX_CHUNKED_PAYLOAD_SIZE,
+                    assembly.received == total,
+                )
+            }
+        };
+        if reject {
+            self.chunk_assemblies.remove(&key);
+            return None;
+        }
+        if !complete {
+            return None;
+        }
+
+        let completed = self.chunk_assemblies.remove(&key)?;
+        let mut encoded = Vec::with_capacity(completed.bytes);
+        for bytes in completed.chunks.into_iter().flatten() {
+            encoded.extend_from_slice(&bytes);
+        }
+        if kanari_crypto::hash_data_blake3(&encoded).as_slice() != chunk.transfer_id.as_slice() {
+            warn!("[P2P] Reassembled chunk digest mismatch");
+            return None;
+        }
+        match bincode::decode_from_slice::<P2PMessage, _>(&encoded, bincode::config::standard()) {
+            Ok((message, consumed))
+                if consumed == encoded.len()
+                    && !matches!(message, P2PMessage::Chunk(_))
+                    && P2PNetwork::message_topic_kind(&message) == completed.topic =>
+            {
+                Some(message)
+            }
+            Ok(_) => {
+                warn!("[P2P] Reassembled message failed framing or topic validation");
+                None
+            }
+            Err(error) => {
+                warn!("[P2P] Failed to decode reassembled message: {error}");
+                None
+            }
+        }
+    }
+
     async fn handle_event(&mut self, event: SwarmEvent<KanariBehaviourEvent>) {
         match event {
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -727,53 +983,19 @@ impl P2PEventHandler {
                 message_id: _,
                 message,
             })) => {
+                let authenticated_source = message.source.unwrap_or(propagation_source);
                 let config = bincode::config::standard();
                 match bincode::decode_from_slice::<P2PMessage, _>(&message.data, config) {
                     Ok((msg, _)) => {
-                        Self::log_received_message(&propagation_source, &msg);
-
-                        match &msg {
-                            P2PMessage::CompressedCheckpoint(compressed_data) => {
-                                self.forward_decompressed_message(
-                                    compressed_data,
-                                    decompress_payload,
-                                    P2PMessage::NewCheckpoint,
-                                    "[P2P] Failed to decompress checkpoint",
-                                    "[P2P] Failed to forward decompressed checkpoint",
-                                );
-                                return;
+                        if let P2PMessage::Chunk(chunk) = msg {
+                            if let Some(reassembled) =
+                                self.accept_chunk(authenticated_source, chunk)
+                            {
+                                self.process_decoded_message(authenticated_source, reassembled);
                             }
-                            P2PMessage::CompressedDagVertex(compressed_data) => {
-                                self.forward_decompressed_message(
-                                    compressed_data,
-                                    decompress_payload,
-                                    P2PMessage::NewDagVertex,
-                                    "[P2P] Failed to decompress DAG vertex",
-                                    "[P2P] Failed to forward decompressed vertex",
-                                );
-                                return;
-                            }
-                            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
-                                self.forward_decompressed_message(
-                                    compressed_data,
-                                    decompress_payload,
-                                    P2PMessage::CheckpointResponse,
-                                    "[P2P] Failed to decompress checkpoint response",
-                                    "[P2P] Failed to forward decompressed checkpoint response",
-                                );
-                                return;
-                            }
-                            P2PMessage::CompressedTargetedCheckpointResponse(resp) => {
-                                self.forward_targeted_checkpoint_response(
-                                    resp,
-                                    "[P2P] Failed to forward decompressed targeted checkpoint response",
-                                );
-                                return;
-                            }
-                            _ => {}
+                        } else {
+                            self.process_decoded_message(authenticated_source, msg);
                         }
-
-                        self.forward_message(msg, "[P2P] Failed to forward P2P message");
                     }
                     Err(e) => {
                         warn!("[P2P] Failed to decode P2P message: {}", e);
@@ -951,12 +1173,93 @@ impl P2PEventHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{io::Write, time::Duration};
 
     use flate2::{Compression, write::GzEncoder};
+    use libp2p::{PeerId, identity::Keypair};
     use proptest::prelude::*;
+    use tokio::sync::mpsc;
 
-    use super::{MAX_DECOMPRESSED_PAYLOAD_SIZE, decompress_payload};
+    use super::{
+        MAX_DECOMPRESSED_PAYLOAD_SIZE, P2PEventHandler, P2PMessage, P2PMessageChunk, P2PNetwork,
+        P2PTopicKind, decompress_payload,
+    };
+
+    fn test_handler() -> P2PEventHandler {
+        let network = P2PNetwork::new(Keypair::generate_ed25519(), 0, false).unwrap();
+        let (message_tx, _message_rx) = mpsc::channel(1);
+        P2PEventHandler::new(network, message_tx)
+    }
+
+    fn chunked_message(message: &P2PMessage) -> (PeerId, Vec<P2PMessageChunk>) {
+        let encoded = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
+        let digest = kanari_crypto::hash_data_blake3(&encoded);
+        let mut transfer_id = [0u8; 32];
+        transfer_id.copy_from_slice(&digest);
+        let split = encoded.len().div_ceil(2);
+        let chunks = encoded
+            .chunks(split)
+            .enumerate()
+            .map(|(index, data)| P2PMessageChunk {
+                transfer_id,
+                topic: P2PTopicKind::Checkpoint,
+                index: index as u16,
+                total: encoded.len().div_ceil(split) as u16,
+                data: data.to_vec(),
+            })
+            .collect();
+        (PeerId::random(), chunks)
+    }
+
+    #[tokio::test]
+    async fn compressed_payload_is_decompressed_off_loop_and_preserves_source() {
+        let network = P2PNetwork::new(Keypair::generate_ed25519(), 0, false).unwrap();
+        let (message_tx, mut message_rx) = mpsc::channel(1);
+        let mut handler = P2PEventHandler::new(network, message_tx);
+        let source = PeerId::random();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(b"checkpoint-data").unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        handler.process_decoded_message(source, P2PMessage::CompressedCheckpoint(compressed));
+
+        let received = tokio::time::timeout(Duration::from_secs(2), message_rx.recv())
+            .await
+            .expect("decompression timeout")
+            .expect("decompressed message");
+        assert_eq!(received.source, source);
+        assert!(matches!(
+            received.message,
+            P2PMessage::NewCheckpoint(ref data) if data == "checkpoint-data"
+        ));
+    }
+
+    #[tokio::test]
+    async fn chunk_reassembly_accepts_out_of_order_payload_once() {
+        let mut handler = test_handler();
+        let message = P2PMessage::CheckpointRequest(42, 7);
+        let (peer, mut chunks) = chunked_message(&message);
+        chunks.reverse();
+
+        assert!(handler.accept_chunk(peer, chunks[0].clone()).is_none());
+        let result = handler
+            .accept_chunk(peer, chunks[1].clone())
+            .expect("complete valid payload");
+        assert!(matches!(result, P2PMessage::CheckpointRequest(42, 7)));
+        assert!(handler.chunk_assemblies.is_empty());
+    }
+
+    #[tokio::test]
+    async fn chunk_reassembly_rejects_mixed_topics_and_clears_memory() {
+        let mut handler = test_handler();
+        let message = P2PMessage::CheckpointRequest(42, 7);
+        let (peer, mut chunks) = chunked_message(&message);
+
+        assert!(handler.accept_chunk(peer, chunks[0].clone()).is_none());
+        chunks[1].topic = P2PTopicKind::Transaction;
+        assert!(handler.accept_chunk(peer, chunks[1].clone()).is_none());
+        assert!(handler.chunk_assemblies.is_empty());
+    }
 
     #[test]
     fn decompression_bomb_is_rejected_at_configured_limit() {

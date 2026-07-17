@@ -310,10 +310,12 @@ pub async fn handle_get_fungible_asset_holders(
 
     let state_guard = state.engine.state_read();
     let token_type = normalize_token_type(&req_data.token_type);
-    let holders = match collect_fungible_asset_holders(&state_guard, &token_type, req_data.limit) {
-        Ok(holders) => holders,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let holder_limit = req_data.limit.unwrap_or(100).min(500);
+    let holders =
+        match collect_fungible_asset_holders(&state_guard, &token_type, Some(holder_limit)) {
+            Ok(holders) => holders,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     respond_with_serialize(
         request.id,

@@ -9,7 +9,6 @@ use kanari_types::gas::{GasMeter, GasOperation};
 use move_core_types::account_address::AccountAddress;
 
 use move_core_types::language_storage::ModuleId;
-use move_core_types::resolver::{ModuleResolver, ResourceResolver};
 
 impl super::MoveRuntime {
     /// Helper to apply gas accounting to a ChangeSet. Handles sender debit + sequence increment
@@ -65,9 +64,11 @@ impl super::MoveRuntime {
         &self,
         move_cs: &move_core_types::effects::ChangeSet,
         kanari_cs: &ChangeSet,
+        state_overlay: crate::StateOverlayView<'_>,
     ) -> Result<(u64, u64)> {
         let mut written = 0;
         let mut deleted = 0;
+        let overlay_state = self.state.with_overlay(state_overlay.cloned());
 
         // 1. Move VM Changes (Modules & Resources)
         for (addr, changes) in move_cs.accounts() {
@@ -79,7 +80,7 @@ impl super::MoveRuntime {
                     }
                     move_core_types::effects::Op::Delete => {
                         let module_id = ModuleId::new(*addr, module_name.clone());
-                        if let Some(bytes) = self.resolver.get_module(&module_id).map_err(|error| {
+                        if let Some(bytes) = overlay_state.try_get_module(&module_id).map_err(|error| {
                             anyhow::anyhow!(
                                 "Failed to read deleted module {module_id} for gas accounting: {error:?}"
                             )
@@ -97,7 +98,7 @@ impl super::MoveRuntime {
                     }
                     move_core_types::effects::Op::Delete => {
                         if let Some(bytes) =
-                            self.resolver.get_resource(addr, tag).map_err(|error| {
+                            overlay_state.try_get_resource(addr, tag).map_err(|error| {
                                 anyhow::anyhow!(
                                     "Failed to read deleted resource {addr}::{tag} for gas accounting: {error:?}"
                                 )
@@ -120,7 +121,9 @@ impl super::MoveRuntime {
         // 3. Kanari Objects (Deleted)
         // We look up the object in storage to find its size for the rebate.
         for obj_id in &kanari_cs.deleted_objects {
-            if let Some(obj) = self.object_storage.get_object(obj_id)? {
+            if let Some(obj) =
+                self.get_object_for_execution(obj_id, state_overlay.map(std::sync::Arc::as_ref))?
+            {
                 deleted += obj.data.len() as u64;
                 deleted += obj.type_name.len() as u64 + 32;
             }

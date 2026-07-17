@@ -8,6 +8,15 @@ use kanari_rpc_api::{
 };
 use serde_json;
 
+const MAX_CANONICAL_SNAPSHOT_ENTRIES: usize = 1_000;
+const MAX_CANONICAL_COMPARE_ENTRIES: usize = 1_000;
+
+fn expensive_diagnostics_enabled() -> bool {
+    std::env::var("KANARI_ENABLE_EXPENSIVE_RPC")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
+        .unwrap_or(false)
+}
+
 fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, Box<RpcResponse>> {
     serde_json::from_value(params.clone())
         .map_err(|e| Box::new(invalid_params_response(id, e.to_string())))
@@ -98,6 +107,13 @@ pub async fn handle_get_smt_status(state: &RpcServerState, request: &RpcRequest)
         }
     };
 
+    if req.audit && !expensive_diagnostics_enabled() {
+        return invalid_params_response(
+            request.id,
+            "SMT full audit is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
+        );
+    }
+
     match state.engine.smt_status(req.audit) {
         Ok(status) => respond_with_serialize(request.id, status),
         Err(error) => {
@@ -112,7 +128,7 @@ pub async fn handle_get_canonical_state_snapshot(
 ) -> RpcResponse {
     let req = if request.params.is_null() || request.params == serde_json::json!([]) {
         GetCanonicalStateSnapshotRequest {
-            limit: None,
+            limit: Some(MAX_CANONICAL_SNAPSHOT_ENTRIES),
             prefix: None,
         }
     } else {
@@ -122,9 +138,13 @@ pub async fn handle_get_canonical_state_snapshot(
         }
     };
 
+    let limit = req
+        .limit
+        .unwrap_or(MAX_CANONICAL_SNAPSHOT_ENTRIES)
+        .min(MAX_CANONICAL_SNAPSHOT_ENTRIES);
     match state
         .engine
-        .canonical_state_snapshot_response(req.limit, req.prefix.as_deref())
+        .canonical_state_snapshot_response(Some(limit), req.prefix.as_deref())
     {
         Ok(snapshot) => respond_with_serialize(request.id, snapshot),
         Err(error) => internal_error_response(
@@ -143,6 +163,21 @@ pub async fn handle_compare_canonical_state_snapshot(
         Ok(req) => req,
         Err(response) => return *response,
     };
+
+    if !expensive_diagnostics_enabled() {
+        return invalid_params_response(
+            request.id,
+            "Canonical snapshot comparison is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
+        );
+    }
+    if req.entries.len() > MAX_CANONICAL_COMPARE_ENTRIES {
+        return invalid_params_response(
+            request.id,
+            format!(
+                "Canonical snapshot comparison accepts at most {MAX_CANONICAL_COMPARE_ENTRIES} entries"
+            ),
+        );
+    }
 
     match state.engine.compare_canonical_state_snapshot(&req) {
         Ok(diff) => respond_with_serialize(request.id, diff),

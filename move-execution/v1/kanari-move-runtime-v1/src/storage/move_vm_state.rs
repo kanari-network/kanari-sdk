@@ -18,6 +18,7 @@ use crate::storage::persistent_store::PersistentStore;
 #[allow(clippy::upper_case_acronyms)]
 pub(crate) struct MoveVMState {
     store: Arc<PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
 }
 
 impl MoveVMState {
@@ -25,7 +26,10 @@ impl MoveVMState {
 
     /// Use an already-open persistent store shared with the chain state.
     pub(crate) fn new(store: Arc<PersistentStore>) -> Self {
-        MoveVMState { store }
+        MoveVMState {
+            store,
+            overlay: None,
+        }
     }
 
     /// Return the shared backing store so callers can create isolated runtime caches
@@ -39,6 +43,7 @@ impl MoveVMState {
         let store = PersistentStore::open_in_memory()?;
         Ok(MoveVMState {
             store: Arc::new(store),
+            overlay: None,
         })
     }
 
@@ -49,7 +54,27 @@ impl MoveVMState {
         let store = PersistentStore::open_with_path(db_path)?;
         Ok(MoveVMState {
             store: Arc::new(store),
+            overlay: None,
         })
+    }
+
+    pub(crate) fn with_overlay(&self, overlay: Option<crate::StateOverlay>) -> Self {
+        Self {
+            store: self.store.clone(),
+            overlay,
+        }
+    }
+
+    fn load_with_overlay<T: serde::de::DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
+        if let Some(overlay) = &self.overlay
+            && let Some(value) = overlay.get(key)
+        {
+            return value
+                .as_ref()
+                .map(|bytes| bcs::from_bytes(bytes).map_err(Into::into))
+                .transpose();
+        }
+        Ok(self.store.load(key)?)
     }
 
     fn module_key(module_id: &ModuleId) -> String {
@@ -165,7 +190,7 @@ impl MoveVMState {
     /// Get module bytecode from persistent storage without hiding backend errors.
     pub(crate) fn try_get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>> {
         let key = Self::module_key(module_id);
-        Ok(self.store.load::<Vec<u8>>(key.as_bytes())?)
+        self.load_with_overlay(key.as_bytes())
     }
 
     /// Save a resource blob keyed by address and struct tag.
@@ -215,15 +240,14 @@ impl MoveVMState {
         tag: &move_core_types::language_storage::StructTag,
     ) -> Result<Option<Vec<u8>>> {
         let key = Self::resource_key(address, tag);
-        Ok(self.store.load::<Vec<u8>>(key.as_bytes())?)
+        self.load_with_overlay(key.as_bytes())
     }
 
     /// Load object payload bytes from the stored `CreatedObject` wrapper.
     pub(crate) fn try_get_object(&self, object_id: &AccountAddress) -> Result<Option<Vec<u8>>> {
         let obj_key = Self::object_key(object_id);
         Ok(self
-            .store
-            .load::<StoredObject>(obj_key.as_bytes())?
+            .load_with_overlay::<StoredObject>(obj_key.as_bytes())?
             .map(|object| object.data))
     }
 

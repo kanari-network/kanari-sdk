@@ -65,6 +65,7 @@ fn dynamic_object_field_persists_across_runtime_instances() -> Result<()> {
                 timestamp: None,
                 tx_hash: None,
                 persist_runtime_state: true,
+                state_overlay: None,
             },
         )
         .context("add dynamic object field child")?;
@@ -103,6 +104,7 @@ fn dynamic_object_field_persists_across_runtime_instances() -> Result<()> {
                 timestamp: None,
                 tx_hash: None,
                 persist_runtime_state: true,
+                state_overlay: None,
             },
         )
         .context("mutate persisted dynamic object field value")?;
@@ -137,6 +139,7 @@ fn dynamic_object_field_persists_across_runtime_instances() -> Result<()> {
                 timestamp: None,
                 tx_hash: None,
                 persist_runtime_state: true,
+                state_overlay: None,
             },
         )
         .context("remove persisted dynamic object field value")?;

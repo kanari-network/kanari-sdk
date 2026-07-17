@@ -342,8 +342,20 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
             timestamp: None,
             tx_hash: Some(vec![9; 32]),
             persist_runtime_state: false,
+            state_overlay: None,
         },
     )?;
+
+    let module_key = format!(
+        "module:{}:{}",
+        GasModule::get_module_id()?.address().to_hex_literal(),
+        GasModule::get_module_id()?.name()
+    )
+    .into_bytes();
+    assert!(
+        changeset.resolver_reads.contains(&module_key),
+        "entry module must be traced even when it was already present in the VM cache"
+    );
 
     assert!(
         !changeset.deleted_objects.contains(&gas_coin.id),

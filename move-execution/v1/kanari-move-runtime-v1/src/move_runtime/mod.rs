@@ -25,7 +25,6 @@ use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_extensions::NativeContextExtensions;
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_runtime::session::Session;
-use move_vm_types::gas::UnmeteredGasMeter;
 mod gas_ops;
 mod helpers;
 pub mod load_system_modules;
@@ -86,6 +85,7 @@ pub struct EntryFunctionObjectContext {
     pub timestamp: Option<u64>,
     pub tx_hash: Option<Vec<u8>>,
     pub persist_runtime_state: bool,
+    pub state_overlay: Option<crate::StateOverlay>,
 }
 
 #[derive(Clone)]
@@ -97,6 +97,7 @@ struct ExecutionOptions {
     object_inputs: Vec<ObjectInput>,
     persist_runtime_state: bool,
     bypass_entry_check: bool,
+    state_overlay: Option<crate::StateOverlay>,
 }
 
 impl ExecutionOptions {
@@ -114,6 +115,7 @@ impl ExecutionOptions {
             object_inputs: Vec::new(),
             persist_runtime_state: true,
             bypass_entry_check: false,
+            state_overlay: None,
         }
     }
 
@@ -124,6 +126,11 @@ impl ExecutionOptions {
 
     fn with_persistence(mut self, persist_runtime_state: bool) -> Self {
         self.persist_runtime_state = persist_runtime_state;
+        self
+    }
+
+    fn with_state_overlay(mut self, state_overlay: Option<crate::StateOverlay>) -> Self {
+        self.state_overlay = state_overlay;
         self
     }
 
@@ -319,10 +326,7 @@ impl MoveRuntime {
                 }
             },
         };
-        let resolver = KanariMoveResolver {
-            state: state.clone(),
-            _object_storage: object_storage.clone(),
-        };
+        let resolver = KanariMoveResolver::without_trace(state.clone(), object_storage.clone());
 
         let published_modules: HashSet<ModuleId> = state
             .get_all_module_ids()
@@ -407,10 +411,8 @@ impl MoveRuntime {
                 }
             };
 
-        let resolver = KanariMoveResolver {
-            state: self.state.clone(),
-            _object_storage: object_storage.clone(),
-        };
+        let resolver =
+            KanariMoveResolver::without_trace(self.state.clone(), object_storage.clone());
 
         let published_modules = self
             .published_modules
@@ -644,7 +646,7 @@ impl MoveRuntime {
             let gas_op = GasOperation::PublishModule {
                 module_size: module_bytes.len(),
             };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs, None)?;
             self.apply_gas_info(
                 &mut cs,
                 Some(sender),
@@ -726,7 +728,7 @@ impl MoveRuntime {
             let gas_op = GasOperation::PublishModule {
                 module_size: total_module_size,
             };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs, None)?;
             self.apply_gas_info(
                 &mut cs,
                 Some(sender),
@@ -1163,6 +1165,7 @@ impl MoveRuntime {
                 timestamp,
                 tx_hash,
                 persist_runtime_state,
+                state_overlay: None,
             },
         )
     }
@@ -1187,7 +1190,8 @@ impl MoveRuntime {
                 context.tx_hash,
             )
             .with_object_inputs(context.object_inputs)
-            .with_persistence(context.persist_runtime_state),
+            .with_persistence(context.persist_runtime_state)
+            .with_state_overlay(context.state_overlay),
         )
     }
 
@@ -1230,13 +1234,24 @@ impl MoveRuntime {
             object_inputs,
             persist_runtime_state,
             bypass_entry_check,
+            state_overlay,
         } = options;
 
         let vm_guard = self.read_vm();
-        let mut session = self.create_session_with_storage_ext(&vm_guard);
+        let (resolver, resolver_trace) = self
+            .resolver
+            .tracing_clone_with_overlay(state_overlay.clone());
+        let mut session =
+            self.create_session_with_resolver(&vm_guard, resolver, state_overlay.clone());
+        let mut deterministic_reads = std::collections::BTreeSet::from([format!(
+            "module:{}:{}",
+            module_id.address().to_hex_literal(),
+            module_id.name()
+        )
+        .into_bytes()]);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
-        self.preload_objects_for_execution(&mut session, &object_inputs)?;
+        self.preload_objects_for_execution(&mut session, &object_inputs, state_overlay.as_deref())?;
 
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
@@ -1256,7 +1271,13 @@ impl MoveRuntime {
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
 
         let mut final_args = Self::preprocess_entry_args(args);
-        self.preload_object_ids_from_args(&mut session, &final_args)?;
+        deterministic_reads.extend(
+            final_args
+                .iter()
+                .filter(|arg| arg.len() == AccountAddress::LENGTH)
+                .map(|arg| format!("object:0x{}", hex::encode(arg)).into_bytes()),
+        );
+        self.preload_object_ids_from_args(&mut session, &final_args, state_overlay.as_deref())?;
         let tx_context_bytes =
             self.build_tx_context_bytes(sender, timestamp, tx_hash.as_deref())?;
 
@@ -1358,7 +1379,9 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    if let Some(stored_obj) = self.object_storage.get_object(&object_id)? {
+                    if let Some(stored_obj) =
+                        self.get_object_for_execution(&object_id, state_overlay.as_deref())?
+                    {
                         if !bound_from_explicit_input && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
@@ -1403,15 +1426,16 @@ impl MoveRuntime {
         // Extensions are already added by create_session_with_storage_ext() - no need to add again
 
         let (execution_result, vm_gas_used) = if bypass_entry_check {
-            let mut unmetered_gas = UnmeteredGasMeter;
+            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
+            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
             let result = session.execute_function_bypass_visibility(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
-                &mut unmetered_gas,
+                &mut metered_gas,
             );
-            (result, 0)
+            (result, metered_gas.gas_used())
         } else {
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
             let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
@@ -1534,6 +1558,7 @@ impl MoveRuntime {
                     &mut cs,
                     transferred,
                     persist_runtime_state,
+                    state_overlay.as_ref(),
                 )?;
 
                 for ev in captured_events.into_iter() {
@@ -1571,7 +1596,11 @@ impl MoveRuntime {
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1;
                     let gas_op = GasOperation::ExecuteFunction { complexity };
-                    let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs)?;
+                    let (written, deleted) = self.calculate_storage_impact(
+                        &move_changeset,
+                        &cs,
+                        state_overlay.as_ref(),
+                    )?;
                     self.apply_gas_info(
                         &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
                     )?;
@@ -1587,6 +1616,12 @@ impl MoveRuntime {
                     self.persist_deleted_objects(&cs)?;
                 }
 
+                let reads = match resolver_trace.lock() {
+                    Ok(reads) => reads.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                };
+                cs.record_resolver_reads(reads);
+                cs.record_resolver_reads(deterministic_reads);
                 Ok(cs)
             }
             Err(e) => {
@@ -1617,10 +1652,19 @@ impl MoveRuntime {
         &'r self,
         vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
     ) -> Session<'r, 'r, KanariMoveResolver> {
+        self.create_session_with_resolver(vm_guard, self.resolver.clone(), None)
+    }
+
+    fn create_session_with_resolver<'r>(
+        &'r self,
+        vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
+        resolver: KanariMoveResolver,
+        state_overlay: Option<crate::StateOverlay>,
+    ) -> Session<'r, 'r, KanariMoveResolver> {
         // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext());
+        extensions.add(self.dynamic_field_storage_ext(state_overlay));
         extensions.add(EventsExt::default());
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
@@ -1630,7 +1674,7 @@ impl MoveRuntime {
         extensions.add(LoadedObjectsExt::default());
         extensions.add(BorrowedObjectsExt::default());
 
-        vm_guard.new_session_with_extensions(self.resolver.clone(), extensions)
+        vm_guard.new_session_with_extensions(resolver, extensions)
     }
 
     /// Execute a read-only function without persisting any state changes.
@@ -1661,7 +1705,7 @@ impl MoveRuntime {
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload only object refs explicitly declared by the request.
-        self.preload_objects_for_execution(&mut session, object_inputs)
+        self.preload_objects_for_execution(&mut session, object_inputs, None)
             .require("Failed to preload objects")?;
 
         // Parse and load type arguments before invocation.
@@ -1731,14 +1775,14 @@ impl MoveRuntime {
             }
         }
 
-        // View calls run with the unmetered gas meter.
-        let mut unmetered_gas = UnmeteredGasMeter;
+        const MAX_VIEW_GAS_UNITS: u64 = 1_000_000;
+        let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(MAX_VIEW_GAS_UNITS);
         let execution_result = session.execute_function_bypass_visibility(
             &module_id,
             ident,
             ty_args_loaded,
             final_args,
-            &mut unmetered_gas,
+            &mut metered_gas,
         );
 
         // Finish the session without persisting any writes.

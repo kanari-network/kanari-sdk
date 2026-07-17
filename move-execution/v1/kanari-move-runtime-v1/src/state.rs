@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::changeset::{ChangeSet, CreatedObject};
+use crate::changeset::{ChangeSet, CreatedObject, StateAccessSet};
 use crate::common::ids::canonical_object_id;
 use crate::common::keys::{metadata_key, object_key, owned_objects_key};
 use crate::storage::object_storage::StoredObject;
@@ -38,6 +38,8 @@ const RUNTIME_STATE_SCHEMA_KEY: &[u8] = b"runtime:state_schema_version";
 const RUNTIME_STATE_SCHEMA_VERSION: u32 = 1;
 const WALLET_SUPPLY_INDEX_VERSION_KEY: &[u8] = b"runtime:wallet_supply_index_version";
 const WALLET_SUPPLY_INDEX_VERSION: u32 = 1;
+const ACCESS_VERSIONS_KEY: &[u8] = b"runtime:state_access_versions";
+const ACCESS_VERSION_PREFIX: &[u8] = b"runtime:state_access_version:";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
@@ -190,6 +192,11 @@ pub struct StateManager {
     // SMT for state root calculation (Optional: requires DB backend)
     pub smt: Option<Arc<smt::SparseMerkleTree>>,
     pub events: Vec<Event>,
+
+    /// Monotonic versions for deterministic conflict validation. Runtime metadata
+    /// is persisted atomically with the overlay but excluded from the state root.
+    access_versions: BTreeMap<Vec<u8>, u64>,
+    access_epoch: u64,
 }
 
 impl StateManager {
@@ -411,6 +418,21 @@ impl StateManager {
             .load::<BTreeMap<String, u64>>(b"global_token_supplies")
             .context("Failed to load global_token_supplies")?
             .unwrap_or_default();
+        let mut access_versions = store
+            .load::<BTreeMap<Vec<u8>, u64>>(ACCESS_VERSIONS_KEY)
+            .context("Failed to load state access versions")?
+            .unwrap_or_default();
+        for (key, value) in store
+            .logical_entries()
+            .context("Failed to load per-key state access versions")?
+        {
+            let Some(state_key) = key.strip_prefix(ACCESS_VERSION_PREFIX) else {
+                continue;
+            };
+            let version =
+                bcs::from_bytes::<u64>(&value).context("Malformed per-key state access version")?;
+            access_versions.insert(state_key.to_vec(), version);
+        }
 
         // Recover native total supply from older databases that persisted the
         // native treasury/global balances but never backfilled `total_supply`.
@@ -455,6 +477,8 @@ impl StateManager {
             global_token_supplies,
             smt,
             events: Vec::new(),
+            access_versions,
+            access_epoch: 0,
         };
 
         state
@@ -816,7 +840,6 @@ impl StateManager {
             }
         }
 
-        let canonical_membership_changed = self.canonical_membership_changed()?;
         // Derive SMT deltas before writing the overlay so index transitions can
         // compare the old persisted membership with the new overlay membership.
         let smt_changes = self
@@ -847,10 +870,6 @@ impl StateManager {
             }
         }
 
-        if canonical_membership_changed {
-            self.repair_persisted_smt()?;
-        }
-
         self.overlay.clear();
         Ok(())
     }
@@ -875,6 +894,70 @@ impl StateManager {
             }
         }
         Ok(self.store.load(key)?)
+    }
+
+    /// Capture the versions observed by a speculative execution.
+    pub fn capture_access_versions(&self, access: &StateAccessSet) -> BTreeMap<Vec<u8>, u64> {
+        access
+            .reads
+            .iter()
+            .chain(access.writes.iter())
+            .map(|key| {
+                (
+                    key.clone(),
+                    self.access_versions.get(key).copied().unwrap_or(0),
+                )
+            })
+            .collect()
+    }
+
+    pub fn access_version_snapshot(&self) -> BTreeMap<Vec<u8>, u64> {
+        self.access_versions.clone()
+    }
+
+    pub fn access_epoch(&self) -> u64 {
+        self.access_epoch
+    }
+
+    pub fn validate_access_snapshot(
+        &self,
+        snapshot: &BTreeMap<Vec<u8>, u64>,
+        access: &StateAccessSet,
+    ) -> bool {
+        access.reads.iter().chain(access.writes.iter()).all(|key| {
+            snapshot.get(key).copied().unwrap_or(0)
+                == self.access_versions.get(key).copied().unwrap_or(0)
+        })
+    }
+
+    /// Fail closed when any key changed since speculative execution began.
+    pub fn validate_access_versions(&self, observed: &BTreeMap<Vec<u8>, u64>) -> bool {
+        observed
+            .iter()
+            .all(|(key, version)| self.access_versions.get(key).copied().unwrap_or(0) == *version)
+    }
+
+    pub(crate) fn advance_access_versions(&mut self, access: &StateAccessSet) -> Result<()> {
+        if !access.writes.is_empty() {
+            self.access_epoch = self
+                .access_epoch
+                .checked_add(1)
+                .context("State access epoch overflow")?;
+        }
+        for key in &access.writes {
+            let next = self
+                .access_versions
+                .get(key)
+                .copied()
+                .unwrap_or(0)
+                .checked_add(1)
+                .context("State access version overflow")?;
+            self.access_versions.insert(key.clone(), next);
+            let mut persisted_key = ACCESS_VERSION_PREFIX.to_vec();
+            persisted_key.extend_from_slice(key);
+            self.save_internal(&persisted_key, &next)?;
+        }
+        Ok(())
     }
 
     // Helper to construct DB key for one owner-state record.
@@ -1357,9 +1440,7 @@ impl StateManager {
 
     /// Compute a canonical root and propagate storage/index corruption to the caller.
     pub fn try_compute_state_root(&self) -> Result<Vec<u8>> {
-        if let Some(smt) = &self.smt
-            && !self.canonical_membership_changed()?
-        {
+        if let Some(smt) = &self.smt {
             let (updates, deletes) = self.smt_changes_from_overlay()?;
             return Ok(smt.root_hash_with_changes(&updates, &deletes)?.to_vec());
         }

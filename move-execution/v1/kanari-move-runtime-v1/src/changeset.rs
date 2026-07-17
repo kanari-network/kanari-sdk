@@ -57,6 +57,35 @@ pub struct OwnerDelta {
     pub modules_added: BTreeSet<String>,
 }
 
+/// Canonical state keys observed or modified by one transaction execution.
+///
+/// Keys are deterministic byte strings rather than storage pointers so every
+/// validator derives exactly the same conflict decision. The manifest is
+/// intentionally conservative: an unclassified write is represented by a
+/// dedicated key, which serializes it rather than risking a false negative.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StateAccessSet {
+    pub reads: BTreeSet<Vec<u8>>,
+    pub writes: BTreeSet<Vec<u8>>,
+}
+
+impl StateAccessSet {
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        self.writes
+            .iter()
+            .any(|key| other.reads.contains(key) || other.writes.contains(key))
+            || other.writes.iter().any(|key| self.reads.contains(key))
+    }
+
+    fn read(&mut self, key: impl Into<Vec<u8>>) {
+        self.reads.insert(key.into());
+    }
+
+    fn write(&mut self, key: impl Into<Vec<u8>>) {
+        self.writes.insert(key.into());
+    }
+}
+
 impl OwnerDelta {
     fn new(address: AccountAddress) -> Self {
         Self {
@@ -118,12 +147,145 @@ pub struct ChangeSet {
     /// Canonical Move module/resource operations keyed exactly as the shared store.
     /// Some(bytes) is create/modify and None is delete.
     pub move_writes: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    /// Canonical storage keys read by the Move resolver during this execution.
+    /// This is execution metadata and is intentionally not persisted as chain state.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub resolver_reads: BTreeSet<Vec<u8>>,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
 }
 
 impl ChangeSet {
+    /// Produce a deterministic, conservative access manifest from canonical VM
+    /// effects. Resolver read tracing is added separately; this manifest already
+    /// covers every object, owner, resource, dynamic field and gas write that
+    /// reaches StateManager.
+    pub fn deterministic_access_set(&self) -> StateAccessSet {
+        let mut access = StateAccessSet::default();
+
+        access.reads.extend(self.resolver_reads.iter().cloned());
+        // Dynamic-field natives use a separate resolver extension. Until that
+        // extension exposes its precise read key, serialize only transactions
+        // that write a dynamic field against this conservative read fence.
+        access.read(b"df:*".to_vec());
+
+        for input in &self.input_objects {
+            access.read(format!(
+                "object:{}",
+                Self::canonicalize_object_id(&input.object_ref.object_id)
+            ));
+        }
+        for input in &self.shared_inputs {
+            access.read(format!(
+                "object:{}",
+                Self::canonicalize_object_id(&input.object_id)
+            ));
+        }
+        for input in &self.immutable_inputs {
+            access.read(format!(
+                "object:{}",
+                Self::canonicalize_object_id(&input.object_id)
+            ));
+        }
+        for input in &self.gas_object_refs {
+            access.write(format!(
+                "object:{}",
+                Self::canonicalize_object_id(&input.object_id)
+            ));
+        }
+        if let Some(payment) = &self.gas_payment {
+            for input in &payment.payment_objects {
+                access.write(format!(
+                    "object:{}",
+                    Self::canonicalize_object_id(&input.object_id)
+                ));
+            }
+        }
+        for owner in self.owner_deltas.keys() {
+            access.write(format!("owner:{}", owner.to_hex_literal()));
+        }
+        for owner in self.native_gas_credits.keys() {
+            access.write(format!("owner:{}", owner.to_hex_literal()));
+        }
+        for (_owner, token_type, _) in &self.treasuries {
+            access.write(format!("supply:{token_type}"));
+            access.write(format!("treasury:{token_type}"));
+            access.write(b"global_token_supplies".to_vec());
+        }
+        for (_owner, token_type, _) in &self.nft_caps {
+            access.write(format!("nft:{token_type}"));
+        }
+        for (owner, token_type, _) in &self.token_balance_sets {
+            access.write(format!(
+                "token_balance:{}:{}",
+                owner.to_hex_literal(),
+                token_type
+            ));
+        }
+        for (object_id, _) in &self.created_objects {
+            access.write(format!(
+                "object:{}",
+                Self::canonicalize_object_id(object_id)
+            ));
+        }
+        for object_id in &self.deleted_objects {
+            access.write(format!(
+                "object:{}",
+                Self::canonicalize_object_id(object_id)
+            ));
+        }
+        for change in &self.explicit_object_changes {
+            access.write(format!(
+                "object:{}",
+                Self::canonicalize_object_id(&change.object_ref.object_id)
+            ));
+        }
+        for (object_id, name, _) in &self.added_dynamic_fields {
+            access.write(b"df:*".to_vec());
+            access.write(format!(
+                "dynamic:{}:{}",
+                Self::canonicalize_object_id(object_id),
+                hex::encode(name)
+            ));
+        }
+        for (object_id, name) in &self.removed_dynamic_fields {
+            access.write(b"df:*".to_vec());
+            access.write(format!(
+                "dynamic:{}:{}",
+                Self::canonicalize_object_id(object_id),
+                hex::encode(name)
+            ));
+        }
+        for key in self.move_writes.keys() {
+            access.write(key.clone());
+        }
+        for event in &self.events {
+            if event.type_tag.to_string().contains("::nft::MintLog") && event.event_data.len() >= 96
+            {
+                access.write(format!(
+                    "collection_members:0x{}",
+                    hex::encode(&event.event_data[64..96])
+                ));
+            }
+        }
+        let supply_delta = self
+            .owner_deltas
+            .values()
+            .fold(0i128, |sum, delta| sum.saturating_add(delta.balance_delta));
+        if supply_delta != 0 {
+            access.write("native_supply".to_string());
+        }
+        access
+    }
+
+    pub fn record_resolver_reads<I>(&mut self, reads: I)
+    where
+        I: IntoIterator<Item = Vec<u8>>,
+    {
+        self.resolver_reads.extend(reads);
+    }
+
     fn input_edge_relation(change_type: &ObjectChangeKind) -> ObjectGraphEdgeKind {
         match change_type {
             ObjectChangeKind::Created => ObjectGraphEdgeKind::InputCreate,
@@ -179,6 +341,7 @@ impl ChangeSet {
             added_dynamic_fields: Vec::new(),
             removed_dynamic_fields: Vec::new(),
             move_writes: BTreeMap::new(),
+            resolver_reads: BTreeSet::new(),
             gas_used,
             success,
             error_message,
@@ -299,6 +462,7 @@ impl ChangeSet {
         for (key, value) in other.move_writes {
             self.move_writes.insert(key, value);
         }
+        self.resolver_reads.append(&mut other.resolver_reads);
 
         self.gas_used = self.gas_used.saturating_add(other.gas_used);
         if !other.success {
@@ -578,7 +742,7 @@ impl ChangeSet {
             status: if self.success {
                 "success".to_string()
             } else {
-                "failure".to_string()
+                "failed".to_string()
             },
             gas_used: self.gas_used,
             gas_payment: gas_payment.or_else(|| self.gas_payment.clone()),

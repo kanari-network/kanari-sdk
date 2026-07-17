@@ -14,6 +14,7 @@ impl super::MoveRuntime {
         cs: &mut ChangeSet,
         transferred: Vec<TransferredObject>,
         persist_runtime_state: bool,
+        state_overlay: crate::StateOverlayView<'_>,
     ) -> anyhow::Result<()> {
         let count = transferred.len();
         debug!("Processing {} transferred objects", count);
@@ -48,14 +49,15 @@ impl super::MoveRuntime {
                 continue;
             };
 
-            let next_version = self
-                .object_storage
-                .get_object(&canonical_id)?
+            let existing = self.get_object_for_execution(
+                &canonical_id,
+                state_overlay.map(std::sync::Arc::as_ref),
+            )?;
+            let next_version = existing
+                .as_ref()
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
-            let owner_kind = self
-                .object_storage
-                .get_object(&canonical_id)?
+            let owner_kind = existing
                 .map(|existing| existing.owner_kind)
                 .unwrap_or_else(|| {
                     if obj.is_frozen {

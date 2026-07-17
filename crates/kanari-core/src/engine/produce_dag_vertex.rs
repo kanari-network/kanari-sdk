@@ -885,12 +885,9 @@ impl DagEngine {
         let mut vertices = Vec::new();
         for round in first_round..=highest_round {
             for block in reader.get_blocks_by_round(round) {
-                vertices.push(
-                    state
-                        .mysticeti
-                        .block_to_vertex(&block)
-                        .with_context(|| format!("Failed to convert Mysticeti block from round {round} for DAG sync"))?,
-                );
+                vertices.push(state.mysticeti.block_to_vertex(&block).with_context(|| {
+                    format!("Failed to convert Mysticeti block from round {round} for DAG sync")
+                })?);
             }
         }
         vertices.sort_by(|left, right| {

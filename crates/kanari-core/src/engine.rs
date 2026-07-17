@@ -84,6 +84,12 @@ pub struct StateSnapshot {
 }
 
 pub const STATE_SNAPSHOT_FORMAT_VERSION: u32 = 2;
+/// Keeps a DAG vertex comfortably below the node's bounded gossip frame limit.
+pub const MAX_DAG_VERTEX_TRANSACTIONS: usize = 512;
+// Vertex JSON/hex encoding can approach 2x the BCS transaction bytes.
+pub const MAX_DAG_VERTEX_TRANSACTION_BYTES: usize = 350 * 1024;
+pub const MAX_TRANSACTION_BYTES: usize = 256 * 1024;
+pub const MAX_TRANSACTION_GAS_LIMIT: u64 = 10_000_000;
 
 mod apply_checkpoint;
 mod bootstrap;
@@ -102,7 +108,8 @@ pub struct CheckpointSyncData {
     pub dag_vertices: Vec<DagVertex>,
 }
 
-const MAX_MEMPOOL_SIZE: usize = 1_000_000;
+const MAX_MEMPOOL_SIZE: usize = 100_000;
+const MAX_MEMPOOL_BYTES: usize = 256 * 1024 * 1024;
 pub(crate) const MAX_PENDING_PER_PRIMARY_ACCESS_LANE: u64 = 64;
 const MAX_PERSISTED_RECENT_TX_HASHES: usize = 100_000;
 
@@ -128,6 +135,7 @@ pub struct PendingTransactionRecord {
 #[derive(Debug, Default)]
 pub(crate) struct MempoolState {
     pending_txs: Vec<PendingTransactionRecord>,
+    pending_bytes: usize,
     pending_tx_hashes: HashSet<Vec<u8>>,
     pending_sender_counts: AHashMap<String, u64>,
     pending_access_counts: AHashMap<String, u64>,
@@ -1148,6 +1156,35 @@ impl BlockchainEngine {
         self.mempool_read().pending_txs.clone()
     }
 
+    pub fn find_pending_transaction(
+        &self,
+        transaction_hash: &[u8],
+    ) -> Option<PendingTransactionRecord> {
+        self.mempool_read()
+            .pending_txs
+            .iter()
+            .find(|record| record.signed_tx.transaction_hash() == transaction_hash)
+            .cloned()
+    }
+
+    pub fn filter_pending_transaction_records<F>(
+        &self,
+        limit: usize,
+        mut predicate: F,
+    ) -> Vec<PendingTransactionRecord>
+    where
+        F: FnMut(&PendingTransactionRecord) -> bool,
+    {
+        self.mempool_read()
+            .pending_txs
+            .iter()
+            .rev()
+            .filter(|record| predicate(record))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
         self.mempool_read()
             .pending_txs
@@ -1205,7 +1242,25 @@ impl BlockchainEngine {
                 .then_with(|| a.transaction.nonce().cmp(&b.transaction.nonce()))
                 .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
         });
-        Self::select_conflict_free_transactions(transactions)
+        let selected = Self::select_conflict_free_transactions(transactions);
+        let mut total_bytes = 0usize;
+        selected
+            .into_iter()
+            .take(MAX_DAG_VERTEX_TRANSACTIONS)
+            .take_while(|signed_tx| {
+                let Ok(size) = bcs::serialized_size(signed_tx) else {
+                    return false;
+                };
+                let Some(next_total) = total_bytes.checked_add(size) else {
+                    return false;
+                };
+                if next_total > MAX_DAG_VERTEX_TRANSACTION_BYTES {
+                    return false;
+                }
+                total_bytes = next_total;
+                true
+            })
+            .collect()
     }
 
     pub fn pending_transaction_len(&self) -> usize {
@@ -1320,35 +1375,49 @@ impl BlockchainEngine {
                 Transaction::PublishModule { .. } | Transaction::PublishPackage { .. }
             )
         });
-
-        if serial_execution {
+        if serial_execution
+            || has_module_publish
+            || kanari_move_runtime_v1::TransactionScheduler::requires_serial_execution()
+        {
             if has_module_publish {
                 self.runtime_pool[0].reload_vm_cache()?;
             }
 
             let mut executed_count = 0;
-            let failed_count = 0;
+            let mut failed_count = 0;
             for signed_tx in transactions {
                 let persist_runtime_state = persist_objects;
-                let changeset = self
-                    .execute_transaction_with_runtime_internal(
-                        &signed_tx.transaction,
-                        &self.runtime_pool[0],
-                        state_arc,
-                        false,
-                        timestamp,
-                        persist_runtime_state,
-                    )
-                    .with_context(|| {
-                        format!(
-                            "Execution failed for tx {} (sender={}, nonce={})",
-                            hex::encode(signed_tx.transaction_hash()),
-                            signed_tx.transaction.sender_address(),
-                            signed_tx.transaction.nonce()
-                        )
-                    })?;
+                let changeset = self.execute_transaction_with_runtime_internal(
+                    &signed_tx.transaction,
+                    &self.runtime_pool[0],
+                    state_arc,
+                    false,
+                    timestamp,
+                    persist_runtime_state,
+                );
 
-                transaction_effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
+                let changeset = match changeset {
+                    Ok(changeset) => changeset,
+                    Err(error) if fail_hard => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "Execution failed for tx {} (sender={}, nonce={})",
+                                hex::encode(signed_tx.transaction_hash()),
+                                signed_tx.transaction.sender_address(),
+                                signed_tx.transaction.nonce()
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("Serial execution failed: {error}");
+                        transaction_effects.push(Self::failed_transaction_effects(
+                            &signed_tx,
+                            error.to_string(),
+                        ));
+                        failed_count += 1;
+                        continue;
+                    }
+                };
 
                 let mut state_write = match state_arc.write() {
                     Ok(guard) => guard,
@@ -1358,17 +1427,31 @@ impl BlockchainEngine {
                     }
                 };
 
-                state_write
-                    .apply_changeset(&changeset)
-                    .with_context(|| {
-                        format!(
-                            "Execution failed for tx {} (sender={}, nonce={}): Failed to apply changeset",
-                            hex::encode(signed_tx.transaction_hash()),
-                            signed_tx.transaction.sender_address(),
-                            signed_tx.transaction.nonce()
-                        )
-                    })?;
-                executed_count += 1;
+                match state_write.apply_changeset(&changeset) {
+                    Ok(()) => {
+                        transaction_effects
+                            .push(changeset.effects(signed_tx.transaction.gas_payment()));
+                        executed_count += 1;
+                    }
+                    Err(error) if fail_hard => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "Execution failed for tx {} (sender={}, nonce={}): Failed to apply changeset",
+                                hex::encode(signed_tx.transaction_hash()),
+                                signed_tx.transaction.sender_address(),
+                                signed_tx.transaction.nonce()
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("apply_changeset failed during serial execution: {error}");
+                        transaction_effects.push(Self::failed_transaction_effects(
+                            &signed_tx,
+                            error.to_string(),
+                        ));
+                        failed_count += 1;
+                    }
+                }
             }
 
             return Ok((executed_count, failed_count, transaction_effects));
@@ -1385,17 +1468,30 @@ impl BlockchainEngine {
         }
 
         for wave in waves {
+            let (access_epoch, wave_overlay) = match state_arc.read() {
+                Ok(state) => (
+                    state.access_epoch(),
+                    (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
+                ),
+                Err(poisoned) => {
+                    let state = poisoned.into_inner();
+                    (
+                        state.access_epoch(),
+                        (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
+                    )
+                }
+            };
             let results: Vec<Result<ChangeSet>> = if has_module_publish {
                 wave.iter()
                     .map(|signed_tx| {
-                        let persist_runtime_state = persist_objects;
-                        self.execute_transaction_with_runtime_internal(
+                        self.execute_transaction_with_runtime_overlay(
                             &signed_tx.transaction,
                             &self.runtime_pool[0],
                             state_arc,
                             false,
                             timestamp,
-                            persist_runtime_state,
+                            false,
+                            wave_overlay.clone(),
                         )
                     })
                     .collect()
@@ -1404,89 +1500,141 @@ impl BlockchainEngine {
                     .enumerate()
                     .map(|(i, signed_tx)| {
                         let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
-                        let persist_runtime_state = persist_objects;
-                        self.execute_transaction_with_runtime_internal(
+                        self.execute_transaction_with_runtime_overlay(
                             &signed_tx.transaction,
                             runtime,
                             state_arc,
                             false,
                             timestamp,
-                            persist_runtime_state,
+                            false,
+                            wave_overlay.clone(),
                         )
                     })
                     .collect()
             };
 
-            if fail_hard {
-                // A conflict-free wave is committed as one deterministic unit:
-                // one write-lock acquisition and one StateManager clone. Besides
-                // reducing lock contention, a failed transaction can no longer
-                // leave an earlier prefix of the same wave applied.
+            let access_sets = results
+                .iter()
+                .map(|result| {
+                    result
+                        .as_ref()
+                        .ok()
+                        .map(ChangeSet::deterministic_access_set)
+                })
+                .collect::<Vec<_>>();
+            let mut retry_serial = results.iter().any(Result::is_err);
+            for i in 0..access_sets.len() {
+                let Some(left) = &access_sets[i] else {
+                    continue;
+                };
+                retry_serial |= access_sets[..i]
+                    .iter()
+                    .flatten()
+                    .any(|right| left.conflicts_with(right));
+            }
+
+            if !retry_serial {
                 let mut state_write = match state_arc.write() {
                     Ok(guard) => guard,
-                    Err(poisoned) => {
-                        log::error!("State lock poisoned during wave execution, recovering...");
-                        poisoned.into_inner()
-                    }
+                    Err(poisoned) => poisoned.into_inner(),
                 };
-                let mut candidate = state_write.clone();
-                let mut wave_effects = Vec::with_capacity(wave.len());
+                retry_serial = state_write.access_epoch() != access_epoch;
 
-                for (signed_tx, res) in wave.iter().zip(results) {
-                    let cs = res.with_context(|| {
-                        format!(
-                            "Execution failed for tx {} (sender={})",
-                            hex::encode(signed_tx.transaction_hash()),
-                            signed_tx.transaction.sender_address()
-                        )
-                    })?;
-
-                    candidate
-                        .apply_changeset_without_supply_validation(&cs)
-                        .with_context(|| {
-                            format!(
-                                "Execution failed for tx {} (sender={}): Failed to apply changeset",
-                                hex::encode(signed_tx.transaction_hash()),
-                                signed_tx.transaction.sender_address()
-                            )
-                        })?;
-                    wave_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
+                if !retry_serial {
+                    // Apply the whole conflict-free wave to a candidate. The live state
+                    // changes exactly once, so a partial wave is never observable.
+                    let mut candidate = state_write.clone();
+                    for result in &results {
+                        let cs = result
+                            .as_ref()
+                            .expect("checked successful speculative result");
+                        if let Err(error) = candidate.apply_changeset_without_supply_validation(cs)
+                        {
+                            log::warn!(
+                                "Speculative wave apply rejected; retrying serially: {error}"
+                            );
+                            retry_serial = true;
+                            break;
+                        }
+                    }
+                    if !retry_serial {
+                        if let Err(error) = candidate
+                            .repair_legacy_native_wallet_overcount()
+                            .and_then(|_| candidate.validate_supply_invariants())
+                        {
+                            log::warn!(
+                                "Speculative wave supply validation rejected; retrying serially: {error}"
+                            );
+                            retry_serial = true;
+                        } else {
+                            *state_write = candidate;
+                        }
+                    }
                 }
-                *state_write = candidate;
-                executed_count += wave_effects.len();
-                transaction_effects.extend(wave_effects);
-            } else {
-                // Apply changesets with proper error handling to prevent node crashes
-                let mut state_write = match state_arc.write() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        log::error!("State lock poisoned during wave execution, recovering...");
-                        poisoned.into_inner()
+            }
+
+            if !retry_serial {
+                for (signed_tx, result) in wave.iter().zip(&results) {
+                    let cs = result.as_ref().expect("validated speculative result");
+                    transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
+                    executed_count += 1;
+                }
+                continue;
+            }
+
+            // Any incomplete trace, execution error, version change, or intra-wave
+            // conflict discards the entire speculative wave and replays canonical order.
+            for signed_tx in &wave {
+                let result = self.execute_transaction_with_runtime_internal(
+                    &signed_tx.transaction,
+                    &self.runtime_pool[0],
+                    state_arc,
+                    false,
+                    timestamp,
+                    persist_objects,
+                );
+                let cs = match result {
+                    Ok(cs) => cs,
+                    Err(error) if fail_hard => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "Serial retry failed for tx {}",
+                                hex::encode(signed_tx.transaction_hash())
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        transaction_effects.push(Self::failed_transaction_effects(
+                            signed_tx,
+                            error.to_string(),
+                        ));
+                        failed_count += 1;
+                        continue;
                     }
                 };
-
-                for (signed_tx, res) in wave.iter().zip(results) {
-                    match res {
-                        Ok(cs) => {
-                            if let Err(e) = state_write.apply_changeset(&cs) {
-                                log::warn!("apply_changeset failed: {}", e);
-                                transaction_effects.push(Self::failed_transaction_effects(
-                                    signed_tx,
-                                    e.to_string(),
-                                ));
-                                failed_count += 1;
-                            } else {
-                                transaction_effects
-                                    .push(cs.effects(signed_tx.transaction.gas_payment()));
-                                executed_count += 1;
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("Parallel execution failed: {}", e);
-                            transaction_effects
-                                .push(Self::failed_transaction_effects(signed_tx, e.to_string()));
-                            failed_count += 1;
-                        }
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                match state_write.apply_changeset(&cs) {
+                    Ok(()) => {
+                        transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
+                        executed_count += 1;
+                    }
+                    Err(error) if fail_hard => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "Serial retry apply failed for tx {}",
+                                hex::encode(signed_tx.transaction_hash())
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        transaction_effects.push(Self::failed_transaction_effects(
+                            signed_tx,
+                            error.to_string(),
+                        ));
+                        failed_count += 1;
                     }
                 }
             }
@@ -1596,6 +1744,17 @@ impl BlockchainEngine {
     /// Reject malformed payloads at admission so they cannot occupy a mempool
     /// lane or later become zero-gas failed checkpoint effects.
     pub(crate) fn validate_transaction_admission_shape(tx: &Transaction) -> Result<()> {
+        ensure!(
+            bcs::serialized_size(tx)? <= MAX_TRANSACTION_BYTES,
+            "Transaction exceeds {} byte admission limit",
+            MAX_TRANSACTION_BYTES
+        );
+        ensure!(
+            tx.gas_limit() <= MAX_TRANSACTION_GAS_LIMIT,
+            "Transaction gas limit {} exceeds protocol maximum {}",
+            tx.gas_limit(),
+            MAX_TRANSACTION_GAS_LIMIT
+        );
         KanariAddress::parse_to_account_address(tx.sender_address())
             .context("Invalid transaction sender address")?;
 
@@ -1628,6 +1787,8 @@ impl BlockchainEngine {
                 parse_type_tag(type_arg).ok_or_else(|| anyhow::anyhow!("Invalid type argument"))?;
             }
         }
+        ensure!(tx.gas_limit() > 0, "Transaction gas limit must be non-zero");
+        ensure!(tx.gas_price() > 0, "Transaction gas price must be non-zero");
         Ok(())
     }
 
@@ -1651,6 +1812,35 @@ impl BlockchainEngine {
         _validate_sequence: bool,
         timestamp: Option<u64>,
         persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
+        let state_overlay = {
+            let state = match state_arc.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone()))
+        };
+        self.execute_transaction_with_runtime_overlay(
+            tx,
+            runtime,
+            state_arc,
+            _validate_sequence,
+            timestamp,
+            persist_runtime_state,
+            state_overlay,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_transaction_with_runtime_overlay(
+        &self,
+        tx: &Transaction,
+        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
+        state_arc: &Arc<RwLock<StateManager>>,
+        _validate_sequence: bool,
+        timestamp: Option<u64>,
+        persist_runtime_state: bool,
+        state_overlay: Option<kanari_move_runtime_v1::StateOverlay>,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
@@ -1796,6 +1986,12 @@ impl BlockchainEngine {
                         addr,
                         move_core_types::identifier::Identifier::new(parts[1])?,
                     );
+                    changeset.record_resolver_reads([format!(
+                        "module:{}:{}",
+                        module_id.address().to_hex_literal(),
+                        module_id.name()
+                    )
+                    .into_bytes()]);
                     let type_tags = type_args
                         .iter()
                         .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
@@ -1813,6 +2009,7 @@ impl BlockchainEngine {
                             timestamp,
                             tx_hash: Some(tx.hash()),
                             persist_runtime_state,
+                            state_overlay: state_overlay.clone(),
                         },
                     ) {
                         Ok(move_cs) => changeset.merge(move_cs),

@@ -573,10 +573,8 @@ fn long_run_byzantine_native_blocks_cannot_advance_checkpoint() {
 
     runner
         .run(&strategy, |payload| {
-            let (engine, dag_engine, remote_key) = build_test_dag_engine(
-                vec!["auth1".to_string(), "auth2".to_string()],
-                "auth1",
-            );
+            let (engine, dag_engine, remote_key) =
+                build_test_dag_engine(vec!["auth1".to_string(), "auth2".to_string()], "auth1");
             let mut vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
             vertex.native_block = payload;
             vertex.signature = vec![0; 64];

@@ -22,32 +22,21 @@ impl NormalizeAddr for BlockchainEngine {
 }
 
 impl BlockchainEngine {
-    fn rebuild_pending_indexes(mempool: &mut MempoolState) {
-        mempool.pending_tx_hashes.clear();
-        mempool.pending_sender_counts.clear();
-        mempool.pending_access_counts.clear();
-        mempool.pending_primary_access_counts.clear();
-
-        for record in &mempool.pending_txs {
-            let tx = &record.signed_tx.transaction;
-            mempool
-                .pending_tx_hashes
-                .insert(record.signed_tx.transaction_hash().to_vec());
-
-            let sender = Self::normalize_addr(tx.sender_address());
-            *mempool.pending_sender_counts.entry(sender).or_insert(0) += 1;
-
-            let primary = tx.primary_access_key();
-            *mempool
-                .pending_primary_access_counts
-                .entry(primary.clone())
-                .or_insert(0) += 1;
-            *mempool.pending_access_counts.entry(primary).or_insert(0) += 1;
-
-            for key in tx.object_access_keys() {
-                *mempool.pending_access_counts.entry(key).or_insert(0) += 1;
-            }
-        }
+    pub(crate) fn pending_record_size(
+        signed_tx: &SignedTransaction,
+        metadata: &PendingTransactionMetadata,
+    ) -> Result<usize> {
+        let transaction_bytes = bcs::serialized_size(signed_tx)?;
+        let effects_bytes = metadata
+            .preview_effects
+            .as_ref()
+            .map(bcs::serialized_size)
+            .transpose()?
+            .unwrap_or(0);
+        transaction_bytes
+            .checked_add(effects_bytes)
+            .and_then(|size| size.checked_add(128))
+            .context("Pending transaction memory accounting overflow")
     }
 
     pub fn submit_transactions_batch_with_metadata(
@@ -76,20 +65,9 @@ impl BlockchainEngine {
 
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
-        let (pending_hashes, pending_by_access, pending_by_primary_access) = {
-            let mut mempool = self.mempool_write();
-            // Reconcile derived indexes before admission. A failed checkpoint
-            // or legacy restart can leave lane counters behind after the
-            // pending transaction list has already been drained.
-            Self::rebuild_pending_indexes(&mut mempool);
-            (
-                mempool.pending_tx_hashes.clone(),
-                mempool.pending_access_counts.clone(),
-                mempool.pending_primary_access_counts.clone(),
-            )
-        };
+        let pending_len = self.mempool_read().pending_txs.len();
 
-        if pending_hashes.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
+        if pending_len.saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
             log::warn!("[MEMPOOL] Rejecting batch: Queue would exceed max size");
             anyhow::bail!("Mempool is currently full. Please try again later.");
         }
@@ -128,13 +106,15 @@ impl BlockchainEngine {
                 ))
             })
             .collect::<Result<Vec<_>>>()?;
+        let batch_bytes = verified_txs.iter().try_fold(0usize, |total, item| {
+            let size = Self::pending_record_size(&item.0, &metadata)?;
+            total
+                .checked_add(size)
+                .context("Mempool batch byte size overflow")
+        })?;
 
         verified_txs.sort_by(|a, b| {
-            let a_pending = pending_by_access.get(&a.4).copied().unwrap_or(0);
-            let b_pending = pending_by_access.get(&b.4).copied().unwrap_or(0);
-            a_pending
-                .cmp(&b_pending)
-                .then_with(|| a.4.cmp(&b.4))
+            a.4.cmp(&b.4)
                 .then_with(|| a.2.cmp(&b.2))
                 .then_with(|| a.3.cmp(&b.3))
                 .then_with(|| a.1.cmp(&b.1))
@@ -179,13 +159,21 @@ impl BlockchainEngine {
 
         // Account sequence is intentionally not a consensus admission rule. Object refs,
         // gas refs, and duplicate transaction hashes are the canonical replay/double-spend guards.
+        let mut mempool = self.mempool_write();
+        if mempool.pending_txs.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
+            anyhow::bail!("Mempool is currently full. Please try again later.");
+        }
+        if mempool.pending_bytes.saturating_add(batch_bytes) > MAX_MEMPOOL_BYTES {
+            anyhow::bail!("Mempool byte budget is exhausted. Please try again later.");
+        }
         let mut batch_hashes = AHashSet::with_capacity(batch_size);
         let mut accepted_hashes = Vec::with_capacity(batch_size);
         let mut accepted_counts_by_sender = ahash::AHashMap::new();
         let mut accepted_counts_by_access = ahash::AHashMap::new();
         let mut accepted_counts_by_primary_access = ahash::AHashMap::new();
         for (tx_hash, sender, _, primary_access, access_keys) in &batch_metadata {
-            if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
+            if mempool.pending_tx_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone())
+            {
                 let tx_hash_hex = hex::encode(tx_hash);
                 anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
             }
@@ -194,7 +182,8 @@ impl BlockchainEngine {
                 anyhow::bail!("Transaction {} already executed", tx_hash_hex);
             }
 
-            let current_lane_depth = pending_by_primary_access
+            let current_lane_depth = mempool
+                .pending_primary_access_counts
                 .get(primary_access)
                 .copied()
                 .unwrap_or(0)
@@ -228,43 +217,37 @@ impl BlockchainEngine {
             }
         }
 
-        // Write to mempool with minimal lock duration
-        {
-            let mut mempool = self.mempool_write();
-
-            if mempool.pending_txs.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
-                anyhow::bail!("Mempool is currently full. Please try again later.");
-            }
-
-            mempool.pending_txs.extend(verified_txs.into_iter().map(
-                |(signed_tx, _, _, _, _, _)| PendingTransactionRecord {
+        // Commit admission and all derived indexes under the same lock used for checks.
+        mempool
+            .pending_txs
+            .extend(verified_txs.into_iter().map(|(signed_tx, _, _, _, _, _)| {
+                PendingTransactionRecord {
                     signed_tx,
                     metadata: metadata.clone(),
-                },
-            ));
-            mempool
-                .pending_tx_hashes
-                .extend(accepted_hashes.iter().cloned());
-            for (sender, count) in &accepted_counts_by_sender {
-                *mempool
-                    .pending_sender_counts
-                    .entry(sender.clone())
-                    .or_insert(0) += *count;
-            }
-            for (primary_access, count) in &accepted_counts_by_primary_access {
-                *mempool
-                    .pending_primary_access_counts
-                    .entry(primary_access.clone())
-                    .or_insert(0) += *count;
-            }
-            for (access_key, count) in &accepted_counts_by_access {
-                *mempool
-                    .pending_access_counts
-                    .entry(access_key.clone())
-                    .or_insert(0) += *count;
-            }
+                }
+            }));
+        mempool
+            .pending_tx_hashes
+            .extend(accepted_hashes.iter().cloned());
+        mempool.pending_bytes = mempool.pending_bytes.saturating_add(batch_bytes);
+        for (sender, count) in &accepted_counts_by_sender {
+            *mempool
+                .pending_sender_counts
+                .entry(sender.clone())
+                .or_insert(0) += *count;
         }
-
+        for (primary_access, count) in &accepted_counts_by_primary_access {
+            *mempool
+                .pending_primary_access_counts
+                .entry(primary_access.clone())
+                .or_insert(0) += *count;
+        }
+        for (access_key, count) in &accepted_counts_by_access {
+            *mempool
+                .pending_access_counts
+                .entry(access_key.clone())
+                .or_insert(0) += *count;
+        }
         Ok(accepted_hashes)
     }
 
@@ -275,6 +258,7 @@ impl BlockchainEngine {
         let verified = signed_tx.into_verified()?;
         let tx_hash = verified.hash().to_vec();
         let tx = verified.into_signed_transaction().transaction;
+        Self::validate_transaction_admission_shape(&tx)?;
 
         let changeset = {
             let state_snapshot = self.state_read().clone();
@@ -412,6 +396,13 @@ impl BlockchainEngine {
         mempool
             .pending_txs
             .retain(|tx| !target_hashes.contains(tx.signed_tx.transaction_hash()));
+        let removed_bytes = removed_transactions.iter().fold(0usize, |total, record| {
+            total.saturating_add(
+                Self::pending_record_size(&record.signed_tx, &record.metadata)
+                    .unwrap_or(MAX_TRANSACTION_BYTES),
+            )
+        });
+        mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
         mempool
             .pending_tx_hashes
             .retain(|hash| !target_hashes.contains(hash));

@@ -170,3 +170,97 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
         Some(1)
     );
 }
+
+#[test]
+fn deterministic_access_sets_detect_read_write_but_allow_read_read() {
+    let key = b"resource:0x2::test::Shared".to_vec();
+    let mut reader_a = ChangeSet::new();
+    reader_a.record_resolver_reads([key.clone()]);
+    let mut reader_b = ChangeSet::new();
+    reader_b.record_resolver_reads([key.clone()]);
+    let mut writer = ChangeSet::new();
+    writer.record_move_write(key, Some(vec![1]));
+
+    let reader_a = reader_a.deterministic_access_set();
+    let reader_b = reader_b.deterministic_access_set();
+    let writer = writer.deterministic_access_set();
+    assert!(!reader_a.conflicts_with(&reader_b));
+    assert!(reader_a.conflicts_with(&writer));
+    assert!(writer.conflicts_with(&reader_b));
+}
+
+#[test]
+fn merge_preserves_resolver_reads_for_conflict_validation() {
+    let key = b"module:0x2:test".to_vec();
+    let mut outer = ChangeSet::new();
+    let mut inner = ChangeSet::new();
+    inner.record_resolver_reads([key.clone()]);
+    outer.merge(inner);
+
+    assert!(outer.resolver_reads.contains(&key));
+    assert!(outer.deterministic_access_set().reads.contains(&key));
+}
+
+#[test]
+fn dynamic_field_write_conflicts_with_conservative_read_fence() {
+    let reader = ChangeSet::new().deterministic_access_set();
+    let mut writer = ChangeSet::new();
+    writer
+        .added_dynamic_fields
+        .push(("0x1".to_string(), vec![7], vec![9]));
+
+    assert!(reader.conflicts_with(&writer.deterministic_access_set()));
+}
+
+#[test]
+fn access_conflict_detection_matches_reference_model_for_generated_sets() {
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        seed
+    };
+
+    for _ in 0..512 {
+        let mut left = StateAccessSet::default();
+        let mut right = StateAccessSet::default();
+        for key_index in 0..16u8 {
+            let key = vec![key_index];
+            let mask = next();
+            if mask & 1 != 0 {
+                left.reads.insert(key.clone());
+            }
+            if mask & 2 != 0 {
+                left.writes.insert(key.clone());
+            }
+            if mask & 4 != 0 {
+                right.reads.insert(key.clone());
+            }
+            if mask & 8 != 0 {
+                right.writes.insert(key);
+            }
+        }
+
+        let expected = left
+            .writes
+            .iter()
+            .any(|key| right.reads.contains(key) || right.writes.contains(key))
+            || right.writes.iter().any(|key| left.reads.contains(key));
+        assert_eq!(left.conflicts_with(&right), expected);
+        assert_eq!(left.conflicts_with(&right), right.conflicts_with(&left));
+    }
+}
+
+#[test]
+fn failed_effects_use_canonical_failed_status() {
+    let mut changeset = ChangeSet::new();
+    changeset.mark_failed("expected test failure".to_string());
+
+    let effects = changeset.effects(None);
+    assert_eq!(effects.status, "failed");
+    assert_eq!(
+        effects.error_message.as_deref(),
+        Some("expected test failure")
+    );
+}

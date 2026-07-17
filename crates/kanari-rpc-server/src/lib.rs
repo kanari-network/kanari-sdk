@@ -17,8 +17,9 @@ use kanari_core::BlockchainEngine;
 use kanari_rpc_api::*;
 use kanari_types::transaction::SignedTransaction;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
 use tracing::info;
 
 use crate::{
@@ -59,6 +60,7 @@ type TransactionBroadcaster = Arc<dyn Fn(SignedTransaction) -> Result<()> + Send
 pub struct RpcServerState {
     pub engine: Arc<BlockchainEngine>,
     transaction_broadcaster: Option<TransactionBroadcaster>,
+    started_at: Instant,
 }
 
 impl RpcServerState {
@@ -66,6 +68,7 @@ impl RpcServerState {
         Self {
             engine,
             transaction_broadcaster: None,
+            started_at: Instant::now(),
         }
     }
 
@@ -76,6 +79,7 @@ impl RpcServerState {
         Self {
             engine,
             transaction_broadcaster: Some(Arc::new(broadcaster)),
+            started_at: Instant::now(),
         }
     }
 
@@ -164,6 +168,12 @@ pub fn create_router(state: RpcServerState) -> Router {
         .route("/", post(handle_rpc))
         .route("/rpc", post(handle_rpc))
         .route("/metrics", get(handle_metrics))
+        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024))
+        .layer(tower::limit::ConcurrencyLimitLayer::new(128))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(30),
+        ))
         .layer(cors)
         .with_state(state)
 }
@@ -304,8 +314,12 @@ async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcRespo
     let health = HealthStatus {
         status: report.status().to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: 0, // TODO: Track actual uptime
-        sync_status: "synced".to_string(),
+        uptime_seconds: state.started_at.elapsed().as_secs(),
+        sync_status: if report.guards.network == "local" {
+            "local".to_string()
+        } else {
+            "unknown".to_string()
+        },
         network: report.guards.network,
         supply_invariants_ok: report.supply_invariants_ok,
         supply_invariant_error: report.supply_invariant_error,
@@ -550,16 +564,20 @@ mod tests {
         assert!(smt_status["effective_root"].as_str().is_some());
         assert!(smt_status["runtime_schema_version"].as_u64().is_some());
 
-        let smt_audit = rpc_call(
+        let smt_audit = rpc_call_response(
             app.clone(),
             methods::GET_SMT_STATUS,
             serde_json::json!({ "audit": true }),
             21,
         )
         .await;
-        assert_eq!(smt_audit["audit_requested"], true);
-        assert_eq!(smt_audit["audit_performed"], false);
-        assert!(smt_audit["consistent"].is_null());
+        assert_eq!(smt_audit["error"]["code"], -32602);
+        assert!(
+            smt_audit["error"]["message"]
+                .as_str()
+                .invariant("disabled audit error")
+                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
+        );
 
         let height = rpc_call(
             app.clone(),
@@ -629,7 +647,7 @@ mod tests {
         assert!(snapshot["state_root"].as_str().is_some());
         assert!(snapshot["entries"].as_array().is_some());
 
-        let diff = rpc_call(
+        let diff = rpc_call_response(
             app.clone(),
             methods::COMPARE_CANONICAL_STATE_SNAPSHOT,
             serde_json::json!({
@@ -638,7 +656,13 @@ mod tests {
             71,
         )
         .await;
-        assert!(diff["first_divergence"].is_null());
+        assert_eq!(diff["error"]["code"], -32602);
+        assert!(
+            diff["error"]["message"]
+                .as_str()
+                .invariant("disabled comparison error")
+                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
+        );
 
         let owned = rpc_call(
             app,

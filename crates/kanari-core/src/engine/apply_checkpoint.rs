@@ -56,10 +56,6 @@ impl BlockchainEngine {
         state_write
             .repair_legacy_native_wallet_overcount()
             .context("Failed to repair native wallet overcount after clock prologue")?;
-        state_write
-            .repair_persisted_smt()
-            .context("Failed to reconcile SMT after clock prologue")?;
-
         Ok(())
     }
 
@@ -119,9 +115,6 @@ impl BlockchainEngine {
             state_write
                 .repair_legacy_native_wallet_overcount()
                 .context("Failed to repair legacy native wallet overcount after checkpoint state execution")?;
-            state_write
-                .repair_persisted_smt()
-                .context("Failed to reconcile SMT after checkpoint state execution")?;
         }
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
@@ -216,38 +209,42 @@ impl BlockchainEngine {
         // 3. Remove committed transactions from pending pool.
         {
             let mut mempool = self.mempool_write();
-            if mempool.pending_txs.len() == checkpoint.transactions.len() {
-                mempool.pending_txs.clear();
-                mempool.pending_tx_hashes.clear();
-                mempool.pending_sender_counts.clear();
-                mempool.pending_access_counts.clear();
-            } else {
-                let committed_hashes: std::collections::HashSet<_> = checkpoint
-                    .transactions
-                    .iter()
-                    .map(|tx| tx.transaction_hash().to_vec())
-                    .collect();
-                let removed_transactions = mempool
-                    .pending_txs
-                    .iter()
-                    .filter(|tx| committed_hashes.contains(tx.signed_tx.transaction_hash()))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                mempool
-                    .pending_txs
-                    .retain(|tx| !committed_hashes.contains(tx.signed_tx.transaction_hash()));
-                mempool
-                    .pending_tx_hashes
-                    .retain(|hash| !committed_hashes.contains(hash));
-                Self::remove_pending_sender_counts(
-                    &mut mempool.pending_sender_counts,
-                    &removed_transactions,
-                );
-                Self::remove_pending_access_counts(
-                    &mut mempool.pending_access_counts,
-                    &removed_transactions,
-                );
-            }
+            let committed_hashes: std::collections::HashSet<_> = checkpoint
+                .transactions
+                .iter()
+                .map(|tx| tx.transaction_hash().to_vec())
+                .collect();
+            let removed_transactions = mempool
+                .pending_txs
+                .iter()
+                .filter(|tx| committed_hashes.contains(tx.signed_tx.transaction_hash()))
+                .cloned()
+                .collect::<Vec<_>>();
+            mempool
+                .pending_txs
+                .retain(|tx| !committed_hashes.contains(tx.signed_tx.transaction_hash()));
+            let removed_bytes = removed_transactions.iter().fold(0usize, |total, record| {
+                total.saturating_add(
+                    Self::pending_record_size(&record.signed_tx, &record.metadata)
+                        .unwrap_or(crate::engine::MAX_TRANSACTION_BYTES),
+                )
+            });
+            mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
+            mempool
+                .pending_tx_hashes
+                .retain(|hash| !committed_hashes.contains(hash));
+            Self::remove_pending_sender_counts(
+                &mut mempool.pending_sender_counts,
+                &removed_transactions,
+            );
+            Self::remove_pending_access_counts(
+                &mut mempool.pending_access_counts,
+                &removed_transactions,
+            );
+            Self::remove_pending_primary_access_counts(
+                &mut mempool.pending_primary_access_counts,
+                &removed_transactions,
+            );
         }
 
         Ok(())

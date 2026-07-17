@@ -8,10 +8,12 @@ use kanari_types::coin::CoinModule;
 use kanari_types::transaction::ObjectInput;
 
 use move_core_types::language_storage::{StructTag, TypeTag};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 struct RuntimeDynamicFieldResolver {
     store: Arc<crate::storage::persistent_store::PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
 }
 
 impl RuntimeDynamicFieldResolver {
@@ -32,6 +34,14 @@ impl DynamicFieldResolver for RuntimeDynamicFieldResolver {
         name_bytes: &[u8],
     ) -> Result<Option<Vec<u8>>, String> {
         let key = Self::dynamic_field_key(object_id, name_bytes);
+        if let Some(value) = self.overlay.as_ref().and_then(|overlay| overlay.get(&key)) {
+            return match value {
+                Some(bytes) => bcs::from_bytes(bytes)
+                    .map(Some)
+                    .map_err(|error| format!("overlay dynamic-field decode failed: {error}")),
+                None => Ok(None),
+            };
+        }
         self.store
             .load::<Vec<u8>>(&key)
             .map_err(|error| format!("persistent dynamic-field read failed: {error}"))
@@ -44,10 +54,29 @@ const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
 impl super::MoveRuntime {
-    pub(crate) fn dynamic_field_storage_ext(&self) -> DynamicFieldStorageExt {
+    pub(crate) fn dynamic_field_storage_ext(
+        &self,
+        overlay: Option<crate::StateOverlay>,
+    ) -> DynamicFieldStorageExt {
         DynamicFieldStorageExt::new(Arc::new(RuntimeDynamicFieldResolver {
             store: self.state.store(),
+            overlay,
         }))
+    }
+
+    pub(crate) fn get_object_for_execution(
+        &self,
+        object_id: &str,
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+    ) -> anyhow::Result<Option<crate::storage::object_storage::StoredObject>> {
+        let key = crate::common::keys::object_key(object_id);
+        if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
+            return match value {
+                Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
+                None => Ok(None),
+            };
+        }
+        Ok(self.object_storage.get_object(object_id)?)
     }
 
     /// Preload potential object arguments into LoadedObjectsExt before execution
@@ -58,6 +87,7 @@ impl super::MoveRuntime {
             crate::storage::resolver::KanariMoveResolver,
         >,
         object_inputs: &[ObjectInput],
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
 
@@ -65,9 +95,8 @@ impl super::MoveRuntime {
         let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
 
         for input in object_inputs {
-            if let Some(stored_obj) = self
-                .object_storage
-                .get_object(&input.object_ref.object_id)?
+            if let Some(stored_obj) =
+                self.get_object_for_execution(&input.object_ref.object_id, overlay)?
             {
                 loaded_ext.insert(
                     input.object_ref.object_id.clone(),
@@ -94,6 +123,7 @@ impl super::MoveRuntime {
             crate::storage::resolver::KanariMoveResolver,
         >,
         args: &[Vec<u8>],
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
 
@@ -106,7 +136,7 @@ impl super::MoveRuntime {
             }
 
             let object_id = format!("0x{}", hex::encode(arg));
-            let Some(stored_obj) = self.object_storage.get_object(&object_id)? else {
+            let Some(stored_obj) = self.get_object_for_execution(&object_id, overlay)? else {
                 continue;
             };
 

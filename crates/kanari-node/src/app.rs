@@ -542,9 +542,10 @@ pub async fn run_node(
         "System addresses"
     );
 
-    const P2P_CHANNEL_CAPACITY: usize = 4096;
+    // Backpressure prevents compressed-message queues from growing without bound.
+    const P2P_CHANNEL_CAPACITY: usize = 32;
     let (p2p_msg_tx, mut p2p_msg_rx) =
-        tokio::sync::mpsc::channel::<P2PMessage>(P2P_CHANNEL_CAPACITY);
+        tokio::sync::mpsc::channel::<crate::p2p::AuthenticatedP2PMessage>(P2P_CHANNEL_CAPACITY);
     let (network_tx, network_rx) = tokio::sync::mpsc::channel::<P2PMessage>(P2P_CHANNEL_CAPACITY);
 
     let keypair = load_or_create_p2p_identity(&data_dir, &network)?;
@@ -616,27 +617,31 @@ pub async fn run_node(
 
         let sync_for_messages = sync_manager.clone();
         tokio::spawn(async move {
+            const MAX_CONCURRENT_SYNC_MESSAGES: usize = 16;
+            let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_SYNC_MESSAGES));
             while let Some(msg) = p2p_msg_rx.recv().await {
+                let permit = match permits.clone().acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => break,
+                };
                 let sync = sync_for_messages.clone();
-                match tokio::spawn(async move {
+                let task = tokio::spawn(async move {
+                    let _permit = permit;
                     sync.handle_message(msg).await;
-                })
-                .await
-                {
-                    Ok(()) => {}
-                    Err(e) if e.is_panic() => {
-                        tracing::error!(
-                            "[P2P] Sync message handler panicked; continuing to process incoming messages: {}",
+                });
+                tokio::spawn(async move {
+                    match task.await {
+                        Ok(()) => {}
+                        Err(e) if e.is_panic() => tracing::error!(
+                            "[P2P] Sync message handler panicked; continuing: {}",
                             e
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "[P2P] Sync message handler task failed; continuing to process incoming messages: {}",
+                        ),
+                        Err(e) => tracing::error!(
+                            "[P2P] Sync message handler task failed; continuing: {}",
                             e
-                        );
+                        ),
                     }
-                }
+                });
             }
             tracing::warn!(
                 "[P2P] Incoming P2P message receiver closed; network gossip will no longer reach sync manager"

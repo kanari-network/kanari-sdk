@@ -1998,22 +1998,18 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         return respond_with_serialize(request.id, details);
     }
 
-    let pending = state.engine.pending_transaction_records_snapshot();
-
-    for tx in pending.iter() {
+    if let Some(tx) = state.engine.find_pending_transaction(&tx_hash_bytes) {
         let tx_hash = hex::encode(tx.signed_tx.transaction_hash());
-        if tx_hash.to_lowercase() == normalized {
-            let mut details = map_transaction_to_details(
-                state,
-                &tx.signed_tx.transaction,
-                &tx_hash,
-                pending_status(tx),
-                None,
-                None,
-            );
-            apply_pending_preview_metadata(tx, &mut details);
-            return respond_with_serialize(request.id, details);
-        }
+        let mut details = map_transaction_to_details(
+            state,
+            &tx.signed_tx.transaction,
+            &tx_hash,
+            pending_status(&tx),
+            None,
+            None,
+        );
+        apply_pending_preview_metadata(&tx, &mut details);
+        return respond_with_serialize(request.id, details);
     }
 
     internal_error_response(request.id, "Transaction not found")
@@ -2029,7 +2025,8 @@ pub async fn handle_get_all_transactions(
         .params
         .get("limit")
         .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+        .unwrap_or(50)
+        .min(500) as usize;
 
     let owner_norm = request
         .params
@@ -2044,13 +2041,13 @@ pub async fn handle_get_all_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
-    let pending = state.engine.pending_transaction_records_snapshot();
+    let pending = state
+        .engine
+        .filter_pending_transaction_records(limit, |tx| {
+            tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref())
+        });
 
-    for tx in pending.iter().rev() {
-        if !tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref()) {
-            continue;
-        }
-
+    for tx in &pending {
         if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, {
             let mut details = map_transaction_to_details(
                 state,
@@ -2150,15 +2147,14 @@ pub async fn handle_get_fungible_asset_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
-    let pending = state.engine.pending_transaction_records_snapshot();
+    let pending = state
+        .engine
+        .filter_pending_transaction_records(limit, |tx| {
+            tx_mentions_token_type(&tx.signed_tx.transaction, &token_type)
+                && tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref())
+        });
 
-    for tx in pending.iter().rev() {
-        if !tx_mentions_token_type(&tx.signed_tx.transaction, &token_type)
-            || !tx_matches_owner(&tx.signed_tx.transaction, owner_norm.as_deref())
-        {
-            continue;
-        }
-
+    for tx in &pending {
         if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, {
             let mut details = map_transaction_to_details(
                 state,

@@ -998,6 +998,8 @@ impl StateManager {
             self.overlay.insert(df_key, None);
         }
 
+        self.advance_access_versions(&changeset.deterministic_access_set())?;
+
         Ok(())
     }
 }

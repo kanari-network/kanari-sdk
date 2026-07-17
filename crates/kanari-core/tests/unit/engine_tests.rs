@@ -1051,6 +1051,12 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
         txs.push(signed_tx);
     }
 
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .commit()
+        .unwrap();
     let base_state = engine
         .state
         .read()
@@ -1088,6 +1094,167 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
     assert_eq!(parallel_effects, serial_effects);
     assert_eq!(parallel_effects.len(), parallel_executed + parallel_failed);
     assert_eq!(strict_root, parallel_root);
+}
+
+#[test]
+fn conflicting_speculative_wave_replays_to_strict_serial_root() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipients = [
+        generate_keypair(CurveType::Ed25519).unwrap(),
+        generate_keypair(CurveType::Ed25519).unwrap(),
+    ];
+    let coin_ids = [
+        "0x000000000000000000000000000000000000000000000000000000000000ca01",
+        "0x000000000000000000000000000000000000000000000000000000000000ca02",
+    ];
+    let gas_ids = [
+        "0x000000000000000000000000000000000000000000000000000000000000ca11",
+        "0x000000000000000000000000000000000000000000000000000000000000ca12",
+    ];
+    for id in coin_ids.iter().chain(gas_ids.iter()) {
+        fund_sender_with_coin(&engine, &sender.address, id, 1_000_000);
+    }
+    let txs = (0..2)
+        .map(|i| {
+            signed_transfer_with_refs(
+                &sender,
+                &recipients[i].address,
+                coin_ids[i],
+                1_000_000,
+                gas_ids[i],
+                1_000_000,
+                i as u64,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .commit()
+        .unwrap();
+    let base_state = engine.state_read().clone();
+    let strict_state = Arc::new(RwLock::new(base_state.clone()));
+    let parallel_state = Arc::new(RwLock::new(base_state));
+    let expected_effects = engine
+        .collect_transaction_effects_strict(&txs, Some(456), false)
+        .unwrap();
+
+    let strict_counts = engine
+        .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(456), false, true)
+        .unwrap();
+    let (executed, failed, actual_effects) = engine
+        .execute_tx_waves_deterministic_parallel_with_effects(
+            txs,
+            &parallel_state,
+            Some(456),
+            false,
+        )
+        .unwrap();
+
+    assert_eq!((executed, failed), strict_counts);
+    assert_eq!(actual_effects, expected_effects);
+    assert_eq!(
+        parallel_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root(),
+        strict_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root()
+    );
+}
+
+#[test]
+fn mixed_success_and_failure_speculative_wave_matches_strict_serial() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let valid_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let invalid_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let valid_coin = "0x000000000000000000000000000000000000000000000000000000000000fb01";
+    let valid_gas = "0x000000000000000000000000000000000000000000000000000000000000fb02";
+    let invalid_gas = "0x000000000000000000000000000000000000000000000000000000000000fb03";
+    fund_sender_with_coin(&engine, &valid_sender.address, valid_coin, 1_000_000);
+    fund_sender_with_coin(&engine, &valid_sender.address, valid_gas, 1_000_000);
+    fund_sender_with_coin(&engine, &invalid_sender.address, invalid_gas, 1_000_000);
+
+    let valid = signed_transfer_with_refs(
+        &valid_sender,
+        &recipient.address,
+        valid_coin,
+        1_000_000,
+        valid_gas,
+        1_000_000,
+        0,
+    );
+    let invalid_tx = Transaction::ExecuteFunction {
+        sender: invalid_sender.tagged_address(),
+        module: "0x2::module_that_does_not_exist".to_string(),
+        function: "missing".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![native_coin_object_ref(invalid_gas, 1_000_000)],
+            owner: invalid_sender.address.clone(),
+            budget: 100_000,
+            price: 1,
+        }),
+        gas_limit: 100_000,
+        gas_price: 1,
+        nonce: 0,
+    };
+    let mut invalid = SignedTransaction::new(invalid_tx);
+    invalid
+        .sign(&invalid_sender.private_key, invalid_sender.curve_type)
+        .unwrap();
+    let txs = vec![valid, invalid];
+
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .commit()
+        .unwrap();
+    let base_state = engine.state_read().clone();
+    let strict_state = Arc::new(RwLock::new(base_state.clone()));
+    let parallel_state = Arc::new(RwLock::new(base_state));
+    let expected_effects = engine
+        .collect_transaction_effects_strict(&txs, Some(789), false)
+        .unwrap();
+
+    let strict_counts = engine
+        .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(789), false, true)
+        .unwrap();
+    let (executed, failed, actual_effects) = engine
+        .execute_tx_waves_deterministic_parallel_with_effects(
+            txs,
+            &parallel_state,
+            Some(789),
+            false,
+        )
+        .unwrap();
+
+    assert_eq!((executed, failed), strict_counts);
+    assert_eq!(actual_effects, expected_effects);
+    assert!(
+        actual_effects
+            .iter()
+            .any(|effect| effect.status == "failed")
+    );
+    assert_eq!(
+        parallel_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root(),
+        strict_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root()
+    );
 }
 
 #[test]

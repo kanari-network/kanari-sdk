@@ -36,7 +36,7 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
 }
 
 #[test]
-fn test_schedule_serializes_transactions_until_access_sets_are_complete() {
+fn test_schedule_preserves_order_inside_speculative_wave() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
@@ -50,8 +50,8 @@ fn test_schedule_serializes_transactions_until_access_sets_are_complete() {
         .collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
-    assert_eq!(waves.len(), 4);
-    assert!(waves.iter().all(|wave| wave.len() == 1));
+    assert_eq!(waves.len(), 1);
+    assert_eq!(waves[0].len(), 4);
 
     let actual_hashes = waves
         .iter()
@@ -67,13 +67,25 @@ fn test_schedule_empty_batch() {
 }
 
 #[test]
-fn test_apparently_independent_transactions_remain_serial() {
+fn test_apparently_independent_transactions_are_speculated_together() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
     ];
 
     let waves = TransactionScheduler::schedule(txs);
-    assert_eq!(waves.len(), 2);
-    assert!(waves.iter().all(|wave| wave.len() == 1));
+    assert_eq!(waves.len(), 1);
+    assert_eq!(waves[0].len(), 2);
+}
+
+#[test]
+fn test_schedule_bounds_large_speculative_batches() {
+    let txs = (0..130)
+        .map(|i| create_dummy_tx(&format!("sender-{i}"), "M", None))
+        .collect();
+    let waves = TransactionScheduler::schedule(txs);
+    assert_eq!(
+        waves.iter().map(Vec::len).collect::<Vec<_>>(),
+        vec![64, 64, 2]
+    );
 }

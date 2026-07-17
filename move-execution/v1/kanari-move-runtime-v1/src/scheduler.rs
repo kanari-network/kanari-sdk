@@ -5,19 +5,23 @@ use kanari_types::transaction::SignedTransaction;
 
 /// Transaction scheduler used by deterministic checkpoint execution.
 ///
-/// Security note: transaction arguments and native effects are not yet represented by
-/// a complete deterministic read/write set. Until that exists, every transaction is
-/// placed in its own wave. This preserves canonical transaction order and prevents two
-/// transactions with an unobserved conflict from executing against the same snapshot.
+/// The scheduler only bounds speculative work. Safety is decided after execution from
+/// resolver traces plus canonical effects; the engine serially retries conflicts.
 pub struct TransactionScheduler;
 
 impl TransactionScheduler {
+    /// Bounds speculative memory, resolver traces, and retry amplification.
+    pub const MAX_SPECULATIVE_WAVE_SIZE: usize = 64;
+
+    pub const fn requires_serial_execution() -> bool {
+        false
+    }
+
     pub fn schedule(transactions: Vec<SignedTransaction>) -> Vec<Vec<SignedTransaction>> {
-        // `Transaction::object_access_keys` is deliberately not used as a parallelism
-        // proof. Its keys distinguish read, mutable and gas roles and do not include
-        // every native/argument effect, so disjoint strings do not imply disjoint state.
-        // Preserve canonical order and execute against a fresh state after every tx.
-        transactions.into_iter().map(|tx| vec![tx]).collect()
+        transactions
+            .chunks(Self::MAX_SPECULATIVE_WAVE_SIZE)
+            .map(<[SignedTransaction]>::to_vec)
+            .collect()
     }
 }
 

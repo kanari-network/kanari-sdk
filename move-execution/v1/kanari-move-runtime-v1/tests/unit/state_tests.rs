@@ -32,6 +32,85 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
 }
 
 #[test]
+fn access_versions_reject_stale_snapshot_and_survive_commit() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let mut changeset = ChangeSet::new();
+    let key = b"resource:0x1::test::R".to_vec();
+    changeset.record_move_write(key.clone(), Some(vec![1, 2, 3]));
+    let access = changeset.deterministic_access_set();
+    let before = state.access_version_snapshot();
+
+    state.apply_changeset_without_supply_validation(&changeset)?;
+    assert!(!state.validate_access_snapshot(&before, &access));
+    let after = state.capture_access_versions(&access);
+    assert_eq!(after.get(&key), Some(&1));
+
+    let store = state.store();
+    state.commit()?;
+    let reopened = StateManager::try_new(store)?;
+    assert_eq!(
+        reopened.capture_access_versions(&access).get(&key),
+        Some(&1)
+    );
+    Ok(())
+}
+
+#[test]
+fn access_versions_only_invalidate_keys_that_changed() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let snapshot = state.access_version_snapshot();
+    let mut write_a = ChangeSet::new();
+    write_a.record_move_write(b"resource:a".to_vec(), Some(vec![1]));
+    let mut read_a = ChangeSet::new();
+    read_a.record_resolver_reads([b"resource:a".to_vec()]);
+    let mut read_b = ChangeSet::new();
+    read_b.record_resolver_reads([b"resource:b".to_vec()]);
+
+    state.apply_changeset_without_supply_validation(&write_a)?;
+
+    assert!(!state.validate_access_snapshot(&snapshot, &read_a.deterministic_access_set()));
+    assert!(state.validate_access_snapshot(&snapshot, &read_b.deterministic_access_set()));
+    Ok(())
+}
+
+#[test]
+fn malformed_persisted_access_version_fails_startup_closed() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    state.commit()?;
+    let store = state.store();
+    let mut key = ACCESS_VERSION_PREFIX.to_vec();
+    key.extend_from_slice(b"resource:corrupt");
+    store.apply_raw_changes(&[(key, vec![0x80])], &[])?;
+
+    let error = StateManager::try_new(store).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Malformed per-key state access version")
+    );
+    Ok(())
+}
+
+#[test]
+fn access_version_overflow_rejects_changeset_without_partial_state() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let key = b"resource:overflow".to_vec();
+    state.access_versions.insert(key.clone(), u64::MAX);
+    let root_before = state.try_compute_state_root()?;
+    let overlay_before = state.overlay.clone();
+    let mut changeset = ChangeSet::new();
+    changeset.record_move_write(key.clone(), Some(vec![7, 8, 9]));
+
+    let error = state.apply_changeset(&changeset).unwrap_err();
+
+    assert!(error.to_string().contains("State access version overflow"));
+    assert_eq!(state.try_compute_state_root()?, root_before);
+    assert_eq!(state.overlay, overlay_before);
+    assert_eq!(state.access_versions.get(&key), Some(&u64::MAX));
+    Ok(())
+}
+
+#[test]
 fn state_root_fails_closed_when_canonical_index_is_corrupt() -> Result<()> {
     let state = StateManager::new_in_memory();
     state

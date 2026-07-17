@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::p2p::{
-    CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg, DagVertexRequestMsg,
-    DagVertexResponseMsg, P2PMessage, PeerInfoMsg,
+    AuthenticatedP2PMessage, CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg,
+    DagVertexRequestMsg, DagVertexResponseMsg, P2PMessage, PeerInfoMsg,
 };
 use kanari_core::{BlockchainEngine, CheckpointSyncData, DagVertex};
 use kanari_types::transaction::SignedTransaction;
@@ -19,6 +19,8 @@ const REQUEST_RETRY_COOLDOWN_MS: u64 = 2_000;
 const DAG_VERTEX_REQUEST_RETRY_COOLDOWN_MS: u64 = 1_000;
 const MAX_CHECKPOINTS_PER_REQUEST: u64 = 200;
 const MAX_DAG_VERTICES_PER_RESPONSE: usize = 8;
+const MAX_TRACKED_PEERS: usize = 2_048;
+const MAX_PENDING_REQUEST_TRACKING: usize = 4_096;
 
 #[derive(Clone)]
 struct BufferedCheckpointCandidate {
@@ -164,7 +166,9 @@ impl SyncManager {
     }
 
     /// Process incoming P2P messages
-    pub async fn handle_message(&self, msg: P2PMessage) {
+    pub async fn handle_message(&self, received: AuthenticatedP2PMessage) {
+        let authenticated_peer_id = received.source.to_string();
+        let msg = received.message;
         match msg {
             P2PMessage::NewTransaction(tx_data) => {
                 info!("[P2P] Received NewTransaction");
@@ -179,6 +183,10 @@ impl SyncManager {
                 self.handle_new_dag_vertex(vertex_data).await;
             }
             P2PMessage::DagVertexRebroadcast(msg) => {
+                if msg.sender_peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected DAG rebroadcast with spoofed sender identity");
+                    return;
+                }
                 if msg.sender_peer_id == self.local_peer_id {
                     return;
                 }
@@ -189,6 +197,10 @@ impl SyncManager {
                 self.handle_new_dag_vertex(msg.vertex_data).await;
             }
             P2PMessage::DagVertexRequest(req) => {
+                if req.requester_peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected DAG request with spoofed requester identity");
+                    return;
+                }
                 if req.requester_peer_id == self.local_peer_id {
                     return;
                 }
@@ -199,6 +211,10 @@ impl SyncManager {
                 self.handle_dag_vertex_request(req).await;
             }
             P2PMessage::DagVertexResponse(resp) => {
+                if resp.responder_peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected DAG response with spoofed responder identity");
+                    return;
+                }
                 if resp.requester_peer_id != self.local_peer_id {
                     return;
                 }
@@ -215,6 +231,10 @@ impl SyncManager {
                     .await;
             }
             P2PMessage::TargetedCheckpointRequest(req) => {
+                if req.requester_peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected checkpoint request with spoofed requester identity");
+                    return;
+                }
                 if req.requester_peer_id == self.local_peer_id {
                     return;
                 }
@@ -238,6 +258,10 @@ impl SyncManager {
                 self.handle_checkpoint_response(checkpoint_data, None).await;
             }
             P2PMessage::TargetedCheckpointResponse(resp) => {
+                if resp.responder_peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected checkpoint response with spoofed responder identity");
+                    return;
+                }
                 if resp.requester_peer_id != self.local_peer_id {
                     return;
                 }
@@ -252,13 +276,18 @@ impl SyncManager {
                 .await;
             }
             P2PMessage::PeerInfo(peer_info) => {
+                if peer_info.peer_id != authenticated_peer_id {
+                    warn!("[P2P] Rejected PeerInfo with spoofed peer identity");
+                    return;
+                }
                 info!("[P2P] Received PeerInfo from {}", peer_info.peer_id);
                 self.handle_peer_info(peer_info).await;
             }
             P2PMessage::CompressedCheckpoint(_)
             | P2PMessage::CompressedDagVertex(_)
             | P2PMessage::CompressedCheckpointResponse(_)
-            | P2PMessage::CompressedTargetedCheckpointResponse(_) => {
+            | P2PMessage::CompressedTargetedCheckpointResponse(_)
+            | P2PMessage::Chunk(_) => {
                 warn!(
                     "[P2P] Received compressed message in sync manager; P2P event handling should decompress before forwarding"
                 );
@@ -553,9 +582,26 @@ impl SyncManager {
             .unwrap_or(0)
     }
 
+    fn record_peer_height(&self, peer_id: String, height: u64) {
+        let mut peers = self.peer_heights_guard();
+        if !peers.contains_key(&peer_id)
+            && peers.len() >= MAX_TRACKED_PEERS
+            && let Some(oldest) = peers.keys().next().cloned()
+        {
+            peers.remove(&oldest);
+        }
+        peers.insert(peer_id, height);
+    }
+
     fn mark_peer_divergent(&self, peer_info: &PeerInfoMsg) {
         {
             let mut divergent = self.divergent_peers_guard();
+            if !divergent.contains_key(&peer_info.peer_id)
+                && divergent.len() >= MAX_TRACKED_PEERS
+                && let Some(oldest) = divergent.keys().next().cloned()
+            {
+                divergent.remove(&oldest);
+            }
             divergent.insert(
                 peer_info.peer_id.clone(),
                 DivergentPeerInfo {
@@ -605,6 +651,11 @@ impl SyncManager {
                 false
             }
             _ => {
+                if pending.len() >= MAX_PENDING_REQUEST_TRACKING
+                    && let Some(oldest) = pending.keys().next().copied()
+                {
+                    pending.remove(&oldest);
+                }
                 pending.insert(sequence, now);
                 true
             }
@@ -620,6 +671,11 @@ impl SyncManager {
                 false
             }
             _ => {
+                if pending.len() >= MAX_PENDING_REQUEST_TRACKING
+                    && let Some(oldest) = pending.keys().next().copied()
+                {
+                    pending.remove(&oldest);
+                }
                 pending.insert(parent_round, now);
                 true
             }
@@ -1120,14 +1176,12 @@ impl SyncManager {
                 );
                 self.mark_peer_divergent(&peer_info);
             } else if peer_info.peer_id != self.local_peer_id {
-                self.peer_heights_guard()
-                    .insert(peer_info.peer_id.clone(), peer_info.height);
+                self.record_peer_height(peer_info.peer_id.clone(), peer_info.height);
             }
         } else if peer_info.peer_id != self.local_peer_id
             && !self.is_peer_divergent(&peer_info.peer_id)
         {
-            self.peer_heights_guard()
-                .insert(peer_info.peer_id.clone(), peer_info.height);
+            self.record_peer_height(peer_info.peer_id.clone(), peer_info.height);
         }
 
         if let Some(divergence) = self
@@ -1263,6 +1317,7 @@ mod tests {
 
     use super::*;
     use kanari_core::Checkpoint;
+    use libp2p::identity::Keypair;
 
     fn new_sync_manager() -> SyncManager {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
@@ -1279,6 +1334,33 @@ mod tests {
             latest_state_root: state_root.to_string(),
             total_transactions: 0,
         }
+    }
+
+    #[tokio::test]
+    async fn authenticated_source_rejects_spoofed_peer_info_identity() {
+        let sync = new_sync_manager();
+        let source = Keypair::generate_ed25519().public().to_peer_id();
+        let spoofed = PeerInfoMsg {
+            height: 10_000,
+            peer_id: Keypair::generate_ed25519()
+                .public()
+                .to_peer_id()
+                .to_string(),
+            timestamp: 1,
+            latest_checkpoint_hash: "spoofed".to_string(),
+            latest_state_root: "spoofed".to_string(),
+            total_transactions: 0,
+        };
+
+        sync.handle_message(AuthenticatedP2PMessage {
+            source,
+            message: P2PMessage::PeerInfo(spoofed),
+        })
+        .await;
+
+        assert!(sync.peer_heights_guard().is_empty());
+        assert!(sync.divergent_peers_guard().is_empty());
+        assert!(sync.pending_checkpoint_requests_guard().is_empty());
     }
 
     fn test_dag_vertex(round: u64, author: &str) -> DagVertex {
