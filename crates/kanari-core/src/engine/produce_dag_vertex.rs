@@ -35,7 +35,7 @@ use mysticeti_dag::{
     storage::Storage as MysticetiStorage,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -932,7 +932,12 @@ impl DagEngine {
             }
         }
 
-        let mut pending = Vec::with_capacity(checkpoint_vertices.len());
+        // Traverse breadth-first so every checkpoint root is preferred over old
+        // ancestry when the bounded transport budget is exhausted. Missing old
+        // parents do not weaken checkpoint validation: receivers buffer these
+        // vertices until their own Mysticeti store has the parent, and a remote
+        // checkpoint is never applied before the local DAG commits it.
+        let mut pending = VecDeque::with_capacity(checkpoint_vertices.len());
         for vertex_id in checkpoint_vertices {
             let vertex = recent.get(vertex_id).cloned().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -940,18 +945,19 @@ impl DagEngine {
                     hex::encode(vertex_id)
                 )
             })?;
-            pending.push(vertex);
+            pending.push_back(vertex);
         }
 
         let mut closure = BTreeMap::new();
-        while let Some(vertex) = pending.pop() {
+        let mut truncated = false;
+        while let Some(vertex) = pending.pop_front() {
             if closure.contains_key(&vertex.id) {
                 continue;
             }
-            anyhow::ensure!(
-                closure.len() < limit,
-                "Checkpoint DAG parent closure exceeds sync limit {limit}; use snapshot recovery"
-            );
+            if closure.len() >= limit {
+                truncated = true;
+                break;
+            }
             for (parent_author, parent_round, parent_id) in &vertex.parents {
                 // Mysticeti genesis references are implicit and are never sent as
                 // network blocks.
@@ -975,9 +981,15 @@ impl DagEngine {
                     "DAG parent author mismatch for {}",
                     hex::encode(parent_id)
                 );
-                pending.push(parent_vertex);
+                pending.push_back(parent_vertex);
             }
             closure.insert(vertex.id, vertex);
+        }
+        if truncated {
+            log::warn!(
+                "Checkpoint DAG parent closure exceeded sync limit {}; sending the newest bounded evidence and relying on the receiver's verified Mysticeti parent store",
+                limit
+            );
         }
 
         let mut vertices = closure.into_values().collect::<Vec<_>>();

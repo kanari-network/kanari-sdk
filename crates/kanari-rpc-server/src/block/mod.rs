@@ -10,11 +10,23 @@ use serde_json;
 
 const MAX_CANONICAL_SNAPSHOT_ENTRIES: usize = 1_000;
 const MAX_CANONICAL_COMPARE_ENTRIES: usize = 1_000;
+static EXPENSIVE_RPC_PERMIT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 fn expensive_diagnostics_enabled() -> bool {
     std::env::var("KANARI_ENABLE_EXPENSIVE_RPC")
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
         .unwrap_or(false)
+}
+
+fn try_acquire_expensive_rpc(
+    id: u64,
+) -> Result<tokio::sync::SemaphorePermit<'static>, Box<RpcResponse>> {
+    EXPENSIVE_RPC_PERMIT.try_acquire().map_err(|_| {
+        Box::new(invalid_params_response(
+            id,
+            "Another expensive diagnostic request is already running; retry later",
+        ))
+    })
 }
 
 fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, Box<RpcResponse>> {
@@ -113,6 +125,14 @@ pub async fn handle_get_smt_status(state: &RpcServerState, request: &RpcRequest)
             "SMT full audit is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
         );
     }
+    let _permit = if req.audit {
+        match try_acquire_expensive_rpc(request.id) {
+            Ok(permit) => Some(permit),
+            Err(response) => return *response,
+        }
+    } else {
+        None
+    };
 
     match state.engine.smt_status(req.audit) {
         Ok(status) => respond_with_serialize(request.id, status),
@@ -126,6 +146,17 @@ pub async fn handle_get_canonical_state_snapshot(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
+    if !expensive_diagnostics_enabled() {
+        return invalid_params_response(
+            request.id,
+            "Canonical state snapshot is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
+        );
+    }
+    let _permit = match try_acquire_expensive_rpc(request.id) {
+        Ok(permit) => permit,
+        Err(response) => return *response,
+    };
+
     let req = if request.params.is_null() || request.params == serde_json::json!([]) {
         GetCanonicalStateSnapshotRequest {
             limit: Some(MAX_CANONICAL_SNAPSHOT_ENTRIES),
@@ -170,6 +201,10 @@ pub async fn handle_compare_canonical_state_snapshot(
             "Canonical snapshot comparison is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
         );
     }
+    let _permit = match try_acquire_expensive_rpc(request.id) {
+        Ok(permit) => permit,
+        Err(response) => return *response,
+    };
     if req.entries.len() > MAX_CANONICAL_COMPARE_ENTRIES {
         return invalid_params_response(
             request.id,

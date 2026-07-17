@@ -45,8 +45,15 @@ Keep private key files out of git and do not reuse one private key across valida
 The PowerShell setup script generates consensus keys automatically when they are missing.
 
 ```powershell
-.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -RpcHost 127.0.0.1 -ResetSourceData -ResetReplicaData -ResetConsensusKeys -EnableExpensiveRpcOnSource
 ```
+
+`-EnableExpensiveRpcOnSource` enables full SMT audits and canonical-state
+comparison only on Node 1. Use it only when Node 1 is a trusted RPC endpoint;
+leave it disabled on public RPC nodes. To restart an existing cluster without
+resetting its databases, use `-AllowReuseData -EnableExpensiveRpcOnSource`.
+Exposing diagnostics on a non-loopback address additionally requires the
+explicit `-AllowRemoteExpensiveRpc` acknowledgement and a trusted firewall.
 
 By default it stores keys under:
 
@@ -57,7 +64,7 @@ By default it stores keys under:
 Start nodes in separate terminals:
 
 ```powershell
-.\start-node.ps1 -NodeId 1 -Network devnet -Authorities "0x1,0x2,0x3,0x4"
+.\start-node.ps1 -NodeId 1 -Network devnet -RpcHost 127.0.0.1 -Authorities "0x1,0x2,0x3,0x4" -EnableExpensiveRpc
 ```
 
 ```powershell
@@ -196,6 +203,9 @@ Then import it into fresh replica directories during setup:
 
 Import verifies the snapshot hash, genesis identity, checkpoint height, and
 state root before writing. It refuses to overwrite a non-empty data directory.
+Testnet and mainnet additionally require
+`-ExpectedSnapshotCheckpointHash <hash>` obtained through an independent
+trusted channel; a hash copied from the snapshot itself is not a trust anchor.
 
 ## Important Start Options
 
@@ -287,7 +297,7 @@ Use this flow before treating a branch as mainnet-ready. It exercises determinis
 ### 1. Start From a Clean 4-Node Devnet
 
 ```powershell
-.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -RpcHost 127.0.0.1 -ResetSourceData -ResetReplicaData -ResetConsensusKeys -EnableExpensiveRpcOnSource
 ```
 
 Start the four nodes with the commands from **Fast Local Setup**. Wait until all nodes report synced heights in the explorer or logs.

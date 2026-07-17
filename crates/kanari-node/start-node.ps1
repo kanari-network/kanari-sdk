@@ -15,6 +15,8 @@ param(
     [string]$GenesisPath = "",
     [string]$ConsensusPrivateKeyFile = "",
     [string]$ConsensusPublicKeys = "",
+    [switch]$EnableExpensiveRpc,
+    [switch]$AllowRemoteExpensiveRpc,
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys"
 )
 
@@ -30,6 +32,13 @@ $rpcConnectHost = Get-RpcConnectHost -RpcHost $RpcHost -LanIp $localIp
 $rpcUrl = Get-NodeRpcUrl -HostIp $rpcConnectHost -RpcPort $rpcPort
 $genesisPath = Get-GenesisManifestPath -Network $Network -GenesisPath $GenesisPath
 
+$rpcIsLoopback = $RpcHost -in @("127.0.0.1", "localhost", "::1")
+if ($EnableExpensiveRpc -and -not $rpcIsLoopback -and -not $AllowRemoteExpensiveRpc) {
+    Write-Host "Error: refusing to expose expensive RPC diagnostics on non-loopback host '$RpcHost'." -ForegroundColor Red
+    Write-Host "Use -RpcHost 127.0.0.1, or explicitly add -AllowRemoteExpensiveRpc behind a trusted firewall." -ForegroundColor Yellow
+    exit 1
+}
+
 if (-not (Test-Path $dataDir)) {
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 }
@@ -44,6 +53,7 @@ Write-Host 'Network:' $Network -ForegroundColor Yellow
 Write-Host 'Data Dir:' $dataDir -ForegroundColor Yellow
 Write-Host 'Genesis:' $genesisPath -ForegroundColor Yellow
 Write-Host "RPC URL:  $rpcUrl" -ForegroundColor Yellow
+Write-Host 'Expensive RPC diagnostics:' $EnableExpensiveRpc -ForegroundColor Yellow
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host ''
 
@@ -114,6 +124,10 @@ $nodeArgs = @(
 
 if ($Bootstrap -ne "") {
     $nodeArgs += @("--bootstrap", $Bootstrap)
+}
+
+if ($EnableExpensiveRpc) {
+    $env:KANARI_ENABLE_EXPENSIVE_RPC = "1"
 }
 
 & $exePath @nodeArgs

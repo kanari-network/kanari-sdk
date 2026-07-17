@@ -165,12 +165,38 @@ fn state_snapshot_round_trips_into_an_empty_data_dir() {
     let exported = source
         .export_state_snapshot(&snapshot_path, "devnet")
         .unwrap();
-    let imported =
-        BlockchainEngine::import_state_snapshot(&snapshot_path, &target_dir, "devnet").unwrap();
+    let imported = BlockchainEngine::import_state_snapshot(
+        &snapshot_path,
+        &target_dir,
+        "devnet",
+        &exported.checkpoint_hash,
+    )
+    .unwrap();
 
     assert_eq!(exported.checkpoint_height, imported.checkpoint_height);
     assert_eq!(exported.checkpoint_hash, imported.checkpoint_hash);
     assert_eq!(exported.state_root, imported.state_root);
+}
+
+#[test]
+fn state_snapshot_rejects_untrusted_checkpoint_hash_before_import() {
+    let source = BlockchainEngine::new_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot_path = directory.path().join("snapshot.json");
+    let target_dir = directory.path().join("node5");
+    source
+        .export_state_snapshot(&snapshot_path, "devnet")
+        .unwrap();
+
+    let error = BlockchainEngine::import_state_snapshot(
+        &snapshot_path,
+        &target_dir,
+        "devnet",
+        "0xdeadbeef",
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("externally trusted hash"));
+    assert!(!target_dir.exists());
 }
 
 #[test]
@@ -188,7 +214,8 @@ fn state_snapshot_rejects_tampered_entries_before_import() {
     std::fs::write(&snapshot_path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
 
     let error =
-        BlockchainEngine::import_state_snapshot(&snapshot_path, &target_dir, "devnet").unwrap_err();
+        BlockchainEngine::import_trusted_state_snapshot(&snapshot_path, &target_dir, "devnet")
+            .unwrap_err();
     assert!(error.to_string().contains("entries hash mismatch"));
 }
 

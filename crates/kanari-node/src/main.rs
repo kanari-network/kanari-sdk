@@ -146,6 +146,9 @@ enum Commands {
         snapshot: std::path::PathBuf,
         #[arg(long)]
         data_dir: std::path::PathBuf,
+        /// Checkpoint hash obtained from a trusted channel (required outside devnet)
+        #[arg(long)]
+        expected_checkpoint_hash: Option<String>,
     },
     /// Export encrypted full-validator recovery data (state, WAL, identity, keys, and genesis)
     ValidatorBackupExport {
@@ -458,12 +461,29 @@ fn main() -> Result<()> {
             network,
             snapshot,
             data_dir,
+            expected_checkpoint_hash,
         } => {
-            let imported = kanari_core::BlockchainEngine::import_state_snapshot(
-                &snapshot,
-                &data_dir,
-                network.as_str(),
-            )?;
+            let imported = match expected_checkpoint_hash.as_deref() {
+                Some(expected) => kanari_core::BlockchainEngine::import_state_snapshot(
+                    &snapshot,
+                    &data_dir,
+                    network.as_str(),
+                    expected,
+                )?,
+                None if matches!(&network, NetworkMode::Devnet) => {
+                    tracing::warn!(
+                        "Importing devnet snapshot without an externally pinned checkpoint hash"
+                    );
+                    kanari_core::BlockchainEngine::import_trusted_state_snapshot(
+                        &snapshot,
+                        &data_dir,
+                        network.as_str(),
+                    )?
+                }
+                None => anyhow::bail!(
+                    "--expected-checkpoint-hash is required for testnet/mainnet snapshot import"
+                ),
+            };
             write_cli_line(format_args!(
                 "Snapshot imported into {} at height {} (state root {})",
                 data_dir.display(),

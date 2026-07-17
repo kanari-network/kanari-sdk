@@ -148,19 +148,24 @@ impl BlockchainEngine {
         }
 
         {
-            let mut state = self.state_write();
-            *state = new_state;
+            // Keep the previous live state installed until the staged state and
+            // durable recovery marker have committed successfully. A RocksDB
+            // failure must not leave RPC/execution observing a new in-memory
+            // state paired with old checkpoint metadata.
+            let mut live_state = self.state_write();
+            let mut committed_state = new_state;
             if self.persistent_store.is_some() {
                 let marker = bcs::to_bytes(&checkpoint)
                     .context("Failed to serialize durable checkpoint commit marker")?;
-                state
+                committed_state
                     .commit_with_raw_update(Self::pending_checkpoint_commit_key().to_vec(), marker)
                     .context("Failed to commit state and checkpoint marker to RocksDB")?;
             } else {
-                state
+                committed_state
                     .commit()
                     .context("Failed to commit state to RocksDB")?;
             }
+            *live_state = committed_state;
         }
 
         for runtime in &self.runtime_pool {

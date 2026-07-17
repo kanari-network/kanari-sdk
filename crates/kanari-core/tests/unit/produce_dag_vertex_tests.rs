@@ -433,6 +433,17 @@ fn test_distinct_authorities_exchange_native_blocks_and_commit_same_dag() {
         })
         .collect::<Vec<_>>();
     assert!(checkpoints.windows(2).all(|pair| pair[0] == pair[1]));
+
+    // A bounded live broadcast must not fail merely because older parent
+    // ancestry exceeds its transport budget. Local Mysticeti verification still
+    // requires omitted parents before any received checkpoint can commit.
+    for engine in &engines {
+        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let roots = chain.latest_checkpoint().vertices.clone();
+        drop(chain);
+        let evidence = engine.dag_vertices_for_checkpoint_sync(&roots, 1).unwrap();
+        assert!(evidence.len() <= 1);
+    }
 }
 
 fn build_test_dag_engine(

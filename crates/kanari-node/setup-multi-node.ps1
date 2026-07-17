@@ -14,8 +14,11 @@ param(
     [switch]$AllowReuseData,
     [string]$GenesisPath = "",
     [string]$SnapshotPath = "",
+    [string]$ExpectedSnapshotCheckpointHash = "",
     [switch]$DisableFailFast,
     [switch]$SkipHealthCheck,
+    [switch]$EnableExpensiveRpcOnSource,
+    [switch]$AllowRemoteExpensiveRpc,
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys",
     [switch]$ResetConsensusKeys
 )
@@ -74,11 +77,19 @@ if ($NodeCount -lt 1) {
 $failFastEnabled = -not $DisableFailFast
 $env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH = if ($failFastEnabled) { "true" } else { "false" }
 
+$rpcIsLoopback = $RpcHost -in @("127.0.0.1", "localhost", "::1")
+if ($EnableExpensiveRpcOnSource -and -not $rpcIsLoopback -and -not $AllowRemoteExpensiveRpc) {
+    Write-Host "Refusing to expose expensive RPC diagnostics on non-loopback host '$RpcHost'." -ForegroundColor Red
+    Write-Host "Use -RpcHost 127.0.0.1, or explicitly add -AllowRemoteExpensiveRpc behind a trusted firewall." -ForegroundColor Yellow
+    exit 1
+}
+
 Write-Host "Node count: $NodeCount" -ForegroundColor Cyan
 Write-Host "Network: $Network" -ForegroundColor Cyan
 Write-Host "Source node data dir (node1): $SourceNodeDataDir" -ForegroundColor Cyan
 Write-Host "Replica base data dir (node2..N): $ReplicaBaseDataDir" -ForegroundColor Cyan
 Write-Host "RPC bind host: $RpcHost" -ForegroundColor Cyan
+Write-Host "Expensive diagnostics on node1: $EnableExpensiveRpcOnSource" -ForegroundColor Cyan
 Write-Host "Supply fail-fast: $($env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH)" -ForegroundColor Cyan
 Write-Host "Allow reuse existing data: $AllowReuseData" -ForegroundColor Cyan
 Write-Host "Consensus key dir: $ConsensusKeyDir" -ForegroundColor Cyan
@@ -208,6 +219,10 @@ if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
         Write-Host "State snapshot not found: $SnapshotPath" -ForegroundColor Red
         exit 1
     }
+    if ($Network -ne "devnet" -and [string]::IsNullOrWhiteSpace($ExpectedSnapshotCheckpointHash)) {
+        Write-Host "ExpectedSnapshotCheckpointHash is required for $Network snapshot import." -ForegroundColor Red
+        exit 1
+    }
 
     for ($i = 2; $i -le $NodeCount; $i++) {
         $nodeDir = Join-Path $ReplicaBaseDataDir "node$i"
@@ -218,7 +233,11 @@ if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
         }
         New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
         Write-Host "Importing snapshot into Node $i..." -ForegroundColor Cyan
-        & $exePath snapshot-import --network $Network --snapshot (Resolve-Path $SnapshotPath) --data-dir $nodeDir
+        $snapshotArgs = @("snapshot-import", "--network", $Network, "--snapshot", (Resolve-Path $SnapshotPath), "--data-dir", $nodeDir)
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSnapshotCheckpointHash)) {
+            $snapshotArgs += @("--expected-checkpoint-hash", $ExpectedSnapshotCheckpointHash)
+        }
+        & $exePath @snapshotArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Failed to import snapshot into Node $i." -ForegroundColor Red
             exit $LASTEXITCODE
@@ -251,6 +270,12 @@ for ($i = 1; $i -le $NodeCount; $i++) {
     if ($i -eq 1) {
         $dataDir = $SourceNodeDataDir
         $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`""
+        if ($EnableExpensiveRpcOnSource) {
+            $argString += " -EnableExpensiveRpc"
+            if ($AllowRemoteExpensiveRpc) {
+                $argString += " -AllowRemoteExpensiveRpc"
+            }
+        }
     } else {
         $dataDir = Get-NodeDataDir -NodeId $i -DataDir "" -BaseDataDir $ReplicaBaseDataDir
         $bootstrapAddr = "/ip4/$bootstrapHost/tcp/$BasePeerPort"

@@ -353,6 +353,33 @@ impl BlockchainEngine {
         snapshot_path: &std::path::Path,
         target_dir: &std::path::Path,
         network: &str,
+        expected_checkpoint_hash: &str,
+    ) -> Result<StateSnapshot> {
+        Self::import_state_snapshot_inner(
+            snapshot_path,
+            target_dir,
+            network,
+            Some(expected_checkpoint_hash),
+        )
+    }
+
+    /// Import a snapshot whose transport authenticity was already established
+    /// by an authenticated container (for example validator backup AEAD) or a
+    /// local trusted workflow. Public snapshot import must use
+    /// `import_state_snapshot` and pin the checkpoint hash out of band.
+    pub fn import_trusted_state_snapshot(
+        snapshot_path: &std::path::Path,
+        target_dir: &std::path::Path,
+        network: &str,
+    ) -> Result<StateSnapshot> {
+        Self::import_state_snapshot_inner(snapshot_path, target_dir, network, None)
+    }
+
+    fn import_state_snapshot_inner(
+        snapshot_path: &std::path::Path,
+        target_dir: &std::path::Path,
+        network: &str,
+        expected_checkpoint_hash: Option<&str>,
     ) -> Result<StateSnapshot> {
         let snapshot = Self::read_state_snapshot(snapshot_path)?;
         ensure!(
@@ -366,6 +393,13 @@ impl BlockchainEngine {
             snapshot.network,
             network
         );
+        if let Some(expected) = expected_checkpoint_hash {
+            let normalize = |hash: &str| hash.trim().trim_start_matches("0x").to_ascii_lowercase();
+            ensure!(
+                normalize(&snapshot.checkpoint_hash) == normalize(expected),
+                "Snapshot checkpoint hash does not match the externally trusted hash"
+            );
+        }
         let verifier = Self::new_in_memory()?;
         verifier.validate_genesis_manifest(&snapshot.genesis, network)?;
         ensure!(

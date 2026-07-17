@@ -636,22 +636,26 @@ mod tests {
         assert!(hex_ends_with(&object["id"], "aaa1"));
         assert_eq!(object["version"], 1);
 
-        let snapshot = rpc_call(
+        let snapshot = rpc_call_response(
             app.clone(),
             methods::GET_CANONICAL_STATE_SNAPSHOT,
             serde_json::json!({}),
             70,
         )
         .await;
-        assert!(snapshot["height"].as_u64().is_some());
-        assert!(snapshot["state_root"].as_str().is_some());
-        assert!(snapshot["entries"].as_array().is_some());
+        assert_eq!(snapshot["error"]["code"], -32602);
+        assert!(
+            snapshot["error"]["message"]
+                .as_str()
+                .invariant("disabled snapshot error")
+                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
+        );
 
         let diff = rpc_call_response(
             app.clone(),
             methods::COMPARE_CANONICAL_STATE_SNAPSHOT,
             serde_json::json!({
-                "entries": snapshot["entries"].clone()
+                "entries": []
             }),
             71,
         )
