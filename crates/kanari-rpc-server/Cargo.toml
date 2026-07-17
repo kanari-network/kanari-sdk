@@ -30,7 +30,7 @@ move-binary-format = { workspace = true }
 move-core-types = { workspace = true }
 bcs = { workspace = true }
 rand = { workspace = true }
-tower = { version = "0.5.3", features = ["limit", "util"] }
+tower = { workspace = true }
 
 [dev-dependencies]
 kanari-crypto.workspace = true
