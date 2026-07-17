@@ -917,6 +917,10 @@ fn batch_submit_rejects_stale_object_version() {
     assert_eq!(checkpoint.transaction_effects.len(), 1);
     assert_ne!(checkpoint.transaction_effects[0].status, "success");
     assert!(
+        checkpoint.transaction_effects[0].gas_used > 0,
+        "committed pre-execution failures must charge deterministic base gas"
+    );
+    assert!(
         checkpoint
             .transactions
             .iter()

@@ -25,6 +25,28 @@ fn extract_module_functions(bytecode: &[u8]) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn extract_module_dependencies(bytecode: &[u8]) -> Vec<String> {
+    let mut dependencies = CompiledModule::deserialize_with_defaults(bytecode)
+        .ok()
+        .map(|module| {
+            module
+                .immediate_dependencies()
+                .into_iter()
+                .map(|dependency| {
+                    format!(
+                        "{}::{}",
+                        dependency.address().to_hex_literal(),
+                        dependency.name().as_str()
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    dependencies.sort_unstable();
+    dependencies.dedup();
+    dependencies
+}
+
 fn build_object_info(
     id: String,
     obj: kanari_move_runtime_v1::changeset::CreatedObject,
@@ -66,7 +88,7 @@ pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> 
                 name: params.name,
                 bytecode_hash: hex::encode(&blake3::hash(&bytecode).as_bytes()[..]),
                 size: bytecode.len(),
-                dependencies: vec![], // TODO: Extract dependencies from bytecode
+                dependencies: extract_module_dependencies(&bytecode),
                 function_count: functions.len(),
                 functions,
             };
@@ -88,6 +110,10 @@ pub async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -
                 .as_deref()
                 .map(extract_module_functions)
                 .unwrap_or_default();
+            let dependencies = bytecode_opt
+                .as_deref()
+                .map(extract_module_dependencies)
+                .unwrap_or_default();
             ModuleInfo {
                 address: address.clone(),
                 name: name.clone(),
@@ -96,7 +122,7 @@ pub async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -
                     .map(|b| hex::encode(&blake3::hash(b).as_bytes()[..]))
                     .unwrap_or_else(|| "unknown".to_string()),
                 size: bytecode_opt.as_ref().map(|b| b.len()).unwrap_or(0),
-                dependencies: vec![],
+                dependencies,
                 function_count: functions.len(),
                 functions,
             }

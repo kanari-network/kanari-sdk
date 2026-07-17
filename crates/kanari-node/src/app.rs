@@ -18,6 +18,9 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
 use crate::NetworkMode;
 use crate::indexer::NodeIndexer;
 use crate::p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
@@ -933,8 +936,6 @@ pub async fn run_node(
 
 #[cfg(test)]
 mod security_tests {
-    use std::sync::Mutex;
-
     use kanari_core::BlockchainEngine;
 
     use super::{
@@ -942,11 +943,11 @@ mod security_tests {
     };
     use crate::p2p::P2PMessage;
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
     #[test]
     fn encrypted_p2p_identity_is_stable_across_restart() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = super::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let temp = tempfile::tempdir().unwrap();
         unsafe {
             std::env::set_var(
@@ -968,7 +969,9 @@ mod security_tests {
 
     #[test]
     fn mainnet_requires_identity_encryption_password() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = super::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let temp = tempfile::tempdir().unwrap();
         unsafe {
             std::env::remove_var("KANARI_NODE_IDENTITY_PASSWORD");
@@ -982,7 +985,9 @@ mod security_tests {
 
     #[test]
     fn mainnet_rejects_plaintext_consensus_key_file() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = super::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let private_key = temp.path().join("private.key");
         std::fs::write(&private_key, "11".repeat(32)).unwrap();

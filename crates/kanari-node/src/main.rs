@@ -586,11 +586,7 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::{encrypt_existing_consensus_key, validate_start_authority_config};
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn start_requires_both_authority_fields() {
@@ -617,7 +613,9 @@ mod tests {
 
     #[test]
     fn existing_consensus_seed_encrypts_without_key_rotation() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::app::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let input = temp.path().join("private.hex");
         let output = temp.path().join("private.key");

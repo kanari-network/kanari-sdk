@@ -20,6 +20,26 @@ use kanari_types::transaction::SignedTransaction;
 use std::{sync::Arc, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
+
+// VM-backed RPCs are bounded separately from ordinary reads. The outer router
+// limit protects connections, while this permit prevents a caller from
+// occupying all executor workers with verification/execution work at once.
+static VM_RPC_PERMIT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+
+fn is_vm_heavy_rpc(method: &str) -> bool {
+    matches!(
+        method,
+        methods::VERIFY_MODULE
+            | methods::BUILD_PUBLISH_MODULE
+            | methods::PUBLISH_MODULE
+            | methods::BUILD_PUBLISH_PACKAGE
+            | methods::PUBLISH_PACKAGE
+            | methods::BUILD_CALL_FUNCTION
+            | methods::BUILD_TOKEN_TRANSFER
+            | methods::CALL_FUNCTION
+            | methods::VIEW_FUNCTION
+    )
+}
 use tracing::info;
 
 use crate::{
@@ -184,6 +204,23 @@ async fn handle_rpc(
     Json(request): Json<RpcRequest>,
 ) -> impl IntoResponse {
     info!("RPC request: method={}, id={}", request.method, request.id);
+
+    let _vm_permit = if is_vm_heavy_rpc(&request.method) {
+        match VM_RPC_PERMIT.try_acquire() {
+            Ok(permit) => Some(permit),
+            Err(_) => {
+                return (
+                    StatusCode::OK,
+                    Json(invalid_params_response(
+                        request.id,
+                        "VM RPC capacity is temporarily exhausted; retry later",
+                    )),
+                );
+            }
+        }
+    } else {
+        None
+    };
 
     let response = match request.method.as_str() {
         // Account & Balance

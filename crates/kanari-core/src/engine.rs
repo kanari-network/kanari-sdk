@@ -1444,10 +1444,21 @@ impl BlockchainEngine {
                     }
                     Err(error) => {
                         log::warn!("Serial execution failed: {error}");
-                        transaction_effects.push(Self::failed_transaction_effects(
-                            &signed_tx,
+                        let failed = self.failed_changeset_for_error(
+                            &signed_tx.transaction,
+                            state_arc,
                             error.to_string(),
-                        ));
+                        )?;
+                        let mut state_write = state_arc
+                            .write()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if let Err(apply_error) = state_write.apply_changeset(&failed) {
+                            return Err(apply_error)
+                                .context("Failed to apply deterministic failure gas changeset");
+                        } else {
+                            transaction_effects
+                                .push(failed.effects(signed_tx.transaction.gas_payment()));
+                        }
                         failed_count += 1;
                         continue;
                     }
@@ -1478,12 +1489,7 @@ impl BlockchainEngine {
                         });
                     }
                     Err(error) => {
-                        log::warn!("apply_changeset failed during serial execution: {error}");
-                        transaction_effects.push(Self::failed_transaction_effects(
-                            &signed_tx,
-                            error.to_string(),
-                        ));
-                        failed_count += 1;
+                        return Err(error).context("Failed to apply serial transaction changeset");
                     }
                 }
             }
@@ -1638,10 +1644,21 @@ impl BlockchainEngine {
                         });
                     }
                     Err(error) => {
-                        transaction_effects.push(Self::failed_transaction_effects(
-                            signed_tx,
+                        let failed = self.failed_changeset_for_error(
+                            &signed_tx.transaction,
+                            state_arc,
                             error.to_string(),
-                        ));
+                        )?;
+                        let mut state_write = state_arc
+                            .write()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if let Err(apply_error) = state_write.apply_changeset(&failed) {
+                            return Err(apply_error)
+                                .context("Failed to apply deterministic failure gas changeset");
+                        } else {
+                            transaction_effects
+                                .push(failed.effects(signed_tx.transaction.gas_payment()));
+                        }
                         failed_count += 1;
                         continue;
                     }
@@ -1664,11 +1681,7 @@ impl BlockchainEngine {
                         });
                     }
                     Err(error) => {
-                        transaction_effects.push(Self::failed_transaction_effects(
-                            signed_tx,
-                            error.to_string(),
-                        ));
-                        failed_count += 1;
+                        return Err(error).context("Failed to apply serial retry changeset");
                     }
                 }
             }
@@ -1677,35 +1690,50 @@ impl BlockchainEngine {
         Ok((executed_count, failed_count, transaction_effects))
     }
 
-    fn failed_transaction_effects(
-        signed_tx: &SignedTransaction,
+    /// Build the canonical failure result for errors that happen before the VM
+    /// can return a `ChangeSet` (for example a stale object reference). Such a
+    /// transaction is still ordered by Mysticeti and must pay its deterministic
+    /// admission/base gas; otherwise an attacker can commit unlimited signed,
+    /// guaranteed-to-fail transactions at zero cost.
+    fn failed_changeset_for_error(
+        &self,
+        tx: &Transaction,
+        state_arc: &Arc<RwLock<StateManager>>,
         error_message: String,
-    ) -> TransactionEffects {
-        TransactionEffects {
-            status: "failed".to_string(),
-            gas_used: 0,
-            gas_payment: signed_tx.transaction.gas_payment(),
-            input_objects: signed_tx
-                .transaction
-                .object_inputs()
-                .into_iter()
-                .map(|input| input.object_ref)
-                .collect(),
-            shared_inputs: Vec::new(),
-            immutable_inputs: Vec::new(),
-            gas_object_refs: signed_tx
-                .transaction
-                .gas_payment()
-                .map(|payment| payment.payment_objects)
-                .unwrap_or_default(),
-            object_changes: Vec::new(),
-            created: Vec::new(),
-            mutated: Vec::new(),
-            deleted: Vec::new(),
-            transferred: Vec::new(),
-            causal_edges: Vec::new(),
-            error_message: Some(error_message),
-        }
+    ) -> Result<ChangeSet> {
+        let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
+        let gas_op = match tx {
+            Transaction::PublishModule { module_bytes, .. } => GasOperation::PublishModule {
+                module_size: module_bytes.len(),
+            },
+            Transaction::PublishPackage { modules, .. } => GasOperation::PublishModule {
+                module_size: modules.iter().map(|module| module.module_bytes.len()).sum(),
+            },
+            Transaction::ExecuteFunction { .. } => {
+                if tx.native_call().is_some() {
+                    GasOperation::Transfer
+                } else {
+                    GasOperation::ExecuteFunction { complexity: 1 }
+                }
+            }
+        };
+        let base_units = gas_op.gas_units().min(tx.gas_limit());
+        let requested_cost = base_units
+            .checked_mul(tx.gas_price())
+            .context("Failed to calculate failure gas cost")?;
+
+        let balance = {
+            let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
+            state.resolve_owner_native_balance(sender_addr).unwrap_or(0)
+        };
+        let gas_cost = requested_cost.min(balance);
+        let mut changeset = ChangeSet::new();
+        changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
+        changeset.mark_failed(error_message);
+        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, base_units)?;
+        let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
+        Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+        Ok(changeset)
     }
 
     pub(crate) fn checkpoint_root_matches(

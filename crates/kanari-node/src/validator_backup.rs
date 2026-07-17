@@ -228,12 +228,11 @@ pub fn import_validator_backup(
     let snapshot_path = temp_dir.path().join("state-snapshot.json");
     fs::write(&snapshot_path, &payload.state_snapshot)?;
     let snapshot: StateSnapshot = serde_json::from_slice(&payload.state_snapshot)?;
-    let imported =
-        BlockchainEngine::import_trusted_state_snapshot(
-            &snapshot_path,
-            data_dir,
-            expected_network,
-        )?;
+    let imported = BlockchainEngine::import_trusted_state_snapshot(
+        &snapshot_path,
+        data_dir,
+        expected_network,
+    )?;
 
     for (name, bytes) in &payload.files {
         if let Some(wal_name) = name.strip_prefix("wal/") {
