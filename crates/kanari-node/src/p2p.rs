@@ -29,15 +29,14 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
+use crate::config::NodeRuntimeConfig;
+
 const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
 const MAX_DECOMPRESSED_PAYLOAD_SIZE: usize = 32 * 1024 * 1024;
 const MAX_GOSSIP_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 const P2P_CHUNK_SIZE: usize = 512 * 1024;
 const MAX_CHUNKED_PAYLOAD_SIZE: usize = 32 * 1024 * 1024;
 const MAX_CHUNKS_PER_PAYLOAD: usize = 64;
-const MAX_INFLIGHT_CHUNKED_PAYLOADS: usize = 4;
-const MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER: usize = 2;
-const MAX_CONCURRENT_DECOMPRESSIONS: usize = 4;
 const CHUNK_TTL: Duration = Duration::from_secs(30);
 
 /// P2P message types
@@ -600,7 +599,7 @@ impl P2PEventHandler {
             message_forwarding_closed: false,
             chunk_assemblies: HashMap::new(),
             decompression_permits: std::sync::Arc::new(Semaphore::new(
-                MAX_CONCURRENT_DECOMPRESSIONS,
+                NodeRuntimeConfig::p2p_max_concurrent_decompressions(),
             )),
         }
     }
@@ -893,19 +892,20 @@ impl P2PEventHandler {
             return None;
         }
         let key = (source, chunk.transfer_id);
-        if !self.chunk_assemblies.contains_key(&key)
-            && self.chunk_assemblies.len() >= MAX_INFLIGHT_CHUNKED_PAYLOADS
+        let max_inflight = NodeRuntimeConfig::p2p_max_inflight_chunked_payloads();
+        if !self.chunk_assemblies.contains_key(&key) && self.chunk_assemblies.len() >= max_inflight
         {
             warn!("[P2P] Chunk assembly limit reached; dropping new transfer");
             return None;
         }
+        let max_inflight_per_peer = NodeRuntimeConfig::p2p_max_inflight_chunked_payloads_per_peer();
         if !self.chunk_assemblies.contains_key(&key)
             && self
                 .chunk_assemblies
                 .keys()
                 .filter(|(peer, _)| peer == &source)
                 .count()
-                >= MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER
+                >= max_inflight_per_peer
         {
             warn!("[P2P] Per-peer chunk assembly limit reached; dropping new transfer");
             return None;
@@ -1172,133 +1172,5 @@ impl P2PEventHandler {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{io::Write, time::Duration};
-
-    use flate2::{Compression, write::GzEncoder};
-    use libp2p::{PeerId, identity::Keypair};
-    use proptest::prelude::*;
-    use tokio::sync::mpsc;
-
-    use super::{
-        MAX_DECOMPRESSED_PAYLOAD_SIZE, P2PEventHandler, P2PMessage, P2PMessageChunk, P2PNetwork,
-        P2PTopicKind, decompress_payload,
-    };
-
-    fn test_handler() -> P2PEventHandler {
-        let network = P2PNetwork::new(Keypair::generate_ed25519(), 0, false).unwrap();
-        let (message_tx, _message_rx) = mpsc::channel(1);
-        P2PEventHandler::new(network, message_tx)
-    }
-
-    fn chunked_message(message: &P2PMessage) -> (PeerId, Vec<P2PMessageChunk>) {
-        let encoded = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
-        let digest = kanari_crypto::hash_data_blake3(&encoded);
-        let mut transfer_id = [0u8; 32];
-        transfer_id.copy_from_slice(&digest);
-        let split = encoded.len().div_ceil(2);
-        let chunks = encoded
-            .chunks(split)
-            .enumerate()
-            .map(|(index, data)| P2PMessageChunk {
-                transfer_id,
-                topic: P2PTopicKind::Checkpoint,
-                index: index as u16,
-                total: encoded.len().div_ceil(split) as u16,
-                data: data.to_vec(),
-            })
-            .collect();
-        (PeerId::random(), chunks)
-    }
-
-    #[tokio::test]
-    async fn compressed_payload_is_decompressed_off_loop_and_preserves_source() {
-        let network = P2PNetwork::new(Keypair::generate_ed25519(), 0, false).unwrap();
-        let (message_tx, mut message_rx) = mpsc::channel(1);
-        let mut handler = P2PEventHandler::new(network, message_tx);
-        let source = PeerId::random();
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(b"checkpoint-data").unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        handler.process_decoded_message(source, P2PMessage::CompressedCheckpoint(compressed));
-
-        let received = tokio::time::timeout(Duration::from_secs(2), message_rx.recv())
-            .await
-            .expect("decompression timeout")
-            .expect("decompressed message");
-        assert_eq!(received.source, source);
-        assert!(matches!(
-            received.message,
-            P2PMessage::NewCheckpoint(ref data) if data == "checkpoint-data"
-        ));
-    }
-
-    #[tokio::test]
-    async fn chunk_reassembly_accepts_out_of_order_payload_once() {
-        let mut handler = test_handler();
-        let message = P2PMessage::CheckpointRequest(42, 7);
-        let (peer, mut chunks) = chunked_message(&message);
-        chunks.reverse();
-
-        assert!(handler.accept_chunk(peer, chunks[0].clone()).is_none());
-        let result = handler
-            .accept_chunk(peer, chunks[1].clone())
-            .expect("complete valid payload");
-        assert!(matches!(result, P2PMessage::CheckpointRequest(42, 7)));
-        assert!(handler.chunk_assemblies.is_empty());
-    }
-
-    #[tokio::test]
-    async fn chunk_reassembly_rejects_mixed_topics_and_clears_memory() {
-        let mut handler = test_handler();
-        let message = P2PMessage::CheckpointRequest(42, 7);
-        let (peer, mut chunks) = chunked_message(&message);
-
-        assert!(handler.accept_chunk(peer, chunks[0].clone()).is_none());
-        chunks[1].topic = P2PTopicKind::Transaction;
-        assert!(handler.accept_chunk(peer, chunks[1].clone()).is_none());
-        assert!(handler.chunk_assemblies.is_empty());
-    }
-
-    #[test]
-    fn decompression_bomb_is_rejected_at_configured_limit() {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
-        encoder
-            .write_all(&vec![b'x'; MAX_DECOMPRESSED_PAYLOAD_SIZE + 1])
-            .unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        let error = decompress_payload(compressed).unwrap_err();
-        assert!(error.to_string().contains("exceeds"));
-    }
-
-    proptest! {
-        #[test]
-        fn arbitrary_compressed_input_never_panics(input in prop::collection::vec(any::<u8>(), 0..65_536)) {
-            let _ = decompress_payload(input);
-        }
-    }
-
-    /// Explicitly opt-in because this exercises 2k attacker-controlled payloads.
-    /// It is intended for the adversarial soak runner, not ordinary developer CI.
-    #[test]
-    #[ignore = "long-running P2P decompression/DoS soak test"]
-    fn long_run_malformed_compressed_payloads_are_bounded() {
-        use proptest::test_runner::{Config, TestRunner};
-
-        let mut runner = TestRunner::new(Config {
-            cases: 2_048,
-            max_shrink_iters: 0,
-            ..Config::default()
-        });
-        let strategy = prop::collection::vec(any::<u8>(), 0..16_384);
-
-        runner
-            .run(&strategy, |input| {
-                let _ = decompress_payload(input);
-                Ok(())
-            })
-            .expect("untrusted compressed payload must never panic");
-    }
-}
+#[path = "../tests/unit/p2p_tests.rs"]
+mod tests;

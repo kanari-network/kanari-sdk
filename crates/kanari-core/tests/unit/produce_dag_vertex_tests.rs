@@ -845,6 +845,53 @@ fn test_latest_own_vertices_returns_tail_not_genesis_rounds() {
 }
 
 #[test]
+fn test_vertices_for_sync_scans_retained_store_not_fixed_round_window() {
+    let (_engine, dag_engine, _) = build_test_dag_engine(vec!["auth1".to_string()], "auth1");
+
+    let old_vertex = dag_engine
+        .produce_vertex()
+        .unwrap()
+        .vertex
+        .expect("single-authority test node should produce a vertex");
+
+    for _ in 0..320 {
+        dag_engine.produce_vertex().unwrap();
+    }
+
+    let vertices = dag_engine.vertices_for_sync(usize::MAX).unwrap();
+    assert!(
+        vertices.iter().any(|vertex| vertex.id == old_vertex.id),
+        "retained vertices must not disappear behind a fixed round window"
+    );
+
+    let none = dag_engine.vertices_for_sync(0).unwrap();
+    assert!(none.is_empty());
+}
+
+#[test]
+fn test_checkpoint_sync_finds_roots_across_retained_mysticeti_store() {
+    let (_engine, dag_engine, _) = build_test_dag_engine(vec!["auth1".to_string()], "auth1");
+
+    let old_root = dag_engine
+        .produce_vertex()
+        .unwrap()
+        .vertex
+        .expect("single-authority test node should produce a vertex")
+        .id;
+
+    for _ in 0..320 {
+        dag_engine.produce_vertex().unwrap();
+    }
+
+    let evidence = dag_engine
+        .checkpoint_vertices_for_sync(&[old_root], 1)
+        .expect("checkpoint root still retained in Mysticeti should be servable");
+
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].id, old_root);
+}
+
+#[test]
 fn test_produce_vertex_burst_drains_conflicts_while_preserving_independent_throughput() {
     let mut engine = BlockchainEngine::new_in_memory().unwrap();
     let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];

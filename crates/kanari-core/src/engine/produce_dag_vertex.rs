@@ -875,15 +875,15 @@ impl DagEngine {
     }
 
     pub fn vertices_for_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
-        const MAX_SYNC_ROUND_WINDOW: u64 = 256;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
         let state = lock_read(&self.state);
         let reader = state.mysticeti.core.block_reader();
         let highest_round = reader.highest_round();
-        let first_round = highest_round
-            .saturating_sub(MAX_SYNC_ROUND_WINDOW.saturating_sub(1))
-            .max(1);
         let mut vertices = Vec::new();
-        for round in first_round..=highest_round {
+        for round in 1..=highest_round {
             for block in reader.get_blocks_by_round(round) {
                 vertices.push(state.mysticeti.block_to_vertex(&block).with_context(|| {
                     format!("Failed to convert Mysticeti block from round {round} for DAG sync")
@@ -903,15 +903,14 @@ impl DagEngine {
     }
 
     /// Return the exact checkpoint vertices plus every available non-genesis
-    /// parent required to inject them into Mysticeti. A bounded recent window
-    /// locates checkpoint roots; parents are then resolved by their explicit
-    /// round/id references rather than silently omitted.
+    /// parent required to inject them into Mysticeti. Roots are resolved from
+    /// the retained Mysticeti block store; parents are then resolved by their
+    /// explicit round/id references rather than silently omitted.
     pub fn checkpoint_vertices_for_sync(
         &self,
         checkpoint_vertices: &[[u8; 32]],
         limit: usize,
     ) -> Result<Vec<DagVertex>> {
-        const ROOT_LOOKUP_ROUND_WINDOW: u64 = 256;
         if checkpoint_vertices.is_empty() {
             return Ok(Vec::new());
         }
@@ -920,12 +919,9 @@ impl DagEngine {
         let state = lock_read(&self.state);
         let reader = state.mysticeti.core.block_reader();
         let highest_round = reader.highest_round();
-        let first_round = highest_round
-            .saturating_sub(ROOT_LOOKUP_ROUND_WINDOW.saturating_sub(1))
-            .max(1);
 
         let mut recent = BTreeMap::new();
-        for round in first_round..=highest_round {
+        for round in 1..=highest_round {
             for block in reader.get_blocks_by_round(round) {
                 let vertex = state.mysticeti.block_to_vertex(&block)?;
                 recent.insert(vertex.id, vertex);
@@ -941,8 +937,9 @@ impl DagEngine {
         for vertex_id in checkpoint_vertices {
             let vertex = recent.get(vertex_id).cloned().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Checkpoint DAG vertex {} is outside the bounded root lookup window; use snapshot recovery",
-                    hex::encode(vertex_id)
+                    "Checkpoint DAG vertex {} is missing from retained Mysticeti block store (highest_round={}); use snapshot recovery",
+                    hex::encode(vertex_id),
+                    highest_round
                 )
             })?;
             pending.push_back(vertex);
