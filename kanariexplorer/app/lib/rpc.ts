@@ -42,6 +42,7 @@ export const RPC_METHODS = {
   GET_SMT_STATUS: "kanari_getSmtStatus",
   SUBMIT_TRANSACTION: "kanari_submitObjectTransfer",
   HEALTH: "kanari_health",
+  GET_GAS_INFO: "kanari_getGasInfo",
   GET_NETWORK_STATUS: "kanari_getNetworkStatus",
   PUBLISH_MODULE: "kanari_publishModule",
   GET_MODULE: "kanari_getModule",
@@ -72,6 +73,16 @@ export type NetworkStatus = {
   local_authority_id: string;
   authority_count: number;
   authorities: NetworkAuthorityStatus[];
+};
+
+export type GasInfo = {
+  model: string;
+  requested_gas_price: number;
+  effective_gas_price: number;
+  minimum_gas_price: number;
+  gas_limit: number;
+  storage_price_per_byte: number;
+  storage_rebate_rate: number;
 };
 
 export type NodeHealth = {
@@ -322,6 +333,14 @@ export async function getSmtStatus(audit = false, rpcUrl?: string): Promise<SmtS
 
 export async function getHealth(rpcUrl?: string) {
   return callRpc(RPC_METHODS.HEALTH, [], rpcUrl);
+}
+
+export async function getGasInfo(rpcUrl?: string): Promise<GasInfo | null> {
+  try {
+    return await callRpc(RPC_METHODS.GET_GAS_INFO, [], rpcUrl);
+  } catch {
+    return null;
+  }
 }
 
 export async function getNetworkStatus(rpcUrl?: string): Promise<NetworkStatus> {

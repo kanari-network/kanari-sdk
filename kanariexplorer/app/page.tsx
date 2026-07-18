@@ -10,10 +10,12 @@ import {
   getBlockHeight,
   getActiveRpcUrl,
   getFullBlock,
+  getGasInfo,
   getNetworkStatus,
   getNodeHealth,
   getTokens,
   type NodeHealth,
+  type GasInfo,
   type RpcEndpoint,
 } from "./lib/rpc";
 import { ArrowIcon } from "./components/SiteChrome";
@@ -612,6 +614,7 @@ export default function Home() {
   const [configuredEndpoints, setConfiguredEndpoints] = useState<RpcEndpoint[]>([]);
   const [latestBlock, setLatestBlock] = useState<unknown>(null);
   const [nodes, setNodes] = useState<NodeHealth[]>([]);
+  const [gasInfo, setGasInfo] = useState<GasInfo | null>(null);
   const [lastRecoveryMs, setLastRecoveryMs] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState("");
   const [divergenceWindow, setDivergenceWindow] = useState<DivergenceScan[]>([]);
@@ -647,10 +650,11 @@ export default function Home() {
       // The selected browser RPC is the source of truth. Do not retain the
       // build-time endpoint here or the dashboard will keep polling the old node.
       const seedEndpoint: RpcEndpoint = { name: "Selected RPC", url: getActiveRpcUrl() };
-      const [tokensRes, heightRes, networkStatus] = await Promise.all([
+      const [tokensRes, heightRes, networkStatus, gasRes] = await Promise.all([
         getTokens().catch(() => null),
         getBlockHeight().catch(() => null),
         getNetworkStatus(seedEndpoint.url).catch(() => null),
+        getGasInfo(seedEndpoint.url),
       ]);
 
       const nextEndpoints =
@@ -707,6 +711,7 @@ export default function Home() {
       setTokenCount(asArray(tokensRes).length || null);
       setBlockHeight(latestHeight);
       setLatestBlock(blockRes);
+      setGasInfo(gasRes);
       setConfiguredEndpoints(nextEndpoints);
       setNodes(nodeResults);
       if (nextDivergenceWindow !== null) setDivergenceWindow(nextDivergenceWindow);
@@ -803,6 +808,11 @@ export default function Home() {
         <StatCard label="Height" value={formatNumber(maxHeight || blockHeight)} detail="Highest reported checkpoint height" />
         <StatCard label="Transactions" value={formatNumber(totalTransactions)} detail={`${formatNumber(pendingTransactions)} pending on synced authority`} />
         <StatCard label="Tokens" value={formatNumber(tokenCount)} detail={`${formatNumber(totalAccounts)} accounts indexed`} />
+        <StatCard
+          label="Gas Model"
+          value={gasInfo?.model ?? "-"}
+          detail={gasInfo ? `${formatNumber(gasInfo.effective_gas_price)} Mist effective / unit` : "Unavailable"}
+        />
       </section>
 
       <MysticetiNodeGraph
