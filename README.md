@@ -151,6 +151,121 @@ production. This allows authorities to receive the same transaction batch.
 Network DAG vertices are consensus metadata. They are stored and deduplicated,
 but they do not directly execute transactions or increment blockchain height.
 
+## ER Diagram and Layered Runtime Flow
+
+The SDK is split into layers so that clients, RPC handling, consensus metadata,
+Move execution, and persistent state can evolve independently while preserving
+deterministic checkpoint output.
+
+```mermaid
+flowchart TB
+    subgraph L0["Application Layer"]
+        EXPLORER["kanariexplorer"]
+        CLI["kanari CLI"]
+        PAY["sdk/kanari_pay"]
+        WALLET["sdk/wallet"]
+    end
+
+    subgraph L1["RPC / API Layer"]
+        RPC_CLIENT["kanari-rpc-client"]
+        RPC_API["kanari-rpc-api<br/>methods + response types"]
+        RPC_SERVER["kanari-rpc-server<br/>Axum JSON-RPC"]
+    end
+
+    subgraph L2["Node Layer"]
+        NODE["kanari-node"]
+        P2P["libp2p gossip<br/>transactions + checkpoints"]
+        SYNC["checkpoint / DAG sync"]
+        BACKUP["validator backup / restore"]
+    end
+
+    subgraph L3["Core Chain Layer"]
+        ENGINE["kanari-core::BlockchainEngine"]
+        MEMPOOL["verified mempool"]
+        CHECKPOINT["checkpoint builder"]
+        DAG["Mysticeti DAG metadata"]
+        INDEX["transaction + object indexes"]
+    end
+
+    subgraph L4["Execution Layer"]
+        RUNTIME["kanari-move-runtime-v1"]
+        VM["Move VM"]
+        SCHED["parallel scheduler"]
+        NATIVE["kanari-system-natives"]
+    end
+
+    subgraph L5["Data / Crypto Layer"]
+        TYPES["kanari-types<br/>tx, object, gas, event"]
+        CRYPTO["kanari-crypto<br/>keys, signatures, hashing"]
+        SMT["smt<br/>Sparse Merkle Tree"]
+        DB["RocksDB / persistent stores"]
+        FRAMEWORKS["kanari-frameworks<br/>0x1 + 0x2 Move modules"]
+    end
+
+    EXPLORER --> RPC_CLIENT
+    CLI --> RPC_CLIENT
+    PAY --> RPC_CLIENT
+    WALLET --> RPC_CLIENT
+
+    RPC_CLIENT --> RPC_API
+    RPC_API --> RPC_SERVER
+    RPC_SERVER --> ENGINE
+
+    NODE --> RPC_SERVER
+    NODE --> P2P
+    P2P --> SYNC
+    SYNC --> ENGINE
+
+    ENGINE --> MEMPOOL
+    MEMPOOL --> CHECKPOINT
+    CHECKPOINT --> DAG
+    CHECKPOINT --> INDEX
+    ENGINE --> RUNTIME
+
+    RUNTIME --> VM
+    RUNTIME --> SCHED
+    VM --> NATIVE
+    VM --> FRAMEWORKS
+
+    ENGINE --> TYPES
+    ENGINE --> CRYPTO
+    ENGINE --> SMT
+    ENGINE --> DB
+    RUNTIME --> DB
+    DAG --> DB
+```
+
+```mermaid
+erDiagram
+    AUTHORITY ||--o{ DAG_VERTEX : produces
+    AUTHORITY ||--o{ CHECKPOINT_SIGNATURE : signs
+    PEER ||--o{ PEER_INFO : advertises
+
+    CHECKPOINT ||--o{ TRANSACTION : commits
+    CHECKPOINT ||--o{ DAG_VERTEX : references
+    CHECKPOINT ||--|| STATE_ROOT : records
+    CHECKPOINT ||--o{ CHECKPOINT_SIGNATURE : carries
+
+    TRANSACTION ||--|| SIGNED_TRANSACTION : wraps
+    SIGNED_TRANSACTION }o--|| ACCOUNT : sender
+    TRANSACTION ||--o{ TRANSACTION_EFFECT : emits
+    TRANSACTION_EFFECT ||--o{ OBJECT_CHANGE : contains
+    TRANSACTION_EFFECT ||--o{ EVENT : emits
+
+    ACCOUNT ||--o{ OBJECT : owns
+    ACCOUNT ||--o{ BALANCE_RECORD : has
+    OBJECT ||--o{ OBJECT_VERSION : advances
+    OBJECT ||--o{ DYNAMIC_FIELD : contains
+    OBJECT }o--|| MOVE_TYPE : typed_as
+
+    STATE_ROOT ||--o{ OBJECT_VERSION : commits
+    STATE_ROOT ||--o{ BALANCE_RECORD : commits
+    STATE_ROOT ||--o{ MODULE_STATE : commits
+
+    MODULE_STATE }o--|| MOVE_MODULE : stores
+    MOVE_MODULE }o--|| FRAMEWORK_PACKAGE : belongs_to
+```
+
 ## Workspace Components
 
 ### Runtime and Consensus
