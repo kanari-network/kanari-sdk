@@ -12,12 +12,6 @@ const MAX_CANONICAL_SNAPSHOT_ENTRIES: usize = 1_000;
 const MAX_CANONICAL_COMPARE_ENTRIES: usize = 1_000;
 static EXPENSIVE_RPC_PERMIT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
-fn expensive_diagnostics_enabled() -> bool {
-    std::env::var("KANARI_ENABLE_EXPENSIVE_RPC")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-        .unwrap_or(false)
-}
-
 fn try_acquire_expensive_rpc(
     id: u64,
 ) -> Result<tokio::sync::SemaphorePermit<'static>, Box<RpcResponse>> {
@@ -119,12 +113,6 @@ pub async fn handle_get_smt_status(state: &RpcServerState, request: &RpcRequest)
         }
     };
 
-    if req.audit && !expensive_diagnostics_enabled() {
-        return invalid_params_response(
-            request.id,
-            "SMT full audit is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
-        );
-    }
     let _permit = if req.audit {
         match try_acquire_expensive_rpc(request.id) {
             Ok(permit) => Some(permit),
@@ -146,12 +134,6 @@ pub async fn handle_get_canonical_state_snapshot(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    if !expensive_diagnostics_enabled() {
-        return invalid_params_response(
-            request.id,
-            "Canonical state snapshot is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
-        );
-    }
     let _permit = match try_acquire_expensive_rpc(request.id) {
         Ok(permit) => permit,
         Err(response) => return *response,
@@ -195,12 +177,6 @@ pub async fn handle_compare_canonical_state_snapshot(
         Err(response) => return *response,
     };
 
-    if !expensive_diagnostics_enabled() {
-        return invalid_params_response(
-            request.id,
-            "Canonical snapshot comparison is disabled; set KANARI_ENABLE_EXPENSIVE_RPC=1 on a trusted node",
-        );
-    }
     let _permit = match try_acquire_expensive_rpc(request.id) {
         Ok(permit) => permit,
         Err(response) => return *response,

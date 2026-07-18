@@ -608,13 +608,9 @@ mod tests {
             21,
         )
         .await;
-        assert_eq!(smt_audit["error"]["code"], -32602);
-        assert!(
-            smt_audit["error"]["message"]
-                .as_str()
-                .invariant("disabled audit error")
-                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
-        );
+        assert!(smt_audit["error"].is_null());
+        assert_eq!(smt_audit["result"]["audit_requested"], true);
+        assert!(smt_audit["result"]["audit_performed"].is_boolean());
 
         let height = rpc_call(
             app.clone(),
@@ -680,13 +676,8 @@ mod tests {
             70,
         )
         .await;
-        assert_eq!(snapshot["error"]["code"], -32602);
-        assert!(
-            snapshot["error"]["message"]
-                .as_str()
-                .invariant("disabled snapshot error")
-                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
-        );
+        assert!(snapshot["error"].is_null());
+        assert!(snapshot["result"]["entries"].is_array());
 
         let diff = rpc_call_response(
             app.clone(),
@@ -697,13 +688,8 @@ mod tests {
             71,
         )
         .await;
-        assert_eq!(diff["error"]["code"], -32602);
-        assert!(
-            diff["error"]["message"]
-                .as_str()
-                .invariant("disabled comparison error")
-                .contains("KANARI_ENABLE_EXPENSIVE_RPC")
-        );
+        assert!(diff["error"].is_null());
+        assert!(diff["result"].is_object());
 
         let owned = rpc_call(
             app,
