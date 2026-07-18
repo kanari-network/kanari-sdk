@@ -292,7 +292,11 @@ fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
             .get_object(object_id)
             .unwrap()
             .expect("coin must exist");
-        let expected_balance = starting_balance - burn_amount - changeset.gas_used;
+        let expected_balance = starting_balance - burn_amount;
+        assert!(
+            changeset.gas_used > 0,
+            "gas remains a resource-metering value"
+        );
         assert_eq!(transaction_coin_balance(&coin.data), expected_balance);
         assert_eq!(
             state

@@ -3,6 +3,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Resolve the transaction's effective gas price for the selected gas model.
+pub fn effective_gas_price(requested: u64) -> u64 {
+    requested
+}
+
+pub fn gas_price_is_valid(requested: u64) -> bool {
+    requested > 0
+}
+
 /// Gas configuration and pricing for the Kanari blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GasConfig {
@@ -303,6 +312,13 @@ impl TransactionGas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_policy_preserves_requested_price() {
+        assert_eq!(effective_gas_price(7), 7);
+        assert!(gas_price_is_valid(1));
+        assert!(!gas_price_is_valid(0));
+    }
 
     #[test]
     fn gas_config_provides_valid_transaction_defaults() {

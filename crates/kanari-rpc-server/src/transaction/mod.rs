@@ -15,6 +15,7 @@ use kanari_rpc_api::{
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
+use kanari_types::effective_gas_price;
 use kanari_types::gas_coin::{GAS_COIN, GasModule};
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
@@ -381,7 +382,7 @@ fn select_native_transfer_and_gas_payment(
     pending_access_keys: &HashSet<String>,
 ) -> anyhow::Result<(ObjectRef, GasPayment)> {
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
-    let required_gas = gas_limit.saturating_mul(gas_price);
+    let required_gas = gas_limit.saturating_mul(effective_gas_price(gas_price));
     let mut native_coins: Vec<(ObjectRef, u64)> = owned_objects
         .iter()
         .filter(|object| object.type_ == native_coin_type)
@@ -490,7 +491,7 @@ fn select_native_coin_consolidation_step(
     GasPayment,
 )> {
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
-    let required_gas = gas_limit.saturating_mul(gas_price);
+    let required_gas = gas_limit.saturating_mul(effective_gas_price(gas_price));
     let native_coins: Vec<(kanari_rpc_api::ObjectInfo, u64)> = owned_objects
         .iter()
         .filter(|object| object.type_ == native_coin_type)
@@ -1360,7 +1361,9 @@ pub async fn handle_build_publish_module(
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
-        build_data.gas_limit.saturating_mul(build_data.gas_price),
+        build_data
+            .gas_limit
+            .saturating_mul(effective_gas_price(build_data.gas_price)),
         build_data.gas_limit,
         build_data.gas_price,
         &[],
@@ -1425,7 +1428,9 @@ pub async fn handle_build_publish_package(
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
-        build_data.gas_limit.saturating_mul(build_data.gas_price),
+        build_data
+            .gas_limit
+            .saturating_mul(effective_gas_price(build_data.gas_price)),
         build_data.gas_limit,
         build_data.gas_price,
         &[],
@@ -1679,7 +1684,9 @@ pub async fn handle_build_call_function(
         .collect::<Vec<_>>();
     let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let burn_amount = build_call_native_burn_amount(&build_data);
-    let required_gas_balance = build_data.gas_limit.saturating_mul(build_data.gas_price);
+    let required_gas_balance = build_data
+        .gas_limit
+        .saturating_mul(effective_gas_price(build_data.gas_price));
     let required_native_balance = burn_amount
         .and_then(|amount| amount.checked_add(required_gas_balance))
         .unwrap_or(required_gas_balance);
@@ -1789,7 +1796,9 @@ pub async fn handle_build_token_transfer(
     let gas_payment = match select_native_gas_payment(
         &owned_objects,
         &build_data.sender,
-        build_data.gas_limit.saturating_mul(build_data.gas_price),
+        build_data
+            .gas_limit
+            .saturating_mul(effective_gas_price(build_data.gas_price)),
         build_data.gas_limit,
         build_data.gas_price,
         std::slice::from_ref(&coin_object_ref.object_id),

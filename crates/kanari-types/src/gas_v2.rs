@@ -6,6 +6,16 @@ use serde::{Deserialize, Serialize};
 /// Monetary gas price used while Kanari is operating in zero-fee mode.
 pub const ZERO_GAS_PRICE: u64 = 0;
 
+/// Zero-fee mode ignores the user-provided price while retaining gas units for
+/// execution/resource metering.
+pub fn effective_gas_price(_requested: u64) -> u64 {
+    ZERO_GAS_PRICE
+}
+
+pub fn gas_price_is_valid(_requested: u64) -> bool {
+    true
+}
+
 /// Gas configuration and pricing for the Kanari blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GasConfig {
@@ -294,6 +304,14 @@ impl TransactionGas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_policy_is_zero_fee_for_any_requested_price() {
+        assert_eq!(effective_gas_price(7), ZERO_GAS_PRICE);
+        assert_eq!(effective_gas_price(0), ZERO_GAS_PRICE);
+        assert!(gas_price_is_valid(0));
+        assert!(gas_price_is_valid(u64::MAX));
+    }
 
     #[test]
     fn gas_config_provides_valid_transaction_defaults() {

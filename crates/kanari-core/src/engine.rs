@@ -19,7 +19,7 @@ use kanari_types::transaction::{
     ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef, SignedTransaction,
     Transaction, TransactionEffects,
 };
-use kanari_types::{GasMeter, GasOperation};
+use kanari_types::{GasMeter, GasOperation, effective_gas_price, gas_price_is_valid};
 use log::{error, info};
 use lru::LruCache;
 use move_core_types::{
@@ -1736,7 +1736,7 @@ impl BlockchainEngine {
         };
         let base_units = gas_op.gas_units().min(tx.gas_limit());
         let requested_cost = base_units
-            .checked_mul(tx.gas_price())
+            .checked_mul(effective_gas_price(tx.gas_price()))
             .context("Failed to calculate failure gas cost")?;
 
         let balance = {
@@ -1867,7 +1867,10 @@ impl BlockchainEngine {
             }
         }
         ensure!(tx.gas_limit() > 0, "Transaction gas limit must be non-zero");
-        ensure!(tx.gas_price() > 0, "Transaction gas price must be non-zero");
+        ensure!(
+            gas_price_is_valid(tx.gas_price()),
+            "Transaction gas price is not valid for the active gas model"
+        );
         Ok(())
     }
 
@@ -1922,7 +1925,7 @@ impl BlockchainEngine {
         state_overlay: Option<kanari_move_runtime_v1::StateOverlay>,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
-        let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
+        let mut gas_meter = GasMeter::new(tx.gas_limit(), effective_gas_price(tx.gas_price()));
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
 
@@ -1948,35 +1951,33 @@ impl BlockchainEngine {
         let base_gas_cost = gas_meter.total_cost();
         let max_gas_cost = tx
             .gas_limit()
-            .checked_mul(tx.gas_price())
+            .checked_mul(effective_gas_price(tx.gas_price()))
             .context("Transaction maximum gas cost overflow")?;
 
+        let state = match state_arc.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!("State arc lock poisoned in pre-execution checks, recovering...");
+                poisoned.into_inner()
+            }
+        };
+        Self::validate_transaction_object_access(&state, tx, sender_addr)?;
         if max_gas_cost > 0 {
-            let state = match state_arc.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("State arc lock poisoned in pre-execution checks, recovering...");
-                    poisoned.into_inner()
-                }
-            };
-            Self::validate_transaction_object_access(&state, tx, sender_addr)?;
-            if max_gas_cost > 0 {
-                let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
-                if balance < max_gas_cost {
-                    let msg = format!(
-                        "Insufficient balance for maximum gas: need {}, have {}",
-                        max_gas_cost, balance
-                    );
-                    changeset.mark_failed(msg);
-                    Self::apply_gas_and_sequence(
-                        &mut changeset,
-                        sender_addr,
-                        base_gas_cost.min(balance),
-                        gas_meter.gas_used,
-                    )?;
-                    Self::annotate_changeset_object_effects(&state, &mut changeset)?;
-                    return Ok(changeset);
-                }
+            let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
+            if balance < max_gas_cost {
+                let msg = format!(
+                    "Insufficient balance for maximum gas: need {}, have {}",
+                    max_gas_cost, balance
+                );
+                changeset.mark_failed(msg);
+                Self::apply_gas_and_sequence(
+                    &mut changeset,
+                    sender_addr,
+                    base_gas_cost.min(balance),
+                    gas_meter.gas_used,
+                )?;
+                Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+                return Ok(changeset);
             }
         }
 
@@ -1989,7 +1990,7 @@ impl BlockchainEngine {
                 match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), tx.gas_price())),
+                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -2010,7 +2011,7 @@ impl BlockchainEngine {
                 match runtime.publish_package_with_context_and_persistence(
                     package_modules,
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), tx.gas_price())),
+                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -2084,7 +2085,7 @@ impl BlockchainEngine {
                         EntryFunctionObjectContext {
                             object_inputs: tx.object_inputs(),
                             sender: Some(sender_addr),
-                            gas_info: Some((tx.gas_limit(), tx.gas_price())),
+                            gas_info: Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
                             timestamp,
                             tx_hash: Some(tx.hash()),
                             persist_runtime_state,
@@ -2109,7 +2110,7 @@ impl BlockchainEngine {
             tx.gas_limit()
         );
         let charged_gas_cost = charged_gas_units
-            .checked_mul(tx.gas_price())
+            .checked_mul(effective_gas_price(tx.gas_price()))
             .context("Transaction gas cost overflow")?;
         Self::apply_gas_and_sequence(
             &mut changeset,
