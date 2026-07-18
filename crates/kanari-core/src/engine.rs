@@ -58,6 +58,23 @@ pub struct GenesisManifest {
     pub genesis_state_root: String,
 }
 
+fn compatible_protocol_version(manifest: &str, local: &str) -> bool {
+    let parse = |version: &str| {
+        let mut parts = version.split('.').map(|part| part.parse::<u64>().ok());
+        Some((parts.next()??, parts.next()??, parts.next()??))
+    };
+    match (parse(manifest), parse(local)) {
+        (
+            Some((manifest_major, manifest_minor, manifest_patch)),
+            Some((local_major, local_minor, local_patch)),
+        ) => {
+            (manifest_major, manifest_minor) == (local_major, local_minor)
+                && local_patch >= manifest_patch
+        }
+        _ => manifest == local,
+    }
+}
+
 pub const GENESIS_MANIFEST_FORMAT_VERSION: u32 = 1;
 pub const STATE_SCHEMA_VERSION: &str = "canonical-state-root-v1";
 
@@ -494,8 +511,8 @@ impl BlockchainEngine {
             network
         );
         ensure!(
-            manifest.protocol_version == env!("CARGO_PKG_VERSION"),
-            "Genesis protocol version mismatch: manifest={}, local={}",
+            compatible_protocol_version(&manifest.protocol_version, env!("CARGO_PKG_VERSION")),
+            "Genesis protocol version incompatible: manifest={}, local={}",
             manifest.protocol_version,
             env!("CARGO_PKG_VERSION")
         );
