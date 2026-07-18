@@ -10,6 +10,7 @@ pub use super::gas_v1::{GasConfig, GasError, GasEstimate, GasMeter, GasOperation
 
 /// v3.1 discount divisor: v1 price / 5.
 pub const V3_1_PRICE_DISCOUNT: u64 = 5;
+pub const GAS_MODEL: &str = "v3.1";
 
 pub fn effective_gas_price(requested: u64) -> u64 {
     requested / V3_1_PRICE_DISCOUNT

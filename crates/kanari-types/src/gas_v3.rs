@@ -11,6 +11,7 @@ pub use super::gas_v1::{GasConfig, GasError, GasEstimate, GasMeter, GasOperation
 
 /// v3 reduces the effective v1 price by a factor of ten.
 pub const V3_PRICE_DISCOUNT: u64 = 10;
+pub const GAS_MODEL: &str = "v3";
 
 pub fn effective_gas_price(requested: u64) -> u64 {
     requested / V3_PRICE_DISCOUNT

@@ -681,6 +681,25 @@
       ]
     },
     {
+      "name": "kanari_getGasInfo",
+      "summary": "Get active gas model",
+      "description": "Returns the active gas policy and both requested and effective default gas prices.",
+      "params": [],
+      "result": {
+        "name": "gas",
+        "description": "Active gas policy metadata.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
       "name": "kanari_getNetworkStatus",
       "summary": "Get network authority status",
       "description": "Returns the configured validator authority set for this node.",

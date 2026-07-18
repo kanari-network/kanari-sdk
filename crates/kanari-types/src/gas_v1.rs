@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub const GAS_MODEL: &str = "v1";
+
 /// Resolve the transaction's effective gas price for the selected gas model.
 pub fn effective_gas_price(requested: u64) -> u64 {
     requested

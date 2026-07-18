@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Monetary gas price used while Kanari is operating in zero-fee mode.
 pub const ZERO_GAS_PRICE: u64 = 0;
+pub const GAS_MODEL: &str = "v2";
 
 /// Zero-fee mode ignores the user-provided price while retaining gas units for
 /// execution/resource metering.

@@ -27,6 +27,6 @@ pub mod transaction;
 
 pub mod gas;
 pub use gas::{
-    GasConfig, GasError, GasEstimate, GasMeter, GasOperation, TransactionGas, effective_gas_price,
-    gas_price_is_valid,
+    GAS_MODEL, GasConfig, GasError, GasEstimate, GasMeter, GasOperation, TransactionGas,
+    effective_gas_price, gas_price_is_valid,
 };

@@ -1278,6 +1278,15 @@ pub mod methods {
     pub const HEALTH: &str = "kanari_health";
 
     #[open_rpc_method(
+        summary = "Get active gas model",
+        description = "Returns the active gas policy and both requested and effective default gas prices.",
+        params = [],
+        result = ("gas", "Active gas policy metadata.", schema_object()),
+        tags = ["system"]
+    )]
+    pub const GET_GAS_INFO: &str = "kanari_getGasInfo";
+
+    #[open_rpc_method(
         summary = "Get network authority status",
         description = "Returns the configured validator authority set for this node.",
         params = [],

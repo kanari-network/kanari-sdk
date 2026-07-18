@@ -16,6 +16,7 @@ use axum::{
 use kanari_core::BlockchainEngine;
 use kanari_rpc_api::*;
 use kanari_types::transaction::SignedTransaction;
+use kanari_types::{GAS_MODEL, GasConfig, effective_gas_price};
 
 use std::{sync::Arc, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
@@ -260,6 +261,7 @@ async fn handle_rpc(
 
         // Health
         methods::HEALTH => handle_health(&state, &request).await,
+        methods::GET_GAS_INFO => handle_gas_info(&request).await,
         methods::GET_NETWORK_STATUS => handle_network_status(&state, &request).await,
 
         // Module operations
@@ -367,6 +369,23 @@ async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcRespo
     };
 
     respond_with_serialize(request.id, health)
+}
+
+async fn handle_gas_info(request: &RpcRequest) -> RpcResponse {
+    let config = GasConfig::default();
+    let requested = config.default_transaction_gas_price();
+    respond_with_value(
+        request.id,
+        serde_json::json!({
+            "model": GAS_MODEL,
+            "requested_gas_price": requested,
+            "effective_gas_price": effective_gas_price(requested),
+            "minimum_gas_price": config.min_gas_price,
+            "gas_limit": config.max_gas_per_tx,
+            "storage_price_per_byte": config.storage_price_per_byte,
+            "storage_rebate_rate": config.storage_rebate_rate,
+        }),
+    )
 }
 
 async fn handle_network_status(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
@@ -571,6 +590,11 @@ mod tests {
         assert!(health["status"].as_str().is_some());
         assert!(health["persistent_storage_available"].is_boolean());
         assert!(health["supply_invariants_ok"].is_boolean());
+
+        let gas_info = rpc_call(app.clone(), methods::GET_GAS_INFO, serde_json::json!([]), 3).await;
+        assert_eq!(gas_info["model"], kanari_types::GAS_MODEL);
+        assert!(gas_info["requested_gas_price"].is_u64());
+        assert!(gas_info["effective_gas_price"].is_u64());
 
         let network_status = rpc_call(
             app.clone(),
