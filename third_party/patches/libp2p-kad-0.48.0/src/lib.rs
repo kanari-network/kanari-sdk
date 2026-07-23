@@ -34,6 +34,12 @@
 //!   of nodes querying them, and thus will not be able to add them to their routing table.
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+// `uint::construct_uint!` used by the upstream Kademlia key type expands to a
+// helper macro with a trailing semicolon in expression position. Newer Rust
+// toolchains warn about this as `semicolon_in_expressions_from_macros`, and this
+// workspace builds patched dependencies with future-incompatible lints denied.
+// Keep the compatibility allowance local to this vendored libp2p-kad patch.
+#![allow(semicolon_in_expressions_from_macros)]
 
 mod addresses;
 mod behaviour;

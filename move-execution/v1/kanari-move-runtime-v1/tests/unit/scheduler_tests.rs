@@ -36,7 +36,7 @@ fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTr
 }
 
 #[test]
-fn test_schedule_preserves_order_inside_speculative_wave() {
+fn test_schedule_preserves_global_order_across_conflict_aware_waves() {
     let txs = vec![
         create_dummy_tx("A", "M1", Some("Obj1")),
         create_dummy_tx("B", "M2", Some("Obj2")),
@@ -50,8 +50,9 @@ fn test_schedule_preserves_order_inside_speculative_wave() {
         .collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
-    assert_eq!(waves.len(), 1);
-    assert_eq!(waves[0].len(), 4);
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0].len(), 2);
+    assert_eq!(waves[1].len(), 2);
 
     let actual_hashes = waves
         .iter()
@@ -76,6 +77,46 @@ fn test_apparently_independent_transactions_are_speculated_together() {
     let waves = TransactionScheduler::schedule(txs);
     assert_eq!(waves.len(), 1);
     assert_eq!(waves[0].len(), 2);
+}
+
+#[test]
+fn test_conflicting_transactions_are_split_across_waves() {
+    let txs = vec![
+        create_dummy_tx("A", "M1", Some("Obj1")),
+        create_dummy_tx("B", "M2", Some("Obj1")),
+        create_dummy_tx("C", "M3", Some("Obj2")),
+    ];
+
+    let waves = TransactionScheduler::schedule(txs);
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0].len(), 1);
+    assert_eq!(waves[1].len(), 2);
+}
+
+#[test]
+fn test_later_independent_transaction_is_not_moved_before_earlier_conflict() {
+    let txs = vec![
+        create_dummy_tx("A", "M1", Some("Obj1")),
+        create_dummy_tx("B", "M2", Some("Obj2")),
+        create_dummy_tx("C", "M3", Some("Obj1")),
+        create_dummy_tx("D", "M4", Some("Obj3")),
+    ];
+
+    let expected_hashes = txs
+        .iter()
+        .map(|tx| tx.transaction_hash().to_vec())
+        .collect::<Vec<_>>();
+    let waves = TransactionScheduler::schedule(txs);
+
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0].len(), 2);
+    assert_eq!(waves[1].len(), 2);
+
+    let actual_hashes = waves
+        .iter()
+        .flat_map(|wave| wave.iter().map(|tx| tx.transaction_hash().to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(actual_hashes, expected_hashes);
 }
 
 #[test]

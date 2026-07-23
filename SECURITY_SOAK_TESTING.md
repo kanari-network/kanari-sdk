@@ -92,6 +92,18 @@ Use this when you want to verify the full path: wallet-signed transaction,
 RPC submission, mempool admission, Mysticeti DAG checkpointing, P2P sync, and
 state convergence across four authorities.
 
+Kanari execution now schedules speculative waves with a conservative
+conflict-aware planner before Move execution. Transactions with disjoint
+sender/object/gas conflict keys can enter the same speculative wave; transactions
+with overlapping keys are placed in later waves before the runtime's read/write
+set validation and serial retry safety net.
+
+The engine logs `[parallel execution]` counters for each batch, including wave
+count, speculative committed transactions, serial retry transactions, and retry
+reasons such as execution error, conflict, epoch change, apply rejection, or
+supply validation rejection. Use these counters when comparing scheduler changes
+or production load-test runs.
+
 ```powershell
 .\scripts\run-local-four-node-tx-load.ps1 `
   -Password '@Password12345678' `

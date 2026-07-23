@@ -1515,6 +1515,15 @@ impl BlockchainEngine {
         }
 
         let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
+        let wave_count = waves.len();
+        let mut speculative_committed_waves = 0usize;
+        let mut speculative_committed_txs = 0usize;
+        let mut serial_retry_txs = 0usize;
+        let mut retry_execution_error_txs = 0usize;
+        let mut retry_conflict_txs = 0usize;
+        let mut retry_epoch_txs = 0usize;
+        let mut retry_apply_txs = 0usize;
+        let mut retry_supply_txs = 0usize;
 
         if has_module_publish {
             // Keep speculative publish execution deterministic across authorities.
@@ -1579,15 +1588,24 @@ impl BlockchainEngine {
                         .map(ChangeSet::deterministic_access_set)
                 })
                 .collect::<Vec<_>>();
-            let mut retry_serial = results.iter().any(Result::is_err);
+            let mut retry_reason = results
+                .iter()
+                .any(Result::is_err)
+                .then_some("execution_error");
+            let mut retry_serial = retry_reason.is_some();
             for i in 0..access_sets.len() {
                 let Some(left) = &access_sets[i] else {
                     continue;
                 };
-                retry_serial |= access_sets[..i]
+                let conflicts = access_sets[..i]
                     .iter()
                     .flatten()
                     .any(|right| left.conflicts_with(right));
+                if conflicts {
+                    retry_reason.get_or_insert("intra_wave_conflict");
+                    retry_serial = true;
+                    break;
+                }
             }
 
             if !retry_serial {
@@ -1595,7 +1613,10 @@ impl BlockchainEngine {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
                 };
-                retry_serial = state_write.access_epoch() != access_epoch;
+                if state_write.access_epoch() != access_epoch {
+                    retry_reason = Some("epoch_changed");
+                    retry_serial = true;
+                }
 
                 if !retry_serial {
                     // Apply the whole conflict-free wave to a candidate. The live state
@@ -1610,6 +1631,7 @@ impl BlockchainEngine {
                             log::warn!(
                                 "Speculative wave apply rejected; retrying serially: {error}"
                             );
+                            retry_reason = Some("apply_rejected");
                             retry_serial = true;
                             break;
                         }
@@ -1622,6 +1644,7 @@ impl BlockchainEngine {
                             log::warn!(
                                 "Speculative wave supply validation rejected; retrying serially: {error}"
                             );
+                            retry_reason = Some("supply_rejected");
                             retry_serial = true;
                         } else {
                             *state_write = candidate;
@@ -1631,6 +1654,8 @@ impl BlockchainEngine {
             }
 
             if !retry_serial {
+                speculative_committed_waves += 1;
+                speculative_committed_txs += wave.len();
                 for (signed_tx, result) in wave.iter().zip(&results) {
                     let cs = result.as_ref().expect("validated speculative result");
                     transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
@@ -1641,6 +1666,15 @@ impl BlockchainEngine {
 
             // Any incomplete trace, execution error, version change, or intra-wave
             // conflict discards the entire speculative wave and replays canonical order.
+            serial_retry_txs += wave.len();
+            match retry_reason.unwrap_or("unknown") {
+                "execution_error" => retry_execution_error_txs += wave.len(),
+                "intra_wave_conflict" => retry_conflict_txs += wave.len(),
+                "epoch_changed" => retry_epoch_txs += wave.len(),
+                "apply_rejected" => retry_apply_txs += wave.len(),
+                "supply_rejected" => retry_supply_txs += wave.len(),
+                _ => {}
+            }
             for signed_tx in &wave {
                 let result = self.execute_transaction_with_runtime_internal(
                     &signed_tx.transaction,
@@ -1702,6 +1736,23 @@ impl BlockchainEngine {
                     }
                 }
             }
+        }
+
+        if wave_count > 0 {
+            log::info!(
+                "[parallel execution] waves={} speculative_committed_waves={} speculative_txs={} serial_retry_txs={} retry_execution_error_txs={} retry_conflict_txs={} retry_epoch_txs={} retry_apply_txs={} retry_supply_txs={} executed={} failed={}",
+                wave_count,
+                speculative_committed_waves,
+                speculative_committed_txs,
+                serial_retry_txs,
+                retry_execution_error_txs,
+                retry_conflict_txs,
+                retry_epoch_txs,
+                retry_apply_txs,
+                retry_supply_txs,
+                executed_count,
+                failed_count
+            );
         }
 
         Ok((executed_count, failed_count, transaction_effects))
