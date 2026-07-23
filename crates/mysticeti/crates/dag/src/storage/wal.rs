@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::BTreeMap,
     fmt,
     fs::{File, OpenOptions},
     io,
@@ -10,10 +10,16 @@ use std::{
     path::Path,
 };
 
+#[cfg(not(windows))]
+use std::collections::btree_map::Entry;
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 
-use memmap2::{Mmap, MmapOptions};
+use memmap2::Mmap;
+#[cfg(not(windows))]
+use memmap2::MmapOptions;
 use minibytes::Bytes;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -153,6 +159,7 @@ impl WalWriter {
         let len = v_len as u64 + HEADER_LEN_BYTES;
         assert!(len <= MAP_SIZE, "Wal entry too big, {len} < {MAP_SIZE}");
         let mut buffs = vec![];
+        let write_start = self.pos;
         tracing::trace!(
             "pos={}, len={}, self.pos + len - 1={}, a(pos)={}, a(pos+len)={}",
             self.pos,
@@ -178,10 +185,12 @@ impl WalWriter {
         let header = header.to_le_bytes();
         buffs.push(IoSlice::new(&header));
         buffs.extend_from_slice(v);
+        let position = WalPosition { start: self.pos };
+        self.file.seek(SeekFrom::Start(write_start))?;
         for buff in &buffs {
             self.file.write_all(buff)?;
         }
-        let position = WalPosition { start: self.pos };
+        self.file.flush()?;
         self.pos += len;
         Ok(position)
     }
@@ -225,6 +234,13 @@ impl WalReader {
     }
 
     fn try_read(&self, position: WalPosition) -> io::Result<Option<(Tag, Bytes)>> {
+        #[cfg(windows)]
+        {
+            self.try_read_at(position)
+        }
+
+        #[cfg(not(windows))]
+        {
         let offset = offset(position.start);
         let bytes = self.map_offset(offset)?;
         let buf_offset = (position.start - offset) as usize;
@@ -248,6 +264,58 @@ impl WalReader {
             );
         }
         Ok(Some((tag, bytes)))
+        }
+    }
+
+    #[cfg(windows)]
+    fn try_read_at(&self, position: WalPosition) -> io::Result<Option<(Tag, Bytes)>> {
+        let mut header = [0u8; HEADER_LEN_BYTES_USIZE];
+        match read_exact_at(&self.file, &mut header, position.start)? {
+            ReadAt::Eof => return Ok(None),
+            ReadAt::Read => {}
+        }
+
+        let (crc, len, tag) = Self::read_header(&header);
+        if len == 0 {
+            if crc == 0 {
+                return Ok(None);
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Non-zero crc at len 0, crc: {crc}, position:{}", position.start),
+            ));
+        }
+        if len < HEADER_LEN_BYTES || len > MAP_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid wal entry length {len} at position {}", position.start),
+            ));
+        }
+
+        let payload_len = (len - HEADER_LEN_BYTES) as usize;
+        let mut data = vec![0u8; payload_len];
+        match read_exact_at(&self.file, &mut data, position.start + HEADER_LEN_BYTES)? {
+            ReadAt::Eof => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("Unexpected EOF reading wal payload at position {}", position.start),
+                ));
+            }
+            ReadAt::Read => {}
+        }
+
+        let actual_crc = crc32fast::hash(&data) as u64;
+        if actual_crc != crc {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Crc mismatch, expected {}, found {} at position {}:{}",
+                    crc, actual_crc, position.start, len
+                ),
+            ));
+        }
+
+        Ok(Some((tag, Bytes::from(data))))
     }
 
     // Attempts cleaning internal mem maps, returning number of retained maps
@@ -267,6 +335,7 @@ impl WalReader {
         }
     }
 
+    #[cfg(not(windows))]
     fn map_offset(&self, offset: u64) -> io::Result<Bytes> {
         let mut maps = self.maps.lock();
         let bytes = match maps.entry(offset) {
@@ -301,6 +370,34 @@ impl WalReader {
         let header = u128::from_le_bytes(header);
         split_header(header)
     }
+}
+
+#[cfg(windows)]
+enum ReadAt {
+    Eof,
+    Read,
+}
+
+#[cfg(windows)]
+fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> io::Result<ReadAt> {
+    let mut read_any = false;
+    while !buf.is_empty() {
+        let n = file.seek_read(buf, offset)?;
+        if n == 0 {
+            if read_any {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "Unexpected EOF while reading wal",
+                ));
+            }
+            return Ok(ReadAt::Eof);
+        }
+        read_any = true;
+        offset += n as u64;
+        let tmp = buf;
+        buf = &mut tmp[n..];
+    }
+    Ok(ReadAt::Read)
 }
 
 pub(super) struct WalIterator<'a> {

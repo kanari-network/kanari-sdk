@@ -146,16 +146,27 @@ function Wait-StatsConverged {
         $heights = New-Object System.Collections.Generic.HashSet[string]
         $txs = New-Object System.Collections.Generic.HashSet[string]
         $latest = @{}
+        $readable = 0
 
         foreach ($url in $Urls) {
-            $stats = (Invoke-KanariRpc -Url $url -Method 'kanari_getStats' -Id 2 -TimeoutSec 3).result
+            try {
+                $stats = (Invoke-KanariRpc -Url $url -Method 'kanari_getStats' -Id 2 -TimeoutSec 3).result
+            } catch {
+                Write-Host "WAIT $url transient RPC read failed: $($_.Exception.Message)"
+                continue
+            }
+            if (-not $stats) {
+                Write-Host "WAIT $url returned empty stats"
+                continue
+            }
+            $readable += 1
             $latest[$url] = $stats
             [void]$roots.Add([string]$stats.state_root)
             [void]$heights.Add([string]$stats.height)
             [void]$txs.Add([string]$stats.total_transactions)
         }
 
-        if ($roots.Count -eq 1 -and $heights.Count -eq 1 -and $txs.Count -eq 1) {
+        if ($readable -eq $Urls.Count -and $roots.Count -eq 1 -and $heights.Count -eq 1 -and $txs.Count -eq 1) {
             foreach ($url in $Urls) {
                 $stats = $latest[$url]
                 Write-Host "SYNCED $url height=$($stats.height) txs=$($stats.total_transactions) root=$($stats.state_root)"

@@ -17,7 +17,7 @@ use thiserror::Error;
 const MAX_KEYSTORE_KEYS: usize = 10_000;
 
 use fs2::FileExt;
-use kanari_common::get_kanari_config_path;
+use kanari_common::{get_kanari_config_path, load_kanari_config};
 
 use crate::encryption::EncryptedData;
 
@@ -428,11 +428,33 @@ pub struct KeystoreStatistics {
 
 /// Get path to the keystore file
 pub fn get_keystore_path() -> PathBuf {
-    let mut keystore_dir = get_kanari_config_path();
+    if let Some(path) = std::env::var_os("KANARI_KEYSTORE_PATH")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    if let Ok(config) = load_kanari_config() {
+        if let Some(path) = config
+            .get("keystore_path")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            return PathBuf::from(path);
+        }
+    }
+
+    default_keystore_path()
+}
+
+fn default_keystore_path() -> PathBuf {
+    let mut path = get_kanari_config_path();
     // Remove 'kanari.yaml' from the path and add 'kanari.keystore'
-    keystore_dir.pop();
-    keystore_dir.push("kanari.keystore");
-    keystore_dir
+    path.pop();
+    path.push("kanari.keystore");
+    path
 }
 
 /// Check if keystore file exists
