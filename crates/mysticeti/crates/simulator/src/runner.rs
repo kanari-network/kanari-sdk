@@ -3,14 +3,16 @@
 
 use std::{
     io,
+    ops::Range,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use consensus::committer::Committer;
 use dag::{
     authority::Authority,
-    committee::Committee,
     config::{ConfigError, ImportExport},
+    consensus::CommittedSubDag,
     context::Ctx,
     core::syncer::Syncer,
     metrics::Metrics,
@@ -19,10 +21,11 @@ use dag::{
 use rand::{SeedableRng, rngs::StdRng};
 use replica::{
     builder::{ReplicaBuilder, StorageKind},
-    config::{PrivateReplicaConfig, PublicReplicaConfig},
+    config::{LoadGeneratorConfig, PrivateReplicaConfig, PublicReplicaConfig},
     replica::ReplicaHandle,
     result::{RunKind, RunResult},
 };
+use tokio::sync::mpsc;
 
 use crate::{
     config::{NetworkTopology, SimulationConfig},
@@ -76,15 +79,50 @@ struct SimulationState {
     _load_generators: Vec<JoinHandle<()>>,
 }
 
+impl SimulatedNetwork {
+    /// A fully connected committee with default parameters. The returned network must be
+    /// kept alive for the duration of the run.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn new_for_test(
+        committee_size: usize,
+    ) -> (Self, Vec<ReplicaHandle<SimulatorContext>>) {
+        Self::new_for_test_with_commit_consumers(vec![None; committee_size]).await
+    }
+
+    /// Like [`SimulatedNetwork::new_for_test`], with one optional commit consumer per
+    /// replica.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn new_for_test_with_commit_consumers(
+        commit_consumers: Vec<Option<mpsc::Sender<CommittedSubDag>>>,
+    ) -> (Self, Vec<ReplicaHandle<SimulatorContext>>) {
+        let public_config = PublicReplicaConfig::new_for_tests(commit_consumers.len());
+        let latency_range = Duration::from_millis(50)..Duration::from_millis(100);
+        let (network, replicas, _) =
+            SimulationState::build_replicas(public_config, latency_range, None, commit_consumers)
+                .await;
+        network.connect_all().await;
+        (network, replicas)
+    }
+}
+
 impl SimulationState {
-    async fn setup(config: SimulationConfig) -> Self {
-        let committee_size = config.committee_size;
-        let committee = Committee::new_test(vec![1; committee_size]);
-
-        let public_config = PublicReplicaConfig::new_for_tests(committee_size)
-            .with_parameters(config.replica_parameters.clone());
-
-        let (network, networks) = SimulatedNetwork::new(&committee, config.latency_range());
+    /// Build a committee of simulated replicas wired through a [`SimulatedNetwork`]. The
+    /// committee is derived from `public_config`; `commit_consumers` holds one optional
+    /// consumer per replica.
+    async fn build_replicas(
+        public_config: PublicReplicaConfig,
+        latency_range: Range<Duration>,
+        load_generator: Option<LoadGeneratorConfig>,
+        commit_consumers: Vec<Option<mpsc::Sender<CommittedSubDag>>>,
+    ) -> (
+        SimulatedNetwork,
+        Vec<ReplicaHandle<SimulatorContext>>,
+        Vec<JoinHandle<()>>,
+    ) {
+        let committee = public_config.committee();
+        let committee_size = committee.len();
+        assert_eq!(commit_consumers.len(), committee_size);
+        let (network, networks) = SimulatedNetwork::new(&committee, latency_range);
 
         // The simulator doesn't touch disk; the WAL path in the private
         // configs is unused once we override storage with `InMemory`.
@@ -93,25 +131,46 @@ impl SimulationState {
 
         let mut replicas = Vec::with_capacity(committee_size);
         let mut load_generators = Vec::new();
-        for (i, (node_network, private_config)) in
-            networks.into_iter().zip(private_configs).enumerate()
+        for (i, ((node_network, private_config), commit_consumer)) in networks
+            .into_iter()
+            .zip(private_configs)
+            .zip(commit_consumers)
+            .enumerate()
         {
             let authority = Authority::from(i);
             let metrics = Metrics::new_for_test(committee_size);
-            let mut handle = ReplicaBuilder::new(authority, public_config.clone(), private_config)
+            let mut builder = ReplicaBuilder::new(authority, public_config.clone(), private_config)
                 .with_storage(StorageKind::Ephemeral)
                 .with_crypto_disabled()
                 .with_metrics(metrics)
-                .with_network(node_network)
+                .with_network(node_network);
+            if let Some(commit_consumer) = commit_consumer {
+                builder = builder.with_commit_consumer(commit_consumer);
+            }
+            let mut handle = builder
                 .build()
                 .run::<SimulatorContext>()
                 .await
                 .expect("simulator replica build must not fail");
-            if let Some(load_generator) = config.load_generator.clone() {
+            if let Some(load_generator) = load_generator.clone() {
                 load_generators.push(handle.start_load_generator(load_generator));
             }
             replicas.push(handle);
         }
+        (network, replicas, load_generators)
+    }
+
+    async fn setup(config: SimulationConfig) -> Self {
+        let public_config = PublicReplicaConfig::new_for_tests(config.committee_size)
+            .with_parameters(config.replica_parameters.clone());
+        let commit_consumers = vec![None; config.committee_size];
+        let (network, replicas, load_generators) = Self::build_replicas(
+            public_config,
+            config.latency_range(),
+            config.load_generator.clone(),
+            commit_consumers,
+        )
+        .await;
 
         Self {
             config,

@@ -192,7 +192,30 @@ impl BlockReader {
     }
 
     pub fn get_latest_own_blocks(&self, limit: usize) -> Vec<Data<Block>> {
-        let entries = self.inner.read().get_latest_own_blocks(limit);
+        if limit == 0 {
+            return Vec::new();
+        }
+        let entries = {
+            let inner = self.inner.read();
+            let mut entries = inner
+                .own_blocks
+                .iter()
+                .rev()
+                .take(limit)
+                .map(|(round, digest)| {
+                    let reference = BlockReference {
+                        authority: inner.authority,
+                        round: *round,
+                        digest: *digest,
+                    };
+                    inner.get_block(reference).unwrap_or_else(|| {
+                        panic!("Own block index corrupted, not found: {reference}")
+                    })
+                })
+                .collect::<Vec<_>>();
+            entries.reverse();
+            entries
+        };
         self.read_index_vec(entries)
     }
 

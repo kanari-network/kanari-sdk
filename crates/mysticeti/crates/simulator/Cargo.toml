@@ -17,8 +17,11 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
-parking_lot = { workspace = true }
 
 [dev-dependencies]
 indoc = { workspace = true }
+simulator = { path = ".", features = ["test-utils"] }
 tempfile = { workspace = true }
+
+[features]
+test-utils = []

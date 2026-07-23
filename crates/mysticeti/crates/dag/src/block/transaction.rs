@@ -40,6 +40,25 @@ impl Transaction {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl Transaction {
+    const TEST_MARKER: [u8; 8] = [0xAB; 8];
+
+    /// A transaction whose first 8 bytes decode as a (zero) timestamp, followed by a
+    /// recognizable marker.
+    pub fn new_for_test() -> Self {
+        let mut payload = vec![0u8; 16];
+        payload[8..].copy_from_slice(&Self::TEST_MARKER);
+        Self::new(payload.into())
+    }
+
+    /// True if the payload ends with the test marker written by
+    /// [`Transaction::new_for_test`].
+    pub fn has_test_marker(&self) -> bool {
+        self.data.ends_with(&Self::TEST_MARKER)
+    }
+}
+
 impl AsBytes for Transaction {
     fn as_bytes(&self) -> &[u8] {
         &self.data

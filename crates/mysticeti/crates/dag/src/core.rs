@@ -168,15 +168,6 @@ impl<C: Ctx, D: DagConsensus> Core<C, D> {
         result
     }
 
-    /// Drain transactions submitted to the block handler into the next proposal payload.
-    ///
-    /// The network synchronizer normally drives this internally. Embedders that run
-    /// `Core` directly can call this after sending transactions to the handler and
-    /// before `try_new_block`.
-    pub fn drain_submitted_transactions(&mut self) {
-        self.run_block_handler();
-    }
-
     fn run_block_handler(&mut self) {
         let _timer = self.metrics.utilization_timer("Core::run_block_handler");
         // Always accept transactions for now; pass `false` during shutdown
@@ -187,6 +178,17 @@ impl<C: Ctx, D: DagConsensus> Core<C, D> {
         let position = self.storage.write_payload(&serialized_statements);
         self.pending
             .push_back((position, MetaStatement::Payload(statements)));
+    }
+
+    /// Drain transactions that were submitted through the public transaction
+    /// channel into the next block payload queue.
+    ///
+    /// Kanari drives `Core` directly instead of using the standard network
+    /// syncer loop, so it needs an explicit hook to move locally submitted
+    /// transactions from the block handler receiver into `pending` before
+    /// calling [`Self::try_new_block`].
+    pub fn drain_submitted_transactions(&mut self) {
+        self.run_block_handler();
     }
 
     pub fn try_new_block(&mut self) -> Option<Data<Block>> {
@@ -368,10 +370,14 @@ impl<C: Ctx, D: DagConsensus> Core<C, D> {
         }
     }
 
-    pub fn handle_committed_subdag(&mut self, committed: Vec<CommittedSubDag>) -> Vec<CommitData> {
+    /// Durably record the committed sub-dags, then hand them back to the caller.
+    pub fn handle_committed_subdag(
+        &mut self,
+        committed: Vec<CommittedSubDag>,
+    ) -> Vec<CommittedSubDag> {
         let commit_data: Vec<_> = committed.iter().map(CommitData::from).collect();
         self.storage.write_commits(&commit_data);
-        commit_data
+        committed
     }
 
     pub fn take_recovered_committed_blocks(&mut self) -> HashSet<BlockReference> {

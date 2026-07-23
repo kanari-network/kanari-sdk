@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, btree_map::Entry},
     fmt,
     fs::{File, OpenOptions},
     io,
     io::{IoSlice, Seek, SeekFrom, Write},
     path::Path,
 };
+
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, RawFd};
 
 use memmap2::{Mmap, MmapOptions};
 use minibytes::Bytes;
@@ -21,6 +24,9 @@ pub(super) struct WalWriter {
 }
 
 pub(super) struct WalReader {
+    #[cfg(unix)]
+    fd: RawFd,
+    #[cfg(not(unix))]
     file: File,
     maps: Mutex<BTreeMap<u64, Bytes>>,
 }
@@ -64,9 +70,21 @@ fn wal(path: impl AsRef<Path>) -> io::Result<(WalWriter, WalReader)> {
 }
 
 fn make_wal(file: File) -> io::Result<(WalWriter, WalReader)> {
-    let reader_file = file.try_clone()?;
+    #[cfg(unix)]
+    let fd = unsafe { libc::dup(file.as_raw_fd()) };
+    #[cfg(unix)]
+    if fd <= 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    #[cfg(unix)]
     let reader = WalReader {
-        file: reader_file,
+        fd,
+        maps: Default::default(),
+    };
+    #[cfg(not(unix))]
+    let reader = WalReader {
+        file: file.try_clone()?,
         maps: Default::default(),
     };
     let writer = WalWriter {
@@ -160,8 +178,8 @@ impl WalWriter {
         let header = header.to_le_bytes();
         buffs.push(IoSlice::new(&header));
         buffs.extend_from_slice(v);
-        for buff in buffs {
-            self.file.write_all(&buff)?;
+        for buff in &buffs {
+            self.file.write_all(buff)?;
         }
         let position = WalPosition { start: self.pos };
         self.pos += len;
@@ -251,33 +269,29 @@ impl WalReader {
 
     fn map_offset(&self, offset: u64) -> io::Result<Bytes> {
         let mut maps = self.maps.lock();
-        let file_len = self.file.metadata()?.len();
-        if offset >= file_len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!("WAL map offset {offset} is beyond file length {file_len}"),
-            ));
-        }
-        let map_len = (file_len - offset).min(MAP_SIZE) as usize;
-
-        // Windows rejects a memory map whose requested range extends beyond
-        // the current file length. Also refresh a cached partial map after the
-        // writer grows the file so newly appended entries become readable.
-        if let Some(bytes) = maps.get(&offset)
-            && bytes.len() >= map_len
-        {
-            return Ok(bytes.clone());
-        }
-
-        let mmap = unsafe {
-            MmapOptions::new()
-                .offset(offset)
-                .len(map_len)
-                .map(&self.file)?
+        let bytes = match maps.entry(offset) {
+            Entry::Vacant(va) => {
+                let mmap = unsafe {
+                    #[cfg(unix)]
+                    {
+                        MmapOptions::new()
+                            .offset(offset)
+                            .len(MAP_SIZE as usize)
+                            .map(self.fd)?
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        MmapOptions::new()
+                            .offset(offset)
+                            .len(MAP_SIZE as usize)
+                            .map(&self.file)?
+                    }
+                };
+                va.insert(mmap.into())
+            }
+            Entry::Occupied(oc) => oc.into_mut(),
         };
-        let bytes: Bytes = mmap.into();
-        maps.insert(offset, bytes.clone());
-        Ok(bytes)
+        Ok(bytes.clone())
     }
 
     #[inline]
@@ -347,6 +361,18 @@ impl WalPosition {
 
     fn first_in_map(&self) -> bool {
         self.start == offset(self.start)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for WalReader {
+    fn drop(&mut self) {
+        unsafe {
+            if libc::close(self.fd) != 0 {
+                #[allow(clippy::unnecessary_literal_unwrap)]
+                Err::<(), _>(io::Error::last_os_error()).expect("Failed to close wal fd");
+            }
+        }
     }
 }
 

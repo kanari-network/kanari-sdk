@@ -191,26 +191,6 @@ impl BlockStore {
             .collect()
     }
 
-    pub(super) fn get_latest_own_blocks(&self, limit: usize) -> Vec<IndexEntry> {
-        let mut entries = self
-            .own_blocks
-            .iter()
-            .rev()
-            .take(limit)
-            .map(|(round, digest)| {
-                let reference = BlockReference {
-                    authority: self.authority,
-                    round: *round,
-                    digest: *digest,
-                };
-                self.get_block(reference)
-                    .unwrap_or_else(|| panic!("Own block index corrupted, not found: {reference}"))
-            })
-            .collect::<Vec<_>>();
-        entries.reverse();
-        entries
-    }
-
     pub(super) fn get_others_blocks(
         &self,
         from_excluded: RoundNumber,
