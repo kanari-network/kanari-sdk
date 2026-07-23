@@ -37,15 +37,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --bin kanari
+      - name: Build release binaries
+        run: cargo build --release --bin kanari --bin kanari-node
 
       - name: Create tarball
         run: |
           mkdir -p dist
           cp target/release/kanari dist/
+          cp target/release/kanari-node dist/
           cd dist
-          tar -czvf kanari-linux-x86_64.tar.gz kanari
+          tar -czvf kanari-linux-x86_64.tar.gz kanari kanari-node
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -75,15 +76,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary (x86_64)
-        run: cargo build --release --bin kanari
+      - name: Build release binaries (x86_64)
+        run: cargo build --release --bin kanari --bin kanari-node
 
       - name: Create tarball (x86_64)
         run: |
           mkdir -p dist
           cp target/release/kanari dist/
+          cp target/release/kanari-node dist/
           cd dist
-          tar -czvf kanari-macos-x86_64.tar.gz kanari
+          tar -czvf kanari-macos-x86_64.tar.gz kanari kanari-node
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -116,15 +118,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-arm-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary (ARM64)
-        run: cargo build --release --bin kanari --target aarch64-apple-darwin
+      - name: Build release binaries (ARM64)
+        run: cargo build --release --bin kanari --bin kanari-node --target aarch64-apple-darwin
 
       - name: Create tarball (ARM64)
         run: |
           mkdir -p dist
           cp target/aarch64-apple-darwin/release/kanari dist/
+          cp target/aarch64-apple-darwin/release/kanari-node dist/
           cd dist
-          tar -czvf kanari-macos-arm64.tar.gz kanari
+          tar -czvf kanari-macos-arm64.tar.gz kanari kanari-node
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -154,15 +157,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --bin kanari
+      - name: Build release binaries
+        run: cargo build --release --bin kanari --bin kanari-node
 
       - name: Create ZIP archive
         run: |
           mkdir dist
           Copy-Item target\release\kanari.exe dist\
+          Copy-Item target\release\kanari-node.exe dist\
           cd dist
-          Compress-Archive -Path kanari.exe -DestinationPath kanari-windows-x86_64.zip
+          Compress-Archive -Path kanari.exe,kanari-node.exe -DestinationPath kanari-windows-x86_64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -232,6 +236,8 @@ jobs:
             - 🪟 Windows (x86_64)
 
             **Version**: v${{ steps.get_version.outputs.VERSION }}
+
+            Each archive includes both the `kanari` CLI and the `kanari-node` node binary.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -265,12 +271,12 @@ jobs:
           cat > manifest.json << EOF
           {
             "version": "${{ steps.get_version.outputs.VERSION }}",
-            "description": "Kanari Network CLI - A command-line interface for interacting with Kanari Network blockchain",
+            "description": "Kanari Network CLI and node binaries",
             "homepage": "https://kanari.network",
             "license": "Apache-2.0",
             "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip",
             "hash": "${{ steps.calculate_sha.SHA256 }}",
-            "bin": ["kanari.exe"],
+            "bin": ["kanari.exe", "kanari-node.exe"],
             "architecture": {
               "64bit": {
                 "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip",

@@ -1,0 +1,90 @@
+name: Kanari Security Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "kanari-sdk"
+  workflow_dispatch:
+    inputs:
+      run_chaos:
+        description: "Run disposable four-node RPC chaos exercise"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deterministic-security-tests:
+    name: Deterministic security tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-security-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: RPC load generator unit gates
+        run: cargo test -p kanari-rpc-loadgen
+
+      - name: P2P decompression / DoS one-shot gate
+        run: cargo test -p kanari-node long_run_malformed_compressed_payloads_are_bounded -- --ignored --test-threads=1
+
+      - name: Byzantine Mysticeti native block one-shot gate
+        run: cargo test -p kanari-core long_run_byzantine_native_blocks_cannot_advance_checkpoint -- --ignored --test-threads=1
+
+  four-node-chaos:
+    name: Four-node RPC chaos
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run_chaos == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-chaos-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build chaos binaries
+        shell: pwsh
+        run: |
+          cargo build -p kanari-node --release
+          cargo build -p kanari-rpc-loadgen --release
+
+      - name: Run four-node chaos gate
+        shell: pwsh
+        run: |
+          .\scripts\run-local-four-node-chaos.ps1 `
+            -Requests 500 `
+            -Concurrency 32 `
+            -TimeoutSec 5 `
+            -MinRps 1 `
+            -MaxP99Ms 5000 `
+            -MaxEndpointImbalancePercent 10 `
+            -SkipBuild

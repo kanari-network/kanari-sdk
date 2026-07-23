@@ -29,7 +29,7 @@ members = [
 # Dependencies that should be kept in sync through the whole workspace
 [workspace.dependencies]
 aes-gcm = "0.11.0"
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
 async-trait = "0.1.89"
 bcs = "0.2.1"
@@ -106,7 +106,7 @@ proc-macro2 = "1.0.106"
 proptest = "1.11.0"
 proptest-derive = "0.8.0"
 quote = "1.0.46"
-rand = "0.10.1"
+rand = "0.10.2"
 rayon = "1.12.0"
 ref-cast = "1.0.25"
 regex = "1.12.4"
@@ -125,10 +125,10 @@ similar = "=3.1.1"
 smallvec = "1.15.2"
 stacker = "0.1.24"
 static_assertions = "1.1.0"
-syn = { version = "2.0.118", features = ["derive"] }
+syn = { version = "3.0.3", features = ["derive"] }
 tempfile = "3.27.0"
 tera = "2.0.0"
-thiserror = "2.0.18"
+thiserror = "2.0.19"
 tiny-keccak = { version = "2.0.2", features = ["sha3"] }
 tokio = { version = "1.52.3", features = ["full"] }
 toml = "1.1.2"

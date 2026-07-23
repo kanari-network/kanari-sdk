@@ -13,3 +13,4 @@ data
 !.env.example
 !**/.env.example
 .kanari-local
+.codex-runlogs

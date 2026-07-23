@@ -101,6 +101,7 @@ pub fn growing_stack(_attr: TokenStream, item: TokenStream) -> TokenStream {
         vis,
         sig,
         block,
+        ..
     } = input_fn;
 
     let output = quote! {

@@ -3,6 +3,7 @@
 
 use kanari_crypto::hd_wallet::{HdError, derive_multiple_addresses};
 use kanari_crypto::keys::CurveType;
+use std::env;
 
 fn main() -> Result<(), HdError> {
     // Example seed phrase (Mnemonic) - In production, this should be read from input or environment
@@ -18,9 +19,16 @@ fn main() -> Result<(), HdError> {
 
     // Number of wallets to generate
     let count = 10;
+    let show_secrets = env::var("KANARI_WALLET_EXAMPLE_SHOW_SECRETS")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     eprintln!("--- HD Wallet Generation System ---");
-    eprintln!("Seed Phrase: {}", mnemonic);
+    if show_secrets {
+        eprintln!("Seed Phrase: {}", mnemonic);
+    } else {
+        eprintln!("Seed Phrase: <redacted; set KANARI_WALLET_EXAMPLE_SHOW_SECRETS=1 to print>");
+    }
     eprintln!("Derivation Path Template: {}", path_template);
     eprintln!("Curve Type: {:?}", curve);
     eprintln!("--------------------------------------------------");
@@ -29,12 +37,15 @@ fn main() -> Result<(), HdError> {
     let keypairs = derive_multiple_addresses(mnemonic, password, path_template, curve, count)?;
 
     for (i, kp) in keypairs.iter().enumerate() {
-        // Securely export the Private Key (data will be zeroized after use)
-        let private_key = kp.export_private_key_secure();
-
         eprintln!("Wallet #{}:", i + 1);
         eprintln!("  1. Address: {}", kp.address);
-        eprintln!("  2. Private Key (PK): {}", *private_key);
+        if show_secrets {
+            // Securely export the Private Key (data will be zeroized after use)
+            let private_key = kp.export_private_key_secure();
+            eprintln!("  2. Private Key (PK): {}", *private_key);
+        } else {
+            eprintln!("  2. Private Key (PK): <redacted>");
+        }
         eprintln!("--------------------------------------------------");
     }
 

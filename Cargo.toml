@@ -29,6 +29,7 @@ members = [
       "crates/kanari-rpc-api", 
       "crates/kanari-rpc-client", 
       "crates/kanari-rpc-server",
+      "crates/kanari-rpc-loadgen",
       "crates/kanari-faucet",
       "packages/kanari_flutter/rust",
       "crates/kanari-core",
@@ -57,7 +58,7 @@ categories = ["development-tools"]                                              
 keywords = ["blockchain", "sdk", "move", "rust", "ifps", "storage", "wallet", "framework"]     # Keywords for crates.io search.
 homepage = "https://kanarinetwork.site"                                                                                # Project homepage.
 documentation = "https://docs.kanarinetwork.site"                                                                      # Link to project documentation.
-version = "0.2.2"                                                                                                  # Current version of the SDK.
+version = "0.2.3"                                                                                                  # Current version of the SDK.
 authors = ["Kanari Network"]                                                                                       # Authors of the SDK.
 license = "Apache-2.0"                                                                                             # License information.
 repository = "https://github.com/kanari-network/kanari-sdk"                                                        # Link to the code repository.
@@ -70,7 +71,7 @@ description = "Kanari Network SDK"                                              
 # ============================================================================
 # Core Runtime & Concurrency
 # ============================================================================
-tokio = { version = "1.53.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 rayon = "1.12.0"
 crossbeam-channel = "0.5.16"
 
@@ -90,8 +91,8 @@ axum-client-ip = "1.3.1"                                                        
 # ============================================================================
 # Serialization & Data Formats
 # ============================================================================
-serde = { version = "1.0.228", default-features = true, features = ["rc"] }
-serde_json = { version = "1.0.149", default-features = true }
+serde = { version = "1.0.229", default-features = true, features = ["rc"] }
+serde_json = { version = "1.0.151", default-features = true }
 serde_yaml = { version = "0.9.34", default-features = true }
 toml = { version = "1.1.3", default-features = true }
 
@@ -126,7 +127,7 @@ bip32 = "0.5.3"                                                                 
 
 ## Encoding Utilities
 hex = "0.4.3"
-base64 = "0.22.1"
+base64 = "0.23.0"
 primitive-types = { version = "0.14.0", default-features = true }                  # U256, H160, etc.
 
 # ============================================================================
@@ -163,8 +164,8 @@ siphasher = "1.0.2"                                                             
 # ============================================================================
 # Error Handling & Result Types
 # ============================================================================
-anyhow = "1.0.103"
-thiserror = { version = "2.0.18", default-features = true }
+anyhow = "1.0.104"
+thiserror = { version = "2.0.19", default-features = true }
 better_any = { version = "0.2.1", features = ["derive"] }
 
 # ============================================================================
@@ -180,11 +181,11 @@ prometheus = "0.14.0"
 # ============================================================================
 # CLI, Configuration & Utilities
 # ============================================================================
-clap = { version = "4.6.2", features = ["derive"] }                                 # CLI argument parsing
+clap = { version = "4.6.4", features = ["derive"] }                                 # CLI argument parsing
 dirs = "6.0.0"                                                                      # Platform-specific directories
 walkdir = "2.5.0"                                                                   # Directory traversal
 num_cpus = "1.17.0"                                                                 # CPU core detection
-regex = "1.13.0"                                                                    # Regular expressions for validation
+regex = "1.13.1"                                                                    # Regular expressions for validation
 smallvec = "1.15.2"                                                                 # Stack-allocated vectors
 lazy_static = { version = "1.5.0", default-features = true }
 once_cell = "1.21.4"
@@ -242,9 +243,9 @@ rusqlite = { version = "0.40.1", features = ["bundled", "chrono", "serde_json"] 
 # ============================================================================
 # Proc Macro Dependencies
 # ============================================================================
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-syn = { version = "2.0.119", features = ["full"] }
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.3", features = ["full"] }
 
 # ============================================================================
 
