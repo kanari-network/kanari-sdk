@@ -15,10 +15,21 @@ Run continuously (default 8 hours):
 .\scripts\run-adversarial-soak.ps1
 ```
 
+Run the broader fuzz/conflict campaign:
+
+```powershell
+.\scripts\run-fuzz-campaign.ps1 `
+  -Hours 8 `
+  -Workers 1 `
+  -IncludeIgnoredLongRuns
+```
+
 The runner checks that:
 
 - arbitrary and compressed-bomb P2P input stays within the decompression budget and never panics;
-- arbitrary malformed Byzantine Mysticeti native blocks cannot advance checkpoint height.
+- arbitrary malformed Byzantine Mysticeti native blocks cannot advance checkpoint height;
+- conflict-aware speculative scheduling preserves canonical order and keeps
+  conflicting object/gas keys out of the same wave.
 
 For a network-level exercise, run the four-node devnet separately and inject process restarts, delayed peers, duplicate messages, and malformed network traffic from an isolated test host. Do not conduct these tests against shared or production validators.
 
@@ -72,6 +83,32 @@ The `MinRps`, `MaxP99Ms`, `MaxClientRejectedPercent`, and
 release check. Keep the thresholds workload-specific; do not copy local loopback
 numbers into public capacity claims.
 
+Production hardware profile:
+
+```powershell
+.\scripts\run-production-benchmark-profile.ps1 `
+  -RpcUrl @(
+    "http://192.168.1.101:19001",
+    "http://192.168.1.101:19003",
+    "http://192.168.1.101:19005",
+    "http://192.168.1.101:19007"
+  ) `
+  -Requests 200000 `
+  -Concurrency 2048 `
+  -IncludeMalformed `
+  -IncludeOversized `
+  -MinRps 10000 `
+  -MaxP99Ms 300 `
+  -MaxClientRejectedPercent 10 `
+  -MaxEndpointImbalancePercent 5
+```
+
+Record CPU model, RAM, disk type, OS, node commit hash, binary profile, RPC
+limits, validator count, requests, concurrency, achieved RPS, p99 latency,
+rate-limit percentage, server/network errors, and final four-node root
+convergence. A benchmark without hardware and commit metadata is not a release
+claim.
+
 For a disposable local four-node devnet, use:
 
 ```powershell
@@ -123,6 +160,63 @@ Recent local release run:
 - observed peer state: `height=20`, `txs=20`, `our_height=20`, `our_txs=20`
 - no node process was left running after the test
 
+## Four-node transaction chaos with delay and duplicate gossip
+
+Use this when you want the full transaction path plus real process restarts,
+artificial P2P delay, and duplicate gossipsub publishes. The chaos knobs are
+disabled by default and are only activated by the runner's environment variables.
+
+```powershell
+.\scripts\run-local-four-node-parallel-tx-chaos.ps1 `
+  -KeystorePath "$env:USERPROFILE\.kanari\kanari_config\kanari.keystore" `
+  -Password '@Password12345678' `
+  -Senders @(
+    '0xsender1...',
+    '0xsender2...',
+    '0xsender3...',
+    '0xsender4...'
+  ) `
+  -Recipient '0xrecipient...' `
+  -CountPerSender 250 `
+  -FundSenders `
+  -FaucetCoinsPerSender 16 `
+  -ChaosRounds 4 `
+  -P2pPublishDelayMs 250 `
+  -P2pDuplicatePublishes 2 `
+  -P2pChannelCapacity 8192 `
+  -MaxConcurrentSyncMessages 512
+```
+
+Expected pass condition:
+
+- every tx lane exits successfully;
+- all four RPC nodes become readable after restarts;
+- final height, transaction count, and state root converge across all nodes;
+- node logs have no panic, WAL error, state-root divergence, or checkpoint
+  validation failure.
+
+For a multi-hour campaign, use the wrapper below. It repeats disposable
+four-node devnets until the deadline, rotating ports between iterations so a
+stale process cannot silently poison the next run.
+
+```powershell
+.\scripts\run-chaos-network-campaign.ps1 `
+  -Hours 6 `
+  -KeystorePath "$env:USERPROFILE\.kanari\kanari_config\kanari.keystore" `
+  -Password '@Password12345678' `
+  -Senders @(
+    '0xsender1...',
+    '0xsender2...',
+    '0xsender3...',
+    '0xsender4...'
+  ) `
+  -Recipient '0xrecipient...' `
+  -CountPerSender 250 `
+  -ChaosRoundsPerIteration 4 `
+  -P2pPublishDelayMs 250 `
+  -P2pDuplicatePublishes 2
+```
+
 ## Four-node RPC chaos exercise
 
 Use this to validate process-loss/restart behavior under RPC pressure. The
@@ -162,3 +256,4 @@ and pull request:
 
 The same workflow has a manual `workflow_dispatch` option `run_chaos=true` to
 run the disposable four-node RPC chaos gate on a Windows runner.
+It also has `run_fuzz_campaign=true` for a bounded Linux campaign.

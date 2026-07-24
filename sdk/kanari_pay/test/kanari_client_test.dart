@@ -125,6 +125,7 @@ void main() {
         amount: 1000,
         gasLimit: 1,
         gasPrice: 1,
+        excludedObjectIds: ['0xdef'],
       );
 
       expect(result.hash, '0xtxhash');
@@ -137,6 +138,9 @@ void main() {
         builtParams?['recipient'],
         '0x0000000000000000000000000000000000000000000000000000000000000456',
       );
+      expect(builtParams?['excluded_object_ids'], [
+        '0x0000000000000000000000000000000000000000000000000000000000000def',
+      ]);
       expect(submittedParams?['coin_object_ref'], isA<Map>());
       expect(
         submittedParams?['gas_payment']?['payment_objects']?[0]?['object_id'],

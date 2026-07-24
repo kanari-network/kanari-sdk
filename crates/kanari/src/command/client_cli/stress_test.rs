@@ -19,12 +19,13 @@ use kanari_rpc_api::BuildNativeTransferRequest;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_rpc_client::RpcClient;
 use kanari_types::gas_coin::GAS_COIN;
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-const MAX_OBJECT_BUSY_RETRIES: usize = 240;
+const MAX_OBJECT_BUSY_RETRIES: usize = 1200;
 const OBJECT_BUSY_RETRY_DELAY_MS: u64 = 250;
-const MAX_LANE_SATURATION_RETRIES: usize = 240;
+const MAX_LANE_SATURATION_RETRIES: usize = 1200;
 const LANE_SATURATION_RETRY_DELAY_MS: u64 = 250;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
@@ -188,6 +189,18 @@ impl StressTest {
             "  Native coins:   {} object(s)",
             native_coin_object_count(&owner)
         );
+        let native_coin_count = native_coin_object_count(&owner);
+        let approximate_inflight_pairs = native_coin_count / 2;
+        if self.count > 1 && approximate_inflight_pairs <= 1 {
+            eprintln!(
+                "  Bottleneck:     only ~{} native transfer/gas pair(s); this lane will serialize on object version commits",
+                approximate_inflight_pairs
+            );
+            eprintln!(
+                "                  For parallel load, pre-fund each sender with more Coin<{}> objects.",
+                GAS_COIN
+            );
+        }
 
         if native_balance < total_required {
             bail!(
@@ -206,6 +219,8 @@ impl StressTest {
         let mut success_count = 0u64;
         let mut fail_count = 0u64;
         let mut submitted_hashes = Vec::with_capacity(self.count as usize);
+        let mut in_flight_object_ids = HashSet::<String>::new();
+        let mut in_flight_transactions = Vec::<(String, Vec<String>)>::new();
         let start_time = Instant::now();
         let report_interval = (self.count / 20).max(1);
 
@@ -213,6 +228,7 @@ impl StressTest {
             let mut retry_count = 0usize;
             let mut lane_retry_count = 0usize;
             let result = loop {
+                let excluded_object_ids = in_flight_object_ids.iter().cloned().collect();
                 let attempt_result = async {
                     let prepared = client
                         .build_native_transfer(BuildNativeTransferRequest {
@@ -221,6 +237,7 @@ impl StressTest {
                             amount: amount_mist,
                             gas_limit,
                             gas_price,
+                            excluded_object_ids,
                             nonce: None,
                             execute_immediate: Some(false),
                         })
@@ -272,6 +289,22 @@ impl StressTest {
                                 MAX_OBJECT_BUSY_RETRIES
                             );
                         }
+                        let mut still_in_flight = Vec::with_capacity(in_flight_transactions.len());
+                        for (hash, object_ids) in in_flight_transactions.drain(..) {
+                            let release_objects = client
+                                .get_transaction(&hash)
+                                .await
+                                .map(|details| details.committed || !details.success)
+                                .unwrap_or(false);
+                            if release_objects {
+                                for object_id in object_ids {
+                                    in_flight_object_ids.remove(&object_id);
+                                }
+                            } else {
+                                still_in_flight.push((hash, object_ids));
+                            }
+                        }
+                        in_flight_transactions = still_in_flight;
                         sleep(Duration::from_millis(OBJECT_BUSY_RETRY_DELAY_MS)).await;
                     }
                     Err(error)
@@ -326,6 +359,14 @@ impl StressTest {
 
                     success_count += 1;
                     submitted_hashes.push(status.hash.clone());
+                    let mut used_object_ids = vec![coin_object_id.clone()];
+                    if let Some(gas_object_id) = &gas_object_id {
+                        used_object_ids.push(gas_object_id.clone());
+                    }
+                    for object_id in &used_object_ids {
+                        in_flight_object_ids.insert(object_id.clone());
+                    }
+                    in_flight_transactions.push((status.hash.clone(), used_object_ids));
                     if i == 0 {
                         eprintln!("  First coin object: {}", coin_object_id);
                         if let Some(gas_object_id) = gas_object_id {

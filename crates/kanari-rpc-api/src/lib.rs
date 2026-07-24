@@ -580,6 +580,11 @@ pub struct BuildNativeTransferRequest {
     pub amount: u64,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Object ids the caller already has in-flight locally and does not want
+    /// the backend selector to reuse for this build. This is advisory and is
+    /// combined with the node's pending access-key snapshot.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_object_ids: Vec<String>,
     /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<u64>,

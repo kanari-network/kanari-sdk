@@ -183,6 +183,25 @@ pub struct P2PTopics {
     pub dag_vertices: IdentTopic,
 }
 
+fn topic_namespace() -> String {
+    std::env::var("KANARI_P2P_NAMESPACE")
+        .or_else(|_| std::env::var("KANARI_NETWORK"))
+        .unwrap_or_else(|_| "devnet".to_string())
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn namespaced_topic(namespace: &str, topic: &str) -> IdentTopic {
+    IdentTopic::new(format!("kanari/{namespace}/{topic}"))
+}
+
 fn gzip_string(data: &str) -> Result<Vec<u8>> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(data.as_bytes())?;
@@ -239,10 +258,12 @@ impl P2PNetwork {
         )
         .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
-        let checkpoints_topic = IdentTopic::new("kanari/checkpoints");
-        let tx_topic = IdentTopic::new("kanari/transactions");
-        let peers_topic = IdentTopic::new("kanari/peers");
-        let dag_vertices_topic = IdentTopic::new("kanari/dag_vertices");
+        let namespace = topic_namespace();
+        info!(namespace = %namespace, "Using P2P topic namespace");
+        let checkpoints_topic = namespaced_topic(&namespace, "checkpoints");
+        let tx_topic = namespaced_topic(&namespace, "transactions");
+        let peers_topic = namespaced_topic(&namespace, "peers");
+        let dag_vertices_topic = namespaced_topic(&namespace, "dag_vertices");
 
         gossipsub.subscribe(&checkpoints_topic)?;
         gossipsub.subscribe(&tx_topic)?;
@@ -545,7 +566,25 @@ impl P2PNetwork {
     }
 
     fn publish_encoded(&mut self, topic: IdentTopic, data: Vec<u8>) -> Result<()> {
+        maybe_apply_chaos_publish_delay();
+
         // Publish and handle duplicate gracefully
+        let duplicate_publishes = chaos_duplicate_publish_count();
+        for _ in 0..duplicate_publishes {
+            match self
+                .swarm
+                .behaviour_mut()
+                .gossipsub
+                .publish(topic.clone(), data.clone())
+            {
+                Ok(_) => {}
+                Err(e) if is_duplicate_publish_error(&e) || is_insufficient_peers_error(&e) => {}
+                Err(e) => {
+                    tracing::debug!("Chaos duplicate P2P publish failed: {e}");
+                }
+            }
+        }
+
         match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -561,6 +600,25 @@ impl P2PNetwork {
             }
         }
     }
+}
+
+fn chaos_env_u64(name: &str, max: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|value| value.min(max))
+        .unwrap_or(0)
+}
+
+fn maybe_apply_chaos_publish_delay() {
+    let delay_ms = chaos_env_u64("KANARI_CHAOS_P2P_PUBLISH_DELAY_MS", 30_000);
+    if delay_ms > 0 {
+        std::thread::sleep(Duration::from_millis(delay_ms));
+    }
+}
+
+fn chaos_duplicate_publish_count() -> usize {
+    chaos_env_u64("KANARI_CHAOS_P2P_DUPLICATE_PUBLISHES", 8) as usize
 }
 
 /// Decompress a compressed UTF-8 P2P payload.

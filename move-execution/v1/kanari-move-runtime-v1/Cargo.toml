@@ -41,6 +41,7 @@ tracing = { workspace = true }
 kanari-frameworks = { workspace = true }
 tempfile = { workspace = true }
 kanari-types = { workspace = true }
+proptest = { workspace = true }
 
 [build-dependencies]
 move-package = { workspace = true }

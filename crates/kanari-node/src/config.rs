@@ -13,11 +13,11 @@ pub(crate) struct NodeRuntimeConfig;
 
 impl NodeRuntimeConfig {
     pub(crate) fn p2p_channel_capacity() -> usize {
-        env_usize_clamped("KANARI_P2P_CHANNEL_CAPACITY", 128, 16, 4096)
+        env_usize_clamped("KANARI_P2P_CHANNEL_CAPACITY", 1024, 16, 65_536)
     }
 
     pub(crate) fn max_concurrent_sync_messages() -> usize {
-        env_usize_clamped("KANARI_MAX_CONCURRENT_SYNC_MESSAGES", 64, 1, 1024)
+        env_usize_clamped("KANARI_MAX_CONCURRENT_SYNC_MESSAGES", 128, 1, 4096)
     }
 
     pub(crate) fn dag_vertices_per_response() -> usize {

@@ -682,9 +682,13 @@ pub async fn run_node(
             &bind_addr_clone,
             move |signed_tx| {
                 let payload = serde_json::to_string(&signed_tx)?;
-                network_tx_for_rpc
-                    .try_send(P2PMessage::NewTransaction(payload))
-                    .map_err(|e| anyhow::anyhow!("failed to queue transaction broadcast: {}", e))?;
+                if let Err(error) = network_tx_for_rpc.try_send(P2PMessage::NewTransaction(payload))
+                {
+                    tracing::warn!(
+                        error = %error,
+                        "P2P transaction broadcast queue is full; transaction remains accepted locally"
+                    );
+                }
                 Ok(())
             },
         )

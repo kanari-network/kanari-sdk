@@ -161,11 +161,17 @@ final objects = await rpcClient.getOwnedObjects(
 );
 print('Spendable coin objects: ${objects.length}');
 
-// RPC builds the transfer and resolves coin/object inputs server-side
+// RPC builds the transfer and resolves coin/object inputs server-side.
+// When sending parallel transfers from the same wallet, pass object ids that are
+// already in-flight so the node can pick different coin/gas objects.
+final inFlightObjectIds = <String>[
+  '0x0000000000000000000000000000000000000000000000000000000000000def',
+];
 final transfer = await rpcClient.transfer(
   wallet: wallet,
   recipient: '0xRecipient...',
   amount: 1000000,
+  excludedObjectIds: inFlightObjectIds,
 );
 
 print('Transfer hash: ${transfer.hash}');

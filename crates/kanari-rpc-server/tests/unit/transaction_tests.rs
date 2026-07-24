@@ -155,6 +155,7 @@ fn selects_distinct_native_transfer_and_gas_objects() {
         10,
         1,
         &pending_access_keys,
+        &HashSet::new(),
     )
     .unwrap();
     assert_eq!(coin.object_id, "0x1");
@@ -191,6 +192,7 @@ fn native_transfer_preserves_small_coin_as_gas_reserve() {
         1_000_000_000,
         100_000,
         1,
+        &HashSet::new(),
         &HashSet::new(),
     )
     .unwrap();
@@ -230,6 +232,7 @@ fn native_transfer_selection_skips_pending_object_refs() {
         10,
         1,
         &pending_access_keys,
+        &HashSet::new(),
     )
     .unwrap();
 
@@ -265,6 +268,7 @@ fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
         10,
         1,
         &pending_access_keys,
+        &HashSet::new(),
     )
     .unwrap_err();
     assert!(err.to_string().contains("two distinct Coin<"));
@@ -301,14 +305,63 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
         1,
         1,
         &pending_access_keys,
+        &HashSet::new(),
     )
     .unwrap_err();
     assert!(pending_error.to_string().contains("two distinct Coin<"));
 
-    let (transfer, gas) =
-        select_native_transfer_and_gas_payment(&owned_objects, "0xa", 10, 1, 1, &HashSet::new())
-            .unwrap();
+    let (transfer, gas) = select_native_transfer_and_gas_payment(
+        &owned_objects,
+        "0xa",
+        10,
+        1,
+        1,
+        &HashSet::new(),
+        &HashSet::new(),
+    )
+    .unwrap();
     assert_ne!(transfer.object_id, gas.payment_objects[0].object_id);
+}
+
+#[test]
+fn native_transfer_selection_skips_client_excluded_object_refs() {
+    use kanari_rpc_api::ObjectInfo;
+    use kanari_types::transaction::ObjectOwnerKind;
+
+    let owned_objects = ["0x1", "0x2", "0x3", "0x4"]
+        .into_iter()
+        .map(|id| ObjectInfo {
+            id: id.to_string(),
+            owner: "0xa".to_string(),
+            owner_kind: ObjectOwnerKind::AddressOwner("0xa".to_string()),
+            type_: CoinModule::coin_type(GAS_COIN),
+            data: {
+                let mut bytes = vec![0u8; 40];
+                bytes[32..40].copy_from_slice(&100u64.to_le_bytes());
+                bytes
+            },
+            version: 1,
+            digest: Some(format!("{id}:digest")),
+        })
+        .collect::<Vec<_>>();
+
+    let excluded_object_ids = HashSet::from(["0x1".to_string(), "0x2".to_string()]);
+    let (coin, gas) = select_native_transfer_and_gas_payment(
+        &owned_objects,
+        "0xa",
+        60,
+        10,
+        1,
+        &HashSet::new(),
+        &excluded_object_ids,
+    )
+    .unwrap();
+
+    assert_ne!(coin.object_id, "0x1");
+    assert_ne!(coin.object_id, "0x2");
+    assert_ne!(gas.payment_objects[0].object_id, "0x1");
+    assert_ne!(gas.payment_objects[0].object_id, "0x2");
+    assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]

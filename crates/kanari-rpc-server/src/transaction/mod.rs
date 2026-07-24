@@ -380,12 +380,14 @@ fn select_native_transfer_and_gas_payment(
     gas_limit: u64,
     gas_price: u64,
     pending_access_keys: &HashSet<String>,
+    excluded_object_ids: &HashSet<String>,
 ) -> anyhow::Result<(ObjectRef, GasPayment)> {
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
     let required_gas = gas_limit.saturating_mul(effective_gas_price(gas_price));
     let mut native_coins: Vec<(ObjectRef, u64)> = owned_objects
         .iter()
         .filter(|object| object.type_ == native_coin_type)
+        .filter(|object| !excluded_object_ids.contains(&object.id))
         .filter(|object| !pending_access_keys.contains(&format!("mut:object:{}", object.id)))
         .filter(|object| !pending_access_keys.contains(&format!("mut:gas:{}", object.id)))
         .filter_map(|object| {
@@ -1498,6 +1500,11 @@ pub async fn handle_build_native_transfer(
         build_data.gas_limit,
         build_data.gas_price,
         &pending_access_keys,
+        &build_data
+            .excluded_object_ids
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>(),
     ) {
         Ok(payment) => payment,
         Err(e) => {

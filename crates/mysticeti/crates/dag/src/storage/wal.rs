@@ -241,29 +241,30 @@ impl WalReader {
 
         #[cfg(not(windows))]
         {
-        let offset = offset(position.start);
-        let bytes = self.map_offset(offset)?;
-        let buf_offset = (position.start - offset) as usize;
-        let (crc, len, tag) = Self::read_header(&bytes[buf_offset..]);
-        if len == 0 {
-            if crc == 0 {
-                return Ok(None);
+            let offset = offset(position.start);
+            let bytes = self.map_offset(offset)?;
+            let buf_offset = (position.start - offset) as usize;
+            let (crc, len, tag) = Self::read_header(&bytes[buf_offset..]);
+            if len == 0 {
+                if crc == 0 {
+                    return Ok(None);
+                }
+                panic!(
+                    "Non-zero crc at len 0, crc: {crc}, position:{}",
+                    position.start
+                );
             }
-            panic!(
-                "Non-zero crc at len 0, crc: {crc}, position:{}",
-                position.start
-            );
-        }
-        let bytes = bytes.slice(buf_offset + HEADER_LEN_BYTES_USIZE..buf_offset + (len as usize));
-        let actual_crc = crc32fast::hash(bytes.as_ref()) as u64;
-        if actual_crc != crc {
-            // todo - return error
-            panic!(
-                "Crc mismatch, expected {}, found {} at position {}:{}",
-                crc, actual_crc, position.start, len
-            );
-        }
-        Ok(Some((tag, bytes)))
+            let bytes =
+                bytes.slice(buf_offset + HEADER_LEN_BYTES_USIZE..buf_offset + (len as usize));
+            let actual_crc = crc32fast::hash(bytes.as_ref()) as u64;
+            if actual_crc != crc {
+                // todo - return error
+                panic!(
+                    "Crc mismatch, expected {}, found {} at position {}:{}",
+                    crc, actual_crc, position.start, len
+                );
+            }
+            Ok(Some((tag, bytes)))
         }
     }
 
@@ -282,13 +283,19 @@ impl WalReader {
             }
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Non-zero crc at len 0, crc: {crc}, position:{}", position.start),
+                format!(
+                    "Non-zero crc at len 0, crc: {crc}, position:{}",
+                    position.start
+                ),
             ));
         }
         if len < HEADER_LEN_BYTES || len > MAP_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid wal entry length {len} at position {}", position.start),
+                format!(
+                    "Invalid wal entry length {len} at position {}",
+                    position.start
+                ),
             ));
         }
 
@@ -298,7 +305,10 @@ impl WalReader {
             ReadAt::Eof => {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
-                    format!("Unexpected EOF reading wal payload at position {}", position.start),
+                    format!(
+                        "Unexpected EOF reading wal payload at position {}",
+                        position.start
+                    ),
                 ));
             }
             ReadAt::Read => {}

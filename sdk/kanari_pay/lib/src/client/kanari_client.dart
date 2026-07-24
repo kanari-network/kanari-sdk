@@ -166,6 +166,7 @@ class KanariClient {
     required int amount,
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = TransactionConstants.defaultGasPrice,
+    List<String> excludedObjectIds = const [],
   }) {
     return _transactions.transfer(
       wallet: wallet,
@@ -173,6 +174,7 @@ class KanariClient {
       amount: amount,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
+      excludedObjectIds: excludedObjectIds,
     );
   }
 

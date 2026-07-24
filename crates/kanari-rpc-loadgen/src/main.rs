@@ -175,7 +175,10 @@ async fn main() -> Result<()> {
     if args.concurrency == 0 {
         bail!("--concurrency must be greater than zero");
     }
-    validate_percent("max-client-rejected-percent", args.max_client_rejected_percent)?;
+    validate_percent(
+        "max-client-rejected-percent",
+        args.max_client_rejected_percent,
+    )?;
     validate_percent(
         "max-endpoint-imbalance-percent",
         args.max_endpoint_imbalance_percent,

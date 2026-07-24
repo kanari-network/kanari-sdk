@@ -57,6 +57,7 @@ impl Transfer {
                 amount: amount_mist,
                 gas_limit,
                 gas_price,
+                excluded_object_ids: Vec::new(),
                 nonce: None,
                 // Preview against the current object state before gossiping so
                 // Move argument/object failures are returned to the user instead

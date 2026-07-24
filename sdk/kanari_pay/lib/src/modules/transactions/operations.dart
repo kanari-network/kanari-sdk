@@ -338,6 +338,7 @@ class TransactionOperations {
     required int amount,
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = TransactionConstants.defaultGasPrice,
+    List<String> excludedObjectIds = const [],
   }) async {
     _requirePositiveAmount(amount, 'amount');
 
@@ -349,6 +350,9 @@ class TransactionOperations {
         'amount': amount,
         'gas_limit': gasLimit,
         'gas_price': gasPrice,
+        'excluded_object_ids': excludedObjectIds
+            .map(BcsUtils.normalizeAddress)
+            .toList(growable: false),
         'execute_immediate': true,
       },
     );

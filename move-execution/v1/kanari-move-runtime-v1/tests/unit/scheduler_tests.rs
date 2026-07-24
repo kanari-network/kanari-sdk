@@ -1,5 +1,7 @@
 use super::*;
 use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef, Transaction};
+use proptest::prelude::*;
+use std::collections::BTreeSet;
 
 fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTransaction {
     let mut args = Vec::new();
@@ -129,4 +131,51 @@ fn test_schedule_bounds_large_speculative_batches() {
         waves.iter().map(Vec::len).collect::<Vec<_>>(),
         vec![64, 64, 2]
     );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    #[test]
+    fn fuzz_schedule_preserves_order_bounds_and_conflict_freedom(
+        objects in prop::collection::vec(prop::option::of(0usize..24), 0..256)
+    ) {
+        let txs = objects
+            .iter()
+            .enumerate()
+            .map(|(i, object)| {
+                let object = object.map(|id| format!("obj-{id}"));
+                create_dummy_tx(
+                    &format!("sender-{i}"),
+                    "fuzz",
+                    object.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let expected_order = txs
+            .iter()
+            .map(|tx| tx.transaction_hash().to_vec())
+            .collect::<Vec<_>>();
+
+        let waves = TransactionScheduler::schedule(txs);
+        let actual_order = waves
+            .iter()
+            .flat_map(|wave| wave.iter().map(|tx| tx.transaction_hash().to_vec()))
+            .collect::<Vec<_>>();
+
+        prop_assert_eq!(actual_order, expected_order);
+        for wave in waves {
+            prop_assert!(wave.len() <= TransactionScheduler::MAX_SPECULATIVE_WAVE_SIZE);
+
+            let mut reserved = BTreeSet::new();
+            for tx in wave {
+                for key in tx.transaction.get_conflict_keys() {
+                    prop_assert!(
+                        reserved.insert(key.clone()),
+                        "same speculative wave contains duplicate conflict key {key:?}"
+                    );
+                }
+            }
+        }
+    }
 }
