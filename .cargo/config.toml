@@ -14,8 +14,10 @@ rustflags = [
     "-W", "clippy::print_stdout",
 ]
 
-[target.x86_64-unknown-linux-gnu]  # Adjust target as needed
-rustflags = ["-C", "target-cpu=native"]
+# Do not force `-C target-cpu=native` in workspace defaults. CI/release
+# artifacts must be portable across CPUs, and recent nightly codegen has hit
+# ICEs while compiling dependencies with native CPU flags. Benchmark scripts can
+# still opt in by setting RUSTFLAGS explicitly on the benchmarking machine.
 
 [net]
 git-fetch-with-cli = true  # Can be faster for git dependencies

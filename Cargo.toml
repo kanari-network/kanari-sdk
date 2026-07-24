@@ -344,5 +344,5 @@ debug-assertions = false         # Disable debug assertions for release builds.
 overflow-checks = false          # Disable overflow checks for release builds.
 lto = false                      # Disable LTO to avoid compiler crash/OOM.
 panic = 'abort'                  # Remove unwinding code for panic handling.
-codegen-units = 256              # Maximize parallelism to avoid single-thread memory spikes.
+codegen-units = 16               # Keep release builds stable/reproducible while retaining parallel codegen.
 strip = true                     # Strip debug symbols from the final binary to reduce size.
