@@ -571,16 +571,6 @@ impl BlockchainEngine {
         CoinModule::is_coin_type_for(object_type, GAS_COIN)
     }
 
-    fn read_coin_balance(data: &[u8]) -> Option<u64> {
-        if data.len() < 40 {
-            return None;
-        }
-
-        let mut amount_bytes = [0u8; 8];
-        amount_bytes.copy_from_slice(&data[32..40]);
-        Some(u64::from_le_bytes(amount_bytes))
-    }
-
     fn execute_backend_native_burn(
         state: &StateManager,
         tx: &Transaction,
@@ -619,7 +609,7 @@ impl BlockchainEngine {
             sender_addr.to_hex_literal()
         );
 
-        let object_balance = Self::read_coin_balance(&gas_object.data).with_context(|| {
+        let object_balance = CoinModule::read_balance(&gas_object.data).with_context(|| {
             format!(
                 "Native burn gas object {} has invalid coin bytes",
                 gas_object_ref.object_id
@@ -1201,10 +1191,6 @@ impl BlockchainEngine {
             error!("Mempool lock poisoned while writing pending state; recovering...");
             poisoned.into_inner()
         })
-    }
-
-    pub fn pending_transaction_records_snapshot(&self) -> Vec<PendingTransactionRecord> {
-        self.mempool_read().pending_txs.clone()
     }
 
     pub fn find_pending_transaction(
@@ -2560,6 +2546,21 @@ impl BlockchainEngine {
 
     pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         self.dag_engine_instance()?.latest_own_vertices(limit)
+    }
+
+    pub fn dag_vertices_through_round_for_sync(
+        &self,
+        target_round: u64,
+        limit: usize,
+    ) -> Result<Vec<DagVertex>> {
+        self.dag_engine_instance()?
+            .vertices_through_round_for_sync(target_round, limit)
+    }
+
+    pub fn dag_missing_parent_rounds_for_sync(&self, vertices: &[DagVertex]) -> Result<Vec<u64>> {
+        Ok(self
+            .dag_engine_instance()?
+            .missing_parent_rounds_for_sync(vertices))
     }
 
     pub fn dag_vertices_for_checkpoint_sync(

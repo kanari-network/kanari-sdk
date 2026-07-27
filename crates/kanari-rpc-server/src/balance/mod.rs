@@ -10,10 +10,8 @@ use kanari_rpc_api::{
 };
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
-use move_core_types::language_storage::TypeTag;
 use serde_json;
 use std::collections::BTreeSet;
-use std::str::FromStr;
 use tracing::warn;
 
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
@@ -34,13 +32,6 @@ fn extract_symbol(token_type: &str) -> String {
         .trim_end_matches('>');
 
     inner.split("::").last().unwrap_or(inner).to_string()
-}
-
-fn normalize_token_type(token_type: &str) -> String {
-    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
-        return format!("{}", st);
-    }
-    token_type.to_string()
 }
 
 fn build_balance_json(
@@ -77,7 +68,7 @@ fn collect_fungible_asset_holders(
     token_type: &str,
     limit: Option<usize>,
 ) -> anyhow::Result<Vec<FungibleAssetHolder>> {
-    let token_type = normalize_token_type(token_type);
+    let token_type = CoinModule::normalize_token_type(token_type);
     let coin_type = CoinModule::coin_type(&token_type);
     let mut holders = Vec::new();
 
@@ -139,7 +130,7 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
         None => return internal_error_response(request.id, "Owner not found"),
     };
 
-    let target_token = normalize_token_type(&req_data.token_type);
+    let target_token = CoinModule::normalize_token_type(&req_data.token_type);
     let final_balance = owner_info.balances.get(&target_token).copied().unwrap_or(0);
 
     RpcResponse {
@@ -256,7 +247,7 @@ pub async fn handle_get_fungible_asset(
     };
 
     let state_guard = state.engine.state_read();
-    let token_type = normalize_token_type(&req_data.token_type);
+    let token_type = CoinModule::normalize_token_type(&req_data.token_type);
     let summary = match state_guard.token_supply_summary(&token_type) {
         Ok(summary) => summary,
         Err(e) => return internal_error_response(request.id, e.to_string()),
@@ -309,7 +300,7 @@ pub async fn handle_get_fungible_asset_holders(
     };
 
     let state_guard = state.engine.state_read();
-    let token_type = normalize_token_type(&req_data.token_type);
+    let token_type = CoinModule::normalize_token_type(&req_data.token_type);
     let holder_limit = req_data.limit.unwrap_or(100).min(500);
     let holders =
         match collect_fungible_asset_holders(&state_guard, &token_type, Some(holder_limit)) {

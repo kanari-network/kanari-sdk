@@ -114,14 +114,6 @@ impl OwnerState {
         self.address
     }
 
-    pub fn owned_token_balances(&self) -> &BTreeMap<String, BalanceRecord> {
-        &self.token_balances
-    }
-
-    pub fn increment_sequence(&mut self) {
-        // Legacy no-op. Owner/account sequence is not part of Kanari execution semantics.
-    }
-
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty() && self.token_balances.is_empty()
     }
@@ -930,13 +922,6 @@ impl StateManager {
         })
     }
 
-    /// Fail closed when any key changed since speculative execution began.
-    pub fn validate_access_versions(&self, observed: &BTreeMap<Vec<u8>, u64>) -> bool {
-        observed
-            .iter()
-            .all(|(key, version)| self.access_versions.get(key).copied().unwrap_or(0) == *version)
-    }
-
     pub(crate) fn advance_access_versions(&mut self, access: &StateAccessSet) -> Result<()> {
         if !access.writes.is_empty() {
             self.access_epoch = self
@@ -1209,14 +1194,6 @@ impl StateManager {
         self.save_internal(SYSTEM_CLOCK_OBJECT_ID_KEY, &id.as_ref().to_vec())
     }
 
-    pub fn apply_zero_effect_sequence_batch<I>(&mut self, sequence_increments: I) -> Result<()>
-    where
-        I: IntoIterator<Item = (AccountAddress, u64)>,
-    {
-        let _ = sequence_increments;
-        Ok(())
-    }
-
     fn save_owner_record(&mut self, owner_state: &OwnerState) -> Result<()> {
         self.save_internal(&Self::owner_state_key(&owner_state.address), owner_state)
     }
@@ -1487,19 +1464,6 @@ impl StateManager {
     pub fn canonical_state_snapshot(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
         self.try_canonical_state_snapshot()
             .expect("canonical snapshot requires readable, well-formed persistent state")
-    }
-
-    pub fn resolve_owner_nonce(&self, _owner: &AccountAddress) -> Result<u64> {
-        Ok(0)
-    }
-
-    /// Legacy no-op: owner/account nonce is not an execution validity rule.
-    pub fn validate_owner_nonce(
-        &self,
-        _owner: &AccountAddress,
-        _expected_nonce: u64,
-    ) -> Result<()> {
-        Ok(())
     }
 
     /// Get the total number of owners with persisted owner state.

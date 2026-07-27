@@ -7,8 +7,7 @@ param(
 
     [switch]$SelfRecipient,
 
-    [Parameter(Mandatory = $true)]
-    [string]$Password,
+    [string]$Password = $env:KANARI_LOAD_PASSWORD,
 
     [ValidateRange(1, 1000000)]
     [int]$CountPerSender = 100,
@@ -75,6 +74,10 @@ if ([string]::IsNullOrWhiteSpace($P2pNamespace)) {
 }
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+
+if ([string]::IsNullOrWhiteSpace($Password)) {
+    throw "Set KANARI_LOAD_PASSWORD for the temporary load-test keystore."
+}
 
 if ([string]::IsNullOrWhiteSpace($KeystorePath)) {
     throw "KeystorePath is required. Pass -KeystorePath or set KANARI_KEYSTORE_PATH."
@@ -335,11 +338,6 @@ function Show-Stats {
     }
 }
 
-function ConvertTo-SingleQuotedPowerShellLiteral {
-    param([string]$Value)
-    return "'" + ($Value -replace "'", "''") + "'"
-}
-
 $keysDir = Join-Path $runRoot 'consensus-keys'
 $genesis = Join-Path $runRoot 'devnet-genesis.json'
 $sourceData = Join-Path $runRoot 'node1-db'
@@ -373,11 +371,13 @@ $processes = @{}
 $txProcesses = @()
 $urls = @(1..4 | ForEach-Object { "http://127.0.0.1:$($BaseRpcPort + (($_ - 1) * 10))" })
 if ($ProtectedRpcNodes.Count -eq 0) {
-    $ProtectedRpcNodes = @(
-        for ($i = 0; $i -lt $Senders.Count; $i++) {
-            ($i % $urls.Count) + 1
-        }
-    ) | Sort-Object -Unique
+    # Keep client transport stable while the remaining authority is repeatedly
+    # killed and restarted. Lanes are distributed only over this RPC pool.
+    $ProtectedRpcNodes = @(1, 2, 3)
+}
+$ProtectedRpcNodes = @($ProtectedRpcNodes | Sort-Object -Unique)
+if ($ProtectedRpcNodes | Where-Object { $_ -lt 1 -or $_ -gt $urls.Count }) {
+    throw "ProtectedRpcNodes must contain node indexes from 1 to $($urls.Count)"
 }
 $chaosTargets = @(1..4 | Where-Object { $ProtectedRpcNodes -notcontains $_ })
 if ($ChaosRounds -gt 0 -and $chaosTargets.Count -eq 0) {
@@ -385,6 +385,7 @@ if ($ChaosRounds -gt 0 -and $chaosTargets.Count -eq 0) {
 }
 Write-Host "Protected RPC nodes: $($ProtectedRpcNodes -join ', ')"
 Write-Host "Chaos target node pool: $($chaosTargets -join ', ')"
+$laneRpcUrls = @($ProtectedRpcNodes | ForEach-Object { $urls[$_ - 1] })
 
 try {
     foreach ($i in 1..4) {
@@ -442,34 +443,25 @@ try {
     for ($i = 0; $i -lt $Senders.Count; $i++) {
         $sender = $Senders[$i]
         $laneRecipient = if ($SelfRecipient) { $sender } else { $Recipient }
-        $rpc = $urls[$i % $urls.Count]
+        $rpc = $laneRpcUrls[$i % $laneRpcUrls.Count]
         $lane = $i + 1
         $txLog = Join-Path $runRoot "lane$lane.tx.out.log"
         $txErr = Join-Path $runRoot "lane$lane.tx.err.log"
-        $laneScript = Join-Path $runRoot "lane$lane.run.ps1"
-        $laneScriptBody = @(
-            '$ErrorActionPreference = ''Stop''',
-            ('$env:KANARI_KEYSTORE_PATH = ' + (ConvertTo-SingleQuotedPowerShellLiteral $KeystorePath)),
-            (
-                '& ' + (ConvertTo-SingleQuotedPowerShellLiteral $kanariExe) +
-                ' client stress-test --from ' + (ConvertTo-SingleQuotedPowerShellLiteral $sender) +
-                ' --to ' + (ConvertTo-SingleQuotedPowerShellLiteral $laneRecipient) +
-                ' --amount ' + $Amount +
-                ' --count ' + $CountPerSender +
-                ' --rpc ' + (ConvertTo-SingleQuotedPowerShellLiteral $rpc) +
-                ' -p ' + (ConvertTo-SingleQuotedPowerShellLiteral $Password)
-            ),
-            'exit $LASTEXITCODE'
-        ) -join [Environment]::NewLine
-        Set-Content -LiteralPath $laneScript -Value $laneScriptBody -Encoding UTF8
-
         $txArgs = @(
             '-NoProfile',
             '-ExecutionPolicy',
             'Bypass',
             '-File',
-            $laneScript
+            $stressLaneScript,
+            '-KanariExe', $kanariExe,
+            '-KeystorePath', $KeystorePath,
+            '-Sender', $sender,
+            '-Recipient', $laneRecipient,
+            '-Amount', $Amount,
+            '-Count', $CountPerSender,
+            '-Rpc', $rpc
         )
+        $env:KANARI_LOAD_PASSWORD = $Password
         $txProcesses += Start-Process `
             -FilePath powershell `
             -ArgumentList $txArgs `
@@ -540,5 +532,8 @@ try {
         } catch {
         }
     }
+    Remove-Item -LiteralPath $localKeystorePath -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $runRoot -Filter 'temp-wallet-*.create.*.log' -File |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     Write-Host "Run artifacts: $runRoot"
 }

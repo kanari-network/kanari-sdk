@@ -116,10 +116,6 @@ pub struct DagVertexMsg {
 pub struct DagVertexRequestMsg {
     pub requester_peer_id: String,
     pub parent_round: u64,
-    pub current_round: u64,
-    pub target_round: u64,
-    pub missing_authorities: Vec<String>,
-    pub requester_vertex_data: Vec<String>,
     pub timestamp: u64,
     pub limit: u64,
 }
@@ -247,8 +243,10 @@ impl P2PNetwork {
             .heartbeat_initial_delay(Duration::from_millis(100))
             .max_transmit_size(MAX_GOSSIP_MESSAGE_SIZE)
             .do_px() // Enable peer exchange for better discovery
-            // Add flood publishing for critical messages (checkpoints, vertices)
-            .flood_publish(true)
+            // Mesh propagation already provides redundancy. Flood publishing
+            // multiplies large DAG/checkpoint messages by every connected peer
+            // and can exhaust libp2p's per-peer queues under sustained load.
+            .flood_publish(false)
             .build()
             .map_err(|e| anyhow::anyhow!("Gossipsub config error: {}", e))?;
 
@@ -390,13 +388,16 @@ impl P2PNetwork {
     fn log_published_message(msg: &P2PMessage) {
         match msg {
             P2PMessage::PeerInfo(info) => {
-                info!(
+                debug!(
                     "[P2P] Publishing PeerInfo: height={}, peer_id={}",
                     info.height, info.peer_id
                 );
             }
             P2PMessage::NewCheckpoint(data) => {
-                info!("[P2P] Publishing NewCheckpoint (size: {})", data.len());
+                debug!("[P2P] Publishing NewCheckpoint (size: {})", data.len());
+            }
+            P2PMessage::NewTransaction(data) => {
+                debug!("[P2P] Publishing NewTransaction (size: {})", data.len());
             }
             P2PMessage::NewDagVertex(data) => {
                 debug!("[P2P] Publishing NewDagVertex (size: {})", data.len());
@@ -410,17 +411,13 @@ impl P2PNetwork {
                 );
             }
             P2PMessage::DagVertexRequest(req) => {
-                info!(
-                    "[P2P] Publishing DagVertexRequest: requester={}, parent_round={}, target_round={}, missing={:?}, limit={}",
-                    req.requester_peer_id,
-                    req.parent_round,
-                    req.target_round,
-                    req.missing_authorities,
-                    req.limit
+                debug!(
+                    "[P2P] Publishing DagVertexRequest: requester={}, parent_round={}, limit={}",
+                    req.requester_peer_id, req.parent_round, req.limit
                 );
             }
             P2PMessage::DagVertexResponse(resp) => {
-                info!(
+                debug!(
                     "[P2P] Publishing DagVertexResponse: responder={}, requester={}, parent_round={}, vertices={}",
                     resp.responder_peer_id,
                     resp.requester_peer_id,
@@ -764,13 +761,13 @@ impl P2PEventHandler {
     fn log_received_message(source: &PeerId, msg: &P2PMessage) {
         match msg {
             P2PMessage::PeerInfo(info) => {
-                info!(
+                debug!(
                     "[P2P] Received PeerInfo from {}: height={}, peer_id={}",
                     source, info.height, info.peer_id
                 );
             }
             P2PMessage::NewCheckpoint(data) => {
-                info!(
+                debug!(
                     "[P2P] Received NewCheckpoint from {} (size: {})",
                     source,
                     data.len()
@@ -857,17 +854,13 @@ impl P2PEventHandler {
                 );
             }
             P2PMessage::DagVertexRequest(req) => {
-                info!(
-                    "[P2P] Received DagVertexRequest from {}: requester={}, parent_round={}, target_round={}, missing={:?}",
-                    source,
-                    req.requester_peer_id,
-                    req.parent_round,
-                    req.target_round,
-                    req.missing_authorities
+                debug!(
+                    "[P2P] Received DagVertexRequest from {}: requester={}, parent_round={}",
+                    source, req.requester_peer_id, req.parent_round
                 );
             }
             P2PMessage::DagVertexResponse(resp) => {
-                info!(
+                debug!(
                     "[P2P] Received DagVertexResponse from {}: responder={}, requester={}, parent_round={}, vertices={}",
                     source,
                     resp.responder_peer_id,
@@ -876,8 +869,22 @@ impl P2PEventHandler {
                     resp.vertex_data.len()
                 );
             }
-            _ => {
-                info!("[P2P] Received message {:?} from {}", msg, source);
+            P2PMessage::NewTransaction(data) => {
+                debug!(
+                    "[P2P] Received NewTransaction from {} (size: {})",
+                    source,
+                    data.len()
+                );
+            }
+            P2PMessage::Chunk(chunk) => {
+                debug!(
+                    "[P2P] Received {:?} chunk from {} ({}/{}, size: {})",
+                    chunk.topic,
+                    source,
+                    chunk.index.saturating_add(1),
+                    chunk.total,
+                    chunk.data.len()
+                );
             }
         }
     }

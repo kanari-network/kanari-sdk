@@ -15,7 +15,12 @@ use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
-    const MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 512;
+    // Checkpoint sync is sequential, so the receiver normally already has the
+    // previous round. Keep only a small root-first evidence slice here; missing
+    // ancestry is recovered by the round-targeted DAG repair protocol. Large
+    // closures duplicate transaction payloads and turn one checkpoint into a
+    // multi-megabyte P2P response.
+    const MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 16;
     pub fn smt_status(&self, audit: bool) -> Result<SmtStatusResponse> {
         let diagnostics = self.state_read().smt_diagnostics(audit)?;
         let stats = self.get_stats();
@@ -225,27 +230,17 @@ impl BlockchainEngine {
 
     pub fn get_owner_info(&self, owner: &str) -> Option<OwnerInfo> {
         let state = self.state_read();
+        let acc = state.get_owner_state_by_hex(owner)?;
+        let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
+        let balances = state.resolve_owner_token_balances(acc.address).ok()?;
 
-        state.get_owner_state_by_hex(owner).map(|acc| {
-            let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
-            let nonce = self.get_expected_nonce(owner);
-            let balances = state
-                .resolve_owner_token_balances(acc.address)
-                .unwrap_or_else(|_| {
-                    acc.token_balances
-                        .iter()
-                        .map(|(token_type, balance)| (token_type.clone(), balance.value()))
-                        .collect()
-                });
-
-            OwnerInfo {
-                owner: format!("{:#x}", acc.owner_address()),
-                nonce: Some(nonce),
-                modules: acc.modules.iter().cloned().collect(),
-                balances,
-                owned_object_count: Some(final_owned_objects.len()),
-                owned_objects: Some(final_owned_objects),
-            }
+        Some(OwnerInfo {
+            owner: format!("{:#x}", acc.owner_address()),
+            nonce: Some(self.get_expected_nonce(owner)),
+            modules: acc.modules.iter().cloned().collect(),
+            balances,
+            owned_object_count: Some(final_owned_objects.len()),
+            owned_objects: Some(final_owned_objects),
         })
     }
 

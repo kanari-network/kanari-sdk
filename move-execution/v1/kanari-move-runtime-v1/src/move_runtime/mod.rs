@@ -1301,35 +1301,6 @@ impl MoveRuntime {
         )
     }
 
-    pub fn execute_entry_function_with_tx_hash_and_persistence(
-        &self,
-        module_id: &ModuleId,
-        function_name: &str,
-        type_args: Vec<TypeTag>,
-        args: Vec<Vec<u8>>,
-        sender: Option<AccountAddress>,
-        gas_info: Option<(u64, u64)>,
-        timestamp: Option<u64>,
-        tx_hash: Option<Vec<u8>>,
-        persist_runtime_state: bool,
-    ) -> Result<ChangeSet> {
-        self.execute_entry_function_with_object_context_and_persistence(
-            module_id,
-            function_name,
-            type_args,
-            args,
-            EntryFunctionObjectContext {
-                object_inputs: Vec::new(),
-                sender,
-                gas_info,
-                timestamp,
-                tx_hash,
-                persist_runtime_state,
-                state_overlay: None,
-            },
-        )
-    }
-
     pub fn execute_entry_function_with_object_context_and_persistence(
         &self,
         module_id: &ModuleId,
@@ -2079,7 +2050,7 @@ impl MoveRuntime {
             return serde_json::Value::String(addr.to_hex_literal());
         }
 
-        serde_json::to_value(bytes).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
+        serde_json::Value::Array(bytes.iter().copied().map(serde_json::Value::from).collect())
     }
 }
 

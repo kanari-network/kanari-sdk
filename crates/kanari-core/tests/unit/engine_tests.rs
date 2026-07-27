@@ -11,6 +11,7 @@ use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::{GAS_COIN, GasModule};
 use kanari_types::transaction::{
     GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    TransactionEffects,
 };
 use move_core_types::account_address::AccountAddress;
 use std::collections::BTreeMap;
@@ -538,7 +539,23 @@ fn restart_recovers_checkpoint_metadata_from_durable_commit_marker() {
                 .latest_checkpoint()
                 .hash()
                 .unwrap(),
-        );
+        )
+        .with_transaction_effects(vec![TransactionEffects {
+            status: "success".to_string(),
+            gas_used: 0,
+            gas_payment: None,
+            input_objects: Vec::new(),
+            shared_inputs: Vec::new(),
+            immutable_inputs: Vec::new(),
+            gas_object_refs: Vec::new(),
+            object_changes: Vec::new(),
+            created: Vec::new(),
+            mutated: Vec::new(),
+            deleted: Vec::new(),
+            transferred: Vec::new(),
+            causal_edges: Vec::new(),
+            error_message: None,
+        }]);
         // Persist exactly as `commit_with_raw_update` does: raw BCS checkpoint
         // bytes in the same batch as the state changes.
         store
