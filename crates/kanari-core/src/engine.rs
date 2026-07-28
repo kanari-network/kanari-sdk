@@ -758,10 +758,7 @@ impl BlockchainEngine {
             return Ok(());
         }
 
-        let mut recent_hashes = store
-            .load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())
-            .unwrap_or_default()
-            .unwrap_or_default();
+        let mut recent_hashes = Self::load_recent_transaction_hashes_for_update(store)?;
         let mut recent_set: HashSet<Vec<u8>> = recent_hashes.iter().cloned().collect();
 
         for tx in checkpoint.transactions.iter() {
@@ -799,6 +796,27 @@ impl BlockchainEngine {
             )
             .context("Failed to persist checkpoint transaction payload")?;
         Ok(())
+    }
+
+    fn load_recent_transaction_hashes_for_update(store: &PersistentStore) -> Result<Vec<Vec<u8>>> {
+        store
+            .load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())
+            .context("Failed to load recent transaction index")?
+            .map(|hashes| {
+                hashes
+                    .into_iter()
+                    .map(|hash| {
+                        anyhow::ensure!(
+                            hash.len() == 32,
+                            "Recent transaction index contains invalid hash length {}",
+                            hash.len()
+                        );
+                        Ok(hash)
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()
+            .map(|hashes| hashes.unwrap_or_default())
     }
 
     fn load_checkpoint_metadata(store: &PersistentStore, sequence: u64) -> Option<Checkpoint> {
@@ -955,9 +973,7 @@ impl BlockchainEngine {
         }
 
         if !pruned_hashes.is_empty() {
-            let recent = store
-                .load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())?
-                .unwrap_or_default()
+            let recent = Self::load_recent_transaction_hashes_for_update(store)?
                 .into_iter()
                 .filter(|hash| !pruned_hashes.contains(hash))
                 .collect::<Vec<_>>();
@@ -1055,22 +1071,27 @@ impl BlockchainEngine {
             .and_then(|(_, _, _, effect)| effect.cloned())
     }
 
-    pub(crate) fn is_transaction_committed(&self, tx_hash: &[u8]) -> bool {
+    pub(crate) fn try_is_transaction_committed(&self, tx_hash: &[u8]) -> Result<bool> {
         if self
             .blockchain
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .is_transaction_hash_executed(tx_hash)
         {
-            return true;
+            return Ok(true);
         }
-        self.persistent_store.as_ref().is_some_and(|store| {
-            store
-                .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
-                .ok()
-                .flatten()
-                .is_some()
-        })
+        let Some(store) = self.persistent_store.as_ref() else {
+            return Ok(false);
+        };
+        Ok(store
+            .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
+            .with_context(|| {
+                format!(
+                    "Failed to load committed transaction index for {}",
+                    hex::encode(tx_hash)
+                )
+            })?
+            .is_some())
     }
 
     pub fn list_committed_transactions_from_history<F>(
@@ -1228,6 +1249,10 @@ impl BlockchainEngine {
     }
 
     pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
+        self.pending_signed_transactions()
+    }
+
+    fn pending_signed_transactions(&self) -> Vec<SignedTransaction> {
         self.mempool_read()
             .pending_txs
             .iter()
@@ -1261,17 +1286,10 @@ impl BlockchainEngine {
     }
 
     pub fn pending_conflict_free_transactions_snapshot(&self) -> Vec<SignedTransaction> {
-        let mut transactions = {
-            let mempool = self.mempool_read();
-            if mempool.pending_txs.is_empty() {
-                return Vec::new();
-            }
-            mempool
-                .pending_txs
-                .iter()
-                .map(|record| record.signed_tx.clone())
-                .collect::<Vec<_>>()
-        };
+        let mut transactions = self.pending_signed_transactions();
+        if transactions.is_empty() {
+            return Vec::new();
+        }
         transactions.sort_by(|a, b| {
             a.transaction
                 .primary_access_key()
@@ -1319,8 +1337,10 @@ impl BlockchainEngine {
         &self,
         state: &StateManager,
         owner_addr: &AccountAddress,
-    ) -> Vec<ObjectInfo> {
-        let mut unique_ids = state.get_owned_objects(owner_addr).unwrap_or_default();
+    ) -> Result<Vec<ObjectInfo>> {
+        let mut unique_ids = state
+            .get_owned_objects(owner_addr)
+            .with_context(|| format!("Failed to load owned-object index for {owner_addr:#x}"))?;
         unique_ids.sort();
         unique_ids.dedup();
 
@@ -1328,38 +1348,37 @@ impl BlockchainEngine {
         let mut others = Vec::new();
 
         for id in unique_ids {
-            if let Ok(Some(obj)) = state.get_object(&id) {
-                let digest = format!("0x{}", hex::encode(blake3::hash(&obj.data).as_bytes()));
-                let info = ObjectInfo {
-                    id: id.clone(),
-                    owner: format!("{:#x}", obj.owner),
-                    owner_kind: obj.owner_kind.clone(),
-                    type_: obj.type_.clone(),
-                    data: obj.data.clone(),
-                    version: obj.version,
-                    digest: Some(digest),
-                };
+            let obj = state
+                .get_object(&id)
+                .with_context(|| format!("Failed to load indexed object {id}"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Owned-object index references missing object {id}")
+                })?;
+            let coin_amount = if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(&obj.data[32..40]);
+                Some(u64::from_le_bytes(arr))
+            } else {
+                None
+            };
+            let info = Self::object_info_from_created_object(id.clone(), obj);
 
-                if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
-                    let mut arr = [0u8; 8];
-                    arr.copy_from_slice(&obj.data[32..40]);
-                    let amount = u64::from_le_bytes(arr);
-                    if amount > 0 {
-                        coins.push((amount, info));
-                        continue;
-                    }
-                }
-                others.push(info);
+            if let Some(amount) = coin_amount
+                && amount > 0
+            {
+                coins.push((amount, info));
+                continue;
             }
+            others.push(info);
         }
 
         coins.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
         others.sort_by(|a, b| a.id.cmp(&b.id));
-        coins
+        Ok(coins
             .into_iter()
             .map(|(_, info)| info)
             .chain(others)
-            .collect()
+            .collect())
     }
 
     #[cfg(test)]
@@ -1617,9 +1636,14 @@ impl BlockchainEngine {
                     // changes exactly once, so a partial wave is never observable.
                     let mut candidate = state_write.clone();
                     for result in &results {
-                        let cs = result
-                            .as_ref()
-                            .expect("checked successful speculative result");
+                        let Ok(cs) = result.as_ref() else {
+                            log::warn!(
+                                "Speculative wave had an unexpected failed result; retrying serially"
+                            );
+                            retry_reason = Some("execution_error");
+                            retry_serial = true;
+                            break;
+                        };
                         if let Err(error) = candidate.apply_changeset_without_supply_validation(cs)
                         {
                             log::warn!(
@@ -1651,7 +1675,11 @@ impl BlockchainEngine {
                 speculative_committed_waves += 1;
                 speculative_committed_txs += wave.len();
                 for (signed_tx, result) in wave.iter().zip(&results) {
-                    let cs = result.as_ref().expect("validated speculative result");
+                    let cs = result.as_ref().map_err(|error| {
+                        anyhow::anyhow!(
+                            "Speculative wave committed with an unexpected failed result: {error}"
+                        )
+                    })?;
                     transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
                     executed_count += 1;
                 }

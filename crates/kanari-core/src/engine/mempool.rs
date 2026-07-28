@@ -91,8 +91,13 @@ impl BlockchainEngine {
                 let sender = tx.sender_address();
                 let normalized_sender = sender_cache
                     .get(sender)
-                    .expect("sender cache must contain every batch sender")
-                    .clone();
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        log::warn!(
+                            "[MEMPOOL] Sender normalization cache miss for verified transaction; normalizing inline"
+                        );
+                        Self::normalize_addr(sender)
+                    });
                 let nonce = tx.nonce();
                 let primary_access_key = tx.primary_access_key();
                 let access_keys = tx.object_access_keys();
@@ -133,27 +138,21 @@ impl BlockchainEngine {
             })
             .collect();
 
-        // Check executed transactions in parallel
+        // Check executed transactions in parallel. Persistent index corruption
+        // must fail admission closed instead of making an old transaction look
+        // uncommitted.
         let executed_hashes = {
             use rayon::prelude::*;
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             batch_metadata
                 .par_iter()
-                .filter_map(|(tx_hash, _, _, _, _)| {
-                    let committed = chain.is_transaction_hash_executed(tx_hash)
-                        || self.persistent_store.as_ref().is_some_and(|store| {
-                            store
-                                .load::<PersistedTransactionLocation>(&Self::transaction_index_key(
-                                    tx_hash,
-                                ))
-                                .ok()
-                                .flatten()
-                                .is_some()
-                        });
-                    committed.then(|| tx_hash.clone())
+                .map(|(tx_hash, _, _, _, _)| -> Result<Option<Vec<u8>>> {
+                    Ok(self
+                        .try_is_transaction_committed(tx_hash)?
+                        .then(|| tx_hash.clone()))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>>>()?
                 .into_iter()
+                .flatten()
                 .collect::<AHashSet<_>>()
         };
 

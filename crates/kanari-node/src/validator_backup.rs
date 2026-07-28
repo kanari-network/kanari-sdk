@@ -69,6 +69,22 @@ pub struct ValidatorBackupSummary {
     pub included_files: usize,
 }
 
+struct PendingValidatorRestore {
+    data_staging: tempfile::TempDir,
+    recovery_staging: tempfile::TempDir,
+    data_dir: PathBuf,
+    recovery_dir: PathBuf,
+    summary: ValidatorBackupSummary,
+}
+
+impl PendingValidatorRestore {
+    fn promote(self) -> Result<ValidatorBackupSummary> {
+        promote_restore_staging(self.data_staging, &self.data_dir)?;
+        promote_restore_staging(self.recovery_staging, &self.recovery_dir)?;
+        Ok(self.summary)
+    }
+}
+
 fn backup_password() -> Result<Zeroizing<String>> {
     let password = Zeroizing::new(std::env::var(BACKUP_PASSWORD_ENV).map_err(|_| {
         anyhow::anyhow!("{BACKUP_PASSWORD_ENV} is required for validator backup and restore")
@@ -424,6 +440,25 @@ fn persist_staged_tree(staged_base: &Path, target_base: &Path) -> Result<()> {
     persist_staged_tree_inner(staged_base, staged_base, target_base)
 }
 
+fn remove_restore_subtree(staging_root: &Path, subtree: &Path) -> Result<()> {
+    if !subtree.exists() {
+        return Ok(());
+    }
+    subtree.strip_prefix(staging_root).with_context(|| {
+        format!(
+            "Restore staging subtree {} is outside staging root {}",
+            subtree.display(),
+            staging_root.display()
+        )
+    })?;
+    fs::remove_dir_all(subtree).with_context(|| {
+        format!(
+            "Failed to remove restore staging subtree {}",
+            subtree.display()
+        )
+    })
+}
+
 fn persist_staged_tree_inner(staged_base: &Path, current: &Path, target_base: &Path) -> Result<()> {
     for entry in fs::read_dir(current)? {
         let entry = entry?;
@@ -530,13 +565,17 @@ fn validate_archive_name(archive_name: &str) -> Result<()> {
     if archive_name.is_empty() || archive_name.len() > u16::MAX as usize {
         anyhow::bail!("Invalid validator backup entry name length");
     }
-    let relative = Path::new(archive_name);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    if archive_name.starts_with('/')
+        || archive_name.ends_with('/')
+        || archive_name.contains('\\')
+        || archive_name.contains('\0')
     {
         anyhow::bail!("Unsafe validator backup entry name: {archive_name}");
+    }
+    for segment in archive_name.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." || segment.contains(':') {
+            anyhow::bail!("Unsafe validator backup entry name: {archive_name}");
+        }
     }
     Ok(())
 }
@@ -758,16 +797,18 @@ fn import_validator_backup_v2_reader<R: Read>(
                 anyhow::anyhow!("Failed to initialize streaming backup decryption: {error}")
             })?;
     let mut hashing_reader = HashingReader::new(decrypting_reader, MAX_BACKUP_V2_COMPRESSED_BYTES);
-    let summary = {
+    let pending_restore = {
         let mut decoder = GzDecoder::new(&mut hashing_reader);
-        let summary = restore_payload_v2(&mut decoder, expected_network, data_dir, recovery_dir)?;
+        let pending_restore =
+            restore_payload_v2(&mut decoder, expected_network, data_dir, recovery_dir)?;
         io::copy(&mut decoder, &mut io::sink())?;
-        summary
+        pending_restore
     };
     let actual_hash = hashing_reader.digest_hex();
     if actual_hash != header.payload_sha3_256 {
         anyhow::bail!("Validator backup integrity checksum mismatch");
     }
+    let summary = pending_restore.promote()?;
     info!(
         checkpoint_height = summary.checkpoint_height,
         included_files = summary.included_files,
@@ -782,7 +823,7 @@ fn restore_payload_v2<R: Read>(
     expected_network: &str,
     data_dir: &Path,
     recovery_dir: &Path,
-) -> Result<ValidatorBackupSummary> {
+) -> Result<PendingValidatorRestore> {
     let mut magic = vec![0u8; BACKUP_V2_PAYLOAD_MAGIC.len()];
     reader.read_exact(&mut magic)?;
     if magic != BACKUP_V2_PAYLOAD_MAGIC {
@@ -802,6 +843,9 @@ fn restore_payload_v2<R: Read>(
             expected_network,
             manifest.network
         );
+    }
+    if manifest.included_files > MAX_BACKUP_V2_RECORDS {
+        anyhow::bail!("Validator backup v2 manifest entry count exceeds configured limit");
     }
 
     let data_staging = create_restore_staging_dir(data_dir, ".kanari-restore-data-")?;
@@ -908,6 +952,8 @@ fn restore_payload_v2<R: Read>(
     )?;
     persist_staged_tree(&staged_data_dir, data_staging.path())?;
     persist_staged_tree(&staged_recovery_dir, recovery_staging.path())?;
+    remove_restore_subtree(data_staging.path(), &staged_data_dir)?;
+    remove_restore_subtree(recovery_staging.path(), &staged_recovery_dir)?;
 
     if imported.checkpoint_height != manifest.checkpoint_height
         || imported.state_root != manifest.state_root
@@ -916,13 +962,16 @@ fn restore_payload_v2<R: Read>(
     {
         anyhow::bail!("Restored validator state does not match backup manifest");
     }
-    promote_restore_staging(data_staging, data_dir)?;
-    promote_restore_staging(recovery_staging, recovery_dir)?;
-
-    Ok(ValidatorBackupSummary {
-        checkpoint_height: imported.checkpoint_height,
-        state_root: imported.state_root,
-        included_files: restored_entries,
+    Ok(PendingValidatorRestore {
+        data_staging,
+        recovery_staging,
+        data_dir: data_dir.to_path_buf(),
+        recovery_dir: recovery_dir.to_path_buf(),
+        summary: ValidatorBackupSummary {
+            checkpoint_height: imported.checkpoint_height,
+            state_root: imported.state_root,
+            included_files: restored_entries,
+        },
     })
 }
 

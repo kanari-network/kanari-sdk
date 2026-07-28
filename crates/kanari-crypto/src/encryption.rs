@@ -118,6 +118,7 @@ const AEAD_TAG_LEN: usize = 16;
 const STREAM_FRAME_AAD_LEN: usize =
     STREAM_ENCRYPTION_ALGORITHM.len() + STREAM_NONCE_PREFIX_LEN + 8 + 1 + 4;
 pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 1024 * 1024;
+pub const MAX_STREAM_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 
 impl EncryptedData {
     /// Get the ciphertext bytes, regardless of format
@@ -604,6 +605,12 @@ fn validate_chunk_size(chunk_size: usize) -> Result<(), EncryptionError> {
             "Stream chunk size cannot be zero".to_string(),
         ));
     }
+    if chunk_size > MAX_STREAM_CHUNK_SIZE {
+        return Err(EncryptionError::InvalidInput(format!(
+            "Stream chunk size exceeds maximum allowed {} bytes",
+            MAX_STREAM_CHUNK_SIZE
+        )));
+    }
     if chunk_size > u32::MAX as usize - AEAD_TAG_LEN {
         return Err(EncryptionError::InvalidInput(
             "Stream chunk size is too large".to_string(),
@@ -952,6 +959,22 @@ mod tests {
         let result = decrypt_stream(&header, encrypted.as_slice(), Vec::new(), password);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_stream_decrypt_rejects_oversized_chunk_header() {
+        let password = "stream_password";
+        let header = StreamEncryptionHeader {
+            format_version: STREAM_ENCRYPTION_FORMAT_VERSION,
+            algorithm: STREAM_ENCRYPTION_ALGORITHM.to_string(),
+            salt: SaltString::generate(&mut OsRng).to_string(),
+            nonce: general_purpose::STANDARD.encode([0u8; STREAM_NONCE_PREFIX_LEN]),
+            chunk_size: (MAX_STREAM_CHUNK_SIZE as u32) + 1,
+        };
+
+        let result = StreamDecryptingReader::new(&header, io::empty(), password);
+
+        assert!(matches!(result, Err(EncryptionError::InvalidInput(_))));
     }
 
     #[test]

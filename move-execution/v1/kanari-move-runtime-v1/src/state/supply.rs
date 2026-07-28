@@ -1,13 +1,15 @@
 use super::*;
 
 impl StateManager {
+    fn dao_account_address() -> Result<AccountAddress> {
+        AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
+            .context("DAO_ADDRESS constant is not a valid Move account address")
+    }
+
     fn compute_wallet_supply_index(&self) -> Result<BTreeMap<String, u64>> {
         let mut object_balances = BTreeMap::<(AccountAddress, String), u64>::new();
         let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
-        owners.insert(
-            AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
-                .expect("DAO_ADDRESS constant is valid"),
-        );
+        owners.insert(Self::dao_account_address()?);
 
         for (_, object) in self.query_objects(None, None, None, None, None)? {
             let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
@@ -239,10 +241,7 @@ impl StateManager {
         // a normal account-index entry, so include it explicitly when
         // calculating the native token's wallet-visible supply.
         if token_type == GAS_COIN {
-            owners.insert(
-                AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
-                    .expect("DAO_ADDRESS constant is valid"),
-            );
+            owners.insert(Self::dao_account_address()?);
         }
         // Aggregate matching objects during the canonical object pass. Previously this
         // pass only discovered owners and then `resolve_owner_token_balance` rescanned

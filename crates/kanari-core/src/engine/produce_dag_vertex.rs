@@ -255,7 +255,7 @@ impl MysticetiBackend {
         let authority_count = committee.len();
         let protocol_config = MysticetiConsensusProtocol::Mysticeti {
             leader_count: NonZeroUsize::new(authority_count.clamp(1, 2))
-                .expect("leader count is non-zero"),
+                .context("Mysticeti leader count must be non-zero")?,
         };
         let protocol = protocol_config
             .to_protocol(&committee)
@@ -794,14 +794,13 @@ impl DagEngine {
             return Ok(Some(existing));
         }
         let mut seen = HashSet::new();
-        let transactions = batch
-            .transactions
-            .into_iter()
-            .filter(|tx| {
-                let hash = tx.transaction_hash().to_vec();
-                seen.insert(hash.clone()) && !self.engine.is_transaction_committed(&hash)
-            })
-            .collect::<Vec<_>>();
+        let mut transactions = Vec::new();
+        for tx in batch.transactions {
+            let hash = tx.transaction_hash().to_vec();
+            if seen.insert(hash.clone()) && !self.engine.try_is_transaction_committed(&hash)? {
+                transactions.push(tx);
+            }
+        }
         if transactions.is_empty() {
             info!(
                 "[DAG v2] Committed empty sub-DAG anchor {} without creating a blockchain checkpoint",

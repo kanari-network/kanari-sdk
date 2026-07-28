@@ -93,12 +93,12 @@ impl BlockchainEngine {
                 "Failed to repair legacy native wallet overcount before checkpoint state execution",
             )?;
         let state_arc = Arc::new(RwLock::new(state_snapshot));
-        let to_execute: Vec<SignedTransaction> = checkpoint
-            .transactions
-            .iter()
-            .filter(|signed_tx| !self.is_transaction_committed(signed_tx.transaction_hash()))
-            .cloned()
-            .collect();
+        let mut to_execute = Vec::new();
+        for signed_tx in checkpoint.transactions.iter() {
+            if !self.try_is_transaction_committed(signed_tx.transaction_hash())? {
+                to_execute.push(signed_tx.clone());
+            }
+        }
 
         if !checkpoint.transactions.is_empty() {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;

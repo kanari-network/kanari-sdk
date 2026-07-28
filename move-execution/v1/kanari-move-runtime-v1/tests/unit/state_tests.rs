@@ -92,6 +92,38 @@ fn malformed_persisted_access_version_fails_startup_closed() -> Result<()> {
 }
 
 #[test]
+fn owner_addresses_rejects_malformed_owner_index_entries() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    state.save_internal(OWNER_INDEX_KEY, &vec!["not-an-address".to_string()])?;
+
+    let error = state.owner_addresses().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Owner index contains invalid address"),
+        "{error:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn query_objects_rejects_missing_object_index_entries() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    state.save_internal(b"object_index", &vec!["0xdead".to_string()])?;
+
+    let error = state
+        .query_objects(None, None, None, None, None)
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Object index references missing object"),
+        "{error:#}"
+    );
+    Ok(())
+}
+
+#[test]
 fn access_version_overflow_rejects_changeset_without_partial_state() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let key = b"resource:overflow".to_vec();

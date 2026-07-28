@@ -274,15 +274,30 @@ impl StateManager {
     }
 
     /// Retrieves all Collection IDs from the index
-    pub fn get_all_collection_ids(&self) -> Vec<String> {
+    pub fn try_get_all_collection_ids(&self) -> Result<Vec<String>> {
         self.load_index_list(b"nft_collection_index")
-            .unwrap_or_default()
+    }
+
+    pub fn get_all_collection_ids(&self) -> Vec<String> {
+        self.try_get_all_collection_ids()
+            .unwrap_or_else(|error| Self::log_index_fallback("nft_collection_index", error))
     }
 
     /// Retrieves NFT IDs for the specified collection from the index
-    pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
+    pub fn try_get_collection_nft_ids(&self, collection_id: &str) -> Result<Vec<String>> {
         self.load_index_list(&metadata_key(b"collection_members:", collection_id))
-            .unwrap_or_default()
+    }
+
+    pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
+        self.try_get_collection_nft_ids(collection_id)
+            .unwrap_or_else(|error| {
+                Self::log_index_fallback(&format!("collection_members:{collection_id}"), error)
+            })
+    }
+
+    fn log_index_fallback(index_name: &str, error: anyhow::Error) -> Vec<String> {
+        log::error!("[StateManager] Failed to load index {index_name}: {error:#}");
+        Vec::new()
     }
 
     fn is_balance_struct(struct_tag: &StructTag) -> bool {
@@ -676,31 +691,41 @@ impl StateManager {
                 .iter()
                 .map(|(key, _)| key.as_slice())
                 .collect::<HashSet<_>>();
-            self.store
+            let mut stale_keys = Vec::new();
+            for (key, _) in self
+                .store
                 .logical_entries()?
                 .into_iter()
                 .filter(|(key, _)| !canonical_keys.contains(key.as_slice()))
-                .filter_map(|(key, _)| {
-                    smt.get(&key).ok().flatten().map(|_| {
-                        let label = String::from_utf8_lossy(&key).into_owned();
-                        self.store
-                            .load::<StoredObject>(&key)
-                            .ok()
-                            .flatten()
-                            .map(|object| {
-                                format!(
-                                    "{}[owner={},kind={:?},type={}]",
-                                    label,
-                                    object.owner.to_hex_literal(),
-                                    object.owner_kind,
-                                    object.type_name
-                                )
-                            })
-                            .unwrap_or(label)
-                    })
-                })
-                .take(8)
-                .collect::<Vec<_>>()
+            {
+                if smt.get(&key)?.is_none() {
+                    continue;
+                }
+
+                let label = String::from_utf8_lossy(&key).into_owned();
+                let label = if key.starts_with(b"object:") {
+                    self.store
+                        .load::<StoredObject>(&key)
+                        .with_context(|| format!("Failed to decode stale SMT object leaf {label}"))?
+                        .map(|object| {
+                            format!(
+                                "{}[owner={},kind={:?},type={}]",
+                                label,
+                                object.owner.to_hex_literal(),
+                                object.owner_kind,
+                                object.type_name
+                            )
+                        })
+                        .unwrap_or(label)
+                } else {
+                    label
+                };
+                stale_keys.push(label);
+                if stale_keys.len() == 8 {
+                    break;
+                }
+            }
+            stale_keys
         } else {
             Vec::new()
         };
@@ -1220,10 +1245,12 @@ impl StateManager {
 
     pub fn owner_addresses(&self) -> Result<Vec<AccountAddress>> {
         let ids = self.load_owner_index_ids()?;
-        Ok(ids
-            .into_iter()
-            .filter_map(|id| AccountAddress::from_hex_literal(&id).ok())
-            .collect())
+        ids.into_iter()
+            .map(|id| {
+                AccountAddress::from_hex_literal(&id)
+                    .with_context(|| format!("Owner index contains invalid address {id}"))
+            })
+            .collect()
     }
 
     fn load_owner_index_ids(&self) -> Result<Vec<String>> {
@@ -1297,17 +1324,22 @@ impl StateManager {
         }
     }
 
+    pub fn try_get_owner_state_by_hex(&self, owner: &str) -> Result<Option<OwnerState>> {
+        let addr = kanari_types::address::Address::parse_to_account_address(owner)
+            .with_context(|| format!("Failed to parse owner address: {owner}"))?;
+        self.load_owner_state(&addr)
+            .with_context(|| format!("Failed to load owner state for {owner}"))
+    }
+
     pub fn get_owner_state_by_hex(&self, owner: &str) -> Option<OwnerState> {
         // Use Address::parse_to_account_address which handles tagged addresses,
         // tagged public keys (hashing), and regular 0x addresses.
-        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(owner) {
-            self.get_owner_state(&addr)
-        } else {
-            log::warn!(
-                "[StateManager] Failed to parse owner address from hex: {}",
-                owner
-            );
-            None
+        match self.try_get_owner_state_by_hex(owner) {
+            Ok(state) => state,
+            Err(error) => {
+                log::warn!("[StateManager] Failed to get owner state by hex: {error:#}");
+                None
+            }
         }
     }
 
@@ -1366,50 +1398,49 @@ impl StateManager {
         min_version: Option<u64>,
         max_version: Option<u64>,
     ) -> Result<Vec<(String, CreatedObject)>> {
-        let object_ids: Vec<String> = self.load_internal(b"object_index")?.unwrap_or_default();
+        let object_ids = self.load_index_list(b"object_index")?;
         let mut objects = Vec::new();
 
         for object_id in object_ids {
-            if let Some(object) = self.get_object(&object_id)? {
-                if let Some(owner) = owner
-                    && object.owner != owner
-                {
-                    continue;
-                }
-                if let Some(owner_kind) = owner_kind {
-                    let matches = match owner_kind {
-                        ObjectOwnerKind::AddressOwner(_) => {
-                            matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
-                        }
-                        ObjectOwnerKind::Shared => {
-                            matches!(object.owner_kind, ObjectOwnerKind::Shared)
-                        }
-                        ObjectOwnerKind::Immutable => {
-                            matches!(object.owner_kind, ObjectOwnerKind::Immutable)
-                        }
-                    };
-                    if !matches {
-                        continue;
-                    }
-                }
-                if let Some(object_type) = object_type
-                    && object.type_ != object_type
-                {
-                    continue;
-                }
-                if let Some(min_version) = min_version
-                    && object.version < min_version
-                {
-                    continue;
-                }
-                if let Some(max_version) = max_version
-                    && object.version > max_version
-                {
-                    continue;
-                }
-
-                objects.push((object_id, object));
+            let object = self.get_object(&object_id)?.ok_or_else(|| {
+                anyhow::anyhow!("Object index references missing object {object_id}")
+            })?;
+            if let Some(owner) = owner
+                && object.owner != owner
+            {
+                continue;
             }
+            if let Some(owner_kind) = owner_kind {
+                let matches = match owner_kind {
+                    ObjectOwnerKind::AddressOwner(_) => {
+                        matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
+                    }
+                    ObjectOwnerKind::Shared => matches!(object.owner_kind, ObjectOwnerKind::Shared),
+                    ObjectOwnerKind::Immutable => {
+                        matches!(object.owner_kind, ObjectOwnerKind::Immutable)
+                    }
+                };
+                if !matches {
+                    continue;
+                }
+            }
+            if let Some(object_type) = object_type
+                && object.type_ != object_type
+            {
+                continue;
+            }
+            if let Some(min_version) = min_version
+                && object.version < min_version
+            {
+                continue;
+            }
+            if let Some(max_version) = max_version
+                && object.version > max_version
+            {
+                continue;
+            }
+
+            objects.push((object_id, object));
         }
 
         Ok(objects)
@@ -1467,10 +1498,20 @@ impl StateManager {
     }
 
     /// Get the total number of owners with persisted owner state.
+    pub fn try_owner_count(&self) -> Result<usize> {
+        Ok(self.load_owner_index_ids()?.len())
+    }
+
+    /// Legacy convenience API for callers that cannot return errors. Consensus,
+    /// diagnostics, and RPC paths should prefer `try_owner_count`.
     pub fn owner_count(&self) -> usize {
-        self.load_owner_index_ids()
-            .map(|owner_ids| owner_ids.len())
-            .unwrap_or(0)
+        match self.try_owner_count() {
+            Ok(count) => count,
+            Err(error) => {
+                log::error!("[StateManager] Failed to load owner count: {error:#}");
+                0
+            }
+        }
     }
 }
 

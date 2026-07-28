@@ -256,7 +256,11 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     );
     drive_consensus_until_mempool_empty(&engine);
 
-    assert!(engine.is_transaction_committed(&transaction_hash));
+    assert!(
+        engine
+            .try_is_transaction_committed(&transaction_hash)
+            .unwrap()
+    );
     let effects = {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().transaction_effects.to_vec()
@@ -658,7 +662,7 @@ fn restarted_engine_preserves_replay_protection_and_multi_checkpoint_progress() 
     drive_consensus_to_height(&restarted, 3);
 
     assert_eq!(restarted.get_stats().height, 3);
-    assert!(restarted.is_transaction_committed(&tx3_hash));
+    assert!(restarted.try_is_transaction_committed(&tx3_hash).unwrap());
     assert_eq!(restarted.pending_transaction_len(), 0);
     restarted.state_read().validate_smt_consistency().unwrap();
 }
@@ -775,6 +779,35 @@ fn required_persistent_engine_never_falls_back_to_memory() {
 }
 
 #[test]
+fn persistent_engine_refuses_fresh_genesis_when_state_exists_without_chain_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_path_buf();
+    {
+        let store = PersistentStore::open_with_path(Some(data_dir.clone())).unwrap();
+        let owner = AccountAddress::from_hex_literal("0x123").unwrap();
+        store
+            .save(
+                format!("account:{}", owner.to_hex_literal()).as_bytes(),
+                &OwnerState::new(owner),
+            )
+            .unwrap();
+        store.flush().unwrap();
+    }
+
+    let error = match BlockchainEngine::new_dir_required(data_dir.to_str().unwrap()) {
+        Ok(_) => panic!("engine must not create fresh genesis over existing state entries"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("Refusing to create fresh genesis"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn committed_transaction_history_survives_metadata_stripping() {
     let temp_dir = tempfile::tempdir().unwrap();
     let data_dir = temp_dir.path().to_str().unwrap();
@@ -857,6 +890,61 @@ fn history_pruning_keeps_permanent_replay_index() {
             .unwrap()
             .is_some(),
         "pruning must retain the permanent replay guard"
+    );
+}
+
+#[test]
+fn checkpoint_persistence_rejects_corrupt_recent_transaction_index() {
+    let store = PersistentStore::open_in_memory().unwrap();
+    store
+        .save(
+            BlockchainEngine::recent_transaction_hashes_key(),
+            &vec![vec![1u8, 2, 3]],
+        )
+        .unwrap();
+
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx = signed_transfer_from(&sender, 0);
+    let checkpoint = Checkpoint::new(
+        1,
+        vec![[7u8; 32]],
+        vec![tx],
+        vec![9u8; 32],
+        42,
+        vec![0u8; 32],
+    );
+
+    let error = BlockchainEngine::persist_checkpoint_transactions(&store, &checkpoint).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Recent transaction index contains invalid hash length"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn committed_transaction_check_rejects_corrupt_persistent_index() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let engine = BlockchainEngine::new_dir(temp_dir.path().to_str().unwrap()).unwrap();
+    let Some(store) = engine.persistent_store.as_ref() else {
+        return;
+    };
+
+    let tx_hash = [7u8; 32];
+    store
+        .save(
+            &BlockchainEngine::transaction_index_key(&tx_hash),
+            &vec![1u8, 2, 3],
+        )
+        .unwrap();
+
+    let error = engine.try_is_transaction_committed(&tx_hash).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Failed to load committed transaction index"),
+        "unexpected error: {error}"
     );
 }
 
