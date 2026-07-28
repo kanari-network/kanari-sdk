@@ -5,7 +5,7 @@ use crate::{
     config::NodeRuntimeConfig,
     p2p::{
         AuthenticatedP2PMessage, CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg,
-        DagVertexRequestMsg, DagVertexResponseMsg, P2PMessage, PeerInfoMsg,
+        DagVertexRequestMsg, DagVertexResponseMsg, P2PMessage, PeerInfoMsg, QueuedP2PMessage,
     },
 };
 use kanari_core::{BlockchainEngine, CheckpointSyncData, DagVertex};
@@ -41,7 +41,7 @@ struct DivergentPeerInfo {
 
 pub struct SyncManager {
     engine: Arc<BlockchainEngine>,
-    network_tx: mpsc::Sender<P2PMessage>,
+    network_tx: mpsc::Sender<QueuedP2PMessage>,
     local_peer_id: String,
     /// Optional indexer for blockchain data indexing
     indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
@@ -67,6 +67,12 @@ pub struct SyncManager {
 }
 
 impl SyncManager {
+    fn local_checkpoint_identity(&self, sequence: u64) -> Option<(String, String)> {
+        self.engine
+            .get_block(sequence)
+            .map(|block| (block.hash, block.state_root))
+    }
+
     fn divergence_kind(
         local_checkpoint_hash: &str,
         local_state_root: &str,
@@ -151,7 +157,7 @@ impl SyncManager {
 
     pub fn new(
         engine: Arc<BlockchainEngine>,
-        network_tx: mpsc::Sender<P2PMessage>,
+        network_tx: mpsc::Sender<QueuedP2PMessage>,
         local_peer_id: String,
         indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
     ) -> Self {
@@ -341,7 +347,7 @@ impl SyncManager {
     }
 
     fn send_network_message(&self, msg: P2PMessage, context: &str) -> bool {
-        match self.network_tx.try_send(msg) {
+        match self.network_tx.try_send(QueuedP2PMessage::new(msg)) {
             Ok(_) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
                 debug!(
@@ -1226,8 +1232,14 @@ impl SyncManager {
 
     async fn handle_peer_info(&self, peer_info: PeerInfoMsg) {
         let stats = self.engine.get_stats();
-        let local_checkpoint_hash = self.engine.latest_checkpoint_hash_hex();
-        let local_state_root = self.engine.latest_checkpoint_state_root_hex();
+        let (local_checkpoint_hash, local_state_root) = self
+            .local_checkpoint_identity(stats.height)
+            .unwrap_or_else(|| {
+                (
+                    self.engine.latest_checkpoint_hash_hex(),
+                    self.engine.latest_checkpoint_state_root_hex(),
+                )
+            });
         debug!(
             "[SYNC] Received PeerInfo from {}: height={}, txs={}, our_height={}, our_txs={}",
             peer_info.peer_id,

@@ -68,6 +68,26 @@ pub struct AuthenticatedP2PMessage {
     pub message: P2PMessage,
 }
 
+/// Internal envelope for locally queued outbound P2P messages.
+///
+/// This is intentionally not part of the serialized P2P protocol; it lets the
+/// node measure local app/sync/RPC -> P2P publisher queue latency without
+/// changing wire compatibility.
+#[derive(Debug)]
+pub struct QueuedP2PMessage {
+    pub message: P2PMessage,
+    pub enqueued_at: Instant,
+}
+
+impl QueuedP2PMessage {
+    pub fn new(message: P2PMessage) -> Self {
+        Self {
+            message,
+            enqueued_at: Instant::now(),
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode,
 )]
@@ -637,7 +657,7 @@ pub fn decompress_payload(compressed_data: Vec<u8>) -> Result<String> {
 pub struct P2PEventHandler {
     pub network: P2PNetwork,
     pub message_tx: mpsc::Sender<AuthenticatedP2PMessage>,
-    pub outgoing_rx: Option<mpsc::Receiver<P2PMessage>>,
+    pub outgoing_rx: Option<mpsc::Receiver<QueuedP2PMessage>>,
     pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
     message_forwarding_closed: bool,
     chunk_assemblies: HashMap<(PeerId, [u8; 32]), ChunkAssembly>,
@@ -659,7 +679,7 @@ impl P2PEventHandler {
         }
     }
 
-    pub fn with_outgoing(mut self, outgoing_rx: mpsc::Receiver<P2PMessage>) -> Self {
+    pub fn with_outgoing(mut self, outgoing_rx: mpsc::Receiver<QueuedP2PMessage>) -> Self {
         self.outgoing_rx = Some(outgoing_rx);
         self
     }
@@ -680,13 +700,18 @@ impl P2PEventHandler {
                     self.handle_event(event).await;
                 }
                 // Handle outgoing messages to publish
-                Some(msg) = async {
+                Some(queued) = async {
                     match &mut self.outgoing_rx {
                         Some(rx) => rx.recv().await,
                         None => std::future::pending().await,
                     }
                 } => {
-                    if let Err(e) = self.network.publish_message(msg) {
+                    let queued_ms = queued.enqueued_at.elapsed().as_millis();
+                    info!(
+                        p2p_outbound_queue_latency_ms = queued_ms,
+                        "P2P outbound queue latency"
+                    );
+                    if let Err(e) = self.network.publish_message(queued.message) {
                         warn!("Failed to publish outgoing message: {}", e);
                     }
                 }

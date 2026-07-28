@@ -3,6 +3,7 @@
 
 use crate::blockchain::Blockchain;
 use crate::consensus::Checkpoint;
+use crate::file_io::{read_json_file, write_json_pretty_atomically};
 use ahash::AHashMap;
 use anyhow::{Context, Result, ensure};
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
@@ -77,6 +78,35 @@ fn compatible_protocol_version(manifest: &str, local: &str) -> bool {
 
 pub const GENESIS_MANIFEST_FORMAT_VERSION: u32 = 1;
 pub const STATE_SCHEMA_VERSION: &str = "canonical-state-root-v1";
+
+/// Returns the canonical representation used for a consensus authority ID.
+///
+/// Configuration files and command-line inputs may omit the `0x` prefix, but
+/// the engine stores and compares authority IDs with it. Keeping this rule in
+/// core means every caller uses the same identity when configuring consensus.
+pub fn normalize_consensus_authority_id(authority_id: impl AsRef<str>) -> String {
+    let authority_id = authority_id.as_ref();
+    if authority_id.starts_with("0x") {
+        authority_id.to_owned()
+    } else {
+        format!("0x{authority_id}")
+    }
+}
+
+/// Decodes a hexadecimal value, accepting an optional `0x` prefix, and
+/// verifies its byte length before the value is used as key material.
+pub fn decode_hex_exact(label: &str, value: &str, expected_len: usize) -> Result<Vec<u8>> {
+    let value = value.strip_prefix("0x").unwrap_or(value);
+    let bytes =
+        hex::decode(value).map_err(|error| anyhow::anyhow!("Invalid {label} hex: {error}"))?;
+    if bytes.len() != expected_len {
+        anyhow::bail!(
+            "Invalid {label} length: expected {expected_len} bytes, got {}",
+            bytes.len()
+        );
+    }
+    Ok(bytes)
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SnapshotEntry {
@@ -346,24 +376,13 @@ impl BlockchainEngine {
             entries_hash: Self::snapshot_entries_hash(&entries)?,
             entries,
         };
-        let bytes = serde_json::to_vec_pretty(&snapshot)?;
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("Failed to create snapshot directory {}", parent.display())
-            })?;
-        }
-        std::fs::write(path, bytes)
+        write_json_pretty_atomically(path, &snapshot)
             .with_context(|| format!("Failed to write state snapshot {}", path.display()))?;
         Ok(snapshot)
     }
 
     pub fn read_state_snapshot(path: &std::path::Path) -> Result<StateSnapshot> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("Failed to read state snapshot {}", path.display()))?;
-        serde_json::from_slice(&bytes)
-            .with_context(|| format!("Invalid state snapshot {}", path.display()))
+        read_json_file(path).with_context(|| format!("Invalid state snapshot {}", path.display()))
     }
 
     pub fn import_state_snapshot(
@@ -544,27 +563,13 @@ impl BlockchainEngine {
         network: impl Into<String>,
     ) -> Result<()> {
         let manifest = self.genesis_manifest(network)?;
-        let bytes = serde_json::to_vec_pretty(&manifest)?;
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!(
-                    "Failed to create genesis manifest directory {}",
-                    parent.display()
-                )
-            })?;
-        }
-        std::fs::write(path, bytes)
+        write_json_pretty_atomically(path, &manifest)
             .with_context(|| format!("Failed to write genesis manifest {}", path.display()))?;
         Ok(())
     }
 
     pub fn read_genesis_manifest(path: &std::path::Path) -> Result<GenesisManifest> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("Failed to read genesis manifest {}", path.display()))?;
-        serde_json::from_slice(&bytes)
-            .with_context(|| format!("Invalid genesis manifest {}", path.display()))
+        read_json_file(path).with_context(|| format!("Invalid genesis manifest {}", path.display()))
     }
 
     fn is_native_gas_coin_type(object_type: &str) -> bool {
@@ -2594,15 +2599,11 @@ impl BlockchainEngine {
     }
 
     pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
-        fn normalize(s: String) -> String {
-            if s.starts_with("0x") {
-                s
-            } else {
-                format!("0x{}", s)
-            }
-        }
-        self.authority_id = normalize(authority_id);
-        self.authorities = authorities.into_iter().map(normalize).collect();
+        self.authority_id = normalize_consensus_authority_id(authority_id);
+        self.authorities = authorities
+            .into_iter()
+            .map(normalize_consensus_authority_id)
+            .collect();
         self.consensus_signing_key = None;
         self.consensus_public_keys.clear();
         match self.dag_engine.write() {
@@ -2627,6 +2628,10 @@ impl BlockchainEngine {
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<()> {
+        let authority_public_keys: BTreeMap<String, Vec<u8>> = authority_public_keys
+            .into_iter()
+            .map(|(authority, key)| (normalize_consensus_authority_id(authority), key))
+            .collect();
         let local_public_key = local_signing_key.verifying_key().to_bytes().to_vec();
         let expected_public_key =
             authority_public_keys

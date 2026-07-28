@@ -1,6 +1,11 @@
 use super::BlockchainEngine;
+use super::runtime_guards::strict_guard_required;
 use crate::consensus::Checkpoint;
-use crate::engine::{MAX_PENDING_PER_PRIMARY_ACCESS_LANE, PersistedTransactionLocation};
+use crate::engine::{
+    MAX_PENDING_PER_PRIMARY_ACCESS_LANE, PersistedTransactionLocation, decode_hex_exact,
+    normalize_consensus_authority_id,
+};
+use crate::file_io::write_file_atomically;
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v1::state::OwnerState;
@@ -15,9 +20,30 @@ use kanari_types::transaction::{
 };
 use move_core_types::account_address::AccountAddress;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+#[test]
+fn consensus_authority_ids_are_normalized_in_one_place() {
+    assert_eq!(normalize_consensus_authority_id("1"), "0x1");
+    assert_eq!(normalize_consensus_authority_id("0x1"), "0x1");
+}
+
+#[test]
+fn fixed_length_hex_decoding_is_shared_and_validated() {
+    assert_eq!(decode_hex_exact("test key", "0x0102", 2).unwrap(), [1, 2]);
+    assert!(decode_hex_exact("test key", "01", 2).is_err());
+}
+
+#[test]
+fn atomic_file_write_replaces_existing_contents() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("nested").join("value.txt");
+
+    write_file_atomically(&path, b"first").unwrap();
+    write_file_atomically(&path, b"second").unwrap();
+
+    assert_eq!(std::fs::read(path).unwrap(), b"second");
+}
 
 fn snapshot_preview(engine: &BlockchainEngine, limit: usize) -> String {
     format!("{:?}", engine.canonical_state_snapshot_dump(Some(limit)))
@@ -379,76 +405,23 @@ fn drive_consensus_until_mempool_empty(engine: &BlockchainEngine) {
 
 #[test]
 fn mainnet_defaults_enable_strict_runtime_guards() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    unsafe {
-        std::env::set_var("KANARI_NETWORK", "mainnet");
-        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
-        std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
-    }
-
-    assert!(BlockchainEngine::strict_persistence_required());
-    assert!(BlockchainEngine::strict_checkpoint_roots_required());
-
-    unsafe {
-        std::env::remove_var("KANARI_NETWORK");
-    }
+    assert!(strict_guard_required("mainnet", None));
 }
 
 #[test]
 fn devnet_defaults_enable_strict_runtime_guards() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    unsafe {
-        std::env::set_var("KANARI_NETWORK", "devnet");
-        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
-        std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
-    }
-
-    assert!(BlockchainEngine::strict_persistence_required());
-    assert!(BlockchainEngine::strict_checkpoint_roots_required());
-
-    unsafe {
-        std::env::remove_var("KANARI_NETWORK");
-    }
+    assert!(strict_guard_required("devnet", None));
 }
 
 #[test]
 fn local_network_defaults_allow_relaxed_runtime_guards() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    unsafe {
-        std::env::set_var("KANARI_NETWORK", "local");
-        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
-        std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
-    }
-
-    assert!(!BlockchainEngine::strict_persistence_required());
-    assert!(!BlockchainEngine::strict_checkpoint_roots_required());
-
-    unsafe {
-        std::env::remove_var("KANARI_NETWORK");
-    }
+    assert!(!strict_guard_required("local", None));
 }
 
 #[test]
 fn explicit_env_overrides_strict_runtime_guards() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    unsafe {
-        std::env::set_var("KANARI_NETWORK", "mainnet");
-        std::env::set_var("KANARI_REQUIRE_PERSISTENT_STORAGE", "false");
-        std::env::set_var("KANARI_STRICT_CHECKPOINT_ROOTS", "0");
-    }
-
-    assert!(!BlockchainEngine::strict_persistence_required());
-    assert!(!BlockchainEngine::strict_checkpoint_roots_required());
-
-    unsafe {
-        std::env::remove_var("KANARI_NETWORK");
-        std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
-        std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
-    }
+    assert!(!strict_guard_required("mainnet", Some("false")));
+    assert!(!strict_guard_required("mainnet", Some("0")));
 }
 
 #[test]
