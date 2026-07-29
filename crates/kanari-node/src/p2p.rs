@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+#[cfg(feature = "p2p-mdns")]
+use libp2p::mdns;
 use libp2p::{
     PeerId, Swarm, Transport,
     core::upgrade,
@@ -11,7 +13,7 @@ use libp2p::{
     identify,
     identity::Keypair,
     kad::{self, store::MemoryStore},
-    mdns, noise, ping, relay,
+    noise, ping, relay,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
@@ -179,6 +181,7 @@ pub struct CompressedCheckpointResponseMsg {
 #[derive(NetworkBehaviour)]
 pub struct KanariBehaviour {
     pub gossipsub: gossipsub::Behaviour,
+    #[cfg(feature = "p2p-mdns")]
     pub mdns: mdns::tokio::Behaviour,
     pub kademlia: kad::Behaviour<MemoryStore>,
     pub dcutr: dcutr::Behaviour,
@@ -288,8 +291,6 @@ impl P2PNetwork {
         gossipsub.subscribe(&peers_topic)?;
         gossipsub.subscribe(&dag_vertices_topic)?;
 
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-
         let mut kademlia = kad::Behaviour::new(local_peer_id, MemoryStore::new(local_peer_id));
 
         kademlia.set_mode(Some(kad::Mode::Server));
@@ -317,7 +318,8 @@ impl P2PNetwork {
 
         let behaviour = KanariBehaviour {
             gossipsub,
-            mdns,
+            #[cfg(feature = "p2p-mdns")]
+            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?,
             kademlia,
             dcutr,
             identify,
@@ -1092,6 +1094,7 @@ impl P2PEventHandler {
                     }
                 }
             }
+            #[cfg(feature = "p2p-mdns")]
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
                 for (peer_id, multiaddr) in peers {
                     info!("Discovered peer: {} at {}", peer_id, multiaddr);
@@ -1151,6 +1154,7 @@ impl P2PEventHandler {
                     warn!("Outgoing connection error: {}", error);
                 }
             }
+            #[cfg(feature = "p2p-mdns")]
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
                 for (peer_id, _) in peers {
                     // mDNS expiry only means the discovery record timed out; it
