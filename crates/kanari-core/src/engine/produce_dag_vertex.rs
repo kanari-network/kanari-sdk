@@ -829,16 +829,10 @@ impl DagEngine {
         let prepared = self.engine.prepare_checkpoint_state(&checkpoint)?;
         checkpoint.state_root = prepared.state_root;
         checkpoint.transaction_effects = prepared.effects.into();
-        checkpoint.object_changes =
-            BlockchainEngine::aggregate_checkpoint_object_changes(&checkpoint.transaction_effects)
-                .into();
-        checkpoint.object_graph_edges = BlockchainEngine::aggregate_checkpoint_object_graph_edges(
-            &checkpoint.transaction_effects,
-        )
-        .into();
         self.engine.apply_prepared_checkpoint(
             checkpoint.clone(),
             prepared.state,
+            prepared.smt_changes,
             prepared.transactions,
             true,
         )?;

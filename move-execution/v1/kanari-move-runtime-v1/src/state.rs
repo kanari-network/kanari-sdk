@@ -48,6 +48,7 @@ type RawStateValue = Vec<u8>;
 type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
+pub type PrecomputedSmtChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>);
 type DerivedIndexes = (
     Vec<String>,
     BTreeMap<AccountAddress, Vec<String>>,
@@ -846,9 +847,60 @@ impl StateManager {
         self.commit_with_raw_updates(vec![(key, value)])
     }
 
-    fn commit_with_raw_updates(&mut self, mut updates: Vec<(Vec<u8>, Vec<u8>)>) -> Result<()> {
-        let mut deletes = Vec::new();
+    pub fn commit_with_raw_update_and_verified_root(
+        &mut self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        verified_root: &[u8],
+    ) -> Result<()> {
+        let root: [u8; 32] = verified_root
+            .try_into()
+            .context("Verified state root must be 32 bytes")?;
+        self.commit_with_raw_updates_and_root(vec![(key, value)], Vec::new(), Some(root), None)
+    }
 
+    pub fn commit_with_raw_update_verified_root_and_smt_changes(
+        &mut self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        verified_root: &[u8],
+        smt_changes: Option<PrecomputedSmtChanges>,
+    ) -> Result<()> {
+        let root: [u8; 32] = verified_root
+            .try_into()
+            .context("Verified state root must be 32 bytes")?;
+        self.commit_with_raw_updates_and_root(
+            vec![(key, value)],
+            Vec::new(),
+            Some(root),
+            smt_changes,
+        )
+    }
+
+    pub fn commit_with_raw_changes_verified_root_and_smt_changes(
+        &mut self,
+        updates: Vec<(Vec<u8>, Vec<u8>)>,
+        deletes: Vec<Vec<u8>>,
+        verified_root: &[u8],
+        smt_changes: Option<PrecomputedSmtChanges>,
+    ) -> Result<()> {
+        let root: [u8; 32] = verified_root
+            .try_into()
+            .context("Verified state root must be 32 bytes")?;
+        self.commit_with_raw_updates_and_root(updates, deletes, Some(root), smt_changes)
+    }
+
+    fn commit_with_raw_updates(&mut self, updates: Vec<(Vec<u8>, Vec<u8>)>) -> Result<()> {
+        self.commit_with_raw_updates_and_root(updates, Vec::new(), None, None)
+    }
+
+    fn commit_with_raw_updates_and_root(
+        &mut self,
+        mut updates: Vec<(Vec<u8>, Vec<u8>)>,
+        mut deletes: Vec<Vec<u8>>,
+        verified_root: Option<[u8; 32]>,
+        precomputed_smt_changes: Option<PrecomputedSmtChanges>,
+    ) -> Result<()> {
         for (key, val_opt) in &self.overlay {
             if let Some(val) = val_opt {
                 updates.push((key.clone(), val.clone()));
@@ -859,21 +911,28 @@ impl StateManager {
 
         // Derive SMT deltas before writing the overlay so index transitions can
         // compare the old persisted membership with the new overlay membership.
-        let smt_changes = self
-            .smt
-            .as_ref()
-            .map(|_| self.smt_changes_from_overlay())
-            .transpose()?;
+        let smt_changes = if self.smt.is_some() {
+            match precomputed_smt_changes {
+                Some(changes) => Some(changes),
+                None => Some(self.smt_changes_from_overlay()?),
+            }
+        } else {
+            None
+        };
 
         self.store.apply_raw_changes(&updates, &deletes)?;
 
         // Update SMT if available
         if let (Some(smt), Some((smt_updates, smt_deletes))) = (&self.smt, smt_changes) {
             let update_result = (|| -> Result<()> {
-                if !smt_deletes.is_empty() {
+                if let Some(root) = verified_root {
+                    smt.apply_changes_with_root(&smt_updates, &smt_deletes, root)?;
+                } else if !smt_deletes.is_empty() {
                     smt.delete(&smt_deletes)?;
-                }
-                if !smt_updates.is_empty() {
+                    if !smt_updates.is_empty() {
+                        smt.insert(&smt_updates)?;
+                    }
+                } else if !smt_updates.is_empty() {
                     smt.insert(&smt_updates)?;
                 }
                 Ok(())
@@ -948,6 +1007,9 @@ impl StateManager {
     }
 
     pub(crate) fn advance_access_versions(&mut self, access: &StateAccessSet) -> Result<()> {
+        let persist_access_versions = std::env::var("KANARI_PERSIST_ACCESS_VERSIONS")
+            .map(|value| !matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
+            .unwrap_or(true);
         if !access.writes.is_empty() {
             self.access_epoch = self
                 .access_epoch
@@ -963,9 +1025,11 @@ impl StateManager {
                 .checked_add(1)
                 .context("State access version overflow")?;
             self.access_versions.insert(key.clone(), next);
-            let mut persisted_key = ACCESS_VERSION_PREFIX.to_vec();
-            persisted_key.extend_from_slice(key);
-            self.save_internal(&persisted_key, &next)?;
+            if persist_access_versions {
+                let mut persisted_key = ACCESS_VERSION_PREFIX.to_vec();
+                persisted_key.extend_from_slice(key);
+                self.save_internal(&persisted_key, &next)?;
+            }
         }
         Ok(())
     }
@@ -1111,15 +1175,31 @@ impl StateManager {
 
         for (key, value_opt) in &self.overlay {
             match value_opt {
-                Some(value) if self.is_canonical_smt_update(key, value)? => {
-                    updates.push((key.clone(), value.clone()));
+                Some(value) => {
+                    let canonical = if let Some(object_id) = key.strip_prefix(b"object:")
+                        && let Ok(object_id) = std::str::from_utf8(object_id)
+                    {
+                        let object = bcs::from_bytes::<StoredObject>(value)
+                            .with_context(|| format!("Malformed object record {object_id}"))?;
+                        if matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
+                            canonical_object_id(object_id).ok_or_else(|| {
+                                anyhow::anyhow!("Invalid canonical object id {object_id}")
+                            })? == object_id
+                        } else {
+                            false
+                        }
+                    } else {
+                        self.is_canonical_smt_update(key, value)?
+                    };
+                    if canonical {
+                        updates.push((key.clone(), value.clone()));
+                    } else if key.starts_with(b"module:") || key.starts_with(b"object:") {
+                        deletes.push(key.clone());
+                    }
                 }
                 // An object/module may transition out of the canonical root
                 // set (for example AddressOwner -> Shared). A non-canonical
                 // replacement must remove the previously indexed leaf.
-                Some(_) if key.starts_with(b"module:") || key.starts_with(b"object:") => {
-                    deletes.push(key.clone());
-                }
                 None if Self::is_canonical_state_root_key(key)
                     || key.starts_with(b"module:")
                     || key.starts_with(b"object:") =>
@@ -1227,6 +1307,11 @@ impl StateManager {
     where
         I: IntoIterator<Item = String>,
     {
+        let mut values = values.into_iter().peekable();
+        if values.peek().is_none() {
+            return Ok(());
+        }
+
         let existing = self.load_index_list(key)?;
         let mut index: BTreeSet<String> = existing.into_iter().collect();
         let mut changed = false;
@@ -1448,12 +1533,39 @@ impl StateManager {
 
     /// Compute a canonical root and propagate storage/index corruption to the caller.
     pub fn try_compute_state_root(&self) -> Result<Vec<u8>> {
+        self.try_compute_state_root_with_smt_changes()
+            .map(|(root, _)| root)
+    }
+
+    /// Compute a canonical root and return reusable SMT overlay deltas when the
+    /// production SMT backend is active. Passing these deltas into commit avoids
+    /// walking and decoding the same overlay twice on the checkpoint hot path.
+    pub fn try_compute_state_root_with_smt_changes(
+        &self,
+    ) -> Result<(Vec<u8>, Option<PrecomputedSmtChanges>)> {
+        let profile_root = matches!(
+            std::env::var("KANARI_STATE_ROOT_PROFILE").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+        );
+        let started_at = std::time::Instant::now();
         if let Some(smt) = &self.smt {
             let (updates, deletes) = self.smt_changes_from_overlay()?;
-            return Ok(smt.root_hash_with_changes(&updates, &deletes)?.to_vec());
+            let root = smt.root_hash_with_changes(&updates, &deletes)?.to_vec();
+            if profile_root {
+                eprintln!(
+                    "state root profile: smt updates={} deletes={} total={:.6}s",
+                    updates.len(),
+                    deletes.len(),
+                    started_at.elapsed().as_secs_f64()
+                );
+            }
+            return Ok((root, Some((updates, deletes))));
         }
+        let logical_started_at = std::time::Instant::now();
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
             self.store.logical_entries()?.into_iter().collect();
+        let logical_count = entries.len();
+        let logical_at = std::time::Instant::now();
 
         for (key, value_opt) in &self.overlay {
             if let Some(value) = value_opt {
@@ -1462,10 +1574,28 @@ impl StateManager {
                 entries.remove(key);
             }
         }
+        let overlay_at = std::time::Instant::now();
 
         Self::retain_canonical_state_root_entries(&mut entries)?;
+        let retain_at = std::time::Instant::now();
 
-        Ok(smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec())
+        let canonical_count = entries.len();
+        let root = smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec();
+        let rooted_at = std::time::Instant::now();
+        if profile_root {
+            eprintln!(
+                "state root profile: logical_entries={} overlay_entries={} canonical_entries={} logical={:.6}s overlay={:.6}s retain={:.6}s compute={:.6}s total={:.6}s",
+                logical_count,
+                self.overlay.len(),
+                canonical_count,
+                logical_at.duration_since(logical_started_at).as_secs_f64(),
+                overlay_at.duration_since(logical_at).as_secs_f64(),
+                retain_at.duration_since(overlay_at).as_secs_f64(),
+                rooted_at.duration_since(retain_at).as_secs_f64(),
+                rooted_at.duration_since(started_at).as_secs_f64(),
+            );
+        }
+        Ok((root, None))
     }
 
     /// Legacy convenience API. Consensus and RPC paths must use

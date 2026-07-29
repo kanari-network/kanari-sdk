@@ -110,6 +110,28 @@ fn signed_transfer_with_refs(
     signed_tx
 }
 
+fn signed_native_burn_with_gas_object(
+    sender: &kanari_crypto::keys::KeyPair,
+    coin_object_id: &str,
+    coin_balance: u64,
+    nonce: u64,
+) -> SignedTransaction {
+    let mut tx = Transaction::new_burn_with_gas(sender.tagged_address(), 1, nonce, 100_000, 1);
+    if let Transaction::ExecuteFunction { gas_payment, .. } = &mut tx {
+        *gas_payment = Some(GasPayment {
+            payment_objects: vec![native_coin_object_ref(coin_object_id, coin_balance)],
+            owner: sender.address.clone(),
+            budget: 100_000,
+            price: 1,
+        });
+    }
+    let mut signed_tx = SignedTransaction::new(tx);
+    signed_tx
+        .sign(&sender.private_key, sender.curve_type)
+        .unwrap();
+    signed_tx
+}
+
 fn transaction_coin_balance(data: &[u8]) -> u64 {
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&data[32..40]);
@@ -663,6 +685,94 @@ fn restarted_engine_preserves_replay_protection_and_multi_checkpoint_progress() 
 
     assert_eq!(restarted.get_stats().height, 3);
     assert!(restarted.try_is_transaction_committed(&tx3_hash).unwrap());
+    assert_eq!(restarted.pending_transaction_len(), 0);
+    restarted.state_read().validate_smt_consistency().unwrap();
+}
+
+#[test]
+fn checkpoint_commit_persists_metadata_and_transactions_before_restart() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_b = generate_keypair(CurveType::Ed25519).unwrap();
+    let tx1 = signed_transfer_with_refs(
+        &sender,
+        &recipient_a.address,
+        "0xaaaa",
+        3_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+    let tx2 = signed_transfer_with_refs(
+        &sender,
+        &recipient_b.address,
+        "0xbbbb",
+        2_000_000,
+        "0x2001",
+        1_000_000,
+        2,
+    );
+    let tx1_hash = tx1.transaction_hash().to_vec();
+    let tx2_hash = tx2.transaction_hash().to_vec();
+
+    let expected_root = {
+        let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+        if engine.persistent_store.is_none() {
+            return;
+        }
+        configure_single_authority_consensus(&mut engine);
+        fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 3_000_000);
+        fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+        fund_sender_with_coin(&engine, &sender.address, "0xbbbb", 2_000_000);
+        fund_sender_with_coin(&engine, &sender.address, "0x2001", 1_000_000);
+
+        engine
+            .submit_transactions_batch(vec![tx1.clone(), tx2.clone()])
+            .unwrap();
+        drive_consensus_to_height(&engine, 1);
+        assert_eq!(engine.get_stats().height, 1);
+
+        let store = engine.persistent_store.as_ref().unwrap();
+        let checkpoint = store
+            .load::<Checkpoint>(&BlockchainEngine::checkpoint_metadata_key(1))
+            .unwrap()
+            .expect("checkpoint metadata must be durable before restart");
+        assert_eq!(checkpoint.sequence, 1);
+        assert_eq!(checkpoint.transactions.len(), 0);
+        assert_eq!(checkpoint.transaction_effects.len(), 2);
+
+        let checkpoint_txs = store
+            .load::<Vec<SignedTransaction>>(&BlockchainEngine::checkpoint_transactions_key(1))
+            .unwrap()
+            .expect("checkpoint transaction payload must be durable before restart");
+        assert_eq!(
+            checkpoint_txs
+                .iter()
+                .map(|tx| tx.transaction_hash().to_vec())
+                .collect::<Vec<_>>(),
+            vec![tx1_hash.clone(), tx2_hash.clone()]
+        );
+        assert!(
+            store
+                .load::<Checkpoint>(BlockchainEngine::pending_checkpoint_commit_key())
+                .unwrap()
+                .is_none(),
+            "durable commit marker must be cleared after metadata finalization"
+        );
+
+        engine.get_stats().state_root
+    };
+
+    let restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+    if restarted.persistent_store.is_none() {
+        return;
+    }
+    assert_eq!(restarted.get_stats().height, 1);
+    assert_eq!(restarted.get_stats().state_root, expected_root);
+    assert!(restarted.try_is_transaction_committed(&tx1_hash).unwrap());
+    assert!(restarted.try_is_transaction_committed(&tx2_hash).unwrap());
     assert_eq!(restarted.pending_transaction_len(), 0);
     restarted.state_read().validate_smt_consistency().unwrap();
 }
@@ -1551,6 +1661,80 @@ fn pending_conflict_free_snapshot_is_stable_regardless_of_submit_order() {
 }
 
 #[test]
+fn owned_fast_checkpoint_commits_no_shared_pending_transactions() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender_a = generate_keypair(CurveType::Ed25519).unwrap();
+    let sender_b = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender_a.address, "0xa001", 1_000_000);
+    fund_sender_with_coin(&engine, &sender_b.address, "0xb001", 1_000_000);
+    let tx_a = signed_native_burn_with_gas_object(&sender_a, "0xa001", 1_000_000, 1);
+    let tx_b = signed_native_burn_with_gas_object(&sender_b, "0xb001", 1_000_000, 2);
+
+    engine
+        .submit_transactions_batch(vec![tx_b.clone(), tx_a.clone()])
+        .unwrap();
+    let info = engine.produce_owned_fast_checkpoint().unwrap();
+
+    assert_eq!(info.tx_count, 2);
+    assert_eq!(info.executed, 2);
+    assert_eq!(info.failed, 0);
+    assert_eq!(engine.pending_transaction_len(), 0);
+    assert_eq!(engine.get_stats().height, 1);
+    assert!(
+        engine
+            .try_is_transaction_committed(tx_a.transaction_hash())
+            .unwrap()
+    );
+    assert!(
+        engine
+            .try_is_transaction_committed(tx_b.transaction_hash())
+            .unwrap()
+    );
+    assert_eq!(info.checkpoint.unwrap().tx_count, 2);
+}
+
+#[test]
+fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let owned_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let shared_sender = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &owned_sender.address, "0xa001", 1_000_000);
+    let owned_tx = signed_native_burn_with_gas_object(&owned_sender, "0xa001", 1_000_000, 1);
+    let mut shared_transaction =
+        Transaction::new_burn_with_gas(shared_sender.tagged_address(), 0, 2, 100_000, 0);
+    if let Transaction::ExecuteFunction { object_inputs, .. } = &mut shared_transaction {
+        object_inputs.push(ObjectInput {
+            object_ref: ObjectRef::new("0xshared", Some(1), Some(format!("0x{}", "11".repeat(32)))),
+            owner: Some(ObjectOwnerKind::Shared),
+            mutable: true,
+        });
+    }
+    let mut shared_tx = SignedTransaction::new(shared_transaction);
+    shared_tx
+        .sign(&shared_sender.private_key, shared_sender.curve_type)
+        .unwrap();
+    let shared_hash = shared_tx.transaction_hash().to_vec();
+
+    engine
+        .submit_transactions_batch(vec![shared_tx.clone(), owned_tx.clone()])
+        .unwrap();
+    let info = engine.produce_owned_fast_checkpoint().unwrap();
+
+    assert_eq!(info.tx_count, 1);
+    assert!(
+        engine
+            .try_is_transaction_committed(owned_tx.transaction_hash())
+            .unwrap()
+    );
+    assert!(!engine.try_is_transaction_committed(&shared_hash).unwrap());
+    assert_eq!(engine.pending_transaction_len(), 1);
+    assert_eq!(
+        engine.pending_transactions_snapshot()[0].transaction_hash(),
+        shared_hash.as_slice()
+    );
+}
+
+#[test]
 fn committed_checkpoint_releases_conflicting_transaction_for_next_round() {
     let mut engine = BlockchainEngine::new_in_memory().unwrap();
     configure_single_authority_consensus(&mut engine);
@@ -1731,6 +1915,10 @@ fn mempool_admission_caps_primary_access_lane_depth() {
     engine.submit_transactions_batch(accepted).unwrap();
     assert_eq!(
         engine.pending_tx_count_for_primary_access(&lane_key),
+        MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+    );
+    assert_eq!(
+        engine.pending_tx_count_for_congestion_access("object:0xaaaa"),
         MAX_PENDING_PER_PRIMARY_ACCESS_LANE
     );
 

@@ -434,8 +434,24 @@ impl BlockchainEngine {
     ) {
         (
             checkpoint.transaction_effects.iter().cloned().collect(),
-            checkpoint.object_changes.iter().cloned().collect(),
-            checkpoint.object_graph_edges.iter().cloned().collect(),
+            if checkpoint.object_changes.is_empty() {
+                checkpoint
+                    .transaction_effects
+                    .iter()
+                    .flat_map(|effects| effects.object_changes.iter().cloned())
+                    .collect()
+            } else {
+                checkpoint.object_changes.iter().cloned().collect()
+            },
+            if checkpoint.object_graph_edges.is_empty() {
+                checkpoint
+                    .transaction_effects
+                    .iter()
+                    .flat_map(|effects| effects.causal_edges.iter().cloned())
+                    .collect()
+            } else {
+                checkpoint.object_graph_edges.iter().cloned().collect()
+            },
         )
     }
 
