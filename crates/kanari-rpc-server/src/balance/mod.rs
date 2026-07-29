@@ -10,6 +10,7 @@ use kanari_rpc_api::{
 };
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
+use move_core_types::account_address::AccountAddress;
 use serde_json;
 use std::collections::BTreeSet;
 use tracing::warn;
@@ -73,6 +74,10 @@ fn collect_fungible_asset_holders(
     let mut holders = Vec::new();
 
     for owner in state_guard.owner_addresses()? {
+        if !is_public_asset_holder(&owner) {
+            continue;
+        }
+
         let balance = state_guard.resolve_owner_token_balance(owner, &token_type)?;
         if balance == 0 {
             continue;
@@ -103,6 +108,10 @@ fn collect_fungible_asset_holders(
         holders.truncate(limit);
     }
     Ok(holders)
+}
+
+fn is_public_asset_holder(owner: &AccountAddress) -> bool {
+    *owner != AccountAddress::ZERO
 }
 
 /// Handle get owner request
@@ -315,4 +324,24 @@ pub async fn handle_get_fungible_asset_holders(
             holders,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_asset_holders_exclude_zero_system_address() {
+        assert!(!is_public_asset_holder(&AccountAddress::ZERO));
+    }
+
+    #[test]
+    fn public_asset_holders_include_regular_wallet_address() {
+        let owner = AccountAddress::from_hex_literal(
+            "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3",
+        )
+        .expect("valid wallet address");
+
+        assert!(is_public_asset_holder(&owner));
+    }
 }
