@@ -1701,7 +1701,7 @@ fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
     fund_sender_with_coin(&engine, &owned_sender.address, "0xa001", 1_000_000);
     let owned_tx = signed_native_burn_with_gas_object(&owned_sender, "0xa001", 1_000_000, 1);
     let mut shared_transaction =
-        Transaction::new_burn_with_gas(shared_sender.tagged_address(), 0, 2, 100_000, 0);
+        Transaction::new_burn_with_gas(shared_sender.tagged_address(), 0, 2, 100_000, 1);
     if let Transaction::ExecuteFunction { object_inputs, .. } = &mut shared_transaction {
         object_inputs.push(ObjectInput {
             object_ref: ObjectRef::new("0xshared", Some(1), Some(format!("0x{}", "11".repeat(32)))),

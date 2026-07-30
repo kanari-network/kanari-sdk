@@ -18,6 +18,13 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+fn env_i32(name: &str, default: i32) -> i32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
 fn bytes_from_mb(value: u64) -> usize {
     usize::try_from(value.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
 }
@@ -69,6 +76,7 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
+    opts.enable_statistics();
 
     // Optimize for high throughput (100k+ TPS target)
     // 1. Increase parallelism for background flushes/compactions
@@ -93,15 +101,17 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     opts.set_block_based_table_factory(&block_opts);
 
     // 3. MemTable & Compaction Tuning
-    // 64MB MemTable size
-    let write_buffer_mb = env_u64("KANARI_DB_WRITE_BUFFER_MB", 64);
+    // Larger memtables and wider L0 thresholds keep large checkpoint commits
+    // from bouncing between foreground writes and background compaction.
+    let write_buffer_mb = env_u64("KANARI_DB_WRITE_BUFFER_MB", 256);
     opts.set_write_buffer_size(bytes_from_mb(write_buffer_mb));
-    // Keep up to 4 memtables in memory before blocking
-    opts.set_max_write_buffer_number(4);
-    // Target file size for L1 (same as MemTable)
-    opts.set_target_file_size_base(64 * 1024 * 1024);
-    // Level multiplier (default 10)
-    opts.set_max_bytes_for_level_base(256 * 1024 * 1024);
+    opts.set_max_write_buffer_number(env_i32("KANARI_DB_MAX_WRITE_BUFFERS", 8));
+    opts.set_min_write_buffer_number_to_merge(env_i32("KANARI_DB_MIN_WRITE_BUFFERS_TO_MERGE", 2));
+    opts.set_level_zero_file_num_compaction_trigger(env_i32("KANARI_DB_L0_COMPACTION_TRIGGER", 8));
+    opts.set_level_zero_slowdown_writes_trigger(env_i32("KANARI_DB_L0_SLOWDOWN_TRIGGER", 32));
+    opts.set_level_zero_stop_writes_trigger(env_i32("KANARI_DB_L0_STOP_TRIGGER", 64));
+    opts.set_target_file_size_base(env_u64("KANARI_DB_TARGET_FILE_MB", 256) * 1024 * 1024);
+    opts.set_max_bytes_for_level_base(env_u64("KANARI_DB_LEVEL_BASE_MB", 1024) * 1024 * 1024);
 
     // 4. Compression
     // LZ4 is good balance of speed/compression for bottom levels

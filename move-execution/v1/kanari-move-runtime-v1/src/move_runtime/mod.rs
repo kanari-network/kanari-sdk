@@ -1306,32 +1306,6 @@ impl MoveRuntime {
         Ok(addr)
     }
 
-    pub fn execute_clock_consensus_commit_prologue(
-        &self,
-        clock_id: AccountAddress,
-        timestamp_ms: u64,
-    ) -> Result<ChangeSet> {
-        let module_id = ClockModule::get_module_id()?;
-        let func_name = ClockModule::function_names().consensus_commit_prologue;
-
-        let args = vec![bcs::to_bytes(&clock_id)?, bcs::to_bytes(&timestamp_ms)?];
-
-        let system_sender = AccountAddress::ZERO;
-        let tx_hash = Some(vec![0u8; 32]);
-
-        self.execute_system_function_with_tx_hash_and_persistence(
-            &module_id,
-            func_name,
-            vec![],
-            args,
-            Some(system_sender),
-            None,
-            Some(timestamp_ms),
-            tx_hash,
-            false,
-        )
-    }
-
     pub fn build_native_clock_consensus_commit_prologue(
         &self,
         state: &StateManager,

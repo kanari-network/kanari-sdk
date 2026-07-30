@@ -245,6 +245,28 @@ impl PersistentStore {
         }
     }
 
+    /// Read a RocksDB string property for benchmark/operational diagnostics.
+    pub fn rocksdb_property(
+        &self,
+        name: &str,
+    ) -> std::result::Result<Option<String>, PersistentStoreError> {
+        let Some(db) = &self.db else {
+            return Ok(None);
+        };
+        Ok(db.property_value(name)?)
+    }
+
+    /// Read a RocksDB integer property for benchmark/operational diagnostics.
+    pub fn rocksdb_int_property(
+        &self,
+        name: &str,
+    ) -> std::result::Result<Option<u64>, PersistentStoreError> {
+        let Some(db) = &self.db else {
+            return Ok(None);
+        };
+        Ok(db.property_int_value(name)?)
+    }
+
     fn is_internal_smt_key(key: &[u8]) -> bool {
         key.starts_with(b"n:") || key.starts_with(b"d:")
     }
