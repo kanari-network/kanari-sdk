@@ -135,6 +135,12 @@ class BcsUtils {
     return decodeU64(data.sublist(32, 40));
   }
 
+  /// True only for actual Coin<T> object types.
+  static bool isCoinObjectType(String objectType) {
+    final normalized = objectType.replaceAll(' ', '');
+    return normalized.contains('::coin::Coin<');
+  }
+
   /// Encode string to BCS format
   static List<int> encodeString(String value) {
     final bcs = Bcs.string();
@@ -186,6 +192,10 @@ class BcsUtils {
 
   /// Extract coin type from object type string
   static String? extractCoinTypeFromObjectType(String objectType) {
+    if (!isCoinObjectType(objectType)) {
+      return null;
+    }
+
     final start = objectType.indexOf('<');
     final end = objectType.lastIndexOf('>');
 
@@ -202,7 +212,6 @@ class BcsUtils {
         }
       }
 
-      // Direct format: EscrowDeal<TokenType> or just TokenType
       return inner;
     }
 

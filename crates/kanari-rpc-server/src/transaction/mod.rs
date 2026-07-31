@@ -1712,20 +1712,30 @@ pub async fn handle_build_call_function(
         &build_data.module,
         &build_data.function,
     );
-    let object_inputs = match infer_object_inputs(
-        state,
-        &build_data.sender,
-        &build_data.args,
-        object_ref_arg_indices.as_ref(),
-    ) {
-        Ok(inputs) => inputs,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(transaction_error_with_reason(e.to_string())),
-                id: request.id,
-            };
+    let object_inputs = if let Some(inputs) = build_data.object_inputs.clone() {
+        if let Err(response) = validate_object_inputs_and_gas(request.id, &inputs, None) {
+            return *response;
+        }
+        if let Err(response) = validate_object_inputs_match_state(state, request.id, &inputs) {
+            return *response;
+        }
+        inputs
+    } else {
+        match infer_object_inputs(
+            state,
+            &build_data.sender,
+            &build_data.args,
+            object_ref_arg_indices.as_ref(),
+        ) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".into(),
+                    result: None,
+                    error: Some(transaction_error_with_reason(e.to_string())),
+                    id: request.id,
+                };
+            }
         }
     };
     let exclude_ids = object_inputs

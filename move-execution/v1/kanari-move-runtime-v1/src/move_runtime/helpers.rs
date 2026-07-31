@@ -5,8 +5,9 @@
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
-use kanari_types::transaction::ObjectInput;
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 
+use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -76,7 +77,24 @@ impl super::MoveRuntime {
                 None => Ok(None),
             };
         }
-        Ok(self.object_storage.get_object(object_id)?)
+        if let Some(object) = self.object_storage.get_object(object_id)? {
+            return Ok(Some(object));
+        }
+
+        let object_addr = match move_core_types::account_address::AccountAddress::from_hex_literal(
+            object_id,
+        ) {
+            Ok(addr) => addr,
+            Err(_) => return Ok(None),
+        };
+        let Some(object) = self.state.try_get_stored_object(&object_addr)? else {
+            return Ok(None);
+        };
+
+        // Hydrate the runtime object cache so subsequent object-native borrows
+        // in this process do not miss objects that already exist in state.
+        let _ = self.object_storage.store_object(object.clone());
+        Ok(Some(object))
     }
 
     /// Preload potential object arguments into LoadedObjectsExt before execution
@@ -87,6 +105,7 @@ impl super::MoveRuntime {
             crate::storage::resolver::KanariMoveResolver,
         >,
         object_inputs: &[ObjectInput],
+        sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
@@ -98,10 +117,18 @@ impl super::MoveRuntime {
             if let Some(stored_obj) =
                 self.get_object_for_execution(&input.object_ref.object_id, overlay)?
             {
+                let can_mutably_borrow = Self::can_mutably_borrow_preloaded_object(
+                    input.mutable,
+                    &stored_obj.type_name,
+                    &stored_obj.owner_kind,
+                    stored_obj.owner,
+                    sender,
+                );
                 loaded_ext.insert(
                     input.object_ref.object_id.clone(),
                     stored_obj.type_name,
                     stored_obj.data,
+                    can_mutably_borrow,
                 );
                 log::debug!(
                     "[RUNTIME] Preloaded explicit object input {} into LoadedObjectsExt",
@@ -123,6 +150,7 @@ impl super::MoveRuntime {
             crate::storage::resolver::KanariMoveResolver,
         >,
         args: &[Vec<u8>],
+        sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
@@ -140,7 +168,19 @@ impl super::MoveRuntime {
                 continue;
             };
 
-            loaded_ext.insert(object_id.clone(), stored_obj.type_name, stored_obj.data);
+            let can_mutably_borrow = Self::can_mutably_borrow_preloaded_object(
+                true,
+                &stored_obj.type_name,
+                &stored_obj.owner_kind,
+                stored_obj.owner,
+                sender,
+            );
+            loaded_ext.insert(
+                object_id.clone(),
+                stored_obj.type_name,
+                stored_obj.data,
+                can_mutably_borrow,
+            );
             log::debug!(
                 "[RUNTIME] Preloaded address-based object argument {} into LoadedObjectsExt",
                 object_id
@@ -148,6 +188,35 @@ impl super::MoveRuntime {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn can_mutably_borrow_preloaded_object(
+        requested_mutable: bool,
+        object_type: &str,
+        owner_kind: &ObjectOwnerKind,
+        owner: AccountAddress,
+        sender: Option<AccountAddress>,
+    ) -> bool {
+        if !requested_mutable || matches!(owner_kind, ObjectOwnerKind::Immutable) {
+            return false;
+        }
+        if matches!(owner_kind, ObjectOwnerKind::Shared) {
+            return true;
+        }
+        if sender == Some(owner) {
+            return true;
+        }
+
+        // Kanari's current DeFi modules use ID-based access for app objects
+        // such as escrow deals/proofs, where authorization is enforced inside
+        // the Move function (seller/buyer checks). Do not extend that behavior
+        // to Coin<T>; otherwise knowing another user's coin object id would be
+        // enough to mutate spendable funds.
+        !Self::is_coin_object_type(object_type)
+    }
+
+    pub(crate) fn is_coin_object_type(object_type: &str) -> bool {
+        object_type.contains("::coin::Coin<") || object_type.contains("::coin::coin::Coin<")
     }
 
     /// Check if struct tag represents a balance/coin resource

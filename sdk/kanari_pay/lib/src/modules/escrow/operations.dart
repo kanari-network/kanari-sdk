@@ -265,6 +265,7 @@ class EscrowOperations {
       args: args,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
+      executeImmediate: true,
     );
   }
 }

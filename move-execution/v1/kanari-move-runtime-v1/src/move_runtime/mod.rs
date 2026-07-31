@@ -1452,7 +1452,12 @@ impl MoveRuntime {
         .into_bytes()]);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
-        self.preload_objects_for_execution(&mut session, &object_inputs, state_overlay.as_deref())?;
+        self.preload_objects_for_execution(
+            &mut session,
+            &object_inputs,
+            sender,
+            state_overlay.as_deref(),
+        )?;
 
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
@@ -1478,7 +1483,12 @@ impl MoveRuntime {
                 .filter(|arg| arg.len() == AccountAddress::LENGTH)
                 .map(|arg| format!("object:0x{}", hex::encode(arg)).into_bytes()),
         );
-        self.preload_object_ids_from_args(&mut session, &final_args, state_overlay.as_deref())?;
+        self.preload_object_ids_from_args(
+            &mut session,
+            &final_args,
+            sender,
+            state_overlay.as_deref(),
+        )?;
         let tx_context_bytes =
             self.build_tx_context_bytes(sender, timestamp, tx_hash.as_deref())?;
 
@@ -1532,7 +1542,14 @@ impl MoveRuntime {
 
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
-                    break;
+                    let needs_declared_object_input = !bypass_entry_check
+                        && Self::object_param_mutability(param_type, is_key_struct_param).is_some()
+                        && !Self::is_tx_context_param(param_type, type_tag_for_param);
+                    if needs_declared_object_input {
+                        final_args.resize_with(i + 1, Vec::new);
+                    } else {
+                        break;
+                    }
                 }
 
                 let mut bound_from_explicit_input = false;
@@ -1906,7 +1923,7 @@ impl MoveRuntime {
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload only object refs explicitly declared by the request.
-        self.preload_objects_for_execution(&mut session, object_inputs, None)
+        self.preload_objects_for_execution(&mut session, object_inputs, None, None)
             .require("Failed to preload objects")?;
 
         // Parse and load type arguments before invocation.
