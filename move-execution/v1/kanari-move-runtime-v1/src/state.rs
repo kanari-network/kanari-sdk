@@ -44,8 +44,7 @@ const ACCESS_VERSION_PREFIX: &[u8] = b"runtime:state_access_version:";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
-#[cfg(test)]
-static TEST_GENESIS_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static GENESIS_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 type RawStateKey = Vec<u8>;
 type RawStateValue = Vec<u8>;
@@ -520,8 +519,7 @@ impl StateManager {
 
         // Genesis identity is explicit. Supply is protocol state and may legitimately be zero.
         if !genesis_already_initialized {
-            #[cfg(test)]
-            let _test_genesis_guard = TEST_GENESIS_INIT_LOCK
+            let _genesis_guard = GENESIS_INIT_LOCK
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
 
