@@ -69,12 +69,22 @@ pub struct PersistentStore {
     // In-memory store for when RocksDB is not used (e.g. tests, Miri)
     memory_store: Option<MemoryStore>,
     transaction_lock: Mutex<()>,
+    // Serializes first-time genesis check, initialization, and commit for this
+    // store without blocking unrelated databases in the same process.
+    genesis_init_lock: Mutex<()>,
 }
 
 impl PersistentStore {
     /// Serialize read-modify-write transactions that maintain secondary indexes.
     pub(crate) fn transaction_guard(&self) -> MutexGuard<'_, ()> {
         self.transaction_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Serialize first-time genesis initialization for this store only.
+    pub(crate) fn genesis_init_guard(&self) -> MutexGuard<'_, ()> {
+        self.genesis_init_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -92,6 +102,7 @@ impl PersistentStore {
             db: Some(db),
             memory_store: None,
             transaction_lock: Mutex::new(()),
+            genesis_init_lock: Mutex::new(()),
         })
     }
 
@@ -102,6 +113,7 @@ impl PersistentStore {
             db: None,
             memory_store: Some(Arc::new(RwLock::new(HashMap::new()))),
             transaction_lock: Mutex::new(()),
+            genesis_init_lock: Mutex::new(()),
         })
     }
 

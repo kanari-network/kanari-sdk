@@ -44,8 +44,6 @@ const ACCESS_VERSION_PREFIX: &[u8] = b"runtime:state_access_version:";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
-static GENESIS_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 type RawStateKey = Vec<u8>;
 type RawStateValue = Vec<u8>;
 type RawStateUpdate = (RawStateKey, RawStateValue);
@@ -522,9 +520,8 @@ impl StateManager {
         // second initializer can otherwise observe an empty store before waiting and
         // run genesis after the first one has committed.
         if !genesis_already_initialized {
-            let _genesis_guard = GENESIS_INIT_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let genesis_store = state.store.clone();
+            let _genesis_guard = genesis_store.genesis_init_guard();
 
             let initialized_while_waiting = state
                 .store
