@@ -35,15 +35,24 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
 #[test]
 fn concurrent_rocksdb_state_initialization_runs_genesis_once() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
-    let Ok(store) = PersistentStore::open_with_path(Some(temp_dir.path().join("state"))) else {
+    let db_path = temp_dir.path().join("state");
+    let Ok(first_store) = PersistentStore::open_with_path(Some(db_path.clone())) else {
         return Ok(());
     };
-    let store = Arc::new(store);
+    let second_store = PersistentStore::open_with_path(Some(db_path))?;
+    let first_store = Arc::new(first_store);
+    let second_store = Arc::new(second_store);
+    assert!(
+        Arc::ptr_eq(
+            &first_store.get_db().expect("RocksDB store must expose DB"),
+            &second_store.get_db().expect("RocksDB store must expose DB"),
+        ),
+        "test requires two PersistentStore wrappers for the same RocksDB handle"
+    );
     let barrier = Arc::new(Barrier::new(2));
     let mut initializers = Vec::new();
 
-    for _ in 0..2 {
-        let store = store.clone();
+    for store in [first_store.clone(), second_store] {
         let barrier = barrier.clone();
         initializers.push(std::thread::spawn(move || -> Result<u64> {
             barrier.wait();
@@ -58,12 +67,12 @@ fn concurrent_rocksdb_state_initialization_runs_genesis_once() -> Result<()> {
     assert!(supplies.iter().all(|supply| *supply > 0));
     assert_eq!(supplies[0], supplies[1]);
     assert_eq!(
-        store.load::<bool>(GENESIS_INITIALIZED_KEY)?,
+        first_store.load::<bool>(GENESIS_INITIALIZED_KEY)?,
         Some(true),
         "concurrent initialization must leave one durable genesis marker"
     );
 
-    let reopened = StateManager::try_new(store)?;
+    let reopened = StateManager::try_new(first_store)?;
     assert_eq!(reopened.total_supply, supplies[0]);
     Ok(())
 }
