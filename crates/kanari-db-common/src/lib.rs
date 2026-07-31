@@ -19,7 +19,7 @@ fn env_u64(name: &str, default: u64) -> u64 {
 }
 
 fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
-    debug_assert!(min <= max);
+    let (min, max) = if min <= max { (min, max) } else { (max, min) };
     value.clamp(min, max)
 }
 
@@ -28,7 +28,7 @@ fn env_i32_clamped(name: &str, default: i32, min: i32, max: i32) -> i32 {
         .ok()
         .and_then(|value| value.parse().ok())
         .map(|value| clamp_i32(value, min, max))
-        .unwrap_or(default)
+        .unwrap_or_else(|| clamp_i32(default, min, max))
 }
 
 fn bytes_from_mb(value: u64) -> usize {
@@ -176,13 +176,32 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bytes_from_mb_u64, clamp_i32};
+    use super::{bytes_from_mb_u64, clamp_i32, env_i32_clamped};
 
     #[test]
     fn clamp_i32_keeps_rocksdb_tuning_in_safe_range() {
         assert_eq!(clamp_i32(-10, 1, 64), 1);
         assert_eq!(clamp_i32(8, 1, 64), 8);
         assert_eq!(clamp_i32(10_000, 1, 64), 64);
+        assert_eq!(clamp_i32(10, 64, 1), 10);
+        assert_eq!(clamp_i32(100, 64, 1), 64);
+    }
+
+    #[test]
+    fn env_i32_clamped_clamps_missing_or_invalid_defaults() {
+        let missing_name = "KANARI_TEST_DB_CLAMP_MISSING_DEFAULT";
+        let invalid_name = "KANARI_TEST_DB_CLAMP_INVALID_DEFAULT";
+        unsafe {
+            std::env::remove_var(missing_name);
+            std::env::set_var(invalid_name, "not-an-int");
+        }
+
+        assert_eq!(env_i32_clamped(missing_name, 64, 1, 8), 8);
+        assert_eq!(env_i32_clamped(invalid_name, 0, 1, 8), 1);
+
+        unsafe {
+            std::env::remove_var(invalid_name);
+        }
     }
 
     #[test]

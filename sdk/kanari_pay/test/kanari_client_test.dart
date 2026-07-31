@@ -26,6 +26,22 @@ void main() {
       );
     });
 
+    test('coin type extraction canonicalizes whitespace', () {
+      expect(
+        BcsUtils.extractCoinTypeFromObjectType(
+          '0x2::coin::Coin< 0x2::kanari::KANARI >',
+        ),
+        '0x2::kanari::KANARI',
+      );
+
+      expect(
+        BcsUtils.extractCoinTypeFromObjectType(
+          '0x2::coin::Coin< 0x2::coin::Coin< 0x2::kanari::KANARI > >',
+        ),
+        '0x2::kanari::KANARI',
+      );
+    });
+
     test('getHealth returns health status', () async {
       final mockClient = MockClient((request) async {
         return http.Response(

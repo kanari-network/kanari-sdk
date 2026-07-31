@@ -25,6 +25,7 @@ use move_binary_format::{
     CompiledModule,
     file_format::{SignatureToken, StructHandleIndex},
 };
+use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::TypeTag;
 use rand::{TryRng, rngs::SysRng};
 use std::collections::HashSet;
@@ -1123,6 +1124,21 @@ fn validate_object_ref_completeness(
     Ok(())
 }
 
+fn canonical_rpc_object_id(
+    id: u64,
+    field: &str,
+    object_id: &str,
+) -> Result<String, Box<RpcResponse>> {
+    AccountAddress::from_hex_literal(object_id)
+        .map(|address| address.to_hex_literal())
+        .map_err(|err| {
+            Box::new(invalid_params_response(
+                id,
+                format!("{field} must be a valid object id: {err}"),
+            ))
+        })
+}
+
 fn validate_object_inputs_and_gas(
     id: u64,
     object_inputs: &[kanari_types::transaction::ObjectInput],
@@ -1135,7 +1151,12 @@ fn validate_object_inputs_and_gas(
             &format!("object_inputs[{index}].object_ref"),
             &input.object_ref,
         )?;
-        if input.mutable && !mutable_object_ids.insert(input.object_ref.object_id.clone()) {
+        let canonical_object_id = canonical_rpc_object_id(
+            id,
+            &format!("object_inputs[{index}].object_ref.object_id"),
+            &input.object_ref.object_id,
+        )?;
+        if input.mutable && !mutable_object_ids.insert(canonical_object_id) {
             return Err(Box::new(invalid_params_response(
                 id,
                 format!(
@@ -1154,7 +1175,12 @@ fn validate_object_inputs_and_gas(
                 &format!("gas_payment.payment_objects[{index}]"),
                 payment,
             )?;
-            if !gas_object_ids.insert(payment.object_id.clone()) {
+            let canonical_payment_id = canonical_rpc_object_id(
+                id,
+                &format!("gas_payment.payment_objects[{index}].object_id"),
+                &payment.object_id,
+            )?;
+            if !gas_object_ids.insert(canonical_payment_id.clone()) {
                 return Err(Box::new(invalid_params_response(
                     id,
                     format!(
@@ -1163,7 +1189,7 @@ fn validate_object_inputs_and_gas(
                     ),
                 )));
             }
-            if mutable_object_ids.contains(&payment.object_id) {
+            if mutable_object_ids.contains(&canonical_payment_id) {
                 return Err(Box::new(invalid_params_response(
                     id,
                     format!(

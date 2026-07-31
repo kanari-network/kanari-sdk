@@ -192,15 +192,16 @@ class BcsUtils {
 
   /// Extract coin type from object type string
   static String? extractCoinTypeFromObjectType(String objectType) {
-    if (!isCoinObjectType(objectType)) {
+    final normalized = objectType.replaceAll(' ', '');
+    if (!isCoinObjectType(normalized)) {
       return null;
     }
 
-    final start = objectType.indexOf('<');
-    final end = objectType.lastIndexOf('>');
+    final start = normalized.indexOf('<');
+    final end = normalized.lastIndexOf('>');
 
     if (start != -1 && end != -1 && end > start) {
-      final inner = objectType.substring(start + 1, end);
+      final inner = normalized.substring(start + 1, end);
 
       // Check if inner type contains another nested generic (Coin<TokenType>)
       if (inner.contains('<')) {
@@ -208,11 +209,11 @@ class BcsUtils {
         final nestedStart = inner.indexOf('<');
         final nestedEnd = inner.lastIndexOf('>');
         if (nestedStart != -1 && nestedEnd != -1) {
-          return inner.substring(nestedStart + 1, nestedEnd);
+          return inner.substring(nestedStart + 1, nestedEnd).trim();
         }
       }
 
-      return inner;
+      return inner.trim();
     }
 
     return null;

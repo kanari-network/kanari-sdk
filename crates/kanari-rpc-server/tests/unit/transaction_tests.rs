@@ -221,6 +221,43 @@ fn duplicate_mutable_object_inputs_are_rejected_at_rpc_boundary() {
 }
 
 #[test]
+fn equivalent_hex_mutable_object_inputs_are_rejected_at_rpc_boundary() {
+    let owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+        "0xa".to_string(),
+    ));
+    let short = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner: owner.clone(),
+        mutable: true,
+    };
+    let padded = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner,
+        mutable: true,
+    };
+
+    let err = validate_object_inputs_and_gas(48, &[short, padded], None)
+        .expect_err("equivalent object ids must fail duplicate check");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("Duplicate mutable object input")
+    );
+}
+
+#[test]
 fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
     let input = kanari_types::transaction::ObjectInput {
         object_ref: kanari_types::transaction::ObjectRef::new(
@@ -258,6 +295,43 @@ fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
 }
 
 #[test]
+fn equivalent_hex_gas_overlap_is_rejected_at_rpc_boundary() {
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+    let gas_payment = kanari_types::transaction::GasPayment {
+        payment_objects: vec![kanari_types::transaction::ObjectRef::new(
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            Some(1),
+            Some("digest".to_string()),
+        )],
+        owner: "0xa".to_string(),
+        budget: 1,
+        price: 1,
+    };
+
+    let err = validate_object_inputs_and_gas(49, &[input], Some(&gas_payment))
+        .expect_err("equivalent gas/mutable input ids must fail overlap check");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("cannot overlap with a mutable object input")
+    );
+}
+
+#[test]
 fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
     let gas_ref =
         kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("digest".to_string()));
@@ -278,6 +352,33 @@ fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
             .expect("rpc error")
             .message
             .contains("Duplicate gas payment object")
+    );
+}
+
+#[test]
+fn invalid_object_input_id_is_rejected_at_rpc_boundary() {
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "not-an-object-id",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+
+    let err = validate_object_inputs_and_gas(50, &[input], None)
+        .expect_err("invalid object id must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("must be a valid object id")
     );
 }
 
