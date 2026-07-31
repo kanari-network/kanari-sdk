@@ -589,6 +589,7 @@ impl Transaction {
             module,
             function,
             args,
+            object_inputs,
             ..
         } = self
         else {
@@ -601,6 +602,20 @@ impl Transaction {
         }
 
         match function.as_str() {
+            function_name
+                if function_name == GasModule::function_names().transfer && args.len() >= 3 =>
+            {
+                let coin_object_id = object_inputs.first()?.object_ref.object_id.clone();
+                let amount = bcs::from_bytes::<u64>(args.get(1)?).ok()?;
+                let recipient = AccountAddress::from_bytes(args.get(2)?.as_slice())
+                    .ok()?
+                    .to_hex_literal();
+                Some(NativeCall::Transfer {
+                    coin_object_id,
+                    recipient,
+                    amount,
+                })
+            }
             function_name
                 if function_name == GasModule::function_names().burn && !args.is_empty() =>
             {
@@ -797,7 +812,16 @@ mod tests {
             }
         }
 
-        assert_eq!(tx.native_call(), None);
+        assert_eq!(
+            tx.native_call(),
+            Some(NativeCall::Transfer {
+                coin_object_id: "0xaaaa".to_string(),
+                recipient: AccountAddress::from_hex_literal("0x2")
+                    .unwrap()
+                    .to_hex_literal(),
+                amount: 42,
+            })
+        );
         assert_eq!(tx.tx_type_label(), "transfer");
     }
 
@@ -832,7 +856,16 @@ mod tests {
             }
         }
 
-        assert_eq!(tx.native_call(), None);
+        assert_eq!(
+            tx.native_call(),
+            Some(NativeCall::Transfer {
+                coin_object_id: "0xaaaa".to_string(),
+                recipient: AccountAddress::from_hex_literal("0x2")
+                    .unwrap()
+                    .to_hex_literal(),
+                amount: 42,
+            })
+        );
     }
 
     #[test]
