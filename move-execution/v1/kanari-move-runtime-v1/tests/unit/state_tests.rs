@@ -2,6 +2,7 @@ use super::*;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use std::collections::BTreeMap;
+use std::sync::{Arc, Barrier};
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
     ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
@@ -28,6 +29,42 @@ fn new_state_persists_runtime_and_wallet_index_versions() -> Result<()> {
         state.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?,
         Some(WALLET_SUPPLY_INDEX_VERSION)
     );
+    Ok(())
+}
+
+#[test]
+fn concurrent_rocksdb_state_initialization_runs_genesis_once() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let Ok(store) = PersistentStore::open_with_path(Some(temp_dir.path().join("state"))) else {
+        return Ok(());
+    };
+    let store = Arc::new(store);
+    let barrier = Arc::new(Barrier::new(2));
+    let mut initializers = Vec::new();
+
+    for _ in 0..2 {
+        let store = store.clone();
+        let barrier = barrier.clone();
+        initializers.push(std::thread::spawn(move || -> Result<u64> {
+            barrier.wait();
+            Ok(StateManager::try_new(store)?.total_supply)
+        }));
+    }
+
+    let supplies = initializers
+        .into_iter()
+        .map(|initializer| initializer.join().expect("initializer thread panicked"))
+        .collect::<Result<Vec<_>>>()?;
+    assert!(supplies.iter().all(|supply| *supply > 0));
+    assert_eq!(supplies[0], supplies[1]);
+    assert_eq!(
+        store.load::<bool>(GENESIS_INITIALIZED_KEY)?,
+        Some(true),
+        "concurrent initialization must leave one durable genesis marker"
+    );
+
+    let reopened = StateManager::try_new(store)?;
+    assert_eq!(reopened.total_supply, supplies[0]);
     Ok(())
 }
 

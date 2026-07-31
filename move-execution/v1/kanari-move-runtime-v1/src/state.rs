@@ -518,21 +518,44 @@ impl StateManager {
         }
 
         // Genesis identity is explicit. Supply is protocol state and may legitimately be zero.
+        // The check, initialization, and commit must remain under the same lock: a
+        // second initializer can otherwise observe an empty store before waiting and
+        // run genesis after the first one has committed.
         if !genesis_already_initialized {
             let _genesis_guard = GENESIS_INIT_LOCK
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-            state
-                .save_internal(GENESIS_INITIALIZED_KEY, &true)
-                .context("Failed to stage genesis initialization marker")?;
-            crate::genesis::init_genesis(&mut state).context("Genesis initialization failed")?;
-            // Flush genesis state to DB immediately
-            state.commit().context("Failed to commit genesis state")?;
-            ensure!(
-                state.total_supply > 0,
-                "Genesis initialization completed but total_supply is still 0"
-            );
+            let initialized_while_waiting = state
+                .store
+                .load::<bool>(GENESIS_INITIALIZED_KEY)
+                .context("Failed to re-check genesis initialization marker")?
+                .unwrap_or(false);
+            if initialized_while_waiting {
+                state.total_supply = state
+                    .store
+                    .load::<u64>(b"total_supply")
+                    .context("Failed to reload total_supply after genesis initialization")?
+                    .unwrap_or(0);
+                state.global_token_supplies = state
+                    .store
+                    .load::<BTreeMap<String, u64>>(b"global_token_supplies")
+                    .context("Failed to reload global token supplies after genesis initialization")?
+                    .unwrap_or_default();
+            } else {
+                state
+                    .save_internal(GENESIS_INITIALIZED_KEY, &true)
+                    .context("Failed to stage genesis initialization marker")?;
+                crate::genesis::init_genesis(&mut state)
+                    .context("Genesis initialization failed")?;
+                // Flush genesis state to DB immediately while still holding the
+                // initialization lock, so subsequent constructors see a complete DB.
+                state.commit().context("Failed to commit genesis state")?;
+                ensure!(
+                    state.total_supply > 0,
+                    "Genesis initialization completed but total_supply is still 0"
+                );
+            }
         }
 
         state

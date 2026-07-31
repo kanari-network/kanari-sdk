@@ -57,7 +57,7 @@ param(
     [int]$CrashDuringLoadFirstDelaySec = 10,
 
     [ValidateRange(1, 3600)]
-    [int]$CrashDuringLoadRestartDelaySec = 0,
+    [int]$CrashDuringLoadRestartDelaySec = 1,
 
     [ValidateRange(0, 20)]
     [int]$RecoveryAuditRounds = 0,

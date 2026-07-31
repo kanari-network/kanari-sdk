@@ -465,6 +465,39 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
     #[test]
+    fn native_transfer_fastpath_requires_matching_mutable_abi_coin_input(
+        abi_coin in 1u64..u64::MAX,
+        input_coin in 1u64..u64::MAX,
+        is_mutable in any::<bool>(),
+    ) {
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let abi_coin_id = format!("0x{abi_coin:064x}");
+        let input_coin_id = format!("0x{input_coin:064x}");
+        let mut tx = Transaction::new_transfer_with_object_ref(
+            sender.tagged_address(),
+            native_coin_object_ref(&input_coin_id, 1_000_000),
+            AccountAddress::TWO.to_hex_literal(),
+            1,
+            1,
+        );
+        let Transaction::ExecuteFunction {
+            args,
+            object_inputs,
+            ..
+        } = &mut tx else {
+            unreachable!("transfer helper must construct ExecuteFunction");
+        };
+        args[0] = AccountAddress::from_hex_literal(&abi_coin_id).unwrap().to_vec();
+        object_inputs[0].mutable = is_mutable;
+
+        prop_assert_eq!(
+            tx.native_call().is_some(),
+            abi_coin == input_coin && is_mutable,
+            "native fastpath must only use the ABI coin when it is mutable input"
+        );
+    }
+
+    #[test]
     fn native_transfer_and_burn_accounting_property(
         transfer_balance in 2u64..1_000_000u64,
         transfer_amount in 1u64..500_000u64,
