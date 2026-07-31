@@ -495,7 +495,7 @@ fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<(
 }
 
 #[test]
-fn entry_can_mutably_borrow_non_coin_defi_object_from_other_owner() -> Result<()> {
+fn raw_address_arg_cannot_mutably_borrow_non_coin_object_from_other_owner() -> Result<()> {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
@@ -521,17 +521,79 @@ fn entry_can_mutably_borrow_non_coin_defi_object_from_other_owner() -> Result<()
         version: 1,
     })?;
 
+    let err = runtime
+        .execute_entry_function_with_object_context_and_persistence(
+            &module_id,
+            "touch_marker",
+            vec![],
+            vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
+                marker_id,
+            )?)?],
+            EntryFunctionObjectContext {
+                object_inputs: vec![],
+                sender: Some(sender),
+                gas_info: Some((100_000, 1)),
+                timestamp: Some(1_785_475_231_485),
+                tx_hash: Some(vec![5; 32]),
+                persist_runtime_state: false,
+                state_overlay: None,
+            },
+        )
+        .expect_err("raw address args must not mutably borrow another owner's object");
+
+    let message = format!("{err:?}");
+    assert!(
+        message.contains("9005") || message.contains("E_OBJECT_NOT_MUTABLY_BORROWABLE"),
+        "expected explicit object input requirement failure, got: {message}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owner() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let package_dir = create_escrow_like_test_package()?;
+    let (module_id, module_bytes) = compile_test_module(&package_dir)?;
+
+    runtime
+        .publish_module(module_bytes, *module_id.address(), None, None)
+        .context("publish escrow-like explicit cross-owner object test module")?;
+
+    let sender = *module_id.address();
+    let other_owner = AccountAddress::from_hex_literal(
+        "0x8e8bbedac8598c9cb45e92f48c61c9671aa474c199e5d113a5e76cd9e154aa74",
+    )?;
+    let marker_id = "0x45fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a";
+    runtime.object_storage.store_object(StoredObject {
+        id: marker_id.to_string(),
+        owner: other_owner,
+        owner_kind: ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal()),
+        type_name: format!(
+            "{}::escrow_like_object_input::Marker",
+            module_id.address().to_hex_literal()
+        ),
+        data: AccountAddress::from_hex_literal(marker_id)?.to_vec(),
+        version: 1,
+    })?;
+
     runtime.execute_entry_function_with_object_context_and_persistence(
         &module_id,
         "touch_marker",
         vec![],
-        vec![bcs::to_bytes(&AccountAddress::from_hex_literal(marker_id)?)?],
+        vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
+            marker_id,
+        )?)?],
         EntryFunctionObjectContext {
-            object_inputs: vec![],
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new(marker_id.to_string(), Some(1), None),
+                owner: Some(ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal())),
+                mutable: true,
+            }],
             sender: Some(sender),
             gas_info: Some((100_000, 1)),
             timestamp: Some(1_785_475_231_485),
-            tx_hash: Some(vec![5; 32]),
+            tx_hash: Some(vec![6; 32]),
             persist_runtime_state: false,
             state_overlay: None,
         },

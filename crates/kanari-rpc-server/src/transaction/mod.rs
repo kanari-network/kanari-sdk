@@ -1128,21 +1128,50 @@ fn validate_object_inputs_and_gas(
     object_inputs: &[kanari_types::transaction::ObjectInput],
     gas_payment: Option<&kanari_types::transaction::GasPayment>,
 ) -> Result<(), Box<RpcResponse>> {
+    let mut mutable_object_ids = HashSet::new();
     for (index, input) in object_inputs.iter().enumerate() {
         validate_object_ref_completeness(
             id,
             &format!("object_inputs[{index}].object_ref"),
             &input.object_ref,
         )?;
+        if input.mutable && !mutable_object_ids.insert(input.object_ref.object_id.clone()) {
+            return Err(Box::new(invalid_params_response(
+                id,
+                format!(
+                    "Duplicate mutable object input {} is not allowed",
+                    input.object_ref.object_id
+                ),
+            )));
+        }
     }
 
     if let Some(gas_payment) = gas_payment {
+        let mut gas_object_ids = HashSet::new();
         for (index, payment) in gas_payment.payment_objects.iter().enumerate() {
             validate_object_ref_completeness(
                 id,
                 &format!("gas_payment.payment_objects[{index}]"),
                 payment,
             )?;
+            if !gas_object_ids.insert(payment.object_id.clone()) {
+                return Err(Box::new(invalid_params_response(
+                    id,
+                    format!(
+                        "Duplicate gas payment object {} is not allowed",
+                        payment.object_id
+                    ),
+                )));
+            }
+            if mutable_object_ids.contains(&payment.object_id) {
+                return Err(Box::new(invalid_params_response(
+                    id,
+                    format!(
+                        "Gas payment object {} cannot overlap with a mutable object input",
+                        payment.object_id
+                    ),
+                )));
+            }
         }
     }
 

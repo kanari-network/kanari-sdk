@@ -324,10 +324,7 @@ fn native_borrow_global_mut(
         return Ok(NR::err(context.gas_used(), E_OBJECT_NOT_FOUND));
     };
     if !loaded_object.can_mutably_borrow {
-        return Ok(NR::err(
-            context.gas_used(),
-            E_OBJECT_NOT_MUTABLY_BORROWABLE,
-        ));
+        return Ok(NR::err(context.gas_used(), E_OBJECT_NOT_MUTABLY_BORROWABLE));
     }
     let type_str = loaded_object.type_str;
     let obj_data = loaded_object.data;

@@ -2,7 +2,9 @@ use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
     derive_transaction_state_flags, select_native_coin_consolidation_step,
     select_native_transfer_and_gas_payment, transaction_error_with_reason,
+    validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
+use crate::RpcServerState;
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
@@ -111,6 +113,172 @@ fn structured_transaction_error_attaches_native_transfer_policy() {
         TransactionErrorReason::NativeTransferPolicyNotSatisfied
     );
     assert!(details.native_transfer_policy.is_some());
+}
+
+#[test]
+fn object_input_ref_metadata_must_be_complete() {
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), None),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+
+    let err = validate_object_inputs_and_gas(42, &[input], None)
+        .expect_err("partial object ref metadata must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("must include both version and digest")
+    );
+}
+
+#[test]
+fn gas_payment_ref_metadata_must_be_complete() {
+    let gas_payment = kanari_types::transaction::GasPayment {
+        payment_objects: vec![kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            None,
+            Some("digest".to_string()),
+        )],
+        owner: "0xa".to_string(),
+        budget: 1,
+        price: 1,
+    };
+
+    let err = validate_object_inputs_and_gas(43, &[], Some(&gas_payment))
+        .expect_err("partial gas object ref metadata must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("must include both version and digest")
+    );
+}
+
+#[test]
+fn object_input_must_match_current_state_ref() {
+    let engine = kanari_core::BlockchainEngine::new_in_memory().expect("in-memory engine");
+    let state = RpcServerState::new(std::sync::Arc::new(engine));
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0xdead",
+            Some(1),
+            Some("missing".to_string()),
+        ),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+
+    let err = validate_object_inputs_match_state(&state, 44, &[input])
+        .expect_err("missing object input ref must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("does not match current state ref")
+    );
+}
+
+#[test]
+fn duplicate_mutable_object_inputs_are_rejected_at_rpc_boundary() {
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+
+    let err = validate_object_inputs_and_gas(45, &[input.clone(), input], None)
+        .expect_err("duplicate mutable inputs must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("Duplicate mutable object input")
+    );
+}
+
+#[test]
+fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
+    let input = kanari_types::transaction::ObjectInput {
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            Some(1),
+            Some("digest".to_string()),
+        ),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            "0xa".to_string(),
+        )),
+        mutable: true,
+    };
+    let gas_payment = kanari_types::transaction::GasPayment {
+        payment_objects: vec![kanari_types::transaction::ObjectRef::new(
+            "0x1",
+            Some(1),
+            Some("digest".to_string()),
+        )],
+        owner: "0xa".to_string(),
+        budget: 1,
+        price: 1,
+    };
+
+    let err = validate_object_inputs_and_gas(46, &[input], Some(&gas_payment))
+        .expect_err("gas must not overlap mutable input");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("cannot overlap with a mutable object input")
+    );
+}
+
+#[test]
+fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
+    let gas_ref =
+        kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("digest".to_string()));
+    let gas_payment = kanari_types::transaction::GasPayment {
+        payment_objects: vec![gas_ref.clone(), gas_ref],
+        owner: "0xa".to_string(),
+        budget: 1,
+        price: 1,
+    };
+
+    let err = validate_object_inputs_and_gas(47, &[], Some(&gas_payment))
+        .expect_err("duplicate gas refs must fail");
+
+    assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
+    assert!(
+        err.error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("Duplicate gas payment object")
+    );
 }
 
 #[test]

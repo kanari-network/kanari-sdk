@@ -81,12 +81,11 @@ impl super::MoveRuntime {
             return Ok(Some(object));
         }
 
-        let object_addr = match move_core_types::account_address::AccountAddress::from_hex_literal(
-            object_id,
-        ) {
-            Ok(addr) => addr,
-            Err(_) => return Ok(None),
-        };
+        let object_addr =
+            match move_core_types::account_address::AccountAddress::from_hex_literal(object_id) {
+                Ok(addr) => addr,
+                Err(_) => return Ok(None),
+            };
         let Some(object) = self.state.try_get_stored_object(&object_addr)? else {
             return Ok(None);
         };
@@ -123,6 +122,7 @@ impl super::MoveRuntime {
                     &stored_obj.owner_kind,
                     stored_obj.owner,
                     sender,
+                    true,
                 );
                 loaded_ext.insert(
                     input.object_ref.object_id.clone(),
@@ -140,10 +140,10 @@ impl super::MoveRuntime {
         Ok(())
     }
 
-    /// Preload object IDs passed to ID-based entry functions such as
-    /// `confirm_delivery(address, address, ...)`. These functions intentionally
-    /// do not declare object inputs because the object may belong to another
-    /// participant; authorization is enforced by the Move function itself.
+    /// Preload object IDs passed as raw address arguments. Raw address args are
+    /// allowed to mutably borrow only sender-owned or shared objects; cross-owner
+    /// mutable app-object access must be declared through explicit object_inputs
+    /// so validation and scheduling can observe the dependency.
     pub(crate) fn preload_object_ids_from_args(
         &self,
         session: &mut move_vm_runtime::session::Session<
@@ -164,6 +164,10 @@ impl super::MoveRuntime {
             }
 
             let object_id = format!("0x{}", hex::encode(arg));
+            if loaded_ext.get(&object_id).is_some() {
+                continue;
+            }
+
             let Some(stored_obj) = self.get_object_for_execution(&object_id, overlay)? else {
                 continue;
             };
@@ -174,6 +178,7 @@ impl super::MoveRuntime {
                 &stored_obj.owner_kind,
                 stored_obj.owner,
                 sender,
+                false,
             );
             loaded_ext.insert(
                 object_id.clone(),
@@ -196,6 +201,7 @@ impl super::MoveRuntime {
         owner_kind: &ObjectOwnerKind,
         owner: AccountAddress,
         sender: Option<AccountAddress>,
+        allow_cross_owner_non_coin: bool,
     ) -> bool {
         if !requested_mutable || matches!(owner_kind, ObjectOwnerKind::Immutable) {
             return false;
@@ -207,12 +213,11 @@ impl super::MoveRuntime {
             return true;
         }
 
-        // Kanari's current DeFi modules use ID-based access for app objects
-        // such as escrow deals/proofs, where authorization is enforced inside
-        // the Move function (seller/buyer checks). Do not extend that behavior
-        // to Coin<T>; otherwise knowing another user's coin object id would be
-        // enough to mutate spendable funds.
-        !Self::is_coin_object_type(object_type)
+        // Cross-owner mutable access to app objects must be declared as an
+        // explicit object input so the transaction exposes its dependency to
+        // validation/scheduling. Raw address arguments are intentionally scoped
+        // to the sender's own owned objects.
+        allow_cross_owner_non_coin && !Self::is_coin_object_type(object_type)
     }
 
     pub(crate) fn is_coin_object_type(object_type: &str) -> bool {

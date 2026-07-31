@@ -60,21 +60,36 @@ class EscrowQueries {
         continue;
       }
 
-      final dealDetails = await getDealDetailsByObjectId(
-        wallet: wallet,
-        dealObjectId: objectId,
-        coinType: coinType,
-      );
-      final state = await getDealStateByObjectId(
-        wallet: wallet,
-        dealObjectId: objectId,
-        coinType: coinType,
-      );
-      final dealLabel = await _dealLabelForObject(obj);
-      final proofId = await _matchingProofObjectId(
-        proofObjects,
-        dealLabel,
-      );
+      Map<String, dynamic> dealDetails;
+      int state;
+      String? dealLabel;
+      String? proofId;
+      try {
+        dealDetails = await getDealDetailsByObjectId(
+          wallet: wallet,
+          dealObjectId: objectId,
+          coinType: coinType,
+        );
+        state = await getDealStateByObjectId(
+          wallet: wallet,
+          dealObjectId: objectId,
+          coinType: coinType,
+        );
+        dealLabel = await _dealLabelForObject(obj);
+        proofId = await _matchingProofObjectId(
+          proofObjects,
+          dealLabel,
+        );
+      } catch (error) {
+        if (_isObjectInputNotFoundError(error)) {
+          continue;
+        }
+        rethrow;
+      }
+
+      if (dealLabel == null) {
+        continue;
+      }
 
       deals.add({
         'object_id': objectId,
@@ -239,6 +254,12 @@ class EscrowQueries {
     return _decodeObjectDealLabel(fullObject);
   }
 
+  bool _isObjectInputNotFoundError(Object error) {
+    final text = error.toString().toLowerCase();
+    return (text.contains('object input') && text.contains('was not found')) ||
+        text.contains('object not found');
+  }
+
   String? _decodeObjectDealLabel(ObjectInfo object) {
     final data = object.data;
     var offset = 0;
@@ -315,9 +336,17 @@ class EscrowQueries {
     if (dealId == null || dealId.isEmpty) return null;
 
     for (final proofObject in proofObjects) {
-      final fullProofObject = proofObject.data.isNotEmpty
-          ? proofObject
-          : await rpc.getObject(proofObject.id);
+      ObjectInfo fullProofObject;
+      try {
+        fullProofObject = proofObject.data.isNotEmpty
+            ? proofObject
+            : await rpc.getObject(proofObject.id);
+      } catch (error) {
+        if (_isObjectInputNotFoundError(error)) {
+          continue;
+        }
+        rethrow;
+      }
       final proofDealId = _decodeObjectDealLabel(fullProofObject);
       if (proofDealId == dealId) {
         return proofObject.id;
