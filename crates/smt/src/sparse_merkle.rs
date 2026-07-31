@@ -323,7 +323,7 @@ impl SparseMerkleTree {
         let mut batch = WriteBatch::default();
         for item in self.db.iterator(IteratorMode::Start) {
             let (key, _) = item?;
-            if key.starts_with(b"n:") {
+            if key.starts_with(b"n:") && key.as_ref() != ROOT_NODE_KEY {
                 batch.delete(key);
             }
         }
@@ -1077,6 +1077,7 @@ mod tests {
         let dir = tempdir()?;
         let smt = open_test_db(dir.path());
         smt.insert(&[(b"keep".to_vec(), b"value".to_vec())])?;
+        let root = smt.root_hash()?;
 
         smt.db.put(b"n:legacy-node", [7u8; 32])?;
         smt.db.put(NODE_INDEX_VERSION_KEY, b"1")?;
@@ -1087,11 +1088,8 @@ mod tests {
             .clear();
 
         assert!(smt.proof(b"keep")?.0);
-        assert!(
-            smt.export_snapshot()?
-                .iter()
-                .all(|(key, _)| !key.starts_with(b"n:"))
-        );
+        assert_eq!(smt.db.get(ROOT_NODE_KEY)?.as_deref(), Some(root.as_slice()));
+        assert!(smt.db.get(b"n:legacy-node")?.is_none());
         assert!(smt.db.get(NODE_INDEX_VERSION_KEY)?.is_none());
         Ok(())
     }

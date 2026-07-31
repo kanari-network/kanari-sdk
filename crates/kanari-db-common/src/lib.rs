@@ -18,15 +18,25 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-fn env_i32(name: &str, default: i32) -> i32 {
+fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
+    debug_assert!(min <= max);
+    value.clamp(min, max)
+}
+
+fn env_i32_clamped(name: &str, default: i32, min: i32, max: i32) -> i32 {
     std::env::var(name)
         .ok()
         .and_then(|value| value.parse().ok())
+        .map(|value| clamp_i32(value, min, max))
         .unwrap_or(default)
 }
 
 fn bytes_from_mb(value: u64) -> usize {
-    usize::try_from(value.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
+    usize::try_from(bytes_from_mb_u64(value)).unwrap_or(usize::MAX)
+}
+
+fn bytes_from_mb_u64(value: u64) -> u64 {
+    value.saturating_mul(1024 * 1024)
 }
 
 /// Open one shared RocksDB instance per normalized path. Different paths may be
@@ -105,13 +115,29 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     // from bouncing between foreground writes and background compaction.
     let write_buffer_mb = env_u64("KANARI_DB_WRITE_BUFFER_MB", 256);
     opts.set_write_buffer_size(bytes_from_mb(write_buffer_mb));
-    opts.set_max_write_buffer_number(env_i32("KANARI_DB_MAX_WRITE_BUFFERS", 8));
-    opts.set_min_write_buffer_number_to_merge(env_i32("KANARI_DB_MIN_WRITE_BUFFERS_TO_MERGE", 2));
-    opts.set_level_zero_file_num_compaction_trigger(env_i32("KANARI_DB_L0_COMPACTION_TRIGGER", 8));
-    opts.set_level_zero_slowdown_writes_trigger(env_i32("KANARI_DB_L0_SLOWDOWN_TRIGGER", 32));
-    opts.set_level_zero_stop_writes_trigger(env_i32("KANARI_DB_L0_STOP_TRIGGER", 64));
-    opts.set_target_file_size_base(env_u64("KANARI_DB_TARGET_FILE_MB", 256) * 1024 * 1024);
-    opts.set_max_bytes_for_level_base(env_u64("KANARI_DB_LEVEL_BASE_MB", 1024) * 1024 * 1024);
+    let max_write_buffers = env_i32_clamped("KANARI_DB_MAX_WRITE_BUFFERS", 8, 1, 64);
+    let min_write_buffers_to_merge = env_i32_clamped(
+        "KANARI_DB_MIN_WRITE_BUFFERS_TO_MERGE",
+        2,
+        1,
+        max_write_buffers,
+    );
+    let l0_compaction_trigger = env_i32_clamped("KANARI_DB_L0_COMPACTION_TRIGGER", 8, 1, 1024);
+    let l0_slowdown_trigger = env_i32_clamped(
+        "KANARI_DB_L0_SLOWDOWN_TRIGGER",
+        32,
+        l0_compaction_trigger,
+        4096,
+    );
+    let l0_stop_trigger =
+        env_i32_clamped("KANARI_DB_L0_STOP_TRIGGER", 64, l0_slowdown_trigger, 8192);
+    opts.set_max_write_buffer_number(max_write_buffers);
+    opts.set_min_write_buffer_number_to_merge(min_write_buffers_to_merge);
+    opts.set_level_zero_file_num_compaction_trigger(l0_compaction_trigger);
+    opts.set_level_zero_slowdown_writes_trigger(l0_slowdown_trigger);
+    opts.set_level_zero_stop_writes_trigger(l0_stop_trigger);
+    opts.set_target_file_size_base(bytes_from_mb_u64(env_u64("KANARI_DB_TARGET_FILE_MB", 256)));
+    opts.set_max_bytes_for_level_base(bytes_from_mb_u64(env_u64("KANARI_DB_LEVEL_BASE_MB", 1024)));
 
     // 4. Compression
     // LZ4 is good balance of speed/compression for bottom levels
@@ -146,4 +172,22 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     let arc = Arc::new(db);
     registry.insert(path, Arc::downgrade(&arc));
     Ok(arc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bytes_from_mb_u64, clamp_i32};
+
+    #[test]
+    fn clamp_i32_keeps_rocksdb_tuning_in_safe_range() {
+        assert_eq!(clamp_i32(-10, 1, 64), 1);
+        assert_eq!(clamp_i32(8, 1, 64), 8);
+        assert_eq!(clamp_i32(10_000, 1, 64), 64);
+    }
+
+    #[test]
+    fn bytes_from_mb_u64_saturates_on_overflow() {
+        assert_eq!(bytes_from_mb_u64(256), 256 * 1024 * 1024);
+        assert_eq!(bytes_from_mb_u64(u64::MAX), u64::MAX);
+    }
 }
