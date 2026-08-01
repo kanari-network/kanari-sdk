@@ -279,6 +279,7 @@ pub const KANARI_KEY_PREFIX: &str = "kanari";
 /// Additional known prefixes
 pub const KANAPQC_PREFIX: &str = "kanapqc";
 pub const KANAHYBRID_PREFIX: &str = "kanahybrid";
+const MAX_FORMATTED_PRIVATE_KEY_LEN: usize = 128 * 1024;
 
 // ============================================================================
 // SECURITY HELPER FUNCTIONS (Timing Attack Prevention & Memory Safety)
@@ -378,6 +379,10 @@ pub fn keypair_from_private_key(
     private_key: &str,
     curve_type: CurveType,
 ) -> Result<KeyPair, KeyError> {
+    if private_key.len() > MAX_FORMATTED_PRIVATE_KEY_LEN {
+        return Err(KeyError::InvalidPrivateKey);
+    }
+
     // Remove kanari prefix if present
     let raw_private_key = extract_raw_key(private_key);
 

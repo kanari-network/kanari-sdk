@@ -4,6 +4,18 @@ use kanari_crypto::keys::{
 };
 use proptest::prelude::*;
 
+const IMPORT_POLICY_CASES: u32 = 512;
+
+fn import_policy_config() -> proptest::test_runner::Config {
+    proptest::test_runner::Config {
+        cases: std::env::var("KANARI_CRYPTO_PROPTEST_CASES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(IMPORT_POLICY_CASES),
+        ..proptest::test_runner::Config::default()
+    }
+}
+
 #[test]
 fn import_rejects_pqc_secret_without_public_key_for_all_pqc_curves() {
     for curve in [
@@ -40,6 +52,8 @@ fn import_preserves_generated_pqc_and_hybrid_keypairs() {
 }
 
 proptest! {
+    #![proptest_config(import_policy_config())]
+
     #[test]
     fn malformed_classical_private_keys_never_panic(input in ".{0,256}") {
         for curve in [CurveType::K256, CurveType::P256, CurveType::Ed25519] {
@@ -67,6 +81,27 @@ proptest! {
 
         if result.is_err() {
             prop_assert!(matches!(result, Err(KeyError::InvalidPrivateKey)));
+        }
+    }
+
+    #[test]
+    fn prefixed_imports_with_random_separator_patterns_fail_closed(
+        prefix in prop::sample::select(vec![KANAPQC_PREFIX, KANAHYBRID_PREFIX]),
+        parts in prop::collection::vec(".{0,96}", 0..5),
+    ) {
+        let key = format!("{}{}", prefix, parts.join(":"));
+        for curve in [
+            CurveType::Dilithium2,
+            CurveType::Dilithium3,
+            CurveType::Dilithium5,
+            CurveType::SphincsPlusSha256Robust,
+            CurveType::Ed25519Dilithium3,
+            CurveType::K256Dilithium3,
+        ] {
+            let result = keypair_from_private_key(&key, curve);
+            if result.is_err() {
+                prop_assert!(matches!(result, Err(KeyError::InvalidPrivateKey)));
+            }
         }
     }
 }

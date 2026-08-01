@@ -4,6 +4,18 @@ use kanari_crypto::{
 };
 use proptest::prelude::*;
 
+const SIGNATURE_POLICY_CASES: u32 = 512;
+
+fn signature_policy_config() -> proptest::test_runner::Config {
+    proptest::test_runner::Config {
+        cases: std::env::var("KANARI_CRYPTO_PROPTEST_CASES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(SIGNATURE_POLICY_CASES),
+        ..proptest::test_runner::Config::default()
+    }
+}
+
 #[test]
 fn untagged_verification_fails_closed_for_all_signature_curves() {
     for curve in [
@@ -27,6 +39,8 @@ fn untagged_verification_fails_closed_for_all_signature_curves() {
 }
 
 proptest! {
+    #![proptest_config(signature_policy_config())]
+
     #[test]
     fn malformed_tagged_addresses_do_not_verify(tag in ".{0,32}", addr in ".{0,256}", sig in prop::collection::vec(any::<u8>(), 0..512)) {
         let tagged = format!("{}:{}", tag, addr);
