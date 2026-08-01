@@ -2361,6 +2361,7 @@ mod binding_tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1024))]
         #[test]
         fn raw_address_mutability_policy_never_allows_cross_owner_owned_objects(
             requested_mutable in any::<bool>(),

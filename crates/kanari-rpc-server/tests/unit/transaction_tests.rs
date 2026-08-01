@@ -9,6 +9,7 @@ use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
+use proptest::prelude::*;
 use std::collections::HashSet;
 
 #[test]
@@ -380,6 +381,58 @@ fn invalid_object_input_id_is_rejected_at_rpc_boundary() {
             .message
             .contains("must be a valid object id")
     );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Hex encodings of the same object must remain the same conflict domain.
+    /// This prevents a client from bypassing mutable-input/gas overlap checks by
+    /// changing only leading zeroes or letter case in an object id.
+    #[test]
+    fn canonical_object_id_overlap_cannot_bypass_rpc_validation(
+        object_id in 1u64..u64::MAX,
+        leading_zeroes in 0usize..48,
+        uppercase in any::<bool>(),
+    ) {
+        let compact = format!("0x{object_id:x}");
+        let digits = if uppercase {
+            format!("{object_id:X}")
+        } else {
+            format!("{object_id:x}")
+        };
+        let padded = format!("0x{}{}", "0".repeat(leading_zeroes), digits);
+        let input = kanari_types::transaction::ObjectInput {
+            object_ref: kanari_types::transaction::ObjectRef::new(
+                compact,
+                Some(1),
+                Some("input-digest".to_string()),
+            ),
+            owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                "0xa".to_string(),
+            )),
+            mutable: true,
+        };
+        let gas_payment = kanari_types::transaction::GasPayment {
+            payment_objects: vec![kanari_types::transaction::ObjectRef::new(
+                padded,
+                Some(1),
+                Some("gas-digest".to_string()),
+            )],
+            owner: "0xa".to_string(),
+            budget: 1,
+            price: 1,
+        };
+
+        let error = validate_object_inputs_and_gas(51, &[input], Some(&gas_payment))
+            .expect_err("canonical-equivalent gas and mutable input must conflict");
+        prop_assert!(error
+            .error
+            .as_ref()
+            .expect("rpc error")
+            .message
+            .contains("cannot overlap with a mutable object input"));
+    }
 }
 
 #[test]
