@@ -18,17 +18,20 @@ fn signature_policy_config() -> proptest::test_runner::Config {
 
 #[test]
 fn untagged_verification_fails_closed_for_all_signature_curves() {
-    for curve in [
+    let curves = vec![
         CurveType::K256,
         CurveType::P256,
         CurveType::Ed25519,
         CurveType::Dilithium2,
         CurveType::Dilithium3,
         CurveType::Dilithium5,
-        CurveType::SphincsPlusSha256Robust,
         CurveType::Ed25519Dilithium3,
         CurveType::K256Dilithium3,
-    ] {
+        #[cfg(feature = "experimental-slh-dsa")]
+        CurveType::SphincsPlusSha256Robust,
+    ];
+
+    for curve in curves {
         let keypair = generate_keypair(curve).unwrap();
         let signature = sign_message(&keypair.private_key, b"message", curve).unwrap();
         assert!(matches!(

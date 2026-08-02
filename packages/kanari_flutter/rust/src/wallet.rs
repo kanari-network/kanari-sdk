@@ -6,7 +6,10 @@
 //! This module handles wallet operations including creation, encryption,
 //! storage, and loading of cryptocurrency wallets.
 
-use crate::keys::{CurveType, KANAHYBRID_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX};
+use crate::keys::{
+    CurveType, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX,
+    KANASLHDSA_PREFIX,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io;
 use std::str::FromStr;
@@ -214,8 +217,10 @@ pub fn save_wallet(
         ));
     }
 
-    // Ensure private key has a known prefix (kanari / kanapqc / kanahybrid)
+    // Ensure private key has a known provider prefix.
     let formatted_private_key = if private_key.starts_with(KANARI_KEY_PREFIX)
+        || private_key.starts_with(KANAMLDSA_PREFIX)
+        || private_key.starts_with(KANASLHDSA_PREFIX)
         || private_key.starts_with(KANAPQC_PREFIX)
         || private_key.starts_with(KANAHYBRID_PREFIX)
     {

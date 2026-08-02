@@ -141,6 +141,7 @@ jobs:
   crypto-fuzz-campaign:
     name: Kanari crypto fuzz / dependency campaign
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_crypto_fuzz_campaign == 'true')
     steps:
       - name: Checkout code
@@ -166,6 +167,6 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\run-crypto-fuzz-campaign.ps1 `
-            -Minutes 30 `
-            -Cases 4096 `
+            -Hours 4 `
+            -Cases 8192 `
             -Workers 1

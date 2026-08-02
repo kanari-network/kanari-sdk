@@ -31,11 +31,11 @@
 //! - Both classical and PQC signatures required for full verification
 //! - Use for transition period during quantum computing threat emergence
 //!
-//! ## Post-Quantum Cryptography Dependencies
-//! PQC crates (`pqcrypto_dilithium`, `pqcrypto_sphincsplus`) are relatively newer.
+//! ## Post-Quantum Cryptography Providers
+//! PQC keys use explicit provider prefixes (`kanamldsa`, `kanaslh`) so provider
+//! metadata is not lost during signing.
 //! - Monitor security advisories regularly
-//! - Consider pinning versions in production `Cargo.toml`
-//! - Dilithium3 (NIST Level 3) is recommended for most use cases
+//! - Dilithium3 / ML-DSA-65 (NIST Level 3) is recommended for most use cases
 //!
 //! ## Mnemonic Derivation Limitations
 //! - Only classical curves (K256, P256, Ed25519) support BIP39 mnemonic derivation
@@ -65,12 +65,11 @@ use p256::{
 
 use ed25519_dalek::{SigningKey as Ed25519SigningKey, VerifyingKey as Ed25519VerifyingKey};
 
-// Post-Quantum Cryptography imports
-use pqcrypto_dilithium::dilithium2;
-use pqcrypto_dilithium::dilithium3;
-use pqcrypto_dilithium::dilithium5;
-use pqcrypto_sphincsplus::sphincssha2256fsimple;
-use pqcrypto_traits::sign::{PublicKey as PqcPublicKey, SecretKey as PqcSecretKey};
+use crate::signatures::ml_dsa_provider::{
+    generate_mldsa44_keypair_bytes, generate_mldsa65_keypair_bytes, generate_mldsa87_keypair_bytes,
+};
+#[cfg(feature = "experimental-slh-dsa")]
+use crate::signatures::slh_dsa_provider::generate_slh_dsa_sha2_256f_keypair_bytes;
 
 /// Supported cryptographic algorithms (Classical + Post-Quantum)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -290,6 +289,8 @@ pub const KANARI_KEY_PREFIX: &str = "kanari";
 
 /// Additional known prefixes
 pub const KANAPQC_PREFIX: &str = "kanapqc";
+pub const KANAMLDSA_PREFIX: &str = "kanamldsa";
+pub const KANASLHDSA_PREFIX: &str = "kanaslh";
 pub const KANAHYBRID_PREFIX: &str = "kanahybrid";
 
 // ============================================================================
@@ -342,6 +343,10 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
     // Use constant-time checks to prevent timing leaks
     if constant_time_starts_with(formatted_key, KANAHYBRID_PREFIX) {
         &formatted_key[KANAHYBRID_PREFIX.len()..]
+    } else if constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) {
+        &formatted_key[KANAMLDSA_PREFIX.len()..]
+    } else if constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) {
+        &formatted_key[KANASLHDSA_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANAPQC_PREFIX) {
         &formatted_key[KANAPQC_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) {
@@ -527,105 +532,91 @@ pub fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
 
 /// Generate a Dilithium2 keypair (Fast, NIST Level 2)
 fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
-    let (public_key, secret_key) = dilithium2::keypair();
-
-    // Encode public key
-    let hex_encoded = hex::encode(public_key.as_bytes());
-
-    // Compute address using SHA3-256 of public key bytes directly (more secure than hex string)
-    let mut hasher = Sha3_256::new();
-    hasher.update(public_key.as_bytes());
-    let hash_result = hasher.finalize();
-    let address = format!("0x{}", hex::encode(&hash_result[..]));
-
-    // Encode secret key securely using zeroizing buffer
-    let raw_private_key = secure_hex_encode(secret_key.as_bytes());
-
-    // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
-
-    Ok(KeyPair {
-        private_key: Zeroizing::new(private_key),
-        public_key: hex_encoded.clone(),
-        pqc_public_key: Some(hex_encoded),
-        address,
-        curve_type: CurveType::Dilithium2,
-    })
+    let (public_key, secret_key) = generate_mldsa44_keypair_bytes();
+    pqc_keypair_from_parts(
+        &public_key,
+        &secret_key,
+        CurveType::Dilithium2,
+        true,
+        KANAMLDSA_PREFIX,
+    )
 }
 
 /// Generate a Dilithium3 keypair (Balanced, NIST Level 3, Recommended)
 fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
-    let (public_key, secret_key) = dilithium3::keypair();
-
-    // Encode public key
-    let hex_encoded = hex::encode(public_key.as_bytes());
-
-    // Compute address using SHA3-256 of public key bytes directly
-    let mut hasher = Sha3_256::new();
-    hasher.update(public_key.as_bytes());
-    let hash_result = hasher.finalize();
-    let address = format!("0x{}", hex::encode(&hash_result[..]));
-
-    // Encode secret key securely using zeroizing buffer
-    let raw_private_key = secure_hex_encode(secret_key.as_bytes());
-
-    // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
-
-    Ok(KeyPair {
-        private_key: Zeroizing::new(private_key),
-        public_key: hex_encoded.clone(),
-        pqc_public_key: Some(hex_encoded),
-        address,
-        curve_type: CurveType::Dilithium3,
-    })
+    let (public_key, secret_key) = generate_mldsa65_keypair_bytes();
+    pqc_keypair_from_parts(
+        &public_key,
+        &secret_key,
+        CurveType::Dilithium3,
+        true,
+        KANAMLDSA_PREFIX,
+    )
 }
 
 /// Generate a Dilithium5 keypair (Maximum security, NIST Level 5)
 fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
-    let (public_key, secret_key) = dilithium5::keypair();
-
-    // Encode public key
-    let hex_encoded = hex::encode(public_key.as_bytes());
-
-    // Compute address using SHA3-256 of public key bytes directly
-    let mut hasher = Sha3_256::new();
-    hasher.update(public_key.as_bytes());
-    let hash_result = hasher.finalize();
-    let address = format!("0x{}", hex::encode(&hash_result[..]));
-
-    // Encode secret key securely using zeroizing buffer
-    let raw_private_key = secure_hex_encode(secret_key.as_bytes());
-
-    // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
-
-    Ok(KeyPair {
-        private_key: Zeroizing::new(private_key),
-        public_key: hex_encoded.clone(),
-        pqc_public_key: Some(hex_encoded),
-        address,
-        curve_type: CurveType::Dilithium5,
-    })
+    let (public_key, secret_key) = generate_mldsa87_keypair_bytes();
+    pqc_keypair_from_parts(
+        &public_key,
+        &secret_key,
+        CurveType::Dilithium5,
+        true,
+        KANAMLDSA_PREFIX,
+    )
 }
 
 /// Generate a SPHINCS+ keypair (Hash-based, ultra-secure)
 fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
-    let (public_key, secret_key) = sphincssha2256fsimple::keypair();
-    let hex_encoded = hex::encode(public_key.as_bytes());
-    let mut hasher = Sha3_256::new();
-    hasher.update(hex_encoded.as_bytes());
-    let hash_result = hasher.finalize();
-    let address = format!("0x{}", hex::encode(&hash_result[..]));
-    let raw_private_key = hex::encode(secret_key.as_bytes());
-    let private_key = format!("kanapqc{}:{}", raw_private_key, hex_encoded);
+    #[cfg(feature = "experimental-slh-dsa")]
+    {
+        let (public_key, secret_key) = generate_slh_dsa_sha2_256f_keypair_bytes();
+        pqc_keypair_from_parts(
+            &public_key,
+            &secret_key,
+            CurveType::SphincsPlusSha256Robust,
+            false,
+            KANASLHDSA_PREFIX,
+        )
+    }
+
+    #[cfg(not(feature = "experimental-slh-dsa"))]
+    {
+        Err(KeyError::GenerationFailed(
+            "SphincsPlusSha256Robust requires experimental-slh-dsa feature".to_string(),
+        ))
+    }
+}
+
+fn pqc_keypair_from_parts(
+    public_key: &[u8],
+    secret_key: &[u8],
+    curve_type: CurveType,
+    hash_public_key_bytes: bool,
+    private_key_prefix: &str,
+) -> Result<KeyPair, KeyError> {
+    let public_key_hex = hex::encode(public_key);
+    let address = if hash_public_key_bytes {
+        let mut hasher = Sha3_256::new();
+        hasher.update(public_key);
+        format!("0x{}", hex::encode(hasher.finalize()))
+    } else {
+        let mut hasher = Sha3_256::new();
+        hasher.update(public_key_hex.as_bytes());
+        format!("0x{}", hex::encode(hasher.finalize()))
+    };
+    let raw_private_key = secure_hex_encode(secret_key);
+    let private_key = format!(
+        "{}{}:{}",
+        private_key_prefix, *raw_private_key, public_key_hex
+    );
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
-        public_key: hex_encoded.clone(),
-        pqc_public_key: Some(hex_encoded),
+        public_key: public_key_hex.clone(),
+        pqc_public_key: Some(public_key_hex),
         address,
-        curve_type: CurveType::SphincsPlusSha256Robust,
+        curve_type,
     })
 }
 
@@ -644,10 +635,14 @@ pub fn generate_hybrid_ed25519_dilithium3_keypair() -> Result<KeyPair, KeyError>
 
     // Extract raw private keys using constant-time comparison via extract_raw_key
     let ed25519_raw = extract_raw_key(&ed25519_pair.private_key);
-    let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
 
     // Combine private keys with secure prefix
-    let combined_private = format!("{}{}:{}", KANAHYBRID_PREFIX, ed25519_raw, dilithium3_raw);
+    let combined_private = format!(
+        "{}{}:{}",
+        KANAHYBRID_PREFIX,
+        ed25519_raw,
+        dilithium3_pair.private_key.as_str()
+    );
 
     // Generate hybrid address using SHA3-256 hash of combined public key bytes
     let mut hasher = Sha3_256::new();
@@ -675,10 +670,14 @@ pub fn generate_hybrid_k256_dilithium3_keypair() -> Result<KeyPair, KeyError> {
 
     // Extract raw private keys using constant-time comparison via extract_raw_key
     let k256_raw = extract_raw_key(&k256_pair.private_key);
-    let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
 
     // Combine private keys with secure prefix
-    let combined_private = format!("{}{}:{}", KANAHYBRID_PREFIX, k256_raw, dilithium3_raw);
+    let combined_private = format!(
+        "{}{}:{}",
+        KANAHYBRID_PREFIX,
+        k256_raw,
+        dilithium3_pair.private_key.as_str()
+    );
 
     // Generate hybrid address using SHA3-256 hash of combined public key bytes
     let mut hasher = Sha3_256::new();
@@ -938,9 +937,14 @@ pub fn keypair_from_private_key(
         | CurveType::Dilithium3
         | CurveType::Dilithium5
         | CurveType::SphincsPlusSha256Robust => {
-            // raw_private_key may be: "kanapqc<secret_hex>:<public_hex>" or older
-            // Use constant-time comparison for prefix check
-            let raw_for_pqc = if constant_time_starts_with(raw_private_key, KANAPQC_PREFIX) {
+            // raw_private_key may be provider-prefixed:
+            // "kanamldsa<seed_hex>:<public_hex>", "kanaslh<secret_hex>:<public_hex>",
+            // or legacy "kanapqc<secret_hex>:<public_hex>".
+            let raw_for_pqc = if constant_time_starts_with(raw_private_key, KANAMLDSA_PREFIX) {
+                &raw_private_key[KANAMLDSA_PREFIX.len()..]
+            } else if constant_time_starts_with(raw_private_key, KANASLHDSA_PREFIX) {
+                &raw_private_key[KANASLHDSA_PREFIX.len()..]
+            } else if constant_time_starts_with(raw_private_key, KANAPQC_PREFIX) {
                 &raw_private_key[KANAPQC_PREFIX.len()..]
             } else {
                 raw_private_key
@@ -950,18 +954,29 @@ pub fn keypair_from_private_key(
             // "kanapqc<secret_hex>:<public_hex>" and reject secret-only inputs.
             if let Some((_secret_hex, pub_hex)) = raw_for_pqc.split_once(':') {
                 // validate pub_hex is hex
-                let _pub_bytes = hex::decode(pub_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
+                let pub_bytes = hex::decode(pub_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
                 let pqc_hex = pub_hex.to_string();
 
                 // Derive address from hash of the PQC public key for uniformity
                 let mut hasher = Sha3_256::new();
-                hasher.update(pub_hex.as_bytes());
+                match curve_type {
+                    CurveType::Dilithium2 | CurveType::Dilithium3 | CurveType::Dilithium5 => {
+                        hasher.update(&pub_bytes);
+                    }
+                    CurveType::SphincsPlusSha256Robust => {
+                        hasher.update(pub_hex.as_bytes());
+                    }
+                    _ => return Err(KeyError::InvalidPrivateKey),
+                }
                 let hash_result = hasher.finalize();
                 let address = format!("0x{}", hex::encode(&hash_result[..]));
 
                 // Use constant-time comparison for prefix check
                 let formatted_private_key =
-                    if constant_time_starts_with(private_key, KANAPQC_PREFIX) {
+                    if constant_time_starts_with(private_key, KANAMLDSA_PREFIX)
+                        || constant_time_starts_with(private_key, KANASLHDSA_PREFIX)
+                        || constant_time_starts_with(private_key, KANAPQC_PREFIX)
+                    {
                         private_key.to_string()
                     } else {
                         format!("{}{}", KANAPQC_PREFIX, raw_for_pqc)

@@ -192,8 +192,8 @@ mod tests {
         // Test Dilithium3 (recommended PQC)
         let dil3 = generate_keypair(CurveType::Dilithium3).unwrap();
         assert!(
-            dil3.private_key.starts_with("kanapqc"),
-            "PQC keys should have kanapqc prefix, got: {}",
+            dil3.private_key.starts_with("kanamldsa"),
+            "ML-DSA keys should have kanamldsa prefix, got: {}",
             *dil3.private_key
         );
         assert!(
@@ -208,6 +208,36 @@ mod tests {
         // Test that PQC is detected
         assert!(CurveType::Dilithium3.is_post_quantum());
         assert!(!CurveType::K256.is_post_quantum());
+    }
+
+    #[test]
+    fn test_post_quantum_provider_prefixes_are_explicit() {
+        for curve in [
+            CurveType::Dilithium2,
+            CurveType::Dilithium3,
+            CurveType::Dilithium5,
+        ] {
+            let keypair = generate_keypair(curve).unwrap();
+            assert!(
+                keypair.private_key.starts_with("kanamldsa"),
+                "{curve:?} must use explicit ML-DSA provider prefix"
+            );
+        }
+
+        #[cfg(feature = "experimental-slh-dsa")]
+        {
+            let sphincs = generate_keypair(CurveType::SphincsPlusSha256Robust).unwrap();
+            assert!(
+                sphincs.private_key.starts_with("kanaslh"),
+                "SPHINCS+/SLH-DSA must use explicit SLH-DSA provider prefix"
+            );
+        }
+
+        #[cfg(not(feature = "experimental-slh-dsa"))]
+        assert!(
+            generate_keypair(CurveType::SphincsPlusSha256Robust).is_err(),
+            "SPHINCS+/SLH-DSA must stay behind experimental-slh-dsa by default"
+        );
     }
 
     #[test]

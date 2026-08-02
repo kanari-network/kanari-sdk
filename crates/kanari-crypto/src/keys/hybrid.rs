@@ -87,7 +87,7 @@ fn build_hybrid_keypair(
         "{}{}:{}",
         KANAHYBRID_PREFIX,
         classical_private_key,
-        extract_raw_key(&pqc_pair.private_key)
+        pqc_pair.private_key.as_str()
     );
 
     Ok(KeyPair {

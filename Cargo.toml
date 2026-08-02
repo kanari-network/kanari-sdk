@@ -133,9 +133,8 @@ primitive-types = { version = "0.14.0", default-features = true }               
 # ============================================================================
 # Cryptography - Post-Quantum (PQC)
 # ============================================================================
-pqcrypto-dilithium = "0.5.0"                                                       # Digital signatures (NIST finalist)
-pqcrypto-sphincsplus = "0.7.2"                                                     # Stateless hash-based signatures
-pqcrypto-traits = "0.3.5"                                                          # Common PQC traits
+ml-dsa = { version = "0.1.1", features = ["zeroize"] }                             # Pure Rust FIPS 204 ML-DSA signatures
+slh-dsa = { version = "0.2.0-rc.5", features = ["zeroize"] }                       # Pure Rust FIPS 205 SLH-DSA signatures
 
 # ============================================================================
 # Memory Security & Timing Attack Prevention

@@ -33,17 +33,20 @@ fn seeded_malformed_tagged_address_corpus_fails_closed() {
 fn oversized_signatures_are_rejected_before_curve_specific_parsing() {
     let oversized_signature = vec![0u8; 64 * 1024 + 1];
 
-    for curve in [
+    let curves = vec![
         CurveType::K256,
         CurveType::P256,
         CurveType::Ed25519,
         CurveType::Dilithium2,
         CurveType::Dilithium3,
         CurveType::Dilithium5,
-        CurveType::SphincsPlusSha256Robust,
         CurveType::Ed25519Dilithium3,
         CurveType::K256Dilithium3,
-    ] {
+        #[cfg(feature = "experimental-slh-dsa")]
+        CurveType::SphincsPlusSha256Robust,
+    ];
+
+    for curve in curves {
         let keypair = generate_keypair(curve).unwrap();
         assert!(matches!(
             verify_signature(&keypair.tagged_address(), b"message", &oversized_signature),

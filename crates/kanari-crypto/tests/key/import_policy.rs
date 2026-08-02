@@ -34,14 +34,17 @@ fn import_rejects_pqc_secret_without_public_key_for_all_pqc_curves() {
 
 #[test]
 fn import_preserves_generated_pqc_and_hybrid_keypairs() {
-    for curve in [
+    let curves = vec![
         CurveType::Dilithium2,
         CurveType::Dilithium3,
         CurveType::Dilithium5,
-        CurveType::SphincsPlusSha256Robust,
         CurveType::Ed25519Dilithium3,
         CurveType::K256Dilithium3,
-    ] {
+        #[cfg(feature = "experimental-slh-dsa")]
+        CurveType::SphincsPlusSha256Robust,
+    ];
+
+    for curve in curves {
         let original = generate_keypair(curve).unwrap();
         let imported = keypair_from_private_key(&original.private_key, curve).unwrap();
 

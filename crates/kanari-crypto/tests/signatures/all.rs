@@ -348,13 +348,14 @@ mod tests {
 
     #[test]
     fn test_sign_message_preserves_pqc_and_hybrid_key_metadata() {
-        let cases = [
+        let cases = vec![
             CurveType::Dilithium2,
             CurveType::Dilithium3,
             CurveType::Dilithium5,
-            CurveType::SphincsPlusSha256Robust,
             CurveType::Ed25519Dilithium3,
             CurveType::K256Dilithium3,
+            #[cfg(feature = "experimental-slh-dsa")]
+            CurveType::SphincsPlusSha256Robust,
         ];
         let message = b"formatted provider metadata must survive dispatch";
 

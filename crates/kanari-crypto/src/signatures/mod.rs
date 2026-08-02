@@ -29,7 +29,10 @@ pub mod dilithium5;
 pub mod ed25519;
 pub mod hybrid;
 pub mod k256;
+pub(crate) mod ml_dsa_provider;
 pub mod p256;
+#[cfg(feature = "experimental-slh-dsa")]
+pub(crate) mod slh_dsa_provider;
 pub mod sphincs;
 
 /// Digital signature errors

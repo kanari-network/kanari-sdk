@@ -255,6 +255,8 @@ impl AuditEntry {
                     // 1. Known prefixes (strict word boundary check)
                     if lower.starts_with("kanari")
                         || lower.starts_with("kanapqc")
+                        || lower.starts_with("kanamldsa")
+                        || lower.starts_with("kanaslh")
                         || lower.starts_with("kanahybrid")
                     {
                         return Some("[REDACTED]".to_string());

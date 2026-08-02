@@ -1,4 +1,6 @@
-use crate::keys::{KANAHYBRID_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX};
+use crate::keys::{
+    KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX, KANASLHDSA_PREFIX,
+};
 
 use super::WalletError;
 
@@ -43,6 +45,8 @@ pub(super) fn validate_storage_password(password: &str) -> Result<(), WalletErro
 
 pub(super) fn format_wallet_private_key(private_key: &str) -> String {
     if private_key.starts_with(KANARI_KEY_PREFIX)
+        || private_key.starts_with(KANAMLDSA_PREFIX)
+        || private_key.starts_with(KANASLHDSA_PREFIX)
         || private_key.starts_with(KANAPQC_PREFIX)
         || private_key.starts_with(KANAHYBRID_PREFIX)
     {

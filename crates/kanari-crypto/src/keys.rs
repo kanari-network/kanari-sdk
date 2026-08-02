@@ -31,11 +31,11 @@
 //! - Both classical and PQC signatures required for full verification
 //! - Use for transition period during quantum computing threat emergence
 //!
-//! ## Post-Quantum Cryptography Dependencies
-//! PQC crates (`pqcrypto_dilithium`, `pqcrypto_sphincsplus`) are relatively newer.
+//! ## Post-Quantum Cryptography Providers
+//! PQC keys use explicit provider prefixes (`kanamldsa`, `kanaslh`) so provider
+//! metadata is not lost during signing.
 //! - Monitor security advisories regularly
-//! - Consider pinning versions in production `Cargo.toml`
-//! - Dilithium3 (NIST Level 3) is recommended for most use cases
+//! - Dilithium3 / ML-DSA-65 (NIST Level 3) is recommended for most use cases
 //!
 //! ## Mnemonic Derivation Limitations
 //! - Only classical curves (K256, P256, Ed25519) support BIP39 mnemonic derivation
@@ -278,6 +278,8 @@ pub const KANARI_KEY_PREFIX: &str = "kanari";
 
 /// Additional known prefixes
 pub const KANAPQC_PREFIX: &str = "kanapqc";
+pub const KANAMLDSA_PREFIX: &str = "kanamldsa";
+pub const KANASLHDSA_PREFIX: &str = "kanaslh";
 pub const KANAHYBRID_PREFIX: &str = "kanahybrid";
 const MAX_FORMATTED_PRIVATE_KEY_LEN: usize = 128 * 1024;
 
@@ -331,6 +333,10 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
     // Use constant-time checks to prevent timing leaks
     if constant_time_starts_with(formatted_key, KANAHYBRID_PREFIX) {
         &formatted_key[KANAHYBRID_PREFIX.len()..]
+    } else if constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) {
+        &formatted_key[KANAMLDSA_PREFIX.len()..]
+    } else if constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) {
+        &formatted_key[KANASLHDSA_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANAPQC_PREFIX) {
         &formatted_key[KANAPQC_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) {
