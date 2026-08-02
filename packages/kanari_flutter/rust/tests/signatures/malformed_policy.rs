@@ -1,8 +1,8 @@
+use proptest::prelude::*;
 use rust::{
     CurveType, SignatureError, generate_keypair,
     signatures::{sign_message, verify_signature, verify_signature_with_curve},
 };
-use proptest::prelude::*;
 
 const SIGNATURE_POLICY_CASES: u32 = 512;
 

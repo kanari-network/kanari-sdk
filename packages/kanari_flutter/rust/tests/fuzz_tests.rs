@@ -1,11 +1,11 @@
 //! Property-based fuzzing tests for kanari-crypto using proptest
 //! These tests generate random inputs to find edge cases and bugs
 
+use proptest::prelude::*;
 use rust::{
     CurveType, decrypt_data, encrypt_data, generate_keypair, hash_data, is_password_strong,
     signatures::{sign_message, verify_signature},
 };
-use proptest::prelude::*;
 
 const DEFAULT_CRYPTO_FUZZ_CASES: u32 = 256;
 

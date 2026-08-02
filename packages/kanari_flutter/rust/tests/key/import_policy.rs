@@ -1,8 +1,8 @@
+use proptest::prelude::*;
 use rust::keys::{
     CurveType, KANAHYBRID_PREFIX, KANAPQC_PREFIX, KeyError, extract_raw_key, generate_keypair,
     keypair_from_private_key,
 };
-use proptest::prelude::*;
 
 const IMPORT_POLICY_CASES: u32 = 512;
 

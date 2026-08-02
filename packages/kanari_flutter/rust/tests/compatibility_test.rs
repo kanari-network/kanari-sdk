@@ -1,9 +1,9 @@
+use move_core_types::account_address::AccountAddress;
 use rust::{
     CurveType, Keystore, Wallet,
     encryption::{decrypt_data, encrypt_data},
     generate_keypair,
 };
-use move_core_types::account_address::AccountAddress;
 use serde_json::{Value, json};
 use std::str::FromStr;
 
