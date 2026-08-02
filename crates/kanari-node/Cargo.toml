@@ -26,7 +26,19 @@ tracing-subscriber = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 hex = { workspace = true }
 ed25519-dalek = { workspace = true }
-libp2p = { workspace = true }
+futures = { workspace = true }
+libp2p-core = { workspace = true }
+libp2p-dcutr = { workspace = true }
+libp2p-gossipsub = { workspace = true }
+libp2p-identify = { workspace = true }
+libp2p-identity = { workspace = true }
+libp2p-kad = { workspace = true }
+libp2p-noise = { workspace = true }
+libp2p-ping = { workspace = true }
+libp2p-relay = { workspace = true }
+libp2p-swarm = { workspace = true }
+libp2p-tcp = { workspace = true }
+libp2p-yamux = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = { workspace = true }
@@ -37,7 +49,6 @@ sha3 = { workspace = true }
 
 [features]
 default = []
-p2p-mdns = ["libp2p/mdns"]
 
 [dev-dependencies]
 proptest = { workspace = true }
