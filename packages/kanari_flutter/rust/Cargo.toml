@@ -12,7 +12,7 @@ repository.workspace = true
 description.workspace = true
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 bip39.workspace = true
