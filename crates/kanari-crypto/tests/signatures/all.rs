@@ -347,6 +347,35 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_message_preserves_pqc_and_hybrid_key_metadata() {
+        let cases = [
+            CurveType::Dilithium2,
+            CurveType::Dilithium3,
+            CurveType::Dilithium5,
+            CurveType::SphincsPlusSha256Robust,
+            CurveType::Ed25519Dilithium3,
+            CurveType::K256Dilithium3,
+        ];
+        let message = b"formatted provider metadata must survive dispatch";
+
+        for curve in cases {
+            let keypair = generate_keypair(curve).unwrap();
+            let signature = sign_message(&keypair.private_key, message, curve)
+                .unwrap_or_else(|err| panic!("formatted key signing failed for {curve:?}: {err}"));
+            assert!(
+                !signature.is_empty(),
+                "formatted key signing returned empty signature for {curve:?}"
+            );
+
+            assert!(
+                verify_signature_with_curve(&keypair.public_key, message, &signature, curve)
+                    .unwrap_or(false),
+                "formatted key signature did not verify for {curve:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_secure_clear_on_different_sizes() {
         // Test various sizes
         for size in [0, 1, 16, 32, 64, 128, 256, 1024] {
