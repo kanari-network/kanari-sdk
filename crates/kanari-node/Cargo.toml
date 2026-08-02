@@ -19,7 +19,6 @@ kanari-rpc-server = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 kanari-indexer = { path = "../kanari-indexer" }
-move-core-types = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
