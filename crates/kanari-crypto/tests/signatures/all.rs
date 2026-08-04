@@ -206,6 +206,44 @@ mod tests {
         assert!(verified, "Ed25519 signature should verify");
     }
 
+    #[cfg(feature = "falcon")]
+    #[test]
+    fn test_sign_and_verify_falcon512() {
+        let keypair = generate_keypair(CurveType::Falcon512).unwrap();
+        let message = b"Hello, FN-DSA-512!";
+
+        assert!(keypair.private_key.starts_with("kanafalcon"));
+        let signature = sign_message(&keypair.private_key, message, CurveType::Falcon512).unwrap();
+        let verified = verify_signature_with_curve(
+            &keypair.public_key,
+            message,
+            &signature,
+            CurveType::Falcon512,
+        )
+        .unwrap();
+
+        assert!(verified, "Falcon512 signature should verify");
+    }
+
+    #[cfg(feature = "falcon")]
+    #[test]
+    fn test_sign_and_verify_falcon1024() {
+        let keypair = generate_keypair(CurveType::Falcon1024).unwrap();
+        let message = b"Hello, FN-DSA-1024!";
+
+        assert!(keypair.private_key.starts_with("kanafalcon"));
+        let signature = sign_message(&keypair.private_key, message, CurveType::Falcon1024).unwrap();
+        let verified = verify_signature_with_curve(
+            &keypair.public_key,
+            message,
+            &signature,
+            CurveType::Falcon1024,
+        )
+        .unwrap();
+
+        assert!(verified, "Falcon1024 signature should verify");
+    }
+
     #[test]
     fn test_signature_fails_with_wrong_message() {
         let keypair = generate_keypair(CurveType::K256).unwrap();
@@ -347,6 +385,29 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_and_verify_sphincs_plus_sha256_robust() {
+        let keypair = generate_keypair(CurveType::SphincsPlusSha256Robust).unwrap();
+        let message = b"Hello, SLH-DSA/SphincsPlusSha256Robust!";
+
+        assert!(keypair.private_key.starts_with("kanaslh"));
+        let signature = sign_message(
+            &keypair.private_key,
+            message,
+            CurveType::SphincsPlusSha256Robust,
+        )
+        .unwrap();
+        let verified = verify_signature_with_curve(
+            &keypair.public_key,
+            message,
+            &signature,
+            CurveType::SphincsPlusSha256Robust,
+        )
+        .unwrap();
+
+        assert!(verified, "SphincsPlusSha256Robust signature should verify");
+    }
+
+    #[test]
     fn test_sign_message_preserves_pqc_and_hybrid_key_metadata() {
         let cases = vec![
             CurveType::Dilithium2,
@@ -354,7 +415,7 @@ mod tests {
             CurveType::Dilithium5,
             CurveType::Ed25519Dilithium3,
             CurveType::K256Dilithium3,
-            #[cfg(feature = "experimental-slh-dsa")]
+            #[cfg(feature = "slh-dsa")]
             CurveType::SphincsPlusSha256Robust,
         ];
         let message = b"formatted provider metadata must survive dispatch";

@@ -27,7 +27,7 @@ fn untagged_verification_fails_closed_for_all_signature_curves() {
         CurveType::Dilithium5,
         CurveType::Ed25519Dilithium3,
         CurveType::K256Dilithium3,
-        #[cfg(feature = "experimental-slh-dsa")]
+        #[cfg(feature = "slh-dsa")]
         CurveType::SphincsPlusSha256Robust,
     ];
 

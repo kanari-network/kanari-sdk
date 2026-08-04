@@ -24,6 +24,7 @@ hmac.workspace = true
 # Post-Quantum Cryptography (PQC) - NIST Standards
 ml-dsa = { workspace = true, optional = true } # Pure Rust FIPS 204 ML-DSA provider
 slh-dsa = { workspace = true, optional = true } # Pure Rust FIPS 205 SLH-DSA provider
+falcon = { workspace = true, optional = true } # Pure Rust FIPS 206 FN-DSA/Falcon provider
 
 # Make blake3 optional and enabled via the blake3 feature
 blake3 = { workspace = true, optional = true }
@@ -65,6 +66,7 @@ tempfile = { workspace = true }
 # keep blake3 optional in Cargo.toml but enable it in the crate default features
 default = ["blake3", "pqc"]
 # Enable maintained PQC providers when `pqc` feature is activated
-pqc = ["ml-dsa"]
+pqc = ["ml-dsa", "falcon", "slh-dsa"]
 experimental-slh-dsa = ["slh-dsa"]
+experimental-falcon = ["falcon"]
 hybrid = ["pqc"] # Hybrid classical + PQC schemes

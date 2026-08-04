@@ -40,7 +40,7 @@ fn import_preserves_generated_pqc_and_hybrid_keypairs() {
         CurveType::Dilithium5,
         CurveType::Ed25519Dilithium3,
         CurveType::K256Dilithium3,
-        #[cfg(feature = "experimental-slh-dsa")]
+        #[cfg(feature = "slh-dsa")]
         CurveType::SphincsPlusSha256Robust,
     ];
 

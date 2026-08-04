@@ -14,6 +14,10 @@ use crate::{
         dilithium3::{sign_message_dilithium3, verify_signature_dilithium3},
         dilithium5::{sign_message_dilithium5, verify_signature_dilithium5},
         ed25519::{sign_message_ed25519, verify_signature_ed25519},
+        falcon::{
+            sign_message_falcon512, sign_message_falcon1024, verify_signature_falcon512,
+            verify_signature_falcon1024,
+        },
         hybrid::{
             sign_message_hybrid_ed25519, sign_message_hybrid_k256, verify_ed25519dilithium3,
             verify_hybrid_signature_detailed, verify_k256dilithium3,
@@ -27,11 +31,13 @@ pub mod dilithium2;
 pub mod dilithium3;
 pub mod dilithium5;
 pub mod ed25519;
+pub mod falcon;
+pub(crate) mod falcon_provider;
 pub mod hybrid;
 pub mod k256;
 pub(crate) mod ml_dsa_provider;
 pub mod p256;
-#[cfg(feature = "experimental-slh-dsa")]
+#[cfg(feature = "slh-dsa")]
 pub(crate) mod slh_dsa_provider;
 pub mod sphincs;
 
@@ -99,6 +105,8 @@ pub fn sign_message(
         CurveType::Dilithium3 => sign_message_dilithium3(private_key_hex, message),
         CurveType::Dilithium5 => sign_message_dilithium5(private_key_hex, message),
         CurveType::SphincsPlusSha256Robust => sign_message_sphincs(private_key_hex, message),
+        CurveType::Falcon512 => sign_message_falcon512(private_key_hex, message),
+        CurveType::Falcon1024 => sign_message_falcon1024(private_key_hex, message),
     }
 }
 
@@ -163,6 +171,8 @@ pub fn verify_signature_with_curve(
         CurveType::SphincsPlusSha256Robust => {
             verify_signature_sphincs(address_hex, message, signature)
         }
+        CurveType::Falcon512 => verify_signature_falcon512(address_hex, message, signature),
+        CurveType::Falcon1024 => verify_signature_falcon1024(address_hex, message, signature),
     }
 }
 
@@ -251,6 +261,18 @@ pub fn verify_signature_with_keypair(
                 .get_pqc_public_key_ref()
                 .unwrap_or(&keypair.public_key);
             verify_signature_sphincs(pqc_pub, message, signature)
+        }
+        CurveType::Falcon512 => {
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_falcon512(pqc_pub, message, signature)
+        }
+        CurveType::Falcon1024 => {
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_falcon1024(pqc_pub, message, signature)
         }
     }
 }

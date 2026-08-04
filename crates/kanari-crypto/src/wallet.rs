@@ -7,8 +7,8 @@
 //! storage, and loading of cryptocurrency wallets.
 
 use crate::keys::{
-    CurveType, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX,
-    KANASLHDSA_PREFIX, keypair_from_private_key,
+    CurveType, KANAFALCON_PREFIX, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX,
+    KANARI_KEY_PREFIX, KANASLHDSA_PREFIX, keypair_from_private_key,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io;
@@ -256,6 +256,10 @@ fn candidate_curves_for_private_key(private_key: &str) -> Vec<CurveType> {
 
     if private_key.starts_with(KANASLHDSA_PREFIX) {
         return vec![CurveType::SphincsPlusSha256Robust];
+    }
+
+    if private_key.starts_with(KANAFALCON_PREFIX) {
+        return vec![CurveType::Falcon512, CurveType::Falcon1024];
     }
 
     if private_key.starts_with(KANARI_KEY_PREFIX) || !private_key.contains(':') {

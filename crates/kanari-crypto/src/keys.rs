@@ -4,7 +4,8 @@
 //! Cryptographic key generation and management
 //!
 //! This module handles key generation for multiple curve types (K256/secp256k1,
-//! P256/secp256r1, Ed25519) and Post-Quantum Cryptography (Dilithium, SPHINCS+).
+//! P256/secp256r1, Ed25519) and Post-Quantum Cryptography (Dilithium, SLH-DSA,
+//! FN-DSA/Falcon).
 //!
 //! **Quantum-Safe**: Includes NIST-standardized post-quantum algorithms.
 //!
@@ -87,6 +88,12 @@ pub enum CurveType {
     /// SPHINCS+ SHA256-256f-robust - Hash-based, ~50KB signatures, ultra-secure
     SphincsPlusSha256Robust,
 
+    /// FN-DSA-512 / Falcon-512 - compact lattice signatures, NIST Level 1
+    Falcon512,
+
+    /// FN-DSA-1024 / Falcon-1024 - compact lattice signatures, NIST Level 5
+    Falcon1024,
+
     // Hybrid Schemes (Classical + PQC for transition period)
     /// Ed25519 + Dilithium3 hybrid (Best of both worlds)
     Ed25519Dilithium3,
@@ -105,6 +112,8 @@ impl fmt::Display for CurveType {
             CurveType::Dilithium3 => write!(f, "Dilithium3"),
             CurveType::Dilithium5 => write!(f, "Dilithium5"),
             CurveType::SphincsPlusSha256Robust => write!(f, "SphincsPlusSha256Robust"),
+            CurveType::Falcon512 => write!(f, "Falcon512"),
+            CurveType::Falcon1024 => write!(f, "Falcon1024"),
             CurveType::Ed25519Dilithium3 => write!(f, "Ed25519Dilithium3"),
             CurveType::K256Dilithium3 => write!(f, "K256Dilithium3"),
         }
@@ -123,6 +132,8 @@ impl std::str::FromStr for CurveType {
             "Dilithium3" => Ok(CurveType::Dilithium3),
             "Dilithium5" => Ok(CurveType::Dilithium5),
             "SphincsPlusSha256Robust" => Ok(CurveType::SphincsPlusSha256Robust),
+            "Falcon512" | "FnDsa512" | "FN-DSA-512" => Ok(CurveType::Falcon512),
+            "Falcon1024" | "FnDsa1024" | "FN-DSA-1024" => Ok(CurveType::Falcon1024),
             "Ed25519Dilithium3" => Ok(CurveType::Ed25519Dilithium3),
             "K256Dilithium3" => Ok(CurveType::K256Dilithium3),
             _ => Err(KeyError::InvalidPublicKey),
@@ -139,6 +150,8 @@ impl CurveType {
                 | CurveType::Dilithium3
                 | CurveType::Dilithium5
                 | CurveType::SphincsPlusSha256Robust
+                | CurveType::Falcon512
+                | CurveType::Falcon1024
                 | CurveType::Ed25519Dilithium3
                 | CurveType::K256Dilithium3
         )
@@ -161,6 +174,8 @@ impl CurveType {
             CurveType::Dilithium3 => 5,
             CurveType::Dilithium5 => 5,
             CurveType::SphincsPlusSha256Robust => 5,
+            CurveType::Falcon512 => 1,
+            CurveType::Falcon1024 => 5,
             CurveType::Ed25519Dilithium3 => 5,
             CurveType::K256Dilithium3 => 5,
         }
@@ -280,6 +295,7 @@ pub const KANARI_KEY_PREFIX: &str = "kanari";
 pub const KANAPQC_PREFIX: &str = "kanapqc";
 pub const KANAMLDSA_PREFIX: &str = "kanamldsa";
 pub const KANASLHDSA_PREFIX: &str = "kanaslh";
+pub const KANAFALCON_PREFIX: &str = "kanafalcon";
 pub const KANAHYBRID_PREFIX: &str = "kanahybrid";
 const MAX_FORMATTED_PRIVATE_KEY_LEN: usize = 128 * 1024;
 
@@ -337,6 +353,8 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &formatted_key[KANAMLDSA_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) {
         &formatted_key[KANASLHDSA_PREFIX.len()..]
+    } else if constant_time_starts_with(formatted_key, KANAFALCON_PREFIX) {
+        &formatted_key[KANAFALCON_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANAPQC_PREFIX) {
         &formatted_key[KANAPQC_PREFIX.len()..]
     } else if constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) {
@@ -370,6 +388,8 @@ pub fn generate_keypair(curve_type: CurveType) -> Result<KeyPair, KeyError> {
         CurveType::Dilithium3 => pqc::generate_dilithium3_keypair(),
         CurveType::Dilithium5 => pqc::generate_dilithium5_keypair(),
         CurveType::SphincsPlusSha256Robust => pqc::generate_sphincs_keypair(),
+        CurveType::Falcon512 => pqc::generate_falcon512_keypair(),
+        CurveType::Falcon1024 => pqc::generate_falcon1024_keypair(),
         CurveType::Ed25519Dilithium3 => hybrid::generate_hybrid_ed25519_dilithium3_keypair(),
         CurveType::K256Dilithium3 => hybrid::generate_hybrid_k256_dilithium3_keypair(),
     }
@@ -402,7 +422,9 @@ pub fn keypair_from_private_key(
         CurveType::Dilithium2
         | CurveType::Dilithium3
         | CurveType::Dilithium5
-        | CurveType::SphincsPlusSha256Robust => {
+        | CurveType::SphincsPlusSha256Robust
+        | CurveType::Falcon512
+        | CurveType::Falcon1024 => {
             pqc::keypair_from_pqc_private_key(private_key, raw_private_key, curve_type)
         }
         CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3 => {
