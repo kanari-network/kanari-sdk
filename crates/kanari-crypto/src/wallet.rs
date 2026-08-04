@@ -6,7 +6,10 @@
 //! This module handles wallet operations including creation, encryption,
 //! storage, and loading of cryptocurrency wallets.
 
-use crate::keys::CurveType;
+use crate::keys::{
+    CurveType, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX,
+    KANASLHDSA_PREFIX, keypair_from_private_key,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io;
 use std::str::FromStr;
@@ -88,6 +91,9 @@ pub enum WalletError {
 
     #[error("Verification error: {0}")]
     VerificationError(String),
+
+    #[error("Wallet key/curve mismatch: {0}")]
+    KeyCurveMismatch(String),
 }
 
 /// Structure representing a wallet with private key and address
@@ -149,7 +155,8 @@ impl Wallet {
 
         // Sign the message - use reference to avoid unnecessary clone
         // Zeroizing wrapper already protects the private_key field
-        signatures::sign_message(&self.private_key, message, self.curve_type)
+        let curve_type = self.validated_signing_curve()?;
+        signatures::sign_message(&self.private_key, message, curve_type)
             .map_err(|e| WalletError::SigningError(e.to_string()))
     }
 
@@ -170,12 +177,92 @@ impl Wallet {
         // Recreate a KeyPair from the stored private key so we can use the
         // KeyPair-aware verifier which prefers the explicit `pqc_public_key`
         // field (avoids parsing combined public_key strings).
-        let keypair = crate::keys::keypair_from_private_key(&self.private_key, self.curve_type)
+        let curve_type = self.validated_signing_curve()?;
+        let keypair = keypair_from_private_key(&self.private_key, curve_type)
             .map_err(|e| WalletError::VerificationError(e.to_string()))?;
 
         signatures::verify_signature_with_keypair(&keypair, message, signature)
             .map_err(|e| WalletError::VerificationError(e.to_string()))
     }
+
+    /// Return a signing curve that is proven to match this wallet's private key
+    /// and stored address.
+    ///
+    /// Older wallet files can contain stale `curve_type` metadata after PQC/hybrid
+    /// migrations. We do not guess blindly: if the declared curve cannot import
+    /// the private key, only accept an inferred curve when deriving it from the
+    /// private key produces exactly this wallet address. Ambiguous or mismatched
+    /// keys fail closed.
+    pub fn validated_signing_curve(&self) -> Result<CurveType, WalletError> {
+        if self.private_key.is_empty() {
+            return Err(WalletError::KeyCurveMismatch(
+                "wallet has no private key".to_string(),
+            ));
+        }
+
+        if keypair_matches_wallet(&self.private_key, self.curve_type, &self.address) {
+            return Ok(self.curve_type);
+        }
+
+        let matching_curves: Vec<CurveType> = candidate_curves_for_private_key(&self.private_key)
+            .into_iter()
+            .filter(|curve| *curve != self.curve_type)
+            .filter(|curve| keypair_matches_wallet(&self.private_key, *curve, &self.address))
+            .collect();
+
+        match matching_curves.as_slice() {
+            [curve] => Ok(*curve),
+            [] => Err(WalletError::KeyCurveMismatch(format!(
+                "stored curve {} does not match the wallet private key/address",
+                self.curve_type
+            ))),
+            curves => Err(WalletError::KeyCurveMismatch(format!(
+                "private key matches multiple curves for this address: {:?}",
+                curves
+            ))),
+        }
+    }
+}
+
+fn keypair_matches_wallet(
+    private_key: &str,
+    curve_type: CurveType,
+    address: &AccountAddress,
+) -> bool {
+    keypair_from_private_key(private_key, curve_type)
+        .map(|keypair| account_address_matches(&keypair.address, address))
+        .unwrap_or(false)
+}
+
+fn account_address_matches(derived_address: &str, wallet_address: &AccountAddress) -> bool {
+    let normalized = derived_address.trim_start_matches("0x");
+    AccountAddress::from_str(normalized)
+        .map(|derived| &derived == wallet_address)
+        .unwrap_or(false)
+}
+
+fn candidate_curves_for_private_key(private_key: &str) -> Vec<CurveType> {
+    if private_key.starts_with(KANAHYBRID_PREFIX) {
+        return vec![CurveType::Ed25519Dilithium3, CurveType::K256Dilithium3];
+    }
+
+    if private_key.starts_with(KANAMLDSA_PREFIX) || private_key.starts_with(KANAPQC_PREFIX) {
+        return vec![
+            CurveType::Dilithium2,
+            CurveType::Dilithium3,
+            CurveType::Dilithium5,
+        ];
+    }
+
+    if private_key.starts_with(KANASLHDSA_PREFIX) {
+        return vec![CurveType::SphincsPlusSha256Robust];
+    }
+
+    if private_key.starts_with(KANARI_KEY_PREFIX) || !private_key.contains(':') {
+        return vec![CurveType::K256, CurveType::P256, CurveType::Ed25519];
+    }
+
+    Vec::new()
 }
 
 /// Save a wallet to the keystore

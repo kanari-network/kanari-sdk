@@ -58,8 +58,11 @@ pub fn sign_call_function_request(
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
+    let signing_curve = wallet
+        .validated_signing_curve()
+        .context("Wallet private key does not match its stored curve/address")?;
     signed_tx
-        .sign(&wallet.private_key, wallet.curve_type)
+        .sign(&wallet.private_key, signing_curve)
         .context("Failed to sign transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
@@ -88,8 +91,11 @@ pub fn sign_publish_module_request(
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
+    let signing_curve = wallet
+        .validated_signing_curve()
+        .context("Wallet private key does not match its stored curve/address")?;
     signed_tx
-        .sign(&wallet.private_key, wallet.curve_type)
+        .sign(&wallet.private_key, signing_curve)
         .context("Failed to sign module transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
@@ -145,8 +151,11 @@ pub fn sign_publish_package_request_as(
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
+    let signing_curve = wallet
+        .validated_signing_curve()
+        .context("Wallet private key does not match its stored curve/address")?;
     signed_tx
-        .sign(&wallet.private_key, wallet.curve_type)
+        .sign(&wallet.private_key, signing_curve)
         .context("Failed to sign package transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
@@ -185,8 +194,11 @@ pub fn sign_object_transfer_request(
     }
 
     let mut signed_tx = SignedTransaction::new(transaction);
+    let signing_curve = wallet
+        .validated_signing_curve()
+        .context("Wallet private key does not match its stored curve/address")?;
     signed_tx
-        .sign(&wallet.private_key, wallet.curve_type)
+        .sign(&wallet.private_key, signing_curve)
         .context("Failed to sign object transfer transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)

@@ -2,6 +2,8 @@ use sha3::{Digest, Sha3_256};
 use zeroize::Zeroizing;
 
 use crate::signatures::ml_dsa_provider::{
+    ML_DSA_44_PUBLIC_KEY_BYTES, ML_DSA_65_PUBLIC_KEY_BYTES, ML_DSA_87_PUBLIC_KEY_BYTES,
+    derive_mldsa44_public_key, derive_mldsa65_public_key, derive_mldsa87_public_key,
     generate_mldsa44_keypair_bytes, generate_mldsa65_keypair_bytes, generate_mldsa87_keypair_bytes,
 };
 #[cfg(feature = "experimental-slh-dsa")]
@@ -80,11 +82,13 @@ pub(super) fn keypair_from_pqc_private_key(
     let raw_for_pqc = raw_for_pqc
         .strip_prefix(KANAPQC_PREFIX)
         .unwrap_or(raw_for_pqc);
-    let Some((_secret_hex, public_key_hex)) = raw_for_pqc.split_once(':') else {
+    let Some((secret_hex, public_key_hex)) = raw_for_pqc.split_once(':') else {
         return Err(KeyError::InvalidPrivateKey);
     };
 
+    let secret_bytes = hex::decode(secret_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
     let public_key_bytes = hex::decode(public_key_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
+    validate_pqc_secret_and_public(&secret_bytes, &public_key_bytes, curve_type)?;
     let address = match curve_type {
         CurveType::Dilithium2 | CurveType::Dilithium3 | CurveType::Dilithium5 => {
             address_from_pqc_public_key_bytes(&public_key_bytes)
@@ -108,6 +112,38 @@ pub(super) fn keypair_from_pqc_private_key(
         address,
         curve_type,
     })
+}
+
+pub(super) fn validate_pqc_secret_and_public(
+    secret_bytes: &[u8],
+    public_key_bytes: &[u8],
+    curve_type: CurveType,
+) -> Result<(), KeyError> {
+    let expected_public_key_len = match curve_type {
+        CurveType::Dilithium2 => ML_DSA_44_PUBLIC_KEY_BYTES,
+        CurveType::Dilithium3 => ML_DSA_65_PUBLIC_KEY_BYTES,
+        CurveType::Dilithium5 => ML_DSA_87_PUBLIC_KEY_BYTES,
+        CurveType::SphincsPlusSha256Robust => return Ok(()),
+        _ => return Err(KeyError::InvalidPrivateKey),
+    };
+
+    if public_key_bytes.len() != expected_public_key_len {
+        return Err(KeyError::InvalidPrivateKey);
+    }
+
+    let derived_public_key = match curve_type {
+        CurveType::Dilithium2 => derive_mldsa44_public_key(secret_bytes),
+        CurveType::Dilithium3 => derive_mldsa65_public_key(secret_bytes),
+        CurveType::Dilithium5 => derive_mldsa87_public_key(secret_bytes),
+        _ => return Err(KeyError::InvalidPrivateKey),
+    }
+    .map_err(|_| KeyError::InvalidPrivateKey)?;
+
+    if derived_public_key.as_slice() != public_key_bytes {
+        return Err(KeyError::InvalidPrivateKey);
+    }
+
+    Ok(())
 }
 
 fn pqc_keypair_from_parts(

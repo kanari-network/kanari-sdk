@@ -56,9 +56,18 @@ pub(super) fn keypair_from_hybrid_private_key(
         _ => return Err(KeyError::InvalidPrivateKey),
     };
 
-    let Some((_pqc_secret, pqc_public_key)) = pqc_raw.split_once(':') else {
+    let Some((pqc_secret, pqc_public_key)) = pqc_raw.split_once(':') else {
         return Err(KeyError::InvalidPrivateKey);
     };
+    let pqc_secret_bytes =
+        hex::decode(extract_raw_key(pqc_secret)).map_err(|_| KeyError::InvalidPrivateKey)?;
+    let pqc_public_key_bytes =
+        hex::decode(pqc_public_key).map_err(|_| KeyError::InvalidPrivateKey)?;
+    pqc::validate_pqc_secret_and_public(
+        &pqc_secret_bytes,
+        &pqc_public_key_bytes,
+        CurveType::Dilithium3,
+    )?;
 
     let combined_public = format!("{}:{}", classical_public_key, pqc_public_key);
     let formatted_private_key = if private_key.starts_with(KANAHYBRID_PREFIX) {
