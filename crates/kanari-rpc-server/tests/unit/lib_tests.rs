@@ -702,6 +702,10 @@ async fn anti_spam_router_rejects_over_budget_requests_with_429() {
         .invariant("rate limit body bytes");
     let json: serde_json::Value = serde_json::from_slice(&body).invariant("rate limit json body");
     assert_eq!(json["error"]["code"], -32005);
+    assert_eq!(
+        json["id"], 0,
+        "rate limit response must carry a numeric id (client RpcResponse.id is u64)"
+    );
 
     drop(guard);
 }

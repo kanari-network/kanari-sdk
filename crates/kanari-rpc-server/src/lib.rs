@@ -258,7 +258,11 @@ async fn rate_limit_by_ip(
                     "code": -32005,
                     "message": "Rate limit exceeded; retry later",
                 },
-                "id": null,
+                // RpcResponse.id is a non-optional u64 in the client schema, so
+                // a JSON-RPC null here breaks every client that hits the limit.
+                // Echoing a literal id is the pragmatic choice without buffering
+                // and re-serializing the request body to read the real id.
+                "id": 0,
             })),
         )
             .into_response();
