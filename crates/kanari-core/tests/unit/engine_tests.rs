@@ -2,8 +2,8 @@ use super::BlockchainEngine;
 use super::runtime_guards::strict_guard_required;
 use crate::consensus::Checkpoint;
 use crate::engine::{
-    MAX_PENDING_PER_PRIMARY_ACCESS_LANE, PersistedTransactionLocation, decode_hex_exact,
-    normalize_consensus_authority_id,
+    MAX_PENDING_PER_PRIMARY_ACCESS_LANE, MAX_PENDING_PER_SENDER, PersistedTransactionLocation,
+    decode_hex_exact, normalize_consensus_authority_id,
 };
 use crate::file_io::write_file_atomically;
 use kanari_crypto::keys::{CurveType, generate_keypair};
@@ -2168,6 +2168,60 @@ fn mempool_admission_caps_primary_access_lane_depth() {
     assert_eq!(
         engine.pending_transaction_len() as u64,
         MAX_PENDING_PER_PRIMARY_ACCESS_LANE
+    );
+}
+
+#[test]
+fn mempool_admission_caps_pending_per_sender() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+
+    // Distinct primary coins and distinct gas coins per transaction so the
+    // shared-object lane caps do not saturate before the sender cap.
+    for i in 0..(MAX_PENDING_PER_SENDER + 1) {
+        let coin_object_id = format!("0x{:0>4x}", i + 0x1000);
+        fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
+        let gas_object_id = format!("0x{:0>4x}", i + 0x5000);
+        fund_sender_with_coin(&engine, &sender.address, &gas_object_id, 1_000_000);
+    }
+
+    let mut accepted = Vec::new();
+    for nonce in 0..MAX_PENDING_PER_SENDER {
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        accepted.push(signed_transfer_with_refs(
+            &sender,
+            &recipient.address,
+            &format!("0x{:0>4x}", nonce + 0x1000),
+            1_000_000,
+            &format!("0x{:0>4x}", nonce + 0x5000),
+            1_000_000,
+            nonce,
+        ));
+    }
+
+    engine.submit_transactions_batch(accepted).unwrap();
+    assert_eq!(
+        engine.pending_tx_count_for_sender(&sender.tagged_address()),
+        MAX_PENDING_PER_SENDER
+    );
+
+    let overflow_recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let err = engine
+        .submit_transactions_batch(vec![signed_transfer_with_refs(
+            &sender,
+            &overflow_recipient.address,
+            &format!("0x{:0>4x}", MAX_PENDING_PER_SENDER + 0x1000),
+            1_000_000,
+            &format!("0x{:0>4x}", MAX_PENDING_PER_SENDER + 0x5000),
+            1_000_000,
+            MAX_PENDING_PER_SENDER,
+        )])
+        .unwrap_err();
+
+    assert!(err.to_string().contains("too many pending transactions"));
+    assert_eq!(
+        engine.pending_transaction_len() as u64,
+        MAX_PENDING_PER_SENDER
     );
 }
 
