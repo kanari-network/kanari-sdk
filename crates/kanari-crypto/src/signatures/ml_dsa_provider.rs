@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use ml_dsa::{
     EncodedVerifyingKey, Generate, Keypair as _, MlDsa44, MlDsa65, MlDsa87, Signature, Signer,
     SigningKey, Verifier, VerifyingKey,

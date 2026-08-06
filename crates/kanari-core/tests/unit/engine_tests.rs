@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use super::BlockchainEngine;
 use super::runtime_guards::strict_guard_required;
 use crate::consensus::Checkpoint;

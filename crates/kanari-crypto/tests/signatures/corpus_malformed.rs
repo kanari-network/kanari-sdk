@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use kanari_crypto::{
     CurveType, SignatureError, generate_keypair,
     signatures::{sign_message, verify_signature, verify_signature_with_curve},

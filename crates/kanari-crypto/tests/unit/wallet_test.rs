@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{MIN_RECOMMENDED_PASSWORD_LENGTH, generate_keypair};
 
 use super::*;

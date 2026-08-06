@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use sha3::{Digest, Sha3_256};
 use zeroize::Zeroizing;
 

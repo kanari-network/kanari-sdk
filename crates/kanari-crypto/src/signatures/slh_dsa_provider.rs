@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use slh_dsa::{
     Sha2_256f, Signature, SigningKey, VerifyingKey,
     signature::{Keypair, Signer, Verifier},
