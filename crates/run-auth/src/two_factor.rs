@@ -7,7 +7,7 @@
 //! for enhanced security on user accounts.
 
 use serde::{Deserialize, Serialize};
-use totp_rs::{Algorithm, TOTP};
+use totp_rs::{Algorithm, Builder, Totp, TotpError};
 
 /// 2FA setup information returned after enabling 2FA
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,12 +80,8 @@ impl TotpManager {
         rng.try_fill_bytes(&mut secret_bytes)
             .expect("Failed to generate random bytes");
 
-        // Create TOTP instance with raw bytes
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            6,  // 6 digits
-            1,  // 1 step skew
-            30, // 30 second interval
+        // Create TOTP instance with raw bytes.
+        let totp = build_totp(
             secret_bytes.to_vec(),
             Some(self.issuer.clone()),
             email.to_string(),
@@ -109,7 +105,7 @@ impl TotpManager {
             .collect();
 
         // Get OTPAuth URL
-        let otpauth_url = totp.get_url();
+        let otpauth_url = totp.to_url().expect("Failed to create OTPAuth URL");
 
         // Encode secret as base32 for display
         let secret_b32 = data_encoding::BASE32_NOPAD.encode(&secret_bytes);
@@ -129,16 +125,8 @@ impl TotpManager {
             Err(_) => return false,
         };
 
-        match TOTP::new(
-            Algorithm::SHA1,
-            6,
-            1,
-            30,
-            secret_bytes,
-            Some(self.issuer.clone()),
-            String::new(),
-        ) {
-            Ok(totp) => totp.check_current(code).unwrap_or(false),
+        match build_totp(secret_bytes, Some(self.issuer.clone()), String::new()) {
+            Ok(totp) => totp.check_current(code).is_some(),
             Err(_) => false,
         }
     }
@@ -171,6 +159,22 @@ impl TotpManager {
             Err("Invalid backup code")
         }
     }
+}
+
+fn build_totp(
+    secret: Vec<u8>,
+    issuer: Option<String>,
+    account_name: String,
+) -> Result<Totp, TotpError> {
+    Builder::new()
+        .with_algorithm(Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_secret(secret)
+        .with_issuer(issuer)
+        .with_account_name(account_name)
+        .build()
 }
 
 #[cfg(test)]
@@ -215,17 +219,13 @@ mod tests {
         let secret_bytes = data_encoding::BASE32_NOPAD
             .decode(setup.secret.as_bytes())
             .unwrap();
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            6,
-            1,
-            30,
+        let totp = build_totp(
             secret_bytes,
             Some("Test".to_string()),
             "test@example.com".to_string(),
         )
         .unwrap();
-        let code = totp.generate_current().unwrap();
+        let code = totp.generate_current().to_string();
 
         assert!(manager.verify_code(&setup.secret, &code));
 
