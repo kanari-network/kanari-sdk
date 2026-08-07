@@ -665,6 +665,29 @@ async fn rate_limiter_resets_after_window_elapses() {
 }
 
 #[tokio::test]
+async fn rate_limiter_hard_bounds_ip_map_under_distributed_flood() {
+    let limiter = RpcRateLimiter::default();
+    // Keep every window active within the same second so expired-window
+    // pruning alone cannot shrink the map; oldest-entry eviction must bound it.
+    for i in 0..RPC_RATE_LIMITER_MAX_TRACKED_IPS + 1024 {
+        let ip = IpAddr::from([10, (i >> 8) as u8, (i & 0xff) as u8, 1]);
+        assert!(
+            limiter.allow(ip),
+            "a fresh source must still be admitted exactly once at capacity"
+        );
+    }
+    let tracked = limiter
+        .windows
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .len();
+    assert!(
+        tracked <= RPC_RATE_LIMITER_MAX_TRACKED_IPS,
+        "tracked IP map grew past its hard bound: {tracked}"
+    );
+}
+
+#[tokio::test]
 async fn anti_spam_router_rejects_over_budget_requests_with_429() {
     let guard = test_guard().await;
     let app = build_anti_spam_test_router();

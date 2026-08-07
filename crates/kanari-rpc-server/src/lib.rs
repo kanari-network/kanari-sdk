@@ -211,11 +211,27 @@ impl RpcRateLimiter {
             .windows
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS {
+        if windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS && !windows.contains_key(&ip) {
             // Opportunistically drop expired windows so a long-lived public
             // node does not accumulate one entry per source address forever.
             windows
                 .retain(|_, window| now.duration_since(window.started_at) < RPC_RATE_LIMIT_WINDOW);
+            // A distributed flood can keep every tracked window active within
+            // the same second, so expired-window pruning alone cannot shrink
+            // the map. Evict the oldest source so memory stays hard-bounded
+            // regardless of how many distinct addresses arrive.
+            while windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS {
+                let oldest = windows
+                    .iter()
+                    .min_by_key(|(_, window)| window.started_at)
+                    .map(|(addr, _)| *addr);
+                match oldest {
+                    Some(addr) => {
+                        windows.remove(&addr);
+                    }
+                    None => break,
+                }
+            }
         }
         let window = windows.entry(ip).or_insert(RateWindow {
             started_at: now,
