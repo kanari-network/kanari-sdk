@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use kanari_crypto::{
-    HashAlgorithm, hash_data, hash_data_blake3, hash_data_sha3_512, hash_data_shake256,
-    hash_data_shake256_custom, hash_data_with_algorithm,
+    HashAlgorithm, hash_data, hash_data_blake3, hash_data_blake3_array, hash_data_blake3_chunks,
+    hash_data_blake3_chunks_array, hash_data_sha3_256_chunks, hash_data_sha3_512,
+    hash_data_sha3_512_chunks, hash_data_shake256, hash_data_shake256_chunks,
+    hash_data_shake256_custom, hash_data_shake256_custom_chunks, hash_data_with_algorithm,
+    hash_data_with_algorithm_chunks,
 };
 
 #[test]
@@ -69,4 +72,69 @@ fn supported_hashes_are_deterministic_and_domain_distinct() {
     assert_ne!(sha3_256_a, blake3);
     assert_ne!(sha3_256_a, shake256);
     assert_ne!(blake3, shake256);
+}
+
+#[test]
+fn blake3_chunked_hash_matches_materialized_input() {
+    let chunks: [&[u8]; 4] = [b"\x00", b"key-hash", b":", b"value"];
+    let mut materialized = Vec::new();
+    for chunk in chunks {
+        materialized.extend_from_slice(chunk);
+    }
+
+    assert_eq!(
+        hash_data_blake3_chunks(&chunks),
+        hash_data_blake3(&materialized)
+    );
+    assert_eq!(
+        hash_data_blake3_chunks_array(&chunks),
+        hash_data_blake3_array(&materialized)
+    );
+    assert_eq!(
+        hash_data_blake3_chunks_array(&chunks).to_vec(),
+        hash_data_blake3(&materialized)
+    );
+}
+
+#[test]
+fn chunked_hashes_match_materialized_input_for_all_algorithms() {
+    let chunks: [&[u8]; 5] = [b"kanari", b":", b"hash", b":", b"chunks"];
+    let mut materialized = Vec::new();
+    for chunk in chunks {
+        materialized.extend_from_slice(chunk);
+    }
+
+    assert_eq!(hash_data_sha3_256_chunks(&chunks), hash_data(&materialized));
+    assert_eq!(
+        hash_data_sha3_512_chunks(&chunks),
+        hash_data_sha3_512(&materialized)
+    );
+    assert_eq!(
+        hash_data_shake256_chunks(&chunks),
+        hash_data_shake256(&materialized)
+    );
+    assert_eq!(
+        hash_data_shake256_custom_chunks(&chunks, 64),
+        hash_data_shake256_custom(&materialized, 64)
+    );
+
+    for algorithm in [
+        HashAlgorithm::Sha3_256,
+        HashAlgorithm::Sha3_512,
+        HashAlgorithm::Blake3,
+        HashAlgorithm::Shake256,
+    ] {
+        assert_eq!(
+            hash_data_with_algorithm_chunks(&chunks, algorithm),
+            hash_data_with_algorithm(&materialized, algorithm)
+        );
+    }
+}
+
+#[test]
+fn root_hash_exports_stay_compatible_with_module_paths() {
+    let data = b"module path compatibility";
+
+    assert_eq!(kanari_crypto::hashs::hash_data(data), hash_data(data));
+    assert_eq!(kanari_crypto::hash::hash_data(data), hash_data(data));
 }

@@ -132,6 +132,7 @@ pub mod audit;
 pub mod backup;
 pub mod compression;
 pub mod encryption;
+pub mod hashs;
 pub mod hd_wallet;
 pub mod key_rotation;
 pub mod keys;
@@ -206,94 +207,15 @@ pub use audit::{
 // Re-export backup functionality
 pub use backup::{BackupError, BackupInfo, BackupManager, BackupMetadata, EncryptedBackup};
 
-/// Hash algorithm options (including quantum-resistant)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum HashAlgorithm {
-    /// SHA3-256 algorithm (default, quantum-resistant)
-    #[default]
-    Sha3_256,
-    /// SHA3-512 algorithm (higher security, quantum-resistant)
-    Sha3_512,
-    /// Blake3 algorithm (faster, equally secure)
-    Blake3,
-    /// SHAKE256 (extendable output, quantum-resistant)
-    Shake256,
-}
-
-/// Cryptographic hash using SHA3-256 (default)
-#[must_use]
-pub fn hash_data(data: &[u8]) -> Vec<u8> {
-    hash_data_with_algorithm(data, HashAlgorithm::Sha3_256)
-}
-
-/// Cryptographic hash using SHA3-512 (quantum-resistant, 512-bit)
-#[must_use]
-pub fn hash_data_sha3_512(data: &[u8]) -> Vec<u8> {
-    hash_data_with_algorithm(data, HashAlgorithm::Sha3_512)
-}
-
-/// Cryptographic hash using Blake3 (faster alternative)
-#[must_use]
-pub fn hash_data_blake3(data: &[u8]) -> Vec<u8> {
-    hash_data_with_algorithm(data, HashAlgorithm::Blake3)
-}
-
-/// Cryptographic hash using SHAKE256 with 256-bit output (quantum-resistant)
-#[must_use]
-pub fn hash_data_shake256(data: &[u8]) -> Vec<u8> {
-    hash_data_with_algorithm(data, HashAlgorithm::Shake256)
-}
-
-/// Cryptographic hash using SHAKE256 with custom output length
-#[must_use]
-pub fn hash_data_shake256_custom(data: &[u8], output_len: usize) -> Vec<u8> {
-    use sha3::{
-        Shake256,
-        digest::{ExtendableOutput, Update, XofReader},
-    };
-    let mut hasher = Shake256::default();
-    hasher.update(data);
-    let mut reader = hasher.finalize_xof();
-    let mut output = vec![0u8; output_len];
-    reader.read(&mut output);
-    output
-}
-
-/// Cryptographic hash using the specified algorithm
-#[must_use]
-pub fn hash_data_with_algorithm(data: &[u8], algorithm: HashAlgorithm) -> Vec<u8> {
-    match algorithm {
-        HashAlgorithm::Sha3_256 => {
-            use sha3::{Digest, Sha3_256};
-            let mut hasher = Sha3_256::new();
-            hasher.update(data);
-            hasher.finalize().to_vec()
-        }
-        HashAlgorithm::Sha3_512 => {
-            use sha3::{Digest, Sha3_512};
-            let mut hasher = Sha3_512::new();
-            hasher.update(data);
-            hasher.finalize().to_vec()
-        }
-        HashAlgorithm::Blake3 => {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(data);
-            hasher.finalize().as_bytes().to_vec()
-        }
-        HashAlgorithm::Shake256 => {
-            use sha3::{
-                Shake256,
-                digest::{ExtendableOutput, Update, XofReader},
-            };
-            let mut hasher = Shake256::default();
-            hasher.update(data);
-            let mut reader = hasher.finalize_xof();
-            let mut output = vec![0u8; 32]; // 256-bit default
-            reader.read(&mut output);
-            output
-        }
-    }
-}
+// Re-export hash functionality
+pub use hashs as hash;
+pub use hashs::{
+    HashAlgorithm, hash_data, hash_data_blake3, hash_data_blake3_array, hash_data_blake3_chunks,
+    hash_data_blake3_chunks_array, hash_data_sha3_256_chunks, hash_data_sha3_512,
+    hash_data_sha3_512_chunks, hash_data_shake256, hash_data_shake256_chunks,
+    hash_data_shake256_custom, hash_data_shake256_custom_chunks, hash_data_with_algorithm,
+    hash_data_with_algorithm_chunks,
+};
 
 // Add constant for recommended password length
 pub const MIN_RECOMMENDED_PASSWORD_LENGTH: usize = 16; // Increased for quantum era

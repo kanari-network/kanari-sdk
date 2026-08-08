@@ -464,13 +464,9 @@ mod tests {
             assert!(!signature.is_empty(), "test requires a non-empty signature");
             signature.truncate(signature.len() - 1);
 
-            let verified = verify_signature_with_curve(
-                &keypair.public_key,
-                message,
-                &signature,
-                curve,
-            )
-            .unwrap_or(false);
+            let verified =
+                verify_signature_with_curve(&keypair.public_key, message, &signature, curve)
+                    .unwrap_or(false);
             assert!(
                 !verified,
                 "truncated signature unexpectedly verified for {curve:?}"
