@@ -3,7 +3,8 @@
 
 use kanari_crypto::{
     HashAlgorithm, hash_data, hash_data_blake3, hash_data_blake3_array, hash_data_blake3_chunks,
-    hash_data_blake3_chunks_array, hash_data_sha3_256_chunks, hash_data_sha3_512,
+    hash_data_blake3_chunks_array, hash_data_sha2_256, hash_data_sha2_256_chunks,
+    hash_data_sha2_512, hash_data_sha2_512_chunks, hash_data_sha3_256_chunks, hash_data_sha3_512,
     hash_data_sha3_512_chunks, hash_data_shake256, hash_data_shake256_chunks,
     hash_data_shake256_custom, hash_data_shake256_custom_chunks, hash_data_with_algorithm,
     hash_data_with_algorithm_chunks,
@@ -29,6 +30,14 @@ fn named_hash_wrappers_match_explicit_algorithm_dispatch() {
         hash_data_with_algorithm(data, HashAlgorithm::Sha3_512)
     );
     assert_eq!(
+        hash_data_sha2_256(data),
+        hash_data_with_algorithm(data, HashAlgorithm::Sha2_256)
+    );
+    assert_eq!(
+        hash_data_sha2_512(data),
+        hash_data_with_algorithm(data, HashAlgorithm::Sha2_512)
+    );
+    assert_eq!(
         hash_data_blake3(data),
         hash_data_with_algorithm(data, HashAlgorithm::Blake3)
     );
@@ -43,8 +52,10 @@ fn hash_output_lengths_are_contractual_for_callers() {
     let data = b"length compatibility";
 
     assert_eq!(hash_data(data).len(), 32);
+    assert_eq!(hash_data_sha2_256(data).len(), 32);
     assert_eq!(hash_data_blake3(data).len(), 32);
     assert_eq!(hash_data_shake256(data).len(), 32);
+    assert_eq!(hash_data_sha2_512(data).len(), 64);
     assert_eq!(hash_data_sha3_512(data).len(), 64);
     assert_eq!(hash_data_shake256_custom(data, 64).len(), 64);
 }
@@ -65,12 +76,16 @@ fn supported_hashes_are_deterministic_and_domain_distinct() {
 
     let sha3_256_a = hash_data(data);
     let sha3_256_b = hash_data(data);
+    let sha2_256 = hash_data_sha2_256(data);
     let blake3 = hash_data_blake3(data);
     let shake256 = hash_data_shake256(data);
 
     assert_eq!(sha3_256_a, sha3_256_b);
+    assert_ne!(sha3_256_a, sha2_256);
     assert_ne!(sha3_256_a, blake3);
     assert_ne!(sha3_256_a, shake256);
+    assert_ne!(sha2_256, blake3);
+    assert_ne!(sha2_256, shake256);
     assert_ne!(blake3, shake256);
 }
 
@@ -104,6 +119,14 @@ fn chunked_hashes_match_materialized_input_for_all_algorithms() {
         materialized.extend_from_slice(chunk);
     }
 
+    assert_eq!(
+        hash_data_sha2_256_chunks(&chunks),
+        hash_data_sha2_256(&materialized)
+    );
+    assert_eq!(
+        hash_data_sha2_512_chunks(&chunks),
+        hash_data_sha2_512(&materialized)
+    );
     assert_eq!(hash_data_sha3_256_chunks(&chunks), hash_data(&materialized));
     assert_eq!(
         hash_data_sha3_512_chunks(&chunks),
@@ -119,6 +142,8 @@ fn chunked_hashes_match_materialized_input_for_all_algorithms() {
     );
 
     for algorithm in [
+        HashAlgorithm::Sha2_256,
+        HashAlgorithm::Sha2_512,
         HashAlgorithm::Sha3_256,
         HashAlgorithm::Sha3_512,
         HashAlgorithm::Blake3,

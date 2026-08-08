@@ -17,6 +17,7 @@ bip39.workspace = true
 k256 = { workspace = true, features = ["ecdsa", "std"] }
 p256 = { workspace = true, features = ["ecdsa", "std"] }
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
+sha2.workspace = true
 sha3.workspace = true
 zstd.workspace = true
 hmac.workspace = true

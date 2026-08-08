@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod blake3;
+pub mod sha2;
 pub mod sha3;
 pub mod shake256;
 
 pub use blake3::{
     hash_data_blake3, hash_data_blake3_array, hash_data_blake3_chunks,
     hash_data_blake3_chunks_array,
+};
+pub use sha2::{
+    hash_data_sha2_256, hash_data_sha2_256_chunks, hash_data_sha2_512, hash_data_sha2_512_chunks,
 };
 pub use sha3::{hash_data_sha3_256_chunks, hash_data_sha3_512, hash_data_sha3_512_chunks};
 pub use shake256::{
@@ -18,6 +22,10 @@ pub use shake256::{
 /// Hash algorithm options (including quantum-resistant)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HashAlgorithm {
+    /// SHA2-256 algorithm (widely compatible classical hash)
+    Sha2_256,
+    /// SHA2-512 algorithm (widely compatible classical hash, 512-bit output)
+    Sha2_512,
     /// SHA3-256 algorithm (default, quantum-resistant)
     #[default]
     Sha3_256,
@@ -45,6 +53,8 @@ pub fn hash_data_with_algorithm(data: &[u8], algorithm: HashAlgorithm) -> Vec<u8
 #[must_use]
 pub fn hash_data_with_algorithm_chunks(chunks: &[&[u8]], algorithm: HashAlgorithm) -> Vec<u8> {
     match algorithm {
+        HashAlgorithm::Sha2_256 => hash_data_sha2_256_chunks(chunks),
+        HashAlgorithm::Sha2_512 => hash_data_sha2_512_chunks(chunks),
         HashAlgorithm::Sha3_256 => hash_data_sha3_256_chunks(chunks),
         HashAlgorithm::Sha3_512 => hash_data_sha3_512_chunks(chunks),
         HashAlgorithm::Blake3 => hash_data_blake3_chunks(chunks),

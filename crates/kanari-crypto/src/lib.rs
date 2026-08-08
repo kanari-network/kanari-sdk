@@ -211,7 +211,8 @@ pub use backup::{BackupError, BackupInfo, BackupManager, BackupMetadata, Encrypt
 pub use hashs as hash;
 pub use hashs::{
     HashAlgorithm, hash_data, hash_data_blake3, hash_data_blake3_array, hash_data_blake3_chunks,
-    hash_data_blake3_chunks_array, hash_data_sha3_256_chunks, hash_data_sha3_512,
+    hash_data_blake3_chunks_array, hash_data_sha2_256, hash_data_sha2_256_chunks,
+    hash_data_sha2_512, hash_data_sha2_512_chunks, hash_data_sha3_256_chunks, hash_data_sha3_512,
     hash_data_sha3_512_chunks, hash_data_shake256, hash_data_shake256_chunks,
     hash_data_shake256_custom, hash_data_shake256_custom_chunks, hash_data_with_algorithm,
     hash_data_with_algorithm_chunks,
