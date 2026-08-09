@@ -9,3 +9,6 @@ mod corpus_import_policy;
 
 #[path = "key/import_policy.rs"]
 mod import_policy;
+
+#[path = "key/metadata_policy.rs"]
+mod metadata_policy;

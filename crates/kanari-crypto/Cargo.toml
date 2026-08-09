@@ -16,7 +16,7 @@ bip39.workspace = true
 # Core crypto libraries
 k256 = { workspace = true, features = ["ecdsa", "std"] }
 p256 = { workspace = true, features = ["ecdsa", "std"] }
-ed25519-dalek = { workspace = true, features = ["rand_core"] }
+ed25519-dalek = { workspace = true, features = ["rand_core", "batch"] }
 secp256k1 = { workspace = true, features = ["recovery", "rand", "global-context"] }
 rsa = { workspace = true, features = ["hazmat", "sha2"] }
 sha2.workspace = true
@@ -24,6 +24,7 @@ sha3.workspace = true
 shake.workspace = true
 zstd.workspace = true
 hmac.workspace = true
+rayon.workspace = true
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
 ml-dsa = { workspace = true, optional = true } # Pure Rust FIPS 204 ML-DSA provider
@@ -65,6 +66,10 @@ move-core-types = { workspace = true }
 [dev-dependencies]
 proptest.workspace = true
 tempfile = { workspace = true }
+
+[[bench]]
+name = "signature_schemes"
+harness = false
 
 [features]
 # keep blake3 optional in Cargo.toml but enable it in the crate default features

@@ -177,6 +177,11 @@ pub fn verify_p256_sha256_native(
 }
 
 #[must_use]
+/// Verify an RS256/PKCS#1 v1.5 SHA-256 signature for Move compatibility.
+///
+/// This helper performs public-key verification only. It must not be extended
+/// to perform RSA private-key decryption or signing with the current `rsa`
+/// provider while RustSec RUSTSEC-2023-0071 remains unresolved upstream.
 pub fn verify_rs256_prehash_native(
     modulus_n: &[u8],
     exponent_e: &[u8],

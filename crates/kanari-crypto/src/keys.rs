@@ -48,18 +48,28 @@ use rand::TryRng;
 use rand::rngs::SysRng;
 use std::fmt;
 use std::str::FromStr;
-use subtle::ConstantTimeEq;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
 mod classical;
+mod format;
 mod hybrid;
+mod metadata;
 mod pqc;
 
 pub use classical::generate_ed25519_keypair;
+pub use format::{
+    KANAFALCON_PREFIX, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX, KANARI_KEY_PREFIX,
+    KANASLHDSA_PREFIX, extract_raw_key, format_private_key,
+};
+pub(super) use format::{
+    MAX_FORMATTED_PRIVATE_KEY_LEN, constant_time_starts_with, secure_hex_encode,
+    skip_uncompressed_point_prefix,
+};
 pub use hybrid::{
     generate_hybrid_ed25519_dilithium3_keypair, generate_hybrid_k256_dilithium3_keypair,
 };
+pub use metadata::{AlgorithmFamily, AlgorithmMetadata, UsageProfile};
 
 /// Supported cryptographic algorithms (Classical + Post-Quantum)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -288,96 +298,6 @@ impl KeyPair {
     }
 }
 
-/// Prefix used for Kanari private keys
-pub const KANARI_KEY_PREFIX: &str = "kanari";
-
-/// Additional known prefixes
-pub const KANAPQC_PREFIX: &str = "kanapqc";
-pub const KANAMLDSA_PREFIX: &str = "kanamldsa";
-pub const KANASLHDSA_PREFIX: &str = "kanaslh";
-pub const KANAFALCON_PREFIX: &str = "kanafalcon";
-pub const KANAHYBRID_PREFIX: &str = "kanahybrid";
-const MAX_FORMATTED_PRIVATE_KEY_LEN: usize = 128 * 1024;
-
-// ============================================================================
-// SECURITY HELPER FUNCTIONS (Timing Attack Prevention & Memory Safety)
-// ============================================================================
-
-/// Securely encode bytes to hex string using a zeroizing buffer
-/// This prevents intermediate allocations from leaking sensitive data in memory dumps
-fn secure_hex_encode(bytes: &[u8]) -> Zeroizing<String> {
-    // Pre-allocate with exact capacity needed (2 chars per byte)
-    let mut result = String::with_capacity(bytes.len() * 2);
-
-    // Use lookup table approach for constant-time-ish encoding
-    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-
-    for &byte in bytes {
-        result.push(HEX_CHARS[(byte >> 4) as usize] as char);
-        result.push(HEX_CHARS[(byte & 0x0F) as usize] as char);
-    }
-
-    Zeroizing::new(result)
-}
-
-/// Constant-time check if a string starts with a given prefix
-/// Prevents timing attacks that could leak information about key formats
-fn constant_time_starts_with(s: &str, prefix: &str) -> bool {
-    // Get bytes for comparison
-    let s_bytes = s.as_bytes();
-    let prefix_bytes = prefix.as_bytes();
-
-    // If prefix is longer than the string, it can't match
-    if prefix_bytes.len() > s_bytes.len() {
-        return false;
-    }
-
-    // Compare only the relevant portion in constant time
-    let s_prefix = &s_bytes[..prefix_bytes.len()];
-
-    // Use subtle crate's constant-time equality check
-    s_prefix.ct_eq(prefix_bytes).into()
-}
-
-/// Format a raw hex private key with the Kanari prefix
-pub fn format_private_key(raw_key: &str) -> String {
-    format!("{}{}", KANARI_KEY_PREFIX, raw_key)
-}
-
-/// Extract the raw hex key from a formatted private key using constant-time comparison
-pub fn extract_raw_key(formatted_key: &str) -> &str {
-    // Use constant-time checks to prevent timing leaks
-    if constant_time_starts_with(formatted_key, KANAHYBRID_PREFIX) {
-        &formatted_key[KANAHYBRID_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) {
-        &formatted_key[KANAMLDSA_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) {
-        &formatted_key[KANASLHDSA_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAFALCON_PREFIX) {
-        &formatted_key[KANAFALCON_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAPQC_PREFIX) {
-        &formatted_key[KANAPQC_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) {
-        &formatted_key[KANARI_KEY_PREFIX.len()..]
-    } else {
-        formatted_key
-    }
-}
-
-/// Skip the uncompressed EC point prefix (0x04) safely.
-fn skip_uncompressed_point_prefix(bytes: &[u8]) -> &[u8] {
-    // Check length before accessing to prevent buffer overread
-    if bytes.is_empty() {
-        return bytes;
-    }
-
-    if bytes[0] == 0x04 && bytes.len() > 1 {
-        &bytes[1..]
-    } else {
-        bytes
-    }
-}
-
 /// Generate a keypair for the specified curve type
 pub fn generate_keypair(curve_type: CurveType) -> Result<KeyPair, KeyError> {
     match curve_type {
@@ -449,7 +369,7 @@ pub fn generate_mnemonic(word_count: usize) -> Result<String, KeyError> {
 
     SysRng
         .try_fill_bytes(&mut entropy)
-        .expect("Failed to get OS randomness");
+        .map_err(|e| KeyError::GenerationFailed(format!("Failed to get OS randomness: {e}")))?;
 
     let mnemonic =
         Mnemonic::from_entropy(&entropy).map_err(|e| KeyError::GenerationFailed(e.to_string()))?;

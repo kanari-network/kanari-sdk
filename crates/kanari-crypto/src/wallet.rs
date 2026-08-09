@@ -10,42 +10,33 @@ use crate::keys::{
     CurveType, KANAFALCON_PREFIX, KANAHYBRID_PREFIX, KANAMLDSA_PREFIX, KANAPQC_PREFIX,
     KANARI_KEY_PREFIX, KANASLHDSA_PREFIX, keypair_from_private_key,
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::io;
 use std::str::FromStr;
 use thiserror::Error;
 
-use kanari_common::{get_active_address, set_active_address};
 use move_core_types::account_address::AccountAddress;
 use toml; // Ensure toml is imported for serialization/deserialization
 
 use crate::Keystore;
 use crate::compression;
 use crate::encryption;
-use crate::hd_wallet::{self, HdError};
+use crate::hd_wallet::HdError;
 use crate::signatures; // ADDED: Import hd_wallet module
 use zeroize;
 
+mod config;
+mod hd;
+mod serde_zeroizing;
 mod validation;
 
-// Helper functions for serializing/deserializing Zeroizing<String>
-fn serialize_zeroizing<S>(
-    value: &zeroize::Zeroizing<String>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(value.as_str())
-}
-
-fn deserialize_zeroizing<'de, D>(deserializer: D) -> Result<zeroize::Zeroizing<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Ok(zeroize::Zeroizing::new(s))
-}
+pub use config::{
+    check_wallet_exists, get_selected_wallet, list_wallet_files, set_selected_wallet,
+};
+pub use hd::{
+    check_mnemonic_exists, create_hd_wallet, create_wallet_from_hd, get_mnemonic_addresses,
+    load_mnemonic, remove_mnemonic, save_hd_wallet, save_mnemonic,
+};
 
 /// Errors that can occur during wallet operations
 #[derive(Error, Debug)]
@@ -104,15 +95,15 @@ pub struct Wallet {
     /// Private key wrapped in Zeroizing to clear memory on drop
     #[serde(skip_serializing_if = "String::is_empty", default)]
     #[serde(
-        serialize_with = "serialize_zeroizing",
-        deserialize_with = "deserialize_zeroizing"
+        serialize_with = "serde_zeroizing::serialize",
+        deserialize_with = "serde_zeroizing::deserialize"
     )]
     pub private_key: zeroize::Zeroizing<String>,
     /// Seed phrase wrapped in Zeroizing to clear memory on drop
     #[serde(skip_serializing_if = "String::is_empty", default)]
     #[serde(
-        serialize_with = "serialize_zeroizing",
-        deserialize_with = "deserialize_zeroizing"
+        serialize_with = "serde_zeroizing::serialize",
+        deserialize_with = "serde_zeroizing::deserialize"
     )]
     pub seed_phrase: zeroize::Zeroizing<String>,
     /// Optional derivation path (e.g. "m/44'/637'/0'/0/0") for HD wallets
@@ -324,7 +315,7 @@ pub fn save_wallet(
         .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
 
     // Also update the active_address in kanari.yaml
-    set_active_address(&address_str)?;
+    set_selected_wallet(&address_str)?;
 
     Ok(())
 }
@@ -432,220 +423,6 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
             e
         ))),
     }
-}
-
-// =========================================================================
-// HD Wallet Functionality
-// =========================================================================
-
-/// Create a child wallet derived from the stored mnemonic at the given path.
-/// The created wallet is automatically saved to the keystore and set as active.
-pub fn create_wallet_from_hd(
-    password: &str,
-    derivation_path: &str,
-    curve: CurveType,
-) -> Result<Wallet, WalletError> {
-    // Backwards-compatible helper: create + save. Delegate to new helpers.
-    let wallet = create_hd_wallet(password, derivation_path, curve)?;
-    save_hd_wallet(&wallet, password)?;
-    Ok(wallet)
-}
-
-/// Create (but do not persist) a child wallet derived from the stored mnemonic
-/// at the given BIP32 derivation path. Returns the constructed Wallet.
-pub fn create_hd_wallet(
-    password: &str,
-    derivation_path: &str,
-    curve: CurveType,
-) -> Result<Wallet, WalletError> {
-    // Load mnemonic and derive keypair
-    let mnemonic_phrase = load_mnemonic(password)?;
-
-    let key_pair =
-        hd_wallet::derive_keypair_from_path(&mnemonic_phrase, password, derivation_path, curve)?;
-
-    // Convert the derived address string into an AccountAddress type
-    let address = AccountAddress::from_str(&key_pair.address)
-        .map_err(|e| WalletError::SerializationError(format!("Invalid derived address: {e}")))?;
-
-    // Construct Wallet; store the derivation path in the seed_phrase field
-    let priv_key = {
-        let zk = key_pair.export_private_key_secure();
-        zk.to_string()
-    };
-
-    // Store the derivation path in the new `derivation_path` field and keep
-    // `seed_phrase` empty to avoid confusion.
-    let wallet = Wallet::new(
-        address,
-        priv_key,
-        String::new(),
-        Some(derivation_path.to_string()),
-        curve,
-    );
-
-    Ok(wallet)
-}
-
-/// Persist a previously-created HD child wallet into the keystore using
-/// the standard `save_wallet` path.
-pub fn save_hd_wallet(wallet: &Wallet, password: &str) -> Result<(), WalletError> {
-    save_wallet(
-        &wallet.address,
-        &wallet.private_key,
-        &wallet.seed_phrase,
-        wallet.derivation_path.as_deref(),
-        password,
-        wallet.curve_type,
-    )
-}
-
-// =========================================================================
-// Mnemonic Management Functions
-// =========================================================================
-
-/// Save mnemonic phrase to keystore
-pub fn save_mnemonic(
-    mnemonic: &str,
-    password: &str,
-    addresses: Vec<String>,
-) -> Result<(), WalletError> {
-    validation::validate_storage_password(password)?;
-
-    if mnemonic.is_empty() {
-        return Err(WalletError::EncryptionError(
-            "Empty mnemonic not allowed".to_string(),
-        ));
-    }
-
-    // Validate mnemonic size before compression to prevent DoS
-    const MAX_MNEMONIC_SIZE: usize = 10240; // 10KB should be more than enough for any mnemonic
-    if mnemonic.len() > MAX_MNEMONIC_SIZE {
-        return Err(WalletError::SerializationError(format!(
-            "Mnemonic data too large: {} bytes (max: {})",
-            mnemonic.len(),
-            MAX_MNEMONIC_SIZE
-        )));
-    }
-
-    // Compress mnemonic before encryption
-    let compressed_data = compression::compress_data(mnemonic.as_bytes())
-        .map_err(|e| WalletError::SerializationError(format!("Compression error: {e}")))?;
-
-    // Encrypt the mnemonic
-    let encrypted_data = encryption::encrypt_data(&compressed_data, password)
-        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
-
-    // Load keystore and save mnemonic
-    let mut keystore = Keystore::load().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    keystore
-        .set_mnemonic(encrypted_data, addresses)
-        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    Ok(())
-}
-
-/// Load mnemonic phrase from keystore
-pub fn load_mnemonic(password: &str) -> Result<String, WalletError> {
-    // Validate inputs
-    if password.is_empty() {
-        return Err(WalletError::InvalidPassword);
-    }
-
-    // Load keystore
-    let keystore = Keystore::load().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    // Get encrypted mnemonic
-    let encrypted_data = keystore
-        .get_mnemonic()
-        .ok_or_else(|| WalletError::NotFound("Mnemonic not found".to_string()))?;
-
-    // Decrypt mnemonic
-    let decrypted = encryption::decrypt_data(encrypted_data, password)
-        .map_err(|_| WalletError::InvalidPassword)?;
-
-    // Decompress the decrypted data
-    let decompressed_data = compression::decompress_data(&decrypted)
-        .map_err(|e| WalletError::DecryptionError(format!("Failed to decompress mnemonic: {e}")))?;
-
-    // Convert to string
-    String::from_utf8(decompressed_data)
-        .map_err(|e| WalletError::DecryptionError(format!("Invalid UTF-8 in mnemonic: {e}")))
-}
-
-/// Get addresses derived from mnemonic
-pub fn get_mnemonic_addresses() -> Result<Vec<String>, WalletError> {
-    let keystore = Keystore::load().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    // Clone is necessary here since we're borrowing from keystore
-    Ok(keystore.get_mnemonic_addresses().clone())
-}
-
-/// Check if mnemonic exists in keystore
-#[must_use]
-pub fn check_mnemonic_exists() -> bool {
-    Keystore::load().is_ok_and(|keystore| keystore.has_mnemonic())
-}
-
-/// Remove mnemonic from keystore
-pub fn remove_mnemonic() -> Result<(), WalletError> {
-    let mut keystore = Keystore::load().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    keystore
-        .remove_mnemonic()
-        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-
-    Ok(())
-}
-
-// =========================================================================
-// Utility and Configuration Functions
-// =========================================================================
-
-/// Check if any wallets exist
-#[must_use]
-pub fn check_wallet_exists() -> bool {
-    Keystore::load().is_ok_and(|keystore| !keystore.list_wallets().is_empty())
-}
-
-/// List all available wallets with selection status
-pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
-    // Get currently selected wallet
-    let selected = get_selected_wallet().unwrap_or_default();
-    let mut wallets = Vec::new();
-
-    // Load the keystore
-    match Keystore::load() {
-        Ok(keystore) => {
-            // Return addresses from the keystore
-            for address in keystore.list_wallets() {
-                let is_selected = address == selected;
-                wallets.push((address, is_selected));
-            }
-
-            // Sort wallets alphabetically
-            wallets.sort_by(|a, b| a.0.cmp(&b.0));
-
-            Ok(wallets)
-        }
-        Err(e) => Err(io::Error::other(format!("Failed to load keystore: {e}"))),
-    }
-}
-
-/// Set the currently selected wallet address in configuration
-pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
-    // Clean address
-    let formatted_address = wallet_address.to_string();
-
-    // Update active_address in kanari.yaml
-    set_active_address(&formatted_address)
-}
-
-/// Get the currently selected wallet from configuration
-#[must_use]
-pub fn get_selected_wallet() -> Option<String> {
-    get_active_address()
 }
 
 #[cfg(test)]
