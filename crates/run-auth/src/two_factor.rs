@@ -119,6 +119,10 @@ impl TotpManager {
 
     /// Verify a TOTP code against a secret
     pub fn verify_code(&self, secret: &str, code: &str) -> bool {
+        if !is_valid_totp_code(code) {
+            return false;
+        }
+
         // Parse the base32 secret back to bytes
         let secret_bytes = match data_encoding::BASE32_NOPAD.decode(secret.as_bytes()) {
             Ok(bytes) => bytes,
@@ -159,6 +163,10 @@ impl TotpManager {
             Err("Invalid backup code")
         }
     }
+}
+
+fn is_valid_totp_code(code: &str) -> bool {
+    code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn build_totp(
@@ -235,5 +243,20 @@ mod tests {
             .unwrap();
         assert!(matches!(method, VerificationMethod::BackupCode));
         assert_eq!(backup_codes.len(), 9);
+        assert!(
+            manager
+                .consume_backup_code(&mut backup_codes, &setup.backup_codes[0])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_totp_codes_before_verification() {
+        let manager = TotpManager::new(Some("Test".to_string()));
+        let setup = manager.generate_setup("test@example.com");
+
+        for code in ["", "12345", "1234567", "12345a", "１２３４５６"] {
+            assert!(!manager.verify_code(&setup.secret, code));
+        }
     }
 }
