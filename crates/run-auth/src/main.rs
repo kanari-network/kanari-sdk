@@ -234,9 +234,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "3000".to_string())
         .parse::<u16>()?;
 
-    let bind_address =
-        std::env::var("AUTH_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let bind_address = std::env::var("AUTH_BIND_ADDRESS")
+        .or_else(|_| std::env::var("AUTH_HOST"))
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
     let addr = format!("{}:{}", bind_address, port);
+    if bind_address == "0.0.0.0" || bind_address == "::" {
+        tracing::warn!(
+            "Kanari Auth API is binding to all interfaces. Use this only on a trusted LAN or behind a firewall/reverse proxy."
+        );
+    }
     tracing::info!("Kanari Auth API listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
