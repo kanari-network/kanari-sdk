@@ -14,10 +14,10 @@ use thiserror::Error;
 
 use crate::Keystore;
 use crate::encryption::{EncryptedData, decrypt_data, encrypt_data};
-use hmac::{Hmac, KeyInit, Mac};
-use sha3::Sha3_256;
+use hmac::{KeyInit, Mac, SimpleHmac};
+use sha3::{Digest, Sha3_256};
 
-type HmacSha3_256 = Hmac<Sha3_256>;
+type HmacSha3_256 = SimpleHmac<Sha3_256>;
 
 /// Errors related to backup/restore operations
 #[derive(Error, Debug)]
@@ -142,7 +142,6 @@ impl BackupManager {
         let password_zero = zeroize::Zeroizing::new(password.as_bytes().to_vec());
 
         // Use HKDF to derive a proper HMAC key
-        use sha3::Digest;
         let hkdf_salt = b"kanari-backup-hmac-v1"; // Version-specific salt
         let mut derived_key = vec![0u8; 32]; // 256-bit key
         let mut hasher = Sha3_256::new();
@@ -266,7 +265,6 @@ impl BackupManager {
             // Derive HMAC key from password using HKDF (same as create_backup)
             let password_zero = zeroize::Zeroizing::new(password.as_bytes().to_vec());
 
-            use sha3::Digest;
             let hkdf_salt = b"kanari-backup-hmac-v1";
             let mut derived_key = vec![0u8; 32];
             let mut hasher = Sha3_256::new();

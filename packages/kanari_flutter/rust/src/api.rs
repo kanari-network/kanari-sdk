@@ -1,9 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_crypto::{hash_data_blake3, hd_wallet, keys};
-use kanari_crypto::keys::{CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key};
+use kanari_crypto::keys::{
+    CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key,
+};
 use kanari_crypto::signatures::{sign_message, verify_signature_with_curve};
+use kanari_crypto::{hash_data_blake3, hd_wallet, keys};
 use serde::{Deserialize, Serialize};
 
 /// Expose curve names safely for Dart
@@ -148,8 +150,7 @@ pub fn generate_mnemonic_api(word_count: usize) -> Result<String, String> {
         return Err("Only 12 or 24-word mnemonics are supported".to_string());
     }
 
-    keys::generate_mnemonic(word_count)
-        .map_err(|e| format!("Mnemonic generation failed: {}", e))
+    keys::generate_mnemonic(word_count).map_err(|e| format!("Mnemonic generation failed: {}", e))
 }
 
 /// Derive a keypair from a mnemonic at a specific derivation path

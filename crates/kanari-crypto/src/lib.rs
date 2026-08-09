@@ -133,6 +133,7 @@ pub mod backup;
 pub mod compression;
 pub mod encryption;
 pub mod hashs;
+pub mod cryptos;
 pub mod hd_wallet;
 pub mod key_rotation;
 pub mod keys;

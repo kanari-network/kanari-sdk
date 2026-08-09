@@ -22,7 +22,7 @@ pub fn hash_data_shake256_custom(data: &[u8], output_len: usize) -> Vec<u8> {
 /// Cryptographic hash using SHAKE256 over multiple input chunks with custom output length.
 #[must_use]
 pub fn hash_data_shake256_custom_chunks(chunks: &[&[u8]], output_len: usize) -> Vec<u8> {
-    use sha3::{
+    use shake::{
         Shake256,
         digest::{ExtendableOutput, Update, XofReader},
     };
