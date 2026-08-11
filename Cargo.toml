@@ -74,7 +74,7 @@ description = "Kanari Network SDK"                                              
 tokio = { version = "1.53.1", features = ["full"] }
 rayon = "1.12.0"
 crossbeam-channel = "0.5.16"
-futures = "0.3.33"
+futures = "0.3.34"
 
 # ============================================================================
 # Networking & Communication
