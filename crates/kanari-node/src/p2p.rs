@@ -89,6 +89,55 @@ impl QueuedP2PMessage {
     }
 }
 
+/// Keep state-recovery control traffic ahead of best-effort gossip when the
+/// bounded outbound queue has accumulated a backlog.  A recovering validator
+/// must be able to request and receive checkpoints even while transaction and
+/// rebroadcast traffic is intentionally delayed by a chaos campaign.
+fn outbound_priority(message: &P2PMessage) -> u8 {
+    match message {
+        P2PMessage::NewCheckpoint(_)
+        | P2PMessage::CheckpointRequest(_, _)
+        | P2PMessage::CheckpointResponse(_)
+        | P2PMessage::TargetedCheckpointRequest(_)
+        | P2PMessage::TargetedCheckpointResponse(_)
+        | P2PMessage::CompressedCheckpoint(_)
+        | P2PMessage::CompressedCheckpointResponse(_)
+        | P2PMessage::CompressedTargetedCheckpointResponse(_)
+        | P2PMessage::Chunk(P2PMessageChunk {
+            topic: P2PTopicKind::Checkpoint,
+            ..
+        }) => 0,
+        P2PMessage::DagVertexRequest(_)
+        | P2PMessage::DagVertexResponse(_)
+        | P2PMessage::NewDagVertex(_) => 1,
+        P2PMessage::NewTransaction(_) => 2,
+        P2PMessage::DagVertexRebroadcast(_)
+        | P2PMessage::PeerInfo(_)
+        | P2PMessage::CompressedDagVertex(_)
+        | P2PMessage::Chunk(_) => 3,
+    }
+}
+
+fn is_recovery_control_message(message: &P2PMessage) -> bool {
+    matches!(
+        message,
+        P2PMessage::NewCheckpoint(_)
+            | P2PMessage::CheckpointRequest(_, _)
+            | P2PMessage::CheckpointResponse(_)
+            | P2PMessage::TargetedCheckpointRequest(_)
+            | P2PMessage::TargetedCheckpointResponse(_)
+            | P2PMessage::CompressedCheckpoint(_)
+            | P2PMessage::CompressedCheckpointResponse(_)
+            | P2PMessage::CompressedTargetedCheckpointResponse(_)
+            | P2PMessage::DagVertexRequest(_)
+            | P2PMessage::DagVertexResponse(_)
+            | P2PMessage::Chunk(P2PMessageChunk {
+                topic: P2PTopicKind::Checkpoint,
+                ..
+            })
+    )
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode,
 )]
@@ -571,20 +620,32 @@ impl P2PNetwork {
                 let topic = self.message_topic(&chunk).clone();
                 let encoded = bincode::encode_to_vec(&chunk, config)
                     .map_err(|e| anyhow::anyhow!("Failed to encode P2P chunk: {e}"))?;
-                self.publish_encoded(topic, encoded)?;
+                self.publish_encoded(topic, encoded, !is_recovery_control_message(&chunk))?;
             }
             return Ok(());
         }
 
         let topic = self.message_topic(&final_msg).clone();
-        self.publish_encoded(topic, data)
+        self.publish_encoded(topic, data, !is_recovery_control_message(&final_msg))
     }
 
-    fn publish_encoded(&mut self, topic: IdentTopic, data: Vec<u8>) -> Result<()> {
-        maybe_apply_chaos_publish_delay();
+    fn publish_encoded(
+        &mut self,
+        topic: IdentTopic,
+        data: Vec<u8>,
+        apply_synthetic_chaos: bool,
+    ) -> Result<()> {
+        if apply_synthetic_chaos {
+            maybe_apply_chaos_publish_delay();
+        }
 
-        // Publish and handle duplicate gracefully
-        let duplicate_publishes = chaos_duplicate_publish_count();
+        // Fault injection targets best-effort gossip. Recovery control traffic
+        // must remain reliable enough to heal the deliberately delayed gossip.
+        let duplicate_publishes = if apply_synthetic_chaos {
+            chaos_duplicate_publish_count()
+        } else {
+            0
+        };
         for _ in 0..duplicate_publishes {
             match self
                 .swarm
@@ -704,13 +765,29 @@ impl P2PEventHandler {
                         None => std::future::pending().await,
                     }
                 } => {
-                    let queued_ms = queued.enqueued_at.elapsed().as_millis();
-                    debug!(
-                        p2p_outbound_queue_latency_ms = queued_ms,
-                        "P2P outbound queue latency"
-                    );
-                    if let Err(e) = self.network.publish_message(queued.message) {
-                        warn!("Failed to publish outgoing message: {}", e);
+                    // Drain a small bounded batch and publish recovery control
+                    // messages first. This avoids a stale rebroadcast flood
+                    // starving checkpoint catch-up after a node restart.
+                    let mut batch = vec![queued];
+                    if let Some(rx) = self.outgoing_rx.as_mut() {
+                        for _ in 0..63 {
+                            match rx.try_recv() {
+                                Ok(message) => batch.push(message),
+                                Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => break,
+                            }
+                        }
+                    }
+                    batch.sort_by_key(|queued| outbound_priority(&queued.message));
+                    for queued in batch {
+                        let queued_ms = queued.enqueued_at.elapsed().as_millis();
+                        debug!(
+                            p2p_outbound_queue_latency_ms = queued_ms,
+                            p2p_outbound_priority = outbound_priority(&queued.message),
+                            "P2P outbound queue latency"
+                        );
+                        if let Err(e) = self.network.publish_message(queued.message) {
+                            warn!("Failed to publish outgoing message: {}", e);
+                        }
                     }
                 }
                 else => break,

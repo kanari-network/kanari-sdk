@@ -42,6 +42,11 @@ param(
     [ValidateRange(20, 7200)]
     [int]$FundingCommitTimeoutSec = 180,
 
+    # A node restart can delay checkpoint finality beyond the normal client
+    # default.  This only changes the test client's observation window.
+    [ValidateRange(20, 7200)]
+    [int]$LoadCommitTimeoutSec = 180,
+
     [switch]$AutoCoinFanout,
 
     [ValidateRange(16, 65536)]
@@ -276,7 +281,15 @@ function Get-NativeCoinObjectCount {
 }
 
 function Start-KanariNode {
-    param([int]$Index, [string]$OutSuffix = '')
+    param(
+        [int]$Index,
+        [string]$OutSuffix = '',
+        # Keep bootstrap and sender fanout free of injected faults.  A node only
+        # receives the delay/duplicate settings after the preflight state has
+        # converged, so a failed faucet transaction cannot be mistaken for a
+        # load/recovery result.
+        [switch]$EnableP2pFaults
+    )
 
     $offset = ($Index - 1) * 10
     $p2pPort = $BaseP2pPort + $offset
@@ -310,8 +323,10 @@ function Start-KanariNode {
     $env:KANARI_P2P_NAMESPACE = $P2pNamespace
     $env:KANARI_P2P_CHANNEL_CAPACITY = [string]$P2pChannelCapacity
     $env:KANARI_MAX_CONCURRENT_SYNC_MESSAGES = [string]$MaxConcurrentSyncMessages
-    $env:KANARI_CHAOS_P2P_PUBLISH_DELAY_MS = [string]$P2pPublishDelayMs
-    $env:KANARI_CHAOS_P2P_DUPLICATE_PUBLISHES = [string]$P2pDuplicatePublishes
+    $effectiveP2pPublishDelayMs = if ($EnableP2pFaults) { $P2pPublishDelayMs } else { 0 }
+    $effectiveP2pDuplicatePublishes = if ($EnableP2pFaults) { $P2pDuplicatePublishes } else { 0 }
+    $env:KANARI_CHAOS_P2P_PUBLISH_DELAY_MS = [string]$effectiveP2pPublishDelayMs
+    $env:KANARI_CHAOS_P2P_DUPLICATE_PUBLISHES = [string]$effectiveP2pDuplicatePublishes
     try {
         return Start-Process `
             -FilePath $nodeExe `
@@ -670,7 +685,11 @@ function Write-LogProfileSummary {
         $dbPaths = $dbLogs.FullName
         $summary.rocksdb_compaction_lines = (Select-String -Path $dbPaths -Pattern 'compaction|Compaction' -ErrorAction SilentlyContinue).Count
         $summary.rocksdb_flush_lines = (Select-String -Path $dbPaths -Pattern 'flush|Flush' -ErrorAction SilentlyContinue).Count
-        $summary.rocksdb_stall_lines = (Select-String -Path $dbPaths -Pattern 'stall|Stall|Stopped writes|delayed write' -ErrorAction SilentlyContinue).Count
+        # RocksDB's statistics always print zero-valued "Cumulative stall" and
+        # "Write Stall" headings.  Count only a non-zero delay/stop/statistic
+        # (or an explicit runtime stopped/delayed-write message), otherwise the
+        # profile would report a false write stall on every healthy run.
+        $summary.rocksdb_stall_lines = (Select-String -Path $dbPaths -Pattern 'total-(delays|stops): [1-9][0-9]*|rocksdb\.stall\.micros COUNT : [1-9][0-9]*|rocksdb\.db\.write\.stall .* COUNT : [1-9][0-9]*|Stopped writes|delayed write' -ErrorAction SilentlyContinue).Count
     }
     if ($laneMetrics.Count -gt 0) {
         $durations = @($laneMetrics | ForEach-Object { [double]$_.elapsed_ms })
@@ -780,7 +799,7 @@ function Invoke-RecoveryAudit {
                 $ProcessesByNode.Remove($node)
             }
             Start-Sleep -Seconds $RecoveryRestartDelaySec
-            $ProcessesByNode[$node] = Start-KanariNode -Index $node -OutSuffix "audit$round"
+            $ProcessesByNode[$node] = Start-KanariNode -Index $node -OutSuffix "audit$round" -EnableP2pFaults:$chaosP2pEnabled
             Wait-RpcReady -Urls @($Urls[$node - 1]) -Attempts 120
             Wait-StatsConverged -Urls $Urls
             Assert-NativeSupplyConverged -Urls $Urls
@@ -851,7 +870,7 @@ function Restart-CrashTargets {
 
     foreach ($target in $Targets) {
         Write-Host "CRASH-DURING-LOAD round=$Round restarting node$target"
-        $ProcessesByNode[$target] = Start-KanariNode -Index $target -OutSuffix "loadcrash$Round"
+        $ProcessesByNode[$target] = Start-KanariNode -Index $target -OutSuffix "loadcrash$Round" -EnableP2pFaults:$chaosP2pEnabled
         Wait-RpcReady -Urls @("http://127.0.0.1:$($BaseRpcPort + (($target - 1) * 10))") -Attempts 120
     }
 }
@@ -984,6 +1003,23 @@ try {
         Write-ProfileSample -Phase 'post-funding' -ProcessesByNode $processes -Urls $urls -Path $profilePath
     }
 
+    # Bootstrap and sender fanout run clean.  Otherwise a synthetic P2P fault
+    # can make the faucet preflight fail and turn a setup failure into a false
+    # chaos result.  Switch validators one at a time after the state converges
+    # so quorum remains available during the transition.
+    $chaosP2pEnabled = $P2pPublishDelayMs -gt 0 -or $P2pDuplicatePublishes -gt 0
+    if ($chaosP2pEnabled) {
+        Write-Host "Enabling injected P2P faults only after clean preflight convergence"
+        foreach ($node in 1..4) {
+            Write-Host "P2P fault transition restarting node$node"
+            Stop-Process -Id $processes[$node].Id -Force
+            $processes[$node] = Start-KanariNode -Index $node -OutSuffix 'p2p-fault' -EnableP2pFaults
+            Wait-RpcReady -Urls @($urls[$node - 1]) -Attempts 120
+            Wait-StatsConverged -Urls $urls
+        }
+        Write-ProfileSample -Phase 'p2p-fault-enabled' -ProcessesByNode $processes -Urls $urls -Path $profilePath
+    }
+
     Write-Host "Starting $($Senders.Count) parallel tx lanes, $CountPerSender tx each"
     'lane,pid,sender,rpc,requested_txs,started_at,ended_at,elapsed_ms,tps,exit_code,success' |
         Set-Content -LiteralPath $laneMetricsPath
@@ -1008,7 +1044,8 @@ try {
             '-Recipient', $laneRecipient,
             '-Amount', $Amount,
             '-Count', $CountPerSender,
-            '-Rpc', $rpc
+            '-Rpc', $rpc,
+            '-CommitTimeoutSec', $LoadCommitTimeoutSec
         )
         $env:KANARI_LOAD_PASSWORD = $Password
         $startedAt = Get-Date
@@ -1042,7 +1079,7 @@ try {
         Show-Stats -Urls ($urls | Where-Object { $_ -ne "http://127.0.0.1:$($BaseRpcPort + (($target - 1) * 10))" })
 
         Write-Host "CHAOS round=$round restarting node$target"
-        $processes[$target] = Start-KanariNode -Index $target -OutSuffix "restart$round"
+        $processes[$target] = Start-KanariNode -Index $target -OutSuffix "restart$round" -EnableP2pFaults:$chaosP2pEnabled
         Wait-RpcReady -Urls @("http://127.0.0.1:$($BaseRpcPort + (($target - 1) * 10))") -Attempts 120
     }
 

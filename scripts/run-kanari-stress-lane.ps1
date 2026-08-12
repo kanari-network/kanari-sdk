@@ -18,7 +18,10 @@ param(
     [int]$Count,
 
     [Parameter(Mandatory = $true)]
-    [string]$Rpc
+    [string]$Rpc,
+
+    [ValidateRange(20, 7200)]
+    [int]$CommitTimeoutSec = 60
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +38,7 @@ if ([string]::IsNullOrWhiteSpace($password)) {
     --to $Recipient `
     --amount $Amount `
     --count $Count `
+    --commit-timeout-sec $CommitTimeoutSec `
     --rpc $Rpc `
     -p $password
 

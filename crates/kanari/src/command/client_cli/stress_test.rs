@@ -27,6 +27,10 @@ const MAX_OBJECT_BUSY_RETRIES: usize = 1200;
 const OBJECT_BUSY_RETRY_DELAY_MS: u64 = 250;
 const MAX_LANE_SATURATION_RETRIES: usize = 1200;
 const LANE_SATURATION_RETRY_DELAY_MS: u64 = 250;
+// This is a client-side load-test backoff only. The node's rate limiter stays
+// enabled so the campaign exercises the production admission boundary.
+const MAX_RATE_LIMIT_RETRIES: usize = 120;
+const RATE_LIMIT_RETRY_DELAY_MS: u64 = 1_000;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
     let native_coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
@@ -55,6 +59,13 @@ fn is_lane_saturated(error: &anyhow::Error) -> bool {
     let message = format!("{:#}", error);
     message.contains("is saturated")
         && (message.contains("primary access key") || message.contains("canonical access key"))
+}
+
+fn is_rate_limited(error: &anyhow::Error) -> bool {
+    let message = format!("{:#}", error);
+    message.contains("Rate limit exceeded")
+        || message.contains("rate limit exceeded")
+        || message.contains("code: -32005")
 }
 
 #[derive(Parser, Debug)]
@@ -98,6 +109,14 @@ pub struct StressTest {
     /// RPC endpoint
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
+
+    /// Maximum time to wait for each submitted transaction to commit.
+    ///
+    /// A fault-injection run may deliberately restart validators while the
+    /// transaction is pending, so callers can raise this without weakening
+    /// transaction validation or consensus safety.
+    #[arg(long, default_value_t = 60)]
+    pub commit_timeout_sec: u64,
 }
 
 impl StressTest {
@@ -228,6 +247,7 @@ impl StressTest {
         for i in 0..self.count {
             let mut retry_count = 0usize;
             let mut lane_retry_count = 0usize;
+            let mut rate_limit_retry_count = 0usize;
             let result = loop {
                 let excluded_object_ids = in_flight_object_ids.iter().cloned().collect();
                 let attempt_result = async {
@@ -336,6 +356,22 @@ impl StressTest {
 
                         sleep(Duration::from_millis(LANE_SATURATION_RETRY_DELAY_MS)).await;
                     }
+                    Err(error)
+                        if is_rate_limited(&error)
+                            && rate_limit_retry_count < MAX_RATE_LIMIT_RETRIES =>
+                    {
+                        rate_limit_retry_count += 1;
+                        if rate_limit_retry_count == 1 || rate_limit_retry_count.is_multiple_of(10) {
+                            eprintln!(
+                                "  [{}/{}] RPC rate limited; preserving server admission control and retrying (retry {}/{})",
+                                i + 1,
+                                self.count,
+                                rate_limit_retry_count,
+                                MAX_RATE_LIMIT_RETRIES
+                            );
+                        }
+                        sleep(Duration::from_millis(RATE_LIMIT_RETRY_DELAY_MS)).await;
+                    }
                     other => break other,
                 }
             };
@@ -425,7 +461,7 @@ impl StressTest {
                 match wait_for_transaction_commit(
                     &client,
                     hash,
-                    Duration::from_secs(60),
+                    Duration::from_secs(self.commit_timeout_sec),
                     Duration::from_millis(250),
                 )
                 .await
@@ -484,7 +520,7 @@ impl StressTest {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_lane_saturated, is_object_busy_or_unavailable};
+    use super::{is_lane_saturated, is_object_busy_or_unavailable, is_rate_limited};
 
     #[test]
     fn retries_distinct_native_coin_policy_while_prior_refs_are_pending() {
@@ -520,5 +556,12 @@ mod tests {
     fn does_not_retry_unrelated_saturation_messages() {
         let error = anyhow::anyhow!("RPC error: something else is saturated");
         assert!(!is_lane_saturated(&error));
+    }
+
+    #[test]
+    fn retries_rpc_rate_limit_responses_only() {
+        let error = anyhow::anyhow!("RPC error: Rate limit exceeded; retry later (code -32005)");
+        assert!(is_rate_limited(&error));
+        assert!(!is_rate_limited(&anyhow::anyhow!("RPC error: invalid signature")));
     }
 }
