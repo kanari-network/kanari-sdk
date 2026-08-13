@@ -13,21 +13,23 @@ use super::{
 
 #[test]
 fn checkpoint_recovery_control_messages_outrank_best_effort_gossip() {
-    assert!(outbound_priority(&P2PMessage::TargetedCheckpointRequest(
-        super::CheckpointRequestMsg {
-            sequence: 1,
-            timestamp: 1,
-            requester_peer_id: "requester".to_owned(),
-            responder_peer_id: "responder".to_owned(),
-        },
-    )) < outbound_priority(&P2PMessage::PeerInfo(super::PeerInfoMsg {
-        height: 0,
-        peer_id: "peer".to_owned(),
-        timestamp: 0,
-        latest_checkpoint_hash: String::new(),
-        latest_state_root: String::new(),
-        total_transactions: 0,
-    })));
+    assert!(
+        outbound_priority(&P2PMessage::TargetedCheckpointRequest(
+            super::CheckpointRequestMsg {
+                sequence: 1,
+                timestamp: 1,
+                requester_peer_id: "requester".to_owned(),
+                responder_peer_id: "responder".to_owned(),
+            },
+        )) < outbound_priority(&P2PMessage::PeerInfo(super::PeerInfoMsg {
+            height: 0,
+            peer_id: "peer".to_owned(),
+            timestamp: 0,
+            latest_checkpoint_hash: String::new(),
+            latest_state_root: String::new(),
+            total_transactions: 0,
+        }))
+    );
 }
 
 #[test]
