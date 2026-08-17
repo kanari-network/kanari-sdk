@@ -21,5 +21,9 @@ serde.workspace = true
 hex.workspace = true
 uniffi = { version = "0.32.0", features = ["cli"] }
 
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
 [build-dependencies]
 uniffi = { version = "0.32.0", features = ["build"] }
