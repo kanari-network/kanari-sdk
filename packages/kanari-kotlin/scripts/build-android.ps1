@@ -55,15 +55,16 @@ try {
         cargo build --release --target $target.Triple
 
         $libName = "libkanari_kotlin.so"
-        $sourceLib = Join-Path $PackageRoot "target\$target.Triple\release\$libName"
+        $destLibName = "libuniffi_kanari_kotlin.so"
+        $sourceLib = Join-Path $PackageRoot "target\$($target.Triple)\release\$libName"
         if (-not (Test-Path $sourceLib)) {
             throw "Expected library not found: $sourceLib"
         }
 
         $destDir = Join-Path $JniLibsDir $target.Abi
         New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-        Copy-Item $sourceLib (Join-Path $destDir $libName) -Force
-        Write-Host "Copied to $destDir\$libName"
+        Copy-Item $sourceLib (Join-Path $destDir $destLibName) -Force
+        Write-Host "Copied to $destDir\$destLibName"
     }
 } finally {
     Pop-Location
