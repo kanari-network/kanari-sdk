@@ -2,8 +2,11 @@ package com.kanari.kanari_crypto.compose
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -19,12 +23,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kanari.kanari_crypto.KanariCrypto
 import com.kanari.kanari_crypto.model.CurveInfoModel
@@ -49,9 +55,13 @@ fun KeyGenerationScreen(
     var curves by remember { mutableStateOf<List<CurveInfoModel>>(emptyList()) }
     var selectedCurveInfo by remember { mutableStateOf<CurveInfoModel?>(null) }
     var mnemonic by remember { mutableStateOf<String?>(null) }
-    var keyPair by remember { mutableStateOf<KeyPairModel?>(null) }
+    var keyPairs by remember { mutableStateOf<List<KeyPairModel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Advanced options
+    var derivationPath by remember { mutableStateOf("m/44'/637'/0'/0/0") }
+    var addressCount by remember { mutableIntStateOf(1) }
 
     LaunchedEffect(Unit) {
         isLoading = true
@@ -88,8 +98,9 @@ fun KeyGenerationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
@@ -107,32 +118,56 @@ fun KeyGenerationScreen(
                 )
             }
 
+            // แสดงส่วนตั้งค่าเพิ่มเติมเฉพาะกลุ่ม Classic/Hybrid ที่รองรับ Mnemonic
+            if (selectedCurveInfo?.isPostQuantum == false || selectedCurveInfo?.isHybrid == true) {
+                OutlinedTextField(
+                    value = derivationPath,
+                    onValueChange = { derivationPath = it },
+                    label = { Text("Derivation Path (e.g. m/44'/0'/0'/0/0)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = if (addressCount == 0) "" else addressCount.toString(),
+                    onValueChange = { addressCount = it.toIntOrNull() ?: 0 },
+                    label = { Text("Number of addresses to derive") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Button(
                 onClick = {
                     scope.launch {
                         isLoading = true
                         val currentCurve = selectedCurveInfo?.name ?: defaultCurve
-                        // ถ้าเป็น Curve กลุ่ม PQ (ทั้งแบบเดี่ยวหรือ Hybrid) จะสร้าง Keypair โดยตรง
-                        val shouldGenerateDirectly = selectedCurveInfo?.isPostQuantum == true
+                        // ถ้าเป็น Curve กลุ่ม PQ (แบบเดี่ยว) จะสร้าง Keypair โดยตรง
+                        val isPqOnly = selectedCurveInfo?.isPostQuantum == true && selectedCurveInfo?.isHybrid == false
                         
                         runCatching {
-                            // รันบนเธรดที่มี Stack ขนาดใหญ่ (16MB) เพื่อรองรับอัลกอริทึม Hybrid PQ ที่หนักมาก
                             calculateWithLargeStack {
-                                if (shouldGenerateDirectly) {
+                                if (isPqOnly) {
                                     val pair = KanariCrypto.generateKeypair(currentCurve)
-                                    null to pair
+                                    null to listOf(pair)
                                 } else {
                                     val words = KanariCrypto.generateMnemonic(12)
-                                    val pair = KanariCrypto.deriveKeypairFromMnemonic(words, currentCurve)
-                                    words to pair
+                                    val pairs = if (addressCount > 1) {
+                                        // ใช้ฟังก์ชัน deriveMultipleAddresses
+                                        KanariCrypto.deriveMultipleAddresses(words, derivationPath, currentCurve, addressCount)
+                                    } else {
+                                        // ใช้ฟังก์ชัน deriveKeypairFromPath (หรือ default ถ้า path ว่าง)
+                                        val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
+                                        val pair = KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
+                                        listOf(pair)
+                                    }
+                                    words to pairs
                                 }
                             }
-                        }.onSuccess { (words, pair) ->
+                        }.onSuccess { (words, pairs) ->
                             mnemonic = words
-                            keyPair = pair
-                            onKeyPairGenerated?.invoke(pair)
+                            keyPairs = pairs
+                            pairs.firstOrNull()?.let { onKeyPairGenerated?.invoke(it) }
                         }.onFailure {
-                            errorMessage = it.message ?: "Key generation failed"
+                            errorMessage = it.message ?: "Operation failed"
                         }
                         isLoading = false
                     }
@@ -155,12 +190,21 @@ fun KeyGenerationScreen(
                 MnemonicDisplay(mnemonic = words)
             }
 
-            keyPair?.let { pair ->
+            keyPairs.forEachIndexed { index, pair ->
+                if (keyPairs.size > 1) {
+                    Text(
+                        text = "Address #${index + 1}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+
                 WalletAddressCard(
                     address = pair.address,
                     onCopied = {
                         scope.launch {
-                            snackbarHostState.showSnackbar("Address copied")
+                            snackbarHostState.showSnackbar("Address #${index + 1} copied")
                         }
                     },
                 )
@@ -170,7 +214,7 @@ fun KeyGenerationScreen(
                     label = "Private Key (Hex)",
                     onCopied = {
                         scope.launch {
-                            snackbarHostState.showSnackbar("Private key copied")
+                            snackbarHostState.showSnackbar("Private key #${index + 1} copied")
                         }
                     },
                 )
@@ -181,6 +225,9 @@ fun KeyGenerationScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            // เพิ่มช่องว่างด้านล่างสุดเพื่อให้เลื่อนดู Private Key ได้ถนัด
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
