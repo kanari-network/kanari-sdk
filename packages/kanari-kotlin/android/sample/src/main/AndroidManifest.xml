@@ -4,6 +4,7 @@
         android:allowBackup="false"
         android:label="Kanari Sample"
         android:supportsRtl="true"
+        android:largeHeap="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"

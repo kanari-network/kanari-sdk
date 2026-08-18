@@ -16,6 +16,13 @@ android {
         versionName = "0.2.6"
     }
 
+    buildTypes {
+        getByName("debug") {
+            // อนุญาตให้แอปใช้หน่วยความจำขนาดใหญ่
+            // หมายเหตุ: ต้องเพิ่ม android:largeHeap="true" ใน AndroidManifest.xml ด้วย
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -41,5 +48,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.foundation:foundation-layout:1.12.0")
     implementation("androidx.compose.material3:material3")
 }

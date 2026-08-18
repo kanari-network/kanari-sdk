@@ -30,8 +30,11 @@ import com.kanari.kanari_crypto.KanariCrypto
 import com.kanari.kanari_crypto.model.CurveInfoModel
 import com.kanari.kanari_crypto.model.KeyPairModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,7 +47,7 @@ fun KeyGenerationScreen(
     val scope = rememberCoroutineScope()
 
     var curves by remember { mutableStateOf<List<CurveInfoModel>>(emptyList()) }
-    var selectedCurve by remember { mutableStateOf(defaultCurve) }
+    var selectedCurveInfo by remember { mutableStateOf<CurveInfoModel?>(null) }
     var mnemonic by remember { mutableStateOf<String?>(null) }
     var keyPair by remember { mutableStateOf<KeyPairModel?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -59,6 +62,12 @@ fun KeyGenerationScreen(
         }.onSuccess { curves = it }
             .onFailure { errorMessage = it.message }
         isLoading = false
+    }
+
+    LaunchedEffect(curves) {
+        if (curves.isNotEmpty() && selectedCurveInfo == null) {
+            selectedCurveInfo = curves.find { it.name == defaultCurve } ?: curves.first()
+        }
     }
 
     LaunchedEffect(errorMessage) {
@@ -91,8 +100,10 @@ fun KeyGenerationScreen(
             if (curves.isNotEmpty()) {
                 CurveSelector(
                     curves = curves,
-                    selectedCurve = selectedCurve,
-                    onCurveSelected = { selectedCurve = it },
+                    selectedCurve = selectedCurveInfo?.name ?: defaultCurve,
+                    onCurveSelected = { name ->
+                        selectedCurveInfo = curves.find { it.name == name }
+                    },
                 )
             }
 
@@ -100,11 +111,21 @@ fun KeyGenerationScreen(
                 onClick = {
                     scope.launch {
                         isLoading = true
+                        val currentCurve = selectedCurveInfo?.name ?: defaultCurve
+                        // ถ้าเป็น Curve กลุ่ม PQ (ทั้งแบบเดี่ยวหรือ Hybrid) จะสร้าง Keypair โดยตรง
+                        val shouldGenerateDirectly = selectedCurveInfo?.isPostQuantum == true
+                        
                         runCatching {
-                            withContext(Dispatchers.Default) {
-                                val words = KanariCrypto.generateMnemonic(12)
-                                val pair = KanariCrypto.deriveKeypairFromMnemonic(words, selectedCurve)
-                                words to pair
+                            // รันบนเธรดที่มี Stack ขนาดใหญ่ (16MB) เพื่อรองรับอัลกอริทึม Hybrid PQ ที่หนักมาก
+                            calculateWithLargeStack {
+                                if (shouldGenerateDirectly) {
+                                    val pair = KanariCrypto.generateKeypair(currentCurve)
+                                    null to pair
+                                } else {
+                                    val words = KanariCrypto.generateMnemonic(12)
+                                    val pair = KanariCrypto.deriveKeypairFromMnemonic(words, currentCurve)
+                                    words to pair
+                                }
                             }
                         }.onSuccess { (words, pair) ->
                             mnemonic = words
@@ -143,6 +164,17 @@ fun KeyGenerationScreen(
                         }
                     },
                 )
+
+                WalletAddressCard(
+                    address = pair.privateKey,
+                    label = "Private Key (Hex)",
+                    onCopied = {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Private key copied")
+                        }
+                    },
+                )
+
                 Text(
                     text = "Curve: ${pair.curveType}",
                     style = MaterialTheme.typography.bodySmall,
@@ -151,4 +183,19 @@ fun KeyGenerationScreen(
             }
         }
     }
+}
+
+/**
+ * ฟังก์ชันช่วยรันงาน Crypto บนเธรดใหม่ที่มีขนาด Stack ใหญ่ขึ้น
+ */
+private suspend fun <T> calculateWithLargeStack(block: () -> T): T = suspendCancellableCoroutine { cont ->
+    val thread = Thread(null, {
+        try {
+            cont.resume(block())
+        } catch (e: Throwable) {
+            cont.resumeWithException(e)
+        }
+    }, "CryptoThread", 16 * 1024 * 1024) // เพิ่มเป็น 16MB เพื่อความชัวร์สำหรับ Hybrid PQ
+
+    thread.start()
 }
