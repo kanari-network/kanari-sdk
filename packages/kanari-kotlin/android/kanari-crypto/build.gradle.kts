@@ -23,12 +23,6 @@ android {
     buildFeatures {
         compose = true
     }
-
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-        }
-    }
 }
 
 kotlin {
@@ -38,9 +32,8 @@ kotlin {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
+    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.08.00"))
 
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.activity:activity-compose:1.13.0")
