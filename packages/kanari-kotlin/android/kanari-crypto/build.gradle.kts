@@ -1,6 +1,9 @@
+import org.gradle.api.publish.maven.MavenPublication
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("maven-publish")
 }
 
 android {
@@ -22,6 +25,12 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
     }
 }
 
@@ -48,4 +57,18 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            groupId = "com.kanari"
+            artifactId = "kanari-crypto"
+            version = "0.2.6"
+
+            afterEvaluate {
+                from(components["release"])
+            }
+        }
+    }
 }
