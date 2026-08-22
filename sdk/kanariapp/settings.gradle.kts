@@ -24,4 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Kanari App"
 include(":app")
+
+include(":kanari-crypto")
+project(":kanari-crypto").projectDir = file("../../packages/kanari-kotlin/android/kanari-crypto")
  
