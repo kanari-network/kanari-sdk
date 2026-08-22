@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.jamesatomc.kanariapp.wallet.WalletManagerScreen
-import com.jamesatomc.kanariapp.ui.theme.KanariAppTheme
+import com.jamesatomc.kanariapp.compose.KanariTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         
         enableEdgeToEdge()
         setContent {
-            KanariAppTheme {
+            KanariTheme {
                 WalletManagerScreen()
             }
         }
