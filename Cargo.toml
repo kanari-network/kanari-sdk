@@ -260,7 +260,7 @@ rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "serde_json"] 
 # ============================================================================
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "3.0.3", features = ["full"] }
+syn = { version = "3.0.4", features = ["full"] }
 
 # ============================================================================
 # Miscellaneous Utilities

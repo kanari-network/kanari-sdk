@@ -3,7 +3,8 @@
 .DS_Store
 target
 tmp
-Cargo.lock
+# Keep the workspace Cargo.lock committed so CI builds are reproducible
+# (do NOT ignore it; only sub-workspaces like third_party may ignore theirs)
 frameworks/kanari-framework/build
 data
 
