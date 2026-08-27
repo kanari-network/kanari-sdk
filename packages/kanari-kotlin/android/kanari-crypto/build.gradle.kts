@@ -41,22 +41,21 @@ kotlin {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
-    androidTestImplementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    implementation(platform(libs.androidx.compose.bom))
 
-    implementation("androidx.core:core-ktx:1.19.0")
-    implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.foundation:foundation-layout:1.12.0")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.lifecycle.runtime.compose)
 
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation(libs.androidx.ui.tooling)
 }
 
 publishing {
@@ -64,7 +63,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "com.kanari"
             artifactId = "kanari-crypto"
-            version = "0.2.6"
+            version = "0.2.7"
 
             afterEvaluate {
                 from(components["release"])
