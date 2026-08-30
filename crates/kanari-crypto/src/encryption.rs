@@ -113,55 +113,39 @@ pub(super) const STREAM_FRAME_AAD_LEN: usize =
     STREAM_ENCRYPTION_ALGORITHM.len() + STREAM_NONCE_PREFIX_LEN + 8 + 1 + 4;
 
 impl EncryptedData {
-    /// Get the ciphertext bytes, regardless of format
+    /// Get the ciphertext bytes (STANDARD base64 only, no legacy fallback)
     pub fn get_ciphertext(&self) -> Result<Vec<u8>, EncryptionError> {
-        if !self.ciphertext.is_empty() {
-            general_purpose::STANDARD
-                .decode(&self.ciphertext)
-                .map_err(|e| {
-                    EncryptionError::InvalidFormat(format!("Invalid ciphertext base64: {}", e))
-                })
-        } else if !self.ciphertext_array.is_empty() {
-            Ok(self.ciphertext_array.clone())
-        } else {
-            Err(EncryptionError::InvalidFormat(
+        if self.ciphertext.is_empty() {
+            return Err(EncryptionError::InvalidFormat(
                 "Empty ciphertext".to_string(),
-            ))
+            ));
         }
+        general_purpose::STANDARD
+            .decode(&self.ciphertext)
+            .map_err(|e| {
+                EncryptionError::InvalidFormat(format!("Invalid ciphertext base64: {}", e))
+            })
     }
 
-    /// Get the nonce bytes, regardless of format
+    /// Get the nonce bytes (STANDARD base64 only, no legacy fallback)
     pub fn get_nonce(&self) -> Result<Vec<u8>, EncryptionError> {
-        if !self.nonce.is_empty() {
-            general_purpose::STANDARD
-                .decode(&self.nonce)
-                .map_err(|e| EncryptionError::InvalidFormat(format!("Invalid nonce base64: {}", e)))
-        } else if !self.nonce_array.is_empty() {
-            Ok(self.nonce_array.clone())
-        } else {
-            Err(EncryptionError::InvalidFormat("Empty nonce".to_string()))
+        if self.nonce.is_empty() {
+            return Err(EncryptionError::InvalidFormat("Empty nonce".to_string()));
         }
+        general_purpose::STANDARD
+            .decode(&self.nonce)
+            .map_err(|e| EncryptionError::InvalidFormat(format!("Invalid nonce base64: {}", e)))
     }
 }
 
 impl fmt::Display for EncryptedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cipher_len = if !self.ciphertext.is_empty() {
-            self.ciphertext.len()
-        } else {
-            self.ciphertext_array.len()
-        };
-
-        let nonce_len = if !self.nonce.is_empty() {
-            self.nonce.len()
-        } else {
-            self.nonce_array.len()
-        };
-
         write!(
             f,
             "EncryptedData {{ ciphertext: [{}], nonce: [{}], salt: {} }}",
-            cipher_len, nonce_len, self.salt
+            self.ciphertext.len(),
+            self.nonce.len(),
+            self.salt
         )
     }
 }
@@ -216,20 +200,12 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
     // Validate ciphertext size to prevent memory exhaustion attacks
     const MAX_CIPHERTEXT_SIZE: usize = 100 * 1024 * 1024; // 100MB
     // Check encoded size before allocation to avoid OOM via large base64
-    let encoded_len = if !encrypted.ciphertext.is_empty() {
-        encrypted.ciphertext.len()
-    } else {
-        // raw array: 4/3 overhead estimate not needed, use direct len
-        encrypted.ciphertext_array.len().saturating_mul(4) / 3 + 4
-    };
-    // base64 expands 3->4, so 100MiB decoded ~ 133MiB encoded; reject overly large encoded upfront
-    const MAX_ENCODED_SIZE: usize = 140 * 1024 * 1024; // ~133MiB + margin
-    if encoded_len > MAX_ENCODED_SIZE {
+    const MAX_ENCODED_SIZE: usize = 140 * 1024 * 1024; // 100MiB decoded ~133MiB encoded
+    if encrypted.ciphertext.len() > MAX_ENCODED_SIZE {
         return Err(EncryptionError::InvalidFormat(
             "Ciphertext size exceeds maximum allowed".to_string(),
         ));
     }
-    // Decode ciphertext (handles base64 or raw array) then check decoded size
     let ciphertext = encrypted.get_ciphertext()?;
     if ciphertext.len() > MAX_CIPHERTEXT_SIZE {
         return Err(EncryptionError::InvalidFormat(
@@ -237,7 +213,6 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
         ));
     }
 
-    // Get salt from the encrypted data (support both current STANDARD and legacy B64-unpadded SaltString)
     let salt_bytes = decode_salt(&encrypted.salt)?;
 
     let key_bytes_vec = derive_key(password, &salt_bytes)?;
@@ -283,33 +258,9 @@ const MIN_SALT_LEN: usize = 16;
 const MAX_SALT_LEN: usize = 64;
 
 fn decode_salt(salt_b64: &str) -> Result<Vec<u8>, EncryptionError> {
-    // Try STANDARD (new format) first, then fallback to legacy SaltString B64-unpadded (phc uses base64ct Unpadded)
-    let bytes = if let Ok(b) = general_purpose::STANDARD.decode(salt_b64) {
-        if !b.is_empty() {
-            b
-        } else {
-            // fallback below
-            {
-                let mut s = salt_b64.to_string();
-                let rem = s.len() % 4;
-                if rem != 0 {
-                    s.extend(std::iter::repeat('=').take(4 - rem));
-                }
-                general_purpose::STANDARD.decode(&s).map_err(|_| {
-                    EncryptionError::InvalidFormat("Invalid salt format".to_string())
-                })?
-            }
-        }
-    } else {
-        let mut s = salt_b64.to_string();
-        let rem = s.len() % 4;
-        if rem != 0 {
-            s.extend(std::iter::repeat('=').take(4 - rem));
-        }
-        general_purpose::STANDARD
-            .decode(&s)
-            .map_err(|_| EncryptionError::InvalidFormat("Invalid salt format".to_string()))?
-    };
+    let bytes = general_purpose::STANDARD
+        .decode(salt_b64)
+        .map_err(|_| EncryptionError::InvalidFormat("Invalid salt format".to_string()))?;
     if bytes.len() < MIN_SALT_LEN {
         return Err(EncryptionError::InvalidFormat(format!(
             "Salt too short: {} < {}",
@@ -368,9 +319,8 @@ fn argon2_params() -> Result<argon2::Params, EncryptionError> {
     .map_err(|e| EncryptionError::KeyDerivationError(format!("Invalid Argon2 parameters: {}", e)))
 }
 
-/// Upgrade legacy encrypted data to new base64 format
+/// Upgrade legacy encrypted data to new base64 format (explicit migration only, no implicit fallback in decrypt)
 pub fn upgrade_encrypted_data(old_data: EncryptedData) -> EncryptedData {
-    // Only upgrade if using older array format
     if !old_data.ciphertext_array.is_empty() && old_data.ciphertext.is_empty() {
         EncryptedData {
             ciphertext: general_purpose::STANDARD.encode(&old_data.ciphertext_array),
