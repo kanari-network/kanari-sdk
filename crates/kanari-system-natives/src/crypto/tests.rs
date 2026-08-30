@@ -112,7 +112,8 @@ fn test_secp256k1_ecrecover_and_verify() {
     let sig_bytes = signature.serialize_compact();
 
     // For recovery, we need to sign with recoverable signature
-    let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
+    let recoverable_sig =
+        secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
     let (_recovery_id, _rec_sig_bytes) = recoverable_sig.serialize_compact();
 
     // Test decompress_pubkey
@@ -169,14 +170,13 @@ fn test_secp256k1_schnorr_signature() {
     let schnorr_sig = secp256k1::schnorr::sign_no_aux_rand(&msg_bytes, &keypair);
 
     // Verify
-    let verified = secp256k1::schnorr::verify(&schnorr_sig, &msg_bytes, &xonly_pubkey)
-        .is_ok();
+    let verified = secp256k1::schnorr::verify(&schnorr_sig, &msg_bytes, &xonly_pubkey).is_ok();
     assert!(verified, "Schnorr signature verification should succeed");
 
     // Test with wrong message
     let wrong_msg = generate_random_bytes::<32>();
-    let verified_wrong = secp256k1::schnorr::verify(&schnorr_sig, &wrong_msg, &xonly_pubkey)
-        .is_ok();
+    let verified_wrong =
+        secp256k1::schnorr::verify(&schnorr_sig, &wrong_msg, &xonly_pubkey).is_ok();
     assert!(!verified_wrong, "Schnorr should fail with wrong message");
 }
 
@@ -364,7 +364,8 @@ fn test_recovery_id_handling() {
     let message = secp256k1::Message::from_digest(msg_hash.into());
 
     // Sign and get recovery ID
-    let signature = secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
+    let signature =
+        secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
     let (rec_id, _sig_bytes) = signature.serialize_compact();
 
     let rec_id_value: i32 = rec_id.to_u8() as i32;
@@ -471,15 +472,17 @@ fn generate_test_vectors_for_move() {
 
     println!("\n=== Schnorr Test Vectors ===");
     println!("Message (32 bytes): {}", hex::encode(schnorr_msg));
-    println!("Public Key (x-only): {}", hex::encode(xonly.to_byte_array()));
+    println!(
+        "Public Key (x-only): {}",
+        hex::encode(xonly.to_byte_array())
+    );
     println!(
         "Signature (r||s): {}",
         hex::encode(schnorr_sig.to_byte_array())
     );
 
     // Verify Schnorr
-    let schnorr_verified = secp256k1::schnorr::verify(&schnorr_sig, &schnorr_msg, &xonly)
-        .is_ok();
+    let schnorr_verified = secp256k1::schnorr::verify(&schnorr_sig, &schnorr_msg, &xonly).is_ok();
     assert!(
         schnorr_verified,
         "Schnorr test vector should verify correctly"

@@ -57,7 +57,8 @@ fn legacy_array_encrypted_key_format_upgrades_and_decrypts() {
             .as_str()
             .and_then(|nonce| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, nonce).ok())
             .unwrap(),
-        "salt": encrypted_value["salt"].clone()
+        "salt": encrypted_value["salt"].clone(),
+        "version": encrypted_value.get("version").cloned().unwrap_or(json!(1))
     });
 
     std::fs::write(
