@@ -11,14 +11,11 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
     aead::{Aead, KeyInit},
 };
-use argon2::{
-    Algorithm, Argon2, Version,
-    password_hash::{PasswordHasher, SaltString},
-};
+use argon2::{Algorithm, Argon2, Version};
 use base64::{Engine as _, engine::general_purpose};
+use rand::TryRng;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
-// OsRng from bip39's rand (v0.8) is compatible with password-hash's rand_core v0.6
-use bip39::rand::rngs::OsRng;
 use std::fmt;
 use std::io::{self, ErrorKind};
 use std::string::ToString;
@@ -173,14 +170,21 @@ impl fmt::Display for EncryptedData {
 pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, EncryptionError> {
     validate_password(password)?;
 
-    // Generate a random salt for key derivation
-    let salt = SaltString::generate(&mut OsRng);
+    // Generate a random salt for key derivation (16 bytes, AB64-encoded) via CSPRNG
+    let mut salt_bytes = [0u8; 16];
+    SysRng
+        .try_fill_bytes(&mut salt_bytes)
+        .map_err(|e| EncryptionError::AeadError(format!("RNG failure: {}", e)))?;
+    let salt_b64 = general_purpose::STANDARD.encode(salt_bytes);
 
-    let key_bytes_vec = derive_key(password, &salt)?;
+    let key_bytes_vec = derive_key(password, &salt_bytes)?;
     let cipher = cipher_from_derived(key_bytes_vec.as_slice())?;
 
-    // Generate a random nonce for AES-GCM
-    let nonce_arr: [u8; 12] = rand::random();
+    // Generate a random nonce for AES-GCM via CSPRNG
+    let mut nonce_arr = [0u8; 12];
+    SysRng
+        .try_fill_bytes(&mut nonce_arr)
+        .map_err(|e| EncryptionError::AeadError(format!("RNG failure: {}", e)))?;
     let nonce = Nonce::try_from(&nonce_arr[..])
         .map_err(|_| EncryptionError::InvalidInput("Invalid nonce length".to_string()))?;
 
@@ -201,7 +205,7 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, Encryp
         ciphertext: ciphertext_b64,
         nonce_array: Vec::new(),
         nonce: nonce_b64,
-        salt: salt.to_string(),
+        salt: salt_b64,
     })
 }
 
@@ -211,7 +215,21 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
 
     // Validate ciphertext size to prevent memory exhaustion attacks
     const MAX_CIPHERTEXT_SIZE: usize = 100 * 1024 * 1024; // 100MB
-    // Decode ciphertext first (handles base64 or raw array) then check size in bytes
+    // Check encoded size before allocation to avoid OOM via large base64
+    let encoded_len = if !encrypted.ciphertext.is_empty() {
+        encrypted.ciphertext.len()
+    } else {
+        // raw array: 4/3 overhead estimate not needed, use direct len
+        encrypted.ciphertext_array.len().saturating_mul(4) / 3 + 4
+    };
+    // base64 expands 3->4, so 100MiB decoded ~ 133MiB encoded; reject overly large encoded upfront
+    const MAX_ENCODED_SIZE: usize = 140 * 1024 * 1024; // ~133MiB + margin
+    if encoded_len > MAX_ENCODED_SIZE {
+        return Err(EncryptionError::InvalidFormat(
+            "Ciphertext size exceeds maximum allowed".to_string(),
+        ));
+    }
+    // Decode ciphertext (handles base64 or raw array) then check decoded size
     let ciphertext = encrypted.get_ciphertext()?;
     if ciphertext.len() > MAX_CIPHERTEXT_SIZE {
         return Err(EncryptionError::InvalidFormat(
@@ -219,11 +237,10 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
         ));
     }
 
-    // Get salt from the encrypted data
-    let salt = SaltString::from_b64(&encrypted.salt)
-        .map_err(|_| EncryptionError::InvalidFormat("Invalid salt format".to_string()))?;
+    // Get salt from the encrypted data (support both current STANDARD and legacy B64-unpadded SaltString)
+    let salt_bytes = decode_salt(&encrypted.salt)?;
 
-    let key_bytes_vec = derive_key(password, &salt)?;
+    let key_bytes_vec = derive_key(password, &salt_bytes)?;
     let cipher = cipher_from_derived(key_bytes_vec.as_slice())?;
 
     // We already decoded ciphertext above; get the nonce bytes now
@@ -262,20 +279,63 @@ fn validate_password(password: &str) -> Result<(), EncryptionError> {
     Ok(())
 }
 
-fn derive_key(
-    password: &str,
-    salt: &SaltString,
-) -> Result<zeroize::Zeroizing<Vec<u8>>, EncryptionError> {
+const MIN_SALT_LEN: usize = 16;
+const MAX_SALT_LEN: usize = 64;
+
+fn decode_salt(salt_b64: &str) -> Result<Vec<u8>, EncryptionError> {
+    // Try STANDARD (new format) first, then fallback to legacy SaltString B64-unpadded (phc uses base64ct Unpadded)
+    let bytes = if let Ok(b) = general_purpose::STANDARD.decode(salt_b64) {
+        if !b.is_empty() {
+            b
+        } else {
+            // fallback below
+            {
+                let mut s = salt_b64.to_string();
+                let rem = s.len() % 4;
+                if rem != 0 {
+                    s.extend(std::iter::repeat('=').take(4 - rem));
+                }
+                general_purpose::STANDARD.decode(&s).map_err(|_| {
+                    EncryptionError::InvalidFormat("Invalid salt format".to_string())
+                })?
+            }
+        }
+    } else {
+        let mut s = salt_b64.to_string();
+        let rem = s.len() % 4;
+        if rem != 0 {
+            s.extend(std::iter::repeat('=').take(4 - rem));
+        }
+        general_purpose::STANDARD
+            .decode(&s)
+            .map_err(|_| EncryptionError::InvalidFormat("Invalid salt format".to_string()))?
+    };
+    if bytes.len() < MIN_SALT_LEN {
+        return Err(EncryptionError::InvalidFormat(format!(
+            "Salt too short: {} < {}",
+            bytes.len(),
+            MIN_SALT_LEN
+        )));
+    }
+    if bytes.len() > MAX_SALT_LEN {
+        return Err(EncryptionError::InvalidFormat(format!(
+            "Salt too long: {} > {}",
+            bytes.len(),
+            MAX_SALT_LEN
+        )));
+    }
+    Ok(bytes)
+}
+
+fn derive_key(password: &str, salt: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>, EncryptionError> {
     let password_zero = zeroize::Zeroizing::new(password.as_bytes().to_vec());
     let params = argon2_params()?;
-    let password_hash = Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password(&password_zero, salt)
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut output = vec![0u8; 32];
+    argon2
+        .hash_password_into(&password_zero, salt, &mut output)
         .map_err(|e| EncryptionError::KeyDerivationError(e.to_string()))?;
-
-    let hash = password_hash.hash.ok_or_else(|| {
-        EncryptionError::KeyDerivationError("Argon2 hash output is missing".to_string())
-    })?;
-    Ok(zeroize::Zeroizing::new(hash.as_bytes().to_vec()))
+    Ok(zeroize::Zeroizing::new(output))
 }
 
 fn cipher_from_derived(key_bytes: &[u8]) -> Result<Aes256Gcm, EncryptionError> {

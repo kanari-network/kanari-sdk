@@ -12,9 +12,9 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, Payload},
 };
-use argon2::password_hash::SaltString;
 use base64::{Engine as _, engine::general_purpose};
-use bip39::rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use std::io::{self, ErrorKind, Read, Write};
 
@@ -84,17 +84,24 @@ pub fn stream_encrypting_writer<W: Write>(
     validate_password(password)?;
     validate_chunk_size(chunk_size)?;
 
-    let salt = SaltString::generate(&mut OsRng);
-    let key_bytes_vec = derive_key(password, &salt)?;
+    let mut salt_bytes = [0u8; 16];
+    SysRng
+        .try_fill_bytes(&mut salt_bytes)
+        .map_err(|e| EncryptionError::AeadError(format!("RNG failure: {}", e)))?;
+    let salt_b64 = general_purpose::STANDARD.encode(salt_bytes);
+    let key_bytes_vec = derive_key(password, &salt_bytes)?;
     let cipher = cipher_from_derived(&key_bytes_vec)?;
-    let nonce_prefix: [u8; STREAM_NONCE_PREFIX_LEN] = rand::random();
+    let mut nonce_prefix = [0u8; STREAM_NONCE_PREFIX_LEN];
+    SysRng
+        .try_fill_bytes(&mut nonce_prefix)
+        .map_err(|e| EncryptionError::AeadError(format!("RNG failure: {}", e)))?;
     drop(key_bytes_vec);
 
     Ok((
         StreamEncryptionHeader {
             format_version: STREAM_ENCRYPTION_FORMAT_VERSION,
             algorithm: STREAM_ENCRYPTION_ALGORITHM.to_string(),
-            salt: salt.to_string(),
+            salt: salt_b64,
             nonce: general_purpose::STANDARD.encode(nonce_prefix),
             chunk_size: chunk_size as u32,
         },
@@ -214,8 +221,7 @@ impl<R: Read> StreamDecryptingReader<R> {
         let chunk_size = header.chunk_size as usize;
         validate_chunk_size(chunk_size)?;
 
-        let salt = SaltString::from_b64(&header.salt)
-            .map_err(|_| EncryptionError::InvalidFormat("Invalid salt format".to_string()))?;
+        let salt_bytes = super::decode_salt(&header.salt)?;
         let nonce_bytes = general_purpose::STANDARD
             .decode(&header.nonce)
             .map_err(|e| EncryptionError::InvalidFormat(format!("Invalid nonce base64: {}", e)))?;
@@ -229,7 +235,7 @@ impl<R: Read> StreamDecryptingReader<R> {
                 EncryptionError::InvalidFormat("Invalid stream nonce length".to_string())
             })?;
 
-        let key_bytes_vec = derive_key(password, &salt)?;
+        let key_bytes_vec = derive_key(password, &salt_bytes)?;
         let cipher = cipher_from_derived(&key_bytes_vec)?;
         drop(key_bytes_vec);
 
