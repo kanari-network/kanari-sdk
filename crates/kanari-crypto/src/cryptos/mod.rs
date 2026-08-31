@@ -186,6 +186,18 @@ pub fn verify_rs256_prehash_native(
     msg_hash: &[u8],
     signature: &[u8],
 ) -> bool {
+    const MAX_RSA_BYTES: usize = 512; // 4096-bit max (512B), reject 65536-bit DoS
+    if modulus_n.len() < 256 {
+        // Reject <2048-bit to avoid weak keys
+        return false;
+    }
+    if modulus_n.len() > MAX_RSA_BYTES
+        || exponent_e.len() > MAX_RSA_BYTES
+        || signature.len() > MAX_RSA_BYTES
+        || msg_hash.len() > 64
+    {
+        return false;
+    }
     let Ok(public_key) = RsaPublicKey::new(
         BigUint::from_bytes_be(modulus_n),
         BigUint::from_bytes_be(exponent_e),

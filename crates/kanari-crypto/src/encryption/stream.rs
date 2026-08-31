@@ -5,8 +5,8 @@
 
 use super::{
     AEAD_TAG_LEN, EncryptionError, STREAM_ENCRYPTION_ALGORITHM, STREAM_ENCRYPTION_FORMAT_VERSION,
-    STREAM_FRAME_AAD_LEN, STREAM_NONCE_PREFIX_LEN, cipher_from_derived, derive_key,
-    encryption_error_to_io, validate_password,
+    STREAM_ENCRYPTION_FORMAT_VERSION_V1, STREAM_FRAME_AAD_LEN, STREAM_NONCE_PREFIX_LEN,
+    cipher_from_derived, derive_key_for_version, encryption_error_to_io, validate_password,
 };
 use aes_gcm::{
     Aes256Gcm, Nonce,
@@ -89,7 +89,8 @@ pub fn stream_encrypting_writer<W: Write>(
         .try_fill_bytes(&mut salt_bytes)
         .map_err(|e| EncryptionError::AeadError(format!("RNG failure: {}", e)))?;
     let salt_b64 = general_purpose::STANDARD.encode(salt_bytes);
-    let key_bytes_vec = derive_key(password, &salt_bytes)?;
+    let key_bytes_vec =
+        derive_key_for_version(password, &salt_bytes, STREAM_ENCRYPTION_FORMAT_VERSION)?;
     let cipher = cipher_from_derived(&key_bytes_vec)?;
     let mut nonce_prefix = [0u8; STREAM_NONCE_PREFIX_LEN];
     SysRng
@@ -206,7 +207,9 @@ impl<R: Read> StreamDecryptingReader<R> {
         password: &str,
     ) -> Result<Self, EncryptionError> {
         validate_password(password)?;
-        if header.format_version != STREAM_ENCRYPTION_FORMAT_VERSION {
+        if header.format_version != STREAM_ENCRYPTION_FORMAT_VERSION
+            && header.format_version != STREAM_ENCRYPTION_FORMAT_VERSION_V1
+        {
             return Err(EncryptionError::InvalidFormat(format!(
                 "Unsupported stream encryption format {}",
                 header.format_version
@@ -235,7 +238,7 @@ impl<R: Read> StreamDecryptingReader<R> {
                 EncryptionError::InvalidFormat("Invalid stream nonce length".to_string())
             })?;
 
-        let key_bytes_vec = derive_key(password, &salt_bytes)?;
+        let key_bytes_vec = derive_key_for_version(password, &salt_bytes, header.format_version)?;
         let cipher = cipher_from_derived(&key_bytes_vec)?;
         drop(key_bytes_vec);
 

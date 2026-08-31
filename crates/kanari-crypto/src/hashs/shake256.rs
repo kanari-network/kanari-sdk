@@ -26,6 +26,8 @@ pub fn hash_data_shake256_custom_chunks(chunks: &[&[u8]], output_len: usize) -> 
         Shake256,
         digest::{ExtendableOutput, Update, XofReader},
     };
+    const MAX_SHAKE_OUTPUT: usize = 1024 * 1024; // 1MiB cap to prevent OOM
+    let output_len = std::cmp::min(output_len, MAX_SHAKE_OUTPUT);
     let mut hasher = Shake256::default();
     for chunk in chunks {
         hasher.update(chunk);

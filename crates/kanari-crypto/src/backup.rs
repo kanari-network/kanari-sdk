@@ -13,8 +13,13 @@ use thiserror::Error;
 
 use crate::Keystore;
 use crate::encryption::{decrypt_data, encrypt_data};
+use argon2::{Algorithm, Argon2, Params, Version};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::{KeyInit, Mac, SimpleHmac};
+use rand::{TryRng, rngs::SysRng};
 use sha3::{Digest, Sha3_256};
+use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 mod types;
 pub use types::{BackupInfo, BackupMetadata, EncryptedBackup};
@@ -91,18 +96,14 @@ impl BackupManager {
         let keystore_json = serde_json::to_vec(&keystore)
             .map_err(|e| BackupError::SerializationError(e.to_string()))?;
 
-        // Calculate HMAC for integrity
-        // Derive HMAC key from password using HKDF for better security
-        let password_zero = zeroize::Zeroizing::new(password.as_bytes().to_vec());
-
-        // Use HKDF to derive a proper HMAC key
-        let hkdf_salt = b"kanari-backup-hmac-v1"; // Version-specific salt
-        let mut derived_key = vec![0u8; 32]; // 256-bit key
-        let mut hasher = Sha3_256::new();
-        hasher.update(hkdf_salt);
-        hasher.update(&password_zero[..]);
-        derived_key.copy_from_slice(&hasher.finalize()[..]);
-        let derived_key_zero = zeroize::Zeroizing::new(derived_key);
+        // Calculate HMAC for integrity - v2 uses Argon2id with random salt (slow, per-backup)
+        let mut hmac_salt_bytes = [0u8; 16];
+        SysRng
+            .try_fill_bytes(&mut hmac_salt_bytes)
+            .map_err(|e| BackupError::EncryptionError(format!("RNG failure: {}", e)))?;
+        let hmac_salt_b64 = STANDARD.encode(hmac_salt_bytes);
+        let derived_key_zero =
+            derive_backup_hmac_key_argon2(password.as_bytes(), &hmac_salt_bytes)?;
 
         let mut mac = HmacSha3_256::new_from_slice(&derived_key_zero)
             .map_err(|e| BackupError::EncryptionError(format!("HMAC error: {}", e)))?;
@@ -110,8 +111,13 @@ impl BackupManager {
         let hmac_result = mac.finalize();
         let checksum = hex::encode(hmac_result.into_bytes());
 
-        // Create metadata
-        let metadata = BackupMetadata::new(keystore.keys.len(), keystore.has_mnemonic(), checksum);
+        // Create metadata with Argon2 salt (v2)
+        let metadata = BackupMetadata::new_with_hmac_salt(
+            keystore.keys.len(),
+            keystore.has_mnemonic(),
+            checksum,
+            hmac_salt_b64,
+        );
 
         let metadata = if let Some(desc) = description {
             metadata.with_description(desc)
@@ -214,18 +220,25 @@ impl BackupManager {
         let decrypted_data = decrypt_data(&backup.encrypted_data, password)
             .map_err(|e| BackupError::DecryptionError(e.to_string()))?;
 
-        // Verify HMAC if requested (more secure than simple checksum)
+        // Verify HMAC if requested
         if verify {
-            // Derive HMAC key from password using HKDF (same as create_backup)
-            let password_zero = zeroize::Zeroizing::new(password.as_bytes().to_vec());
-
-            let hkdf_salt = b"kanari-backup-hmac-v1";
-            let mut derived_key = vec![0u8; 32];
-            let mut hasher = Sha3_256::new();
-            hasher.update(hkdf_salt);
-            hasher.update(&password_zero[..]);
-            derived_key.copy_from_slice(&hasher.finalize()[..]);
-            let derived_key_zero = zeroize::Zeroizing::new(derived_key);
+            let derived_key_zero = if let Some(ref salt_b64) = backup.metadata.hmac_salt {
+                let salt_bytes = STANDARD.decode(salt_b64).map_err(|e| {
+                    BackupError::VerificationFailed(format!("Invalid HMAC salt: {}", e))
+                })?;
+                derive_backup_hmac_key_argon2(password.as_bytes(), &salt_bytes)
+                    .map_err(|e| BackupError::VerificationFailed(e.to_string()))?
+            } else {
+                // Legacy fallback: SHA3(static_salt || password) for backups created before v2
+                let password_zero = Zeroizing::new(password.as_bytes().to_vec());
+                let hkdf_salt = b"kanari-backup-hmac-v1";
+                let mut derived_key = vec![0u8; 32];
+                let mut hasher = Sha3_256::new();
+                hasher.update(hkdf_salt);
+                hasher.update(&password_zero[..]);
+                derived_key.copy_from_slice(&hasher.finalize()[..]);
+                Zeroizing::new(derived_key)
+            };
 
             let mut mac = HmacSha3_256::new_from_slice(&derived_key_zero)
                 .map_err(|e| BackupError::VerificationFailed(format!("HMAC error: {}", e)))?;
@@ -233,7 +246,12 @@ impl BackupManager {
             let hmac_result = mac.finalize();
             let calculated_hmac = hex::encode(hmac_result.into_bytes());
 
-            if calculated_hmac != backup.metadata.checksum {
+            if calculated_hmac
+                .as_bytes()
+                .ct_eq(backup.metadata.checksum.as_bytes())
+                .unwrap_u8()
+                == 0
+            {
                 return Err(BackupError::VerificationFailed(
                     "HMAC verification failed".to_string(),
                 ));
@@ -364,6 +382,21 @@ impl BackupManager {
 
         Ok(deleted_count)
     }
+}
+
+fn derive_backup_hmac_key_argon2(
+    password: &[u8],
+    salt: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, BackupError> {
+    let pwd_zero = Zeroizing::new(password.to_vec());
+    let params = Params::new(47104, 3, 4, Some(32))
+        .map_err(|e| BackupError::EncryptionError(format!("Invalid Argon2 params: {}", e)))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut out = vec![0u8; 32];
+    argon2
+        .hash_password_into(&pwd_zero, salt, &mut out)
+        .map_err(|e| BackupError::EncryptionError(format!("Argon2 HMAC KDF failed: {}", e)))?;
+    Ok(Zeroizing::new(out))
 }
 
 #[cfg(test)]

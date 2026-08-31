@@ -41,6 +41,14 @@ pub fn verify_signature_p256(
     let signature = P256Signature::from_der(signature)
         .map_err(|_| SignatureError::InvalidFormat("Invalid signature format".to_string()))?;
 
+    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(
+        &signature.s(),
+    )) {
+        return Err(SignatureError::InvalidFormat(
+            "High S value - malleable signature".to_string(),
+        ));
+    }
+
     // ⚠️ KANARI-SPECIFIC: Pre-hash the message with SHA3-256 (must match signing path!)
     let mut hasher = Sha3_256::default();
     hasher.update(message);
@@ -150,8 +158,16 @@ pub fn sign_message_p256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8
     // Zeroize private key bytes immediately after use
     private_key_bytes.zeroize();
 
-    // Sign the hashed message
-    let signature: P256Signature = signing_key.sign(&message_hash);
+    // Sign and enforce low-S
+    let mut signature: P256Signature = signing_key.sign(&message_hash);
+    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(
+        &signature.s(),
+    )) {
+        let r_bytes = signature.r().to_bytes();
+        let s_low = (-signature.s()).to_bytes();
+        signature = P256Signature::from_scalars(r_bytes, s_low)
+            .map_err(|_| SignatureError::InvalidFormat("Failed to normalize S".to_string()))?;
+    }
 
     // Convert DER signature to bytes correctly
     let der_bytes = signature.to_der();

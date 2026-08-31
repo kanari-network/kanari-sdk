@@ -111,7 +111,7 @@ pub fn derive_multiple_addresses(
         use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(mnemonic_phrase.as_bytes());
-        hex::encode(&hasher.finalize()[..8]) // Use first 8 bytes as key
+        hex::encode(hasher.finalize()) // Full 32B (64 hex) to avoid 64-bit collision
     };
 
     {

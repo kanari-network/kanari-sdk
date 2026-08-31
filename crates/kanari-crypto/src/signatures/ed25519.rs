@@ -136,7 +136,10 @@ fn ed25519_verifying_key_from_cache(raw_key: &str) -> Result<Ed25519VerifyingKey
     ED25519_VERIFYING_KEY_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_ED25519_VERIFYING_KEY_CACHE_ENTRIES {
-            cache.clear();
+            // Evict one arbitrary entry instead of clear() to avoid CPU DoS via repeated 4096 fills
+            if let Some(k) = cache.keys().next().cloned() {
+                cache.remove(&k);
+            }
         }
         cache.insert(raw_key.to_string(), verifying_key);
     });

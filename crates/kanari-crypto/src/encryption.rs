@@ -116,7 +116,8 @@ fn is_default_encryption_version(v: &u32) -> bool {
     *v == 1
 }
 
-pub(super) const STREAM_ENCRYPTION_FORMAT_VERSION: u32 = 1;
+pub(super) const STREAM_ENCRYPTION_FORMAT_VERSION: u32 = 2;
+pub(super) const STREAM_ENCRYPTION_FORMAT_VERSION_V1: u32 = 1;
 const ENCRYPTION_FORMAT_VERSION: u32 = 2;
 pub(super) const STREAM_ENCRYPTION_ALGORITHM: &str = "AES-256-GCM-FRAMED-ARGON2ID";
 pub(super) const STREAM_NONCE_PREFIX_LEN: usize = 4;
@@ -336,7 +337,7 @@ fn derive_key(password: &str, salt: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>
     derive_key_for_version(password, salt, 1)
 }
 
-fn derive_key_for_version(
+pub(super) fn derive_key_for_version(
     password: &str,
     salt: &[u8],
     version: u32,
