@@ -161,10 +161,10 @@ impl RateLimiter {
                 .retain(|_, (_, locked_until)| now < *locked_until);
         }
 
-        if let Some((_, locked_until)) = self.attempts.get(identifier) {
-            if now < *locked_until {
-                return false;
-            }
+        if let Some((_, locked_until)) = self.attempts.get(identifier)
+            && now < *locked_until
+        {
+            return false;
         }
 
         true

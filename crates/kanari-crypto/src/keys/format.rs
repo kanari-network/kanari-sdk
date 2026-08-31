@@ -70,7 +70,7 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &(KANAHYBRID_PREFIX.len() as u32),
         select,
     );
-    found = found | c;
+    found |= c;
 
     let c = Choice::from(constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) as u8);
     let not_found = !found;
@@ -80,7 +80,7 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &(KANAMLDSA_PREFIX.len() as u32),
         select,
     );
-    found = found | c;
+    found |= c;
 
     let c = Choice::from(constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) as u8);
     let not_found = !found;
@@ -90,7 +90,7 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &(KANASLHDSA_PREFIX.len() as u32),
         select,
     );
-    found = found | c;
+    found |= c;
 
     let c = Choice::from(constant_time_starts_with(formatted_key, KANAFALCON_PREFIX) as u8);
     let not_found = !found;
@@ -100,7 +100,7 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &(KANAFALCON_PREFIX.len() as u32),
         select,
     );
-    found = found | c;
+    found |= c;
 
     let c = Choice::from(constant_time_starts_with(formatted_key, KANAPQC_PREFIX) as u8);
     let not_found = !found;
@@ -110,7 +110,7 @@ pub fn extract_raw_key(formatted_key: &str) -> &str {
         &(KANAPQC_PREFIX.len() as u32),
         select,
     );
-    found = found | c;
+    found |= c;
 
     let c = Choice::from(constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) as u8);
     let not_found = !found;

@@ -311,7 +311,7 @@ fn decode_salt(salt_b64: &str) -> Result<Vec<u8>, EncryptionError> {
             let mut s = salt_b64.to_string();
             let rem = s.len() % 4;
             if rem != 0 {
-                s.extend(std::iter::repeat('=').take(4 - rem));
+                s.extend(std::iter::repeat_n('=', 4 - rem));
             }
             general_purpose::STANDARD.decode(&s)
         })
@@ -331,10 +331,6 @@ fn decode_salt(salt_b64: &str) -> Result<Vec<u8>, EncryptionError> {
         )));
     }
     Ok(bytes)
-}
-
-fn derive_key(password: &str, salt: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>, EncryptionError> {
-    derive_key_for_version(password, salt, 1)
 }
 
 pub(super) fn derive_key_for_version(
