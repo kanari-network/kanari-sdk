@@ -89,7 +89,9 @@ pub enum WalletError {
 
 /// Structure representing a wallet with private key and address
 /// Private key and seed phrase are sensitive and should be handled carefully
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// Clone is intentionally not derived to avoid duplicating Zeroizing secrets in memory.
+/// Use `Wallet::new` with explicit field copies where duplication is required.
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Wallet {
     pub address: AccountAddress,
     /// Private key wrapped in Zeroizing to clear memory on drop

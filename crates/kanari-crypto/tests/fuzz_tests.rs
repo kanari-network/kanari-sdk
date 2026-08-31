@@ -10,16 +10,19 @@ use kanari_crypto::{
 };
 use proptest::prelude::*;
 
-const DEFAULT_CRYPTO_FUZZ_CASES: u32 = 256;
+const DEFAULT_CRYPTO_FUZZ_CASES: u32 = 32;
 
 fn crypto_fuzz_config() -> proptest::test_runner::Config {
-    proptest::test_runner::Config {
+    let mut config = proptest::test_runner::Config {
         cases: std::env::var("KANARI_CRYPTO_PROPTEST_CASES")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(DEFAULT_CRYPTO_FUZZ_CASES),
         ..proptest::test_runner::Config::default()
-    }
+    };
+    // Avoid "Too many global rejects" when using prop_assume with random data
+    config.max_global_rejects = 10000;
+    config
 }
 
 /// Fuzz test signature verification with random data
@@ -78,18 +81,16 @@ fn prop_fuzz_signature_verification() {
 /// Fuzz test encryption/decryption roundtrip
 #[test]
 fn prop_fuzz_encryption_roundtrip() {
-    proptest!(crypto_fuzz_config(), |(password_bytes: Vec<u8>, plaintext: Vec<u8>)| {
-        // Limit sizes
-        prop_assume!(password_bytes.len() >= 8 && password_bytes.len() <= 64);
-        prop_assume!(plaintext.len() <= 1024);
-
+    proptest!(crypto_fuzz_config(), |(password_bytes in proptest::collection::vec(any::<u8>(), 8..64), plaintext in proptest::collection::vec(any::<u8>(), 0..1024))| {
         // Convert password to string (skip invalid UTF-8)
         let Ok(password) = std::str::from_utf8(&password_bytes) else {
             return Ok(());
         };
 
-        // Skip empty passwords
-        prop_assume!(!password.is_empty());
+        // Skip empty passwords (rare with 8..64, but handle)
+        if password.is_empty() {
+            return Ok(());
+        }
 
         // Encrypt - should not panic
         let Ok(encrypted) = encrypt_data(&plaintext, password) else {

@@ -37,7 +37,7 @@ pub fn verify_hybrid_signature_detailed(
     let classical_sig = &signature[2..2 + classical_len];
     let pqc_sig = &signature[2 + classical_len..];
 
-    let classical_ok = classical_verify_fn(classical_pub, message, classical_sig).unwrap_or(false);
+    let classical_ok = classical_verify_fn(classical_pub, message, classical_sig)?;
 
     if pqc_sig.is_empty() {
         return Ok((classical_ok, false));
@@ -165,7 +165,7 @@ pub fn verify_k256dilithium3(
     let classical_sig = &signature[2..2 + classical_len];
     let pqc_sig = &signature[2 + classical_len..];
 
-    let classical_ok = verify_signature_k256(classical, message, classical_sig).unwrap_or(false);
+    let classical_ok = verify_signature_k256(classical, message, classical_sig)?;
     if pqc_sig.is_empty() {
         return Ok(false);
     }
@@ -209,7 +209,7 @@ pub fn verify_ed25519dilithium3(
     let classical_sig = &signature[2..2 + classical_len];
     let pqc_sig = &signature[2 + classical_len..];
 
-    let classical_ok = verify_signature_ed25519(classical, message, classical_sig).unwrap_or(false);
+    let classical_ok = verify_signature_ed25519(classical, message, classical_sig)?;
     if pqc_sig.is_empty() {
         return Ok(false);
     }

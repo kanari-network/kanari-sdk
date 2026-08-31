@@ -129,7 +129,7 @@ k256 = { version = "0.14.0", features = ["ecdsa", "std", "sha2"] }              
 p256 = { version = "0.14.0", features = ["ecdsa", "std", "sha2"] }                  # NIST P-256
 ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }                     # Ed25519 signatures
 curve25519-dalek = { version = "5.0.0", features = ["rand_core"] }                  # X25519 key exchange
-secp256k1 = { version = "0.31.1", features = ["recovery"] }                         # secp256k1 with recovery
+secp256k1 = { version = "0.33.1", features = ["recovery"] }                         # secp256k1 with recovery
 rsa = { version = "0.9.10", default-features = false, features = ["std"] }          # RSA signature verification
 
 ## Symmetric Encryption & MAC
@@ -137,7 +137,7 @@ aes-gcm = "0.11.1"                                                              
 hmac = { version = "0.13.0" }                                                       # HMAC for key derivation
 
 ## Key Derivation & Password Hashing
-argon2 = { version = "0.5.3", default-features = true }                             # Password hashing
+argon2 = { version = "0.6.0", default-features = true }                             # Password hashing
 bip39 = { version = "2.2.2", features = ["rand"] }                                  # Mnemonic phrases
 bip32 = "0.5.3"                                                                     # HD wallet derivation
 
@@ -171,7 +171,7 @@ zstd = "0.13.3"                                                                 
 # Caching & Performance Optimization
 # ============================================================================
 moka = { version = "0.12.15", features = ["sync"] }                                 # Thread-safe caching
-lru = "0.18.2"                                                                      # LRU cache
+lru = "0.18.3"                                                                      # LRU cache
 dashmap = "6.2.1"                                                                   # Concurrent HashMap
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
 siphasher = "1.0.3"                                                                 # SipHash implementation
@@ -225,7 +225,7 @@ data-encoding = "2.11.1"                                                        
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.25.0", features = ["v4", "serde"] }
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
@@ -235,7 +235,7 @@ num-integer = { version = "0.1.47" }
 # ============================================================================
 # Compression & Data Optimization
 # ============================================================================
-flate2 = "1.1.9"    # DEFLATE compression (gzip/zlib)
+flate2 = "1.1.10"    # DEFLATE compression (gzip/zlib)
 
 # ============================================================================
 # Mobile & Cross-Platform Bridge

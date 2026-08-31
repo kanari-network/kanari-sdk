@@ -95,10 +95,10 @@ fn generate_random_bytes<const N: usize>() -> [u8; N] {
 fn test_secp256k1_ecrecover_and_verify() {
     // Test ecdsa_k1 (secp256k1) signature recovery and verification
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let public_key = secp256k1::PublicKey::from_secret_key(&secret_key);
 
     // Create message
     let msg = b"Hello, Kanari Network!";
@@ -106,13 +106,14 @@ fn test_secp256k1_ecrecover_and_verify() {
     let message = secp256k1::Message::from_digest(msg_hash.into());
 
     // Sign the message
-    let signature = secp.sign_ecdsa(message, &secret_key);
+    let signature = secp256k1::ecdsa::sign(message, &secret_key);
 
     // serialize_compact returns [u8; 64], not a tuple
     let sig_bytes = signature.serialize_compact();
 
     // For recovery, we need to sign with recoverable signature
-    let recoverable_sig = secp.sign_ecdsa_recoverable(message, &secret_key);
+    let recoverable_sig =
+        secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
     let (_recovery_id, _rec_sig_bytes) = recoverable_sig.serialize_compact();
 
     // Test decompress_pubkey
@@ -137,7 +138,7 @@ fn test_secp256k1_ecrecover_and_verify() {
 
     // Test verify with Keccak256
     let msg_hash_keccak = Keccak256::digest(msg);
-    let sig_keccak = secp.sign_ecdsa(
+    let sig_keccak = secp256k1::ecdsa::sign(
         secp256k1::Message::from_digest(msg_hash_keccak.into()),
         &secret_key,
     );
@@ -156,29 +157,26 @@ fn test_secp256k1_ecrecover_and_verify() {
 fn test_secp256k1_schnorr_signature() {
     // Test Schnorr signatures with x-only public keys
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let keypair = Keypair::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let keypair = Keypair::from_secret_key(&secret_key);
     let (xonly_pubkey, _parity) = XOnlyPublicKey::from_keypair(&keypair);
 
     // Create exactly 32-byte message (required for Schnorr)
     let msg_bytes = generate_random_bytes::<32>();
 
     // Sign with Schnorr (using no auxiliary randomness for deterministic testing)
-    let schnorr_sig = secp.sign_schnorr_no_aux_rand(&msg_bytes, &keypair);
+    let schnorr_sig = secp256k1::schnorr::sign_no_aux_rand(&msg_bytes, &keypair);
 
     // Verify
-    let verified = secp
-        .verify_schnorr(&schnorr_sig, &msg_bytes, &xonly_pubkey)
-        .is_ok();
+    let verified = secp256k1::schnorr::verify(&schnorr_sig, &msg_bytes, &xonly_pubkey).is_ok();
     assert!(verified, "Schnorr signature verification should succeed");
 
     // Test with wrong message
     let wrong_msg = generate_random_bytes::<32>();
-    let verified_wrong = secp
-        .verify_schnorr(&schnorr_sig, &wrong_msg, &xonly_pubkey)
-        .is_ok();
+    let verified_wrong =
+        secp256k1::schnorr::verify(&schnorr_sig, &wrong_msg, &xonly_pubkey).is_ok();
     assert!(!verified_wrong, "Schnorr should fail with wrong message");
 }
 
@@ -274,14 +272,14 @@ fn test_ed25519_verify() {
 fn test_invalid_signatures() {
     // Test error handling for invalid inputs
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let public_key = secp256k1::PublicKey::from_secret_key(&secret_key);
     let msg = b"Test message";
     let msg_hash = Sha256::digest(msg);
     let message = secp256k1::Message::from_digest(msg_hash.into());
-    let signature = secp.sign_ecdsa(message, &secret_key);
+    let signature = secp256k1::ecdsa::sign(message, &secret_key);
     let sig_bytes = signature.serialize_compact();
 
     // Test invalid signature length (not 64 or 65 bytes)
@@ -311,10 +309,10 @@ fn test_invalid_signatures() {
 fn test_pubkey_normalization() {
     // Test public key format normalization (64-byte without prefix -> 65-byte with 0x04)
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let public_key = secp256k1::PublicKey::from_secret_key(&secret_key);
 
     // Get uncompressed pubkey (65 bytes with 0x04 prefix)
     let uncompressed_full = public_key.serialize_uncompressed();
@@ -358,18 +356,19 @@ fn test_message_size_limits() {
 fn test_recovery_id_handling() {
     // Test recovery ID conversion (0-3 vs 27-28)
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
     let msg = b"Recovery ID test";
     let msg_hash = Sha256::digest(msg);
     let message = secp256k1::Message::from_digest(msg_hash.into());
 
     // Sign and get recovery ID
-    let signature = secp.sign_ecdsa_recoverable(message, &secret_key);
+    let signature =
+        secp256k1::ecdsa::RecoverableSignature::sign_ecdsa_recoverable(message, &secret_key);
     let (rec_id, _sig_bytes) = signature.serialize_compact();
 
-    let rec_id_value: i32 = rec_id.into();
+    let rec_id_value: i32 = rec_id.to_u8() as i32;
     assert!((0..=3).contains(&rec_id_value), "Recovery ID should be 0-3");
 
     // Test legacy format (27-28)
@@ -411,14 +410,14 @@ fn test_hash_functions() {
 fn test_xonly_pubkey_conversion() {
     // Test x-only public key operations for Schnorr
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let secret_bytes = generate_random_bytes::<32>();
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let keypair = Keypair::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let keypair = Keypair::from_secret_key(&secret_key);
     let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
 
     // X-only pubkey should be 32 bytes
-    let xonly_bytes = xonly.serialize();
+    let xonly_bytes = xonly.to_byte_array();
     assert_eq!(xonly_bytes.len(), 32);
 
     // Should be able to reconstruct from bytes
@@ -431,12 +430,12 @@ fn generate_test_vectors_for_move() {
     // Generate correct test vectors for Move tests
     // This test prints the correct signature, pubkey, and message that can be used in Move tests
 
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
 
     // Use a fixed seed for reproducible test vectors
     let secret_bytes = [0x42u8; 32];
-    let secret_key = SecretKey::from_byte_array(secret_bytes).unwrap();
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    let secret_key = SecretKey::from_secret_bytes(secret_bytes).unwrap();
+    let public_key = secp256k1::PublicKey::from_secret_key(&secret_key);
 
     // Test message: 0x00010203 (same as in Move test)
     let msg = vec![0x00u8, 0x01, 0x02, 0x03];
@@ -444,7 +443,7 @@ fn generate_test_vectors_for_move() {
     let message = secp256k1::Message::from_digest(msg_hash.into());
 
     // Sign with ECDSA
-    let signature = secp.sign_ecdsa(message, &secret_key);
+    let signature = secp256k1::ecdsa::sign(message, &secret_key);
     let sig_bytes = signature.serialize_compact();
 
     // Get compressed public key (33 bytes)
@@ -464,25 +463,26 @@ fn generate_test_vectors_for_move() {
     assert!(verified, "Generated test vector should verify correctly");
 
     // Generate Schnorr test vector
-    let keypair = Keypair::from_secret_key(&secp, &secret_key);
+    let keypair = Keypair::from_secret_key(&secret_key);
     let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
 
     // Schnorr requires 32-byte message
     let schnorr_msg = generate_random_bytes::<32>();
-    let schnorr_sig = secp.sign_schnorr_no_aux_rand(&schnorr_msg, &keypair);
+    let schnorr_sig = secp256k1::schnorr::sign_no_aux_rand(&schnorr_msg, &keypair);
 
     println!("\n=== Schnorr Test Vectors ===");
     println!("Message (32 bytes): {}", hex::encode(schnorr_msg));
-    println!("Public Key (x-only): {}", hex::encode(xonly.serialize()));
+    println!(
+        "Public Key (x-only): {}",
+        hex::encode(xonly.to_byte_array())
+    );
     println!(
         "Signature (r||s): {}",
         hex::encode(schnorr_sig.to_byte_array())
     );
 
     // Verify Schnorr
-    let schnorr_verified = secp
-        .verify_schnorr(&schnorr_sig, &schnorr_msg, &xonly)
-        .is_ok();
+    let schnorr_verified = secp256k1::schnorr::verify(&schnorr_sig, &schnorr_msg, &xonly).is_ok();
     assert!(
         schnorr_verified,
         "Schnorr test vector should verify correctly"

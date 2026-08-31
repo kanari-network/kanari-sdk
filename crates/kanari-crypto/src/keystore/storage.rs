@@ -68,11 +68,31 @@ pub(super) fn acquire_exclusive_lock(path: &Path) -> Result<LockFileGuard, Keyst
 
 pub(super) fn atomic_write_string(path: &Path, data: &str) -> Result<(), KeystoreError> {
     let temp_path = path.with_extension("tmp");
-    let mut file = File::create(&temp_path)?;
+    // Prevent symlink race: if tmp is a symlink, remove and error
+    if let Ok(meta) = fs::symlink_metadata(&temp_path)
+        && meta.is_symlink()
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(KeystoreError::IoError(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "tmp symlink detected",
+        )));
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&temp_path)?;
     file.write_all(data.as_bytes())?;
     file.sync_all()?;
     drop(file);
-    fs::rename(temp_path, path)?;
+    fs::rename(&temp_path, path)?;
+    // fsync parent dir to ensure rename durability
+    if let Some(dir) = path.parent()
+        && let Ok(dir_file) = File::open(dir)
+    {
+        let _ = dir_file.sync_all();
+    }
     Ok(())
 }
 

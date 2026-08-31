@@ -134,6 +134,7 @@ fn has_repetitive_pattern(password: &str) -> bool {
 /// Tracks failed attempts and enforces exponential backoff.
 pub struct RateLimiter {
     attempts: HashMap<String, (u32, u64)>,
+    #[allow(dead_code)]
     max_attempts: u32,
     lockout_duration_secs: u64,
 }
@@ -160,13 +161,10 @@ impl RateLimiter {
                 .retain(|_, (_, locked_until)| now < *locked_until);
         }
 
-        if let Some((count, locked_until)) = self.attempts.get(identifier) {
-            if now < *locked_until {
-                return false;
-            }
-            if *count >= self.max_attempts {
-                self.attempts.remove(identifier);
-            }
+        if let Some((_, locked_until)) = self.attempts.get(identifier)
+            && now < *locked_until
+        {
+            return false;
         }
 
         true

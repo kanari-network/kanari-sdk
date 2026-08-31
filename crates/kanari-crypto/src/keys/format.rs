@@ -3,7 +3,7 @@
 
 //! Kanari private-key prefixes and formatting helpers.
 
-use subtle::ConstantTimeEq;
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 use zeroize::Zeroizing;
 
 /// Prefix used for Kanari private keys
@@ -55,23 +55,73 @@ pub fn format_private_key(raw_key: &str) -> String {
 }
 
 /// Extract the raw hex key from a formatted private key using constant-time comparison.
+/// Checks all prefixes in constant time to avoid leaking key type via timing.
 #[must_use]
 pub fn extract_raw_key(formatted_key: &str) -> &str {
-    if constant_time_starts_with(formatted_key, KANAHYBRID_PREFIX) {
-        &formatted_key[KANAHYBRID_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) {
-        &formatted_key[KANAMLDSA_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) {
-        &formatted_key[KANASLHDSA_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAFALCON_PREFIX) {
-        &formatted_key[KANAFALCON_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANAPQC_PREFIX) {
-        &formatted_key[KANAPQC_PREFIX.len()..]
-    } else if constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) {
-        &formatted_key[KANARI_KEY_PREFIX.len()..]
-    } else {
-        formatted_key
-    }
+    let mut offset: u32 = 0;
+    let mut found = Choice::from(0u8);
+
+    // Check each prefix; ct_eq inside is constant-time, selection is constant-time
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANAHYBRID_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANAHYBRID_PREFIX.len() as u32),
+        select,
+    );
+    found |= c;
+
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANAMLDSA_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANAMLDSA_PREFIX.len() as u32),
+        select,
+    );
+    found |= c;
+
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANASLHDSA_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANASLHDSA_PREFIX.len() as u32),
+        select,
+    );
+    found |= c;
+
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANAFALCON_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANAFALCON_PREFIX.len() as u32),
+        select,
+    );
+    found |= c;
+
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANAPQC_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANAPQC_PREFIX.len() as u32),
+        select,
+    );
+    found |= c;
+
+    let c = Choice::from(constant_time_starts_with(formatted_key, KANARI_KEY_PREFIX) as u8);
+    let not_found = !found;
+    let select = c & not_found;
+    offset = ConditionallySelectable::conditional_select(
+        &offset,
+        &(KANARI_KEY_PREFIX.len() as u32),
+        select,
+    );
+
+    &formatted_key[offset as usize..]
 }
 
 /// Skip the uncompressed EC point prefix (0x04) safely.

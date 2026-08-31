@@ -18,14 +18,17 @@ pub struct BackupMetadata {
     pub key_count: usize,
     /// Whether mnemonic is included
     pub has_mnemonic: bool,
-    /// Checksum for verification (SHA3-256)
+    /// Checksum for verification (HMAC-SHA3-256)
     pub checksum: String,
     /// Optional description
     pub description: Option<String>,
+    /// HMAC salt (base64) - v2 uses Argon2-derived key with random salt, None = legacy SHA3
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hmac_salt: Option<String>,
 }
 
 impl BackupMetadata {
-    /// Create new backup metadata
+    /// Create new backup metadata (legacy SHA3 path, hmac_salt None)
     pub fn new(key_count: usize, has_mnemonic: bool, checksum: String) -> Self {
         let timestamp = crate::get_current_timestamp();
 
@@ -36,6 +39,26 @@ impl BackupMetadata {
             has_mnemonic,
             checksum,
             description: None,
+            hmac_salt: None,
+        }
+    }
+
+    /// Create new backup metadata with Argon2 HMAC salt (v2)
+    pub fn new_with_hmac_salt(
+        key_count: usize,
+        has_mnemonic: bool,
+        checksum: String,
+        hmac_salt: String,
+    ) -> Self {
+        let timestamp = crate::get_current_timestamp();
+        Self {
+            created_at: timestamp,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            key_count,
+            has_mnemonic,
+            checksum,
+            description: None,
+            hmac_salt: Some(hmac_salt),
         }
     }
 

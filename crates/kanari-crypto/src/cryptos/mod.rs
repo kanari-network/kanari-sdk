@@ -22,7 +22,7 @@ use rsa::{
     pkcs1v15::{Signature as RsaPkcs1v15Signature, VerifyingKey as RsaPkcs1v15VerifyingKey},
 };
 use secp256k1::{
-    Message as SecpMessage, Secp256k1, XOnlyPublicKey,
+    Message as SecpMessage, XOnlyPublicKey,
     ecdsa::RecoverableSignature as SecpRecoverableSignature, ecdsa::RecoveryId as SecpRecoveryId,
     schnorr::Signature as SchnorrSignature,
 };
@@ -111,9 +111,8 @@ pub fn recover_secp256k1_public_key(
         .map_err(|_| NativeCryptoError::InvalidMessage)?;
     let message = SecpMessage::from_digest(msg32);
 
-    let secp = Secp256k1::new();
-    let public_key = secp
-        .recover_ecdsa(message, &recoverable_sig)
+    let public_key = recoverable_sig
+        .recover_ecdsa(message)
         .map_err(|_| NativeCryptoError::InvalidRecovery)?;
     Ok(public_key.serialize().to_vec())
 }
@@ -157,8 +156,7 @@ pub fn verify_secp256k1_schnorr_native(
     let public_key = XOnlyPublicKey::from_byte_array(public_key)
         .map_err(|_| NativeCryptoError::InvalidXOnlyPublicKey)?;
     let signature = SchnorrSignature::from_byte_array(signature);
-    let secp = Secp256k1::new();
-    Ok(secp.verify_schnorr(&signature, &msg32, &public_key).is_ok())
+    Ok(signature.verify(&msg32, &public_key).is_ok())
 }
 
 pub fn verify_p256_sha256_native(
@@ -188,6 +186,18 @@ pub fn verify_rs256_prehash_native(
     msg_hash: &[u8],
     signature: &[u8],
 ) -> bool {
+    const MAX_RSA_BYTES: usize = 512; // 4096-bit max (512B), reject 65536-bit DoS
+    if modulus_n.len() < 256 {
+        // Reject <2048-bit to avoid weak keys
+        return false;
+    }
+    if modulus_n.len() > MAX_RSA_BYTES
+        || exponent_e.len() > MAX_RSA_BYTES
+        || signature.len() > MAX_RSA_BYTES
+        || msg_hash.len() > 64
+    {
+        return false;
+    }
     let Ok(public_key) = RsaPublicKey::new(
         BigUint::from_bytes_be(modulus_n),
         BigUint::from_bytes_be(exponent_e),

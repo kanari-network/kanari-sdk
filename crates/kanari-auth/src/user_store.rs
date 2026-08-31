@@ -115,32 +115,14 @@ impl UserRecord {
     /// * `password` - Plain text password
     ///
     /// # Returns
-    /// Hashed password string
+    /// Hashed password string (PHC format)
     pub fn hash_password(password: &str) -> AuthResult<String> {
         use argon2::{Argon2, PasswordHasher};
-        use rand::TryRng;
-        use rand::rngs::SysRng;
-
-        // Generate a random salt manually (16 bytes)
-        let mut rng = SysRng;
-        let mut salt_bytes = [0u8; 16];
-        rng.try_fill_bytes(&mut salt_bytes).map_err(|e| {
-            AuthError::CryptoError(format!("Failed to generate random bytes: {}", e))
-        })?;
-
-        // Create SaltString from raw bytes using B64 encoding without padding
-        // SaltString expects exactly the right format
-        let salt_string = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD_NO_PAD,
-            salt_bytes,
-        );
-        let salt = argon2::password_hash::SaltString::from_b64(&salt_string)
-            .map_err(|e| AuthError::CryptoError(format!("Invalid salt: {}", e)))?;
 
         let argon2 = Argon2::default();
 
         let password_hash = argon2
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map_err(|e| AuthError::CryptoError(format!("Password hashing failed: {}", e)))?;
 
         Ok(password_hash.to_string())

@@ -184,7 +184,7 @@ fn verify_ecdsa_sha256(curve: EcdsaCurve, public_key: &[u8], msg: &[u8], sig: &[
     let digest = Sha256::digest(msg);
     match curve {
         EcdsaCurve::K256 => {
-            use secp256k1::{Message, PublicKey, Secp256k1, ecdsa::Signature};
+            use secp256k1::{Message, PublicKey, ecdsa::Signature};
 
             let Ok(key) = PublicKey::from_slice(public_key) else {
                 return false;
@@ -194,9 +194,7 @@ fn verify_ecdsa_sha256(curve: EcdsaCurve, public_key: &[u8], msg: &[u8], sig: &[
             };
             signature.normalize_s();
             let message = Message::from_digest(digest.into());
-            Secp256k1::verification_only()
-                .verify_ecdsa(message, &signature, &key)
-                .is_ok()
+            signature.verify(message, &key).is_ok()
         }
         EcdsaCurve::P256 => {
             use p256::ecdsa::{Signature, VerifyingKey, signature::hazmat::PrehashVerifier};
