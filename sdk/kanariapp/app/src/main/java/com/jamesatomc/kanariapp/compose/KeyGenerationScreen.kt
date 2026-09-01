@@ -15,41 +15,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.jamesatomc.kanariapp.wallet.EncryptedData
+import com.jamesatomc.kanariapp.wallet.WalletRecord
+import com.jamesatomc.kanariapp.wallet.WalletStorage
 import com.kanari.kanari_crypto.KanariCrypto
 import com.kanari.kanari_crypto.model.CurveInfoModel
 import com.kanari.kanari_crypto.model.KeyPairModel
@@ -68,6 +49,7 @@ enum class ImportMethod {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KeyGenerationScreen(
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
     defaultCurve: String = KanariCrypto.DEFAULT_CURVE,
     onKeyPairGenerated: ((KeyPairModel) -> Unit)? = null,
@@ -75,6 +57,8 @@ fun KeyGenerationScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val walletStorage = remember { WalletStorage(context) }
 
     var curves by remember { mutableStateOf<List<CurveInfoModel>>(emptyList()) }
     var selectedCurveInfo by remember { mutableStateOf<CurveInfoModel?>(null) }
@@ -82,6 +66,11 @@ fun KeyGenerationScreen(
     var keyPairs by remember { mutableStateOf<List<KeyPairModel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Save Wallet Dialog
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var pin by remember { mutableStateOf("") }
+    var walletName by remember { mutableStateOf("My Wallet") }
 
     // Mode options
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -129,6 +118,11 @@ fun KeyGenerationScreen(
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                     ) 
                 },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground
@@ -137,6 +131,75 @@ fun KeyGenerationScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
+        if (showSaveDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveDialog = false },
+                title = { Text("Save Wallet") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Enter a 6-digit PIN to encrypt your wallet.")
+                        OutlinedTextField(
+                            value = walletName,
+                            onValueChange = { walletName = it },
+                            label = { Text("Wallet Name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = pin,
+                            onValueChange = { if (it.length <= 6) pin = it },
+                            label = { Text("6-Digit PIN") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (pin.length == 6) {
+                                scope.launch {
+                                    runCatching {
+                                        val pair = keyPairs.first()
+                                        val encryptedPk = walletStorage.encrypt(pair.privateKey, pin)
+                                        val encryptedMnemonic = mnemonic?.let { walletStorage.encrypt(it, pin) }
+                                        
+                                        val record = WalletRecord(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            name = walletName,
+                                            address = pair.address,
+                                            curveType = pair.curveType,
+                                            privateKeyEncrypted = encryptedPk,
+                                            mnemonicEncrypted = encryptedMnemonic
+                                        )
+                                        
+                                        val existing = walletStorage.loadWallets().toMutableList()
+                                        existing.add(record)
+                                        walletStorage.saveWallets(existing)
+                                        
+                                        if (!walletStorage.hasPin()) {
+                                            walletStorage.savePin(pin)
+                                        }
+                                        
+                                        snackbarHostState.showSnackbar("Wallet saved successfully!")
+                                        showSaveDialog = false
+                                        onBack()
+                                    }.onFailure {
+                                        errorMessage = "Failed to save: ${it.message}"
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -359,11 +422,26 @@ fun KeyGenerationScreen(
 
             // Section 3: Results
             if (mnemonic != null || keyPairs.isNotEmpty()) {
-                Text(
-                    text = if (selectedTab == 0) "Generated Results" else "Import Results",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (selectedTab == 0) "Generated Results" else "Import Results",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    
+                    Button(
+                        onClick = { showSaveDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Save Wallet")
+                    }
+                }
 
                 mnemonic?.let { words ->
                     ElevatedCard(
