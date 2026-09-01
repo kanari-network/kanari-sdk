@@ -99,7 +99,7 @@ libp2p-yamux = "0.47.0"
 ## HTTP/Web APIs
 reqwest = { version = "0.13.4", features = ["json"] }
 axum = "0.8.9"
-tower-http = { version = "0.7.0", features = ["cors", "limit", "timeout"] }
+tower-http = { version = "0.7.1", features = ["cors", "limit", "timeout"] }
 tower = { version = "0.5.3", features = ["limit", "util"] }
 axum-client-ip = "1.3.1"                                                              # IP extraction for axum
 
@@ -151,7 +151,7 @@ primitive-types = { version = "0.14.0", default-features = true }               
 # ============================================================================
 ml-dsa = { version = "0.1.1", features = ["zeroize"] }                              # Pure Rust FIPS 204 ML-DSA signatures
 slh-dsa = { version = "0.2.0-rc.5", features = ["zeroize"] }                        # Pure Rust FIPS 205 SLH-DSA signatures
-falcon = { package = "falcon-rs", version = "0.2.5", features = ["std"] }           # Pure Rust FIPS 206 FN-DSA/Falcon signatures
+falcon = { package = "falcon-rs", version = "0.3.1", features = ["std"] }           # Pure Rust FIPS 206 FN-DSA/Falcon signatures
 
 # ============================================================================
 # Memory Security & Timing Attack Prevention

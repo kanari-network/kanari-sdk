@@ -1866,9 +1866,9 @@ dependencies = [
 
 [[package]]
 name = "falcon-rs"
-version = "0.2.5"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f667f04b165f849d6b7cba41b58b8b092556b253051e30062b1233aed7489969"
+checksum = "97afa6b3e692aa0c332b883f18e3f999e99df06331ac93196b60805950b0f65f"
 dependencies = [
  "getrandom 0.2.17",
  "libm",
@@ -3380,7 +3380,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower",
- "tower-http 0.7.0",
+ "tower-http 0.7.1",
  "tracing",
 ]
 
@@ -5931,7 +5931,7 @@ dependencies = [
  "tokio",
  "totp-rs",
  "tower",
- "tower-http 0.7.0",
+ "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7187,9 +7187,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b11f75e912b0c2be01b63d8cf8057b8c3f97cf34abb3d431a3a4c8675498e233"
+checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
 dependencies = [
  "bitflags",
  "bytes",

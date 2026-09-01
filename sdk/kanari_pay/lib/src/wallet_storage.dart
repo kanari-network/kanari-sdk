@@ -196,7 +196,7 @@ class WalletStorage {
         return wallets.map(_publicWalletRecord).toList();
       }
 
-      return Future.wait(
+      return await Future.wait(
         wallets.map((wallet) => _walletForRuntime(wallet, pin: pin)),
       );
     } catch (e) {
