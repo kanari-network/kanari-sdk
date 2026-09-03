@@ -1,7 +1,13 @@
 package com.jamesatomc.kanariapp.network.models
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.*
 
 @Serializable
 data class TransactionResult(
@@ -28,8 +34,8 @@ data class TransactionDetails(
     val sender: String,
     @SerialName("sender_address") val senderAddress: String? = null,
     val nonce: ULong,
-    @SerialName("gas_limit") val gasLimit: Long,
-    @SerialName("gas_price") val gasPrice: Long,
+    @SerialName("gas_limit") val gasLimit: ULong,
+    @SerialName("gas_price") val gasPrice: ULong,
     val module: String? = null,
     val function: String? = null,
     @SerialName("module_functions") val moduleFunctions: List<String>? = null,
@@ -37,20 +43,91 @@ data class TransactionDetails(
 )
 
 @Serializable
-data class ObjectRefInfo(
-    @SerialName("object_id") val objectId: String,
-    val version: Long? = null,
-    val digest: String? = null
-)
-
-@Serializable
 data class ObjectChangeInfo(
     @SerialName("change_type") val changeType: String,
-    @SerialName("object_ref") val objectRef: ObjectRefInfo,
+    @SerialName("object_ref") val objectRef: ObjectRef,
     val type: String? = null,
     @SerialName("type_") val typeAlternative: String? = null,
-    val owner: String? = null
+    val owner: ObjectOwnerKind? = null
 )
+
+@Serializable(with = ObjectOwnerKindSerializer::class)
+sealed class ObjectOwnerKind {
+    @Serializable
+    @SerialName("AddressOwner")
+    data class AddressOwner(val address: String) : ObjectOwnerKind()
+
+    @Serializable
+    @SerialName("Shared")
+    object Shared : ObjectOwnerKind()
+
+    @Serializable
+    @SerialName("Immutable")
+    object Immutable : ObjectOwnerKind()
+}
+
+object ObjectOwnerKindSerializer : KSerializer<ObjectOwnerKind> {
+    @Serializable
+    @SerialName("ObjectOwnerKind")
+    private sealed class Surrogate {
+        @Serializable
+        @SerialName("AddressOwner")
+        data class AddressOwner(val address: String) : Surrogate()
+        @Serializable
+        @SerialName("Shared")
+        object Shared : Surrogate()
+        @Serializable
+        @SerialName("Immutable")
+        object Immutable : Surrogate()
+    }
+
+    override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): ObjectOwnerKind {
+        return if (decoder is JsonDecoder) {
+            val element = decoder.decodeJsonElement()
+            if (element is JsonPrimitive) {
+                when (element.content) {
+                    "Shared" -> ObjectOwnerKind.Shared
+                    "Immutable" -> ObjectOwnerKind.Immutable
+                    else -> throw SerializationException("Unknown ObjectOwnerKind variant: ${element.content}")
+                }
+            } else {
+                val obj = element.jsonObject
+                when {
+                    "AddressOwner" in obj -> ObjectOwnerKind.AddressOwner(obj["AddressOwner"]!!.jsonPrimitive.content)
+                    "Shared" in obj -> ObjectOwnerKind.Shared
+                    "Immutable" in obj -> ObjectOwnerKind.Immutable
+                    else -> throw SerializationException("Unknown ObjectOwnerKind object: $obj")
+                }
+            }
+        } else {
+            when (val surrogate = decoder.decodeSerializableValue(Surrogate.serializer())) {
+                is Surrogate.AddressOwner -> ObjectOwnerKind.AddressOwner(surrogate.address)
+                Surrogate.Shared -> ObjectOwnerKind.Shared
+                Surrogate.Immutable -> ObjectOwnerKind.Immutable
+            }
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: ObjectOwnerKind) {
+        if (encoder is JsonEncoder) {
+            val element = when (value) {
+                is ObjectOwnerKind.AddressOwner -> buildJsonObject { put("AddressOwner", value.address) }
+                ObjectOwnerKind.Shared -> JsonPrimitive("Shared")
+                ObjectOwnerKind.Immutable -> JsonPrimitive("Immutable")
+            }
+            encoder.encodeJsonElement(element)
+        } else {
+            val surrogate = when (value) {
+                is ObjectOwnerKind.AddressOwner -> Surrogate.AddressOwner(value.address)
+                ObjectOwnerKind.Shared -> Surrogate.Shared
+                ObjectOwnerKind.Immutable -> Surrogate.Immutable
+            }
+            encoder.encodeSerializableValue(Surrogate.serializer(), surrogate)
+        }
+    }
+}
 
 @Serializable
 data class TransactionEffectsInfo(
@@ -66,9 +143,9 @@ data class TransactionEffectsInfo(
 data class BuildNativeTransferRequest(
     val sender: String,
     val recipient: String,
-    val amount: Long,
-    @SerialName("gas_limit") val gasLimit: Long,
-    @SerialName("gas_price") val gasPrice: Long,
+    val amount: ULong,
+    @SerialName("gas_limit") val gasLimit: ULong,
+    @SerialName("gas_price") val gasPrice: ULong,
     @SerialName("excluded_object_ids") val excludedObjectIds: List<String> = emptyList(),
     val nonce: ULong? = null,
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
@@ -77,7 +154,7 @@ data class BuildNativeTransferRequest(
 @Serializable
 data class ObjectRef(
     @SerialName("object_id") val objectId: String,
-    val version: Long? = null,
+    val version: ULong? = null,
     val digest: String? = null
 )
 
@@ -85,8 +162,8 @@ data class ObjectRef(
 data class GasPayment(
     @SerialName("payment_objects") val paymentObjects: List<ObjectRef>,
     val owner: String,
-    val budget: Long,
-    val price: Long
+    val budget: ULong,
+    val price: ULong
 )
 
 @Serializable
@@ -95,11 +172,88 @@ data class ObjectTransferData(
     @SerialName("coin_object_id") val coinObjectId: String,
     @SerialName("coin_object_ref") val coinObjectRef: ObjectRef? = null,
     val recipient: String,
-    val amount: Long,
-    @SerialName("gas_limit") val gasLimit: Long,
-    @SerialName("gas_price") val gasPrice: Long,
-    val nonce: ULong? = null,
+    val amount: ULong,
+    @SerialName("gas_limit") val gasLimit: ULong,
+    @SerialName("gas_price") val gasPrice: ULong,
+    var nonce: ULong? = null,
     @SerialName("gas_payment") val gasPayment: GasPayment? = null,
-    var signature: List<Int>? = null, // Using List<Int> for byte array compatibility in serialization
+    var signature: List<Int>? = null,
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
+)
+
+@Serializable
+sealed class KanariTransaction {
+    @Serializable
+    @SerialName("PublishModule")
+    data class PublishModule(
+        val sender: String,
+        @SerialName("module_bytes") val moduleBytes: List<UByte>,
+        @SerialName("module_name") val moduleName: String,
+        @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+        @SerialName("gas_limit") val gasLimit: ULong,
+        @SerialName("gas_price") val gasPrice: ULong,
+        val nonce: ULong
+    ) : KanariTransaction()
+
+    @Serializable
+    @SerialName("PublishPackage")
+    data class PublishPackage(
+        val sender: String,
+        val modules: List<PublishedModule>,
+        @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+        @SerialName("gas_limit") val gasLimit: ULong,
+        @SerialName("gas_price") val gasPrice: ULong,
+        val nonce: ULong
+    ) : KanariTransaction()
+
+    @Serializable
+    @SerialName("UpgradeModule")
+    data class UpgradeModule(
+        val sender: String,
+        @SerialName("module_bytes") val moduleBytes: List<UByte>,
+        @SerialName("module_name") val moduleName: String,
+        @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+        @SerialName("gas_limit") val gasLimit: ULong,
+        @SerialName("gas_price") val gasPrice: ULong,
+        val nonce: ULong
+    ) : KanariTransaction()
+
+    @Serializable
+    @SerialName("UpgradePackage")
+    data class UpgradePackage(
+        val sender: String,
+        val modules: List<PublishedModule>,
+        @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+        @SerialName("gas_limit") val gasLimit: ULong,
+        @SerialName("gas_price") val gasPrice: ULong,
+        val nonce: ULong
+    ) : KanariTransaction()
+
+    @Serializable
+    @SerialName("ExecuteFunction")
+    data class ExecuteFunction(
+        val sender: String,
+        val module: String,
+        val function: String,
+        @SerialName("type_args") val typeArgs: List<String>,
+        val args: List<List<UByte>>,
+        @SerialName("object_inputs") val objectInputs: List<ObjectInput>,
+        @SerialName("gas_payment") val gasPayment: GasPayment?,
+        @SerialName("gas_limit") val gasLimit: ULong,
+        @SerialName("gas_price") val gasPrice: ULong,
+        val nonce: ULong
+    ) : KanariTransaction()
+}
+
+@Serializable
+data class PublishedModule(
+    @SerialName("module_name") val moduleName: String,
+    @SerialName("module_bytes") val moduleBytes: List<UByte>
+)
+
+@Serializable
+data class ObjectInput(
+    @SerialName("object_ref") val objectRef: ObjectRef,
+    val owner: ObjectOwnerKind?,
+    val mutable: Boolean
 )

@@ -167,10 +167,10 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
         Button(
             onClick = {
                 val decimals = selectedToken?.decimals ?: 9
-                val amtLong = ((amount.toDoubleOrNull() ?: 0.0) * Math.pow(10.0, decimals.toDouble())).toLong()
+                val amtLong = ((amount.toDoubleOrNull() ?: 0.0) * Math.pow(10.0, decimals.toDouble())).toLong().toULong()
                 val tokenType = selectedToken?.tokenType ?: "0x2::kanari::KANARI"
                 
-                if (amtLong > 0 && recipient.isNotEmpty()) {
+                if (amtLong > 0uL && recipient.isNotEmpty()) {
                     scope.launch {
                         isLoading = true
                         if (viewModel.transfer(recipient, amtLong, tokenType)) {

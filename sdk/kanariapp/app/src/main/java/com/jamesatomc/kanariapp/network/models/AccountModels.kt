@@ -57,6 +57,7 @@ data class TokenInfo(
 data class ObjectInfo(
     val id: String,
     val owner: String,
+    @SerialName("owner_kind") val ownerKind: ObjectOwnerKind? = null,
     val type: String? = null,
     @SerialName("type_") val typeAlternative: String? = null,
     val data: List<Int> = emptyList(),

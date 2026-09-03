@@ -17,6 +17,8 @@ class KanariClient(private val environment: KanariEnvironment) {
         encodeDefaults = true
     }
 
+    private val bcs = Bcs
+
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
@@ -124,18 +126,18 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun buildNativeTransfer(
         sender: String,
         recipient: String,
-        amount: Long,
-        gasLimit: Long = 1000000,
-        gasPrice: Long = 1
+        amount: ULong,
+        gasLimit: ULong = 1000000uL,
+        gasPrice: ULong = 1uL
     ): ObjectTransferData? {
         val request = RpcRequest(
             method = "kanari_buildNativeTransfer",
             params = buildJsonObject {
-                put("sender", normalizeAddress(sender))
+                put("sender", sender) // Don't normalize tagged address
                 put("recipient", normalizeAddress(recipient))
-                put("amount", amount)
-                put("gas_limit", gasLimit)
-                put("gas_price", gasPrice)
+                put("amount", amount.toLong())
+                put("gas_limit", gasLimit.toLong())
+                put("gas_price", gasPrice.toLong())
                 put("execute_immediate", true)
             }
         )
@@ -157,7 +159,7 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun transfer(
         wallet: KanariWallet,
         recipient: String,
-        amount: Long
+        amount: ULong
     ): TransactionResult? {
         val prepared = buildNativeTransfer(wallet.taggedAddress, recipient, amount)
             ?: throw Exception("Failed to build transaction: RPC returned no data")
@@ -166,34 +168,37 @@ class KanariClient(private val environment: KanariEnvironment) {
             ?: throw Exception("Transaction building failed: No valid coin object found for balance")
 
         val txData = KanariTransaction.ExecuteFunction(
-            sender = wallet.taggedAddress,
+            sender = prepared.sender,
             module = "0x2::kanari",
             function = "transfer",
             typeArgs = emptyList(),
             args = listOf(
-                hexToBytes(coinRef.objectId),
-                u64ToBytes(prepared.amount),
-                hexToBytes(normalizeAddress(prepared.recipient))
-            ).map { it.toList() },
+                hexToBytes(normalizeAddress(coinRef.objectId)).map { it.toUByte() },
+                u64ToBytes(prepared.amount).map { it.toUByte() },
+                hexToBytes(normalizeAddress(prepared.recipient)).map { it.toUByte() }
+            ),
             objectInputs = listOf(
                 ObjectInput(
-                    objectRef = coinRef,
-                    owner = ObjectOwnerKind.AddressOwner(wallet.taggedAddress),
-                    mutable = 1.toByte()
+                    objectRef = coinRef.copy(objectId = normalizeAddress(coinRef.objectId)),
+                    owner = ObjectOwnerKind.AddressOwner(prepared.sender),
+                    mutable = true
                 )
             ),
-            gasPayment = prepared.gasPayment,
+            gasPayment = prepared.gasPayment?.let { gp ->
+                gp.copy(
+                    paymentObjects = gp.paymentObjects.map { it.copy(objectId = normalizeAddress(it.objectId)) }
+                )
+            },
             gasLimit = prepared.gasLimit,
             gasPrice = prepared.gasPrice,
             nonce = prepared.nonce ?: 0uL
         )
 
-        val txBytes = Bcs.encodeToByteArray(txData)
+        val txBytes = bcs.encodeToByteArray<KanariTransaction>(txData)
         val hash = com.kanari.kanari_crypto.KanariCrypto.blake3Hash(txBytes)
         val signature = wallet.sign(hash)
 
         val finalPrepared = prepared.copy(
-            sender = wallet.taggedAddress,
             signature = signature.map { it.toInt() and 0xFF }
         )
 
@@ -245,20 +250,18 @@ class KanariClient(private val environment: KanariEnvironment) {
     }
 
     private fun hexToBytes(hex: String): ByteArray {
-        val s = normalizeAddress(hex).removePrefix("0x")
-        val len = s.length
-        val data = ByteArray(len / 2)
-        var i = 0
-        while (i < len) {
-            data[i / 2] = ((Character.digit(s[i], 16) shl 4) + Character.digit(s[i + 1], 16)).toByte()
-            i += 2
+        val s = hex.removePrefix("0x")
+        val clean = if (s.length % 2 != 0) "0$s" else s
+        val data = ByteArray(clean.length / 2)
+        for (i in 0 until clean.length step 2) {
+            data[i / 2] = ((Character.digit(clean[i], 16) shl 4) + Character.digit(clean[i + 1], 16)).toByte()
         }
         return data
     }
 
-    private fun u64ToBytes(value: Long): ByteArray {
+    private fun u64ToBytes(value: ULong): ByteArray {
         val buffer = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        buffer.putLong(value)
+        buffer.putLong(value.toLong())
         return buffer.array()
     }
 

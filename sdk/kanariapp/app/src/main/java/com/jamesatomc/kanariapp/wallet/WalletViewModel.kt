@@ -78,10 +78,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            // Clear stale data when switching or refreshing
-            _accountInfo.value = null
-            _tokenBalances.value = emptyList()
-            _transactions.value = emptyList()
             
             try {
                 val info = client.getAccount(address)
@@ -93,7 +89,14 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val txs = client.getAllTransactions(address)
                 _transactions.value = txs
             } catch (e: Exception) {
-                _error.value = "Failed to refresh balance: ${e.message}"
+                // Ignore "Owner not found" as a hard error for new wallets
+                if (e.message?.contains("Owner not found", ignoreCase = true) == true) {
+                    _accountInfo.value = null
+                    _tokenBalances.value = emptyList()
+                    _transactions.value = emptyList()
+                } else {
+                    _error.value = "Failed to refresh balance: ${e.message}"
+                }
             }
             _isLoading.value = false
         }
@@ -151,7 +154,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    suspend fun transfer(recipient: String, amount: Long, tokenType: String = "0x2::kanari::KANARI"): Boolean {
+    suspend fun transfer(recipient: String, amount: ULong, tokenType: String = "0x2::kanari::KANARI"): Boolean {
         val record = _activeWallet.value ?: return false
         val pin = unlockedPin ?: return false
 
