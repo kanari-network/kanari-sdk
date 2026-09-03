@@ -9,6 +9,7 @@ class KanariWallet(
     val derivationPath: String? = null
 ) {
     val address: String get() = keyPair.address
+    val taggedAddress: String get() = keyPair.taggedAddress
     val publicKey: String get() = keyPair.publicKey
     val privateKey: String get() = keyPair.privateKey
     val curveType: String get() = keyPair.curveType

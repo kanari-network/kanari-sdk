@@ -176,7 +176,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                         if (viewModel.transfer(recipient, amtLong, tokenType)) {
                             onBack()
                         } else {
-                            error = "Transaction failed"
+                            error = viewModel.error.value ?: "Transaction failed"
                         }
                         isLoading = false
                     }

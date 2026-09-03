@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
     private val walletStorage = WalletStorage(application)
-    
+
     private val _wallets = MutableStateFlow<List<WalletRecord>>(emptyList())
     val wallets: StateFlow<List<WalletRecord>> = _wallets.asStateFlow()
 
@@ -42,6 +42,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _isUnlocked = MutableStateFlow(false)
     val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
+
+    private var unlockedPin: String? = null
 
     private var client = KanariClient(_environment.value)
 
@@ -75,17 +77,21 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         val address = _activeWallet.value?.address ?: return
         viewModelScope.launch {
             _isLoading.value = true
+            _error.value = null
+            // Clear stale data when switching or refreshing
+            _accountInfo.value = null
+            _tokenBalances.value = emptyList()
+            _transactions.value = emptyList()
+            
             try {
                 val info = client.getAccount(address)
                 _accountInfo.value = info
-                
+
                 val balances = client.getAllBalances(address)
                 _tokenBalances.value = balances
-                
+
                 val txs = client.getAllTransactions(address)
                 _transactions.value = txs
-                
-                _error.value = null
             } catch (e: Exception) {
                 _error.value = "Failed to refresh balance: ${e.message}"
             }
@@ -97,9 +103,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _activeWallet.value = record
         refreshBalance()
     }
-    
+
     fun unlock(pin: String): Boolean {
         if (walletStorage.verifyPin(pin)) {
+            unlockedPin = pin
             _isUnlocked.value = true
             loadWallets()
             return true
@@ -111,7 +118,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun changePin(oldPin: String, newPin: String): Boolean {
         if (!walletStorage.verifyPin(oldPin)) return false
-        
+
         try {
             val wallets = walletStorage.loadWallets()
             // We need to re-encrypt sensitive data if we were storing it in a way that depends on PIN
@@ -145,18 +152,34 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     suspend fun transfer(recipient: String, amount: Long, tokenType: String = "0x2::kanari::KANARI"): Boolean {
-        val address = _activeWallet.value?.address ?: return false
+        val record = _activeWallet.value ?: return false
+        val pin = unlockedPin ?: return false
+
         return try {
+            val privateKeyEncrypted = record.privateKeyEncrypted ?: return false
+            val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
+            val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+
             val result = if (tokenType == "0x2::kanari::KANARI") {
-                client.transfer(address, recipient, amount)
+                client.transfer(wallet, recipient, amount)
             } else {
-                client.transferToken(address, recipient, tokenType, amount)
+                // For other tokens, we would need buildTokenTransfer logic
+                null
             }
-            if (result?.status == "success") {
+            val status = result?.status?.lowercase(java.util.Locale.US)
+            val isSuccess = result?.success == true || 
+                status == "success" || status == "executed" || 
+                status == "committed" || status == "pending"
+                
+            if (isSuccess) {
                 refreshBalance()
                 true
-            } else false
+            } else {
+                _error.value = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
+                false
+            }
         } catch (e: Exception) {
+            _error.value = "Transfer failed: ${e.message}"
             false
         }
     }

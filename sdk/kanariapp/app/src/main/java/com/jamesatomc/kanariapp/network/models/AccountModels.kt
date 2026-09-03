@@ -18,6 +18,12 @@ data class AccountInfo(
 }
 
 @Serializable
+data class BalancesResponse(
+    val owner: String? = null,
+    val balances: List<TokenBalance> = emptyList()
+)
+
+@Serializable
 data class TokenBalance(
     @SerialName("token_type") val tokenType: String,
     val amount: Long = 0,
