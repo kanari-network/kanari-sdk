@@ -56,11 +56,11 @@ sealed class ObjectOwnerKind {
     @Serializable
     @SerialName("AddressOwner")
     data class AddressOwner(val address: String) : ObjectOwnerKind()
-
+    
     @Serializable
     @SerialName("Shared")
     object Shared : ObjectOwnerKind()
-
+    
     @Serializable
     @SerialName("Immutable")
     object Immutable : ObjectOwnerKind()
@@ -70,15 +70,9 @@ object ObjectOwnerKindSerializer : KSerializer<ObjectOwnerKind> {
     @Serializable
     @SerialName("ObjectOwnerKind")
     private sealed class Surrogate {
-        @Serializable
-        @SerialName("AddressOwner")
-        data class AddressOwner(val address: String) : Surrogate()
-        @Serializable
-        @SerialName("Shared")
-        object Shared : Surrogate()
-        @Serializable
-        @SerialName("Immutable")
-        object Immutable : Surrogate()
+        @Serializable @SerialName("AddressOwner") data class AddressOwner(val address: String) : Surrogate()
+        @Serializable @SerialName("Shared") object Shared : Surrogate()
+        @Serializable @SerialName("Immutable") object Immutable : Surrogate()
     }
 
     override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor

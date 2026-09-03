@@ -1,7 +1,9 @@
 package com.jamesatomc.kanariapp.network
 
+import android.util.Log
 import com.jamesatomc.kanariapp.network.models.*
 import com.jamesatomc.kanariapp.wallet.KanariWallet
+import com.kanari.kanari_crypto.KanariCrypto
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -16,8 +18,6 @@ class KanariClient(private val environment: KanariEnvironment) {
         coerceInputValues = true
         encodeDefaults = true
     }
-
-    private val bcs = Bcs
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(HttpLoggingInterceptor().apply {
@@ -133,7 +133,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         val request = RpcRequest(
             method = "kanari_buildNativeTransfer",
             params = buildJsonObject {
-                put("sender", sender) // Don't normalize tagged address
+                put("sender", sender)
                 put("recipient", normalizeAddress(recipient))
                 put("amount", amount.toLong())
                 put("gas_limit", gasLimit.toLong())
@@ -167,6 +167,8 @@ class KanariClient(private val environment: KanariEnvironment) {
         val coinRef = prepared.coinObjectRef
             ?: throw Exception("Transaction building failed: No valid coin object found for balance")
 
+        // 1. Reconstruct EXACT ExecuteFunction payload for binary hashing.
+        // This variant is index 4 in the Rust 'Transaction' enum.
         val txData = KanariTransaction.ExecuteFunction(
             sender = prepared.sender,
             module = "0x2::kanari",
@@ -194,10 +196,23 @@ class KanariClient(private val environment: KanariEnvironment) {
             nonce = prepared.nonce ?: 0uL
         )
 
-        val txBytes = bcs.encodeToByteArray<KanariTransaction>(txData)
-        val hash = com.kanari.kanari_crypto.KanariCrypto.blake3Hash(txBytes)
+        // 2. Encode to BCS with explicit serializer to ensure polymorphism (enum tags) are handled.
+        val txBytes = Bcs.encodeToByteArray(KanariTransaction.serializer(), txData)
+        
+        // 3. Hash with Blake3
+        val hash = KanariCrypto.blake3Hash(txBytes)
+        
+        // 4. Sign the hash
         val signature = wallet.sign(hash)
 
+        // 5. [DEBUG] Verify locally before submission to isolate signing bugs
+        val isLocalValid = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
+        Log.d("KanariClient", "Local signature verification: $isLocalValid")
+        if (!isLocalValid) {
+            throw Exception("Local signature verification failed. Private key or curve mismatch.")
+        }
+
+        // 6. Finalize request with signature
         val finalPrepared = prepared.copy(
             signature = signature.map { it.toInt() and 0xFF }
         )
@@ -269,6 +284,4 @@ class KanariClient(private val environment: KanariEnvironment) {
         val clean = address.removePrefix("0x").lowercase()
         return "0x${clean.padStart(64, '0')}"
     }
-
-    // Additional methods for transactions etc. can be added here
 }
