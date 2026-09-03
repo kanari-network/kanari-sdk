@@ -24,4 +24,7 @@ interface KanariRpcService {
 
     @POST("rpc")
     suspend fun getAllBalances(@Body request: RpcRequest): RpcResponse<List<TokenBalance>>
+
+    @POST("rpc")
+    suspend fun getAllTransactions(@Body request: RpcRequest): RpcResponse<List<TransactionDetails>>
 }

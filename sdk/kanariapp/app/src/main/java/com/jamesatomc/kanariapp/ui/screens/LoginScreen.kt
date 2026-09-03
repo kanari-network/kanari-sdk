@@ -26,7 +26,7 @@ fun LoginScreen(
     
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val client = remember { KanariClient(KanariEnvironment.TESTNET) }
+    val client = remember { KanariClient(KanariEnvironment.dev) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Login to Kanari") }) }

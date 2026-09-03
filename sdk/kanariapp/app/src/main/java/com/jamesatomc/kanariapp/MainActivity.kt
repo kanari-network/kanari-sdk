@@ -94,7 +94,7 @@ fun MainNavigation() {
             SendScreen(onBack = { navController.popBackStack() })
         }
         composable(Screen.Receive.route) {
-            ReceiveScreen(onBack = { navController.popBackStack() })
+            ReceiveScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(Screen.Settings.route) {
             SettingsScreen(

@@ -2,9 +2,7 @@ package com.jamesatomc.kanariapp.network
 
 import com.jamesatomc.kanariapp.network.models.*
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -58,7 +56,7 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun getAccount(address: String): AccountInfo? {
         val request = RpcRequest(
             method = "kanari_getOwner",
-            params = buildJsonArray { add(address) }.toList()
+            params = buildJsonArray { add(address) }
         )
         return try {
             val response = rpcService.getAccount(request)
@@ -70,11 +68,27 @@ class KanariClient(private val environment: KanariEnvironment) {
 
     suspend fun getAllBalances(address: String): List<TokenBalance> {
         val request = RpcRequest(
-            method = "kanari_getAllBalances",
-            params = buildJsonArray { add(address) }.toList()
+            method = "kanari_getOwnerBalances",
+            params = buildJsonArray { add(address) }
         )
         return try {
             val response = rpcService.getAllBalances(request)
+            response.result ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getAllTransactions(address: String, limit: Int = 50): List<TransactionDetails> {
+        val request = RpcRequest(
+            method = "kanari_getAllTransactions",
+            params = buildJsonArray {
+                add(address)
+                add(limit)
+            }
+        )
+        return try {
+            val response = rpcService.getAllTransactions(request)
             response.result ?: emptyList()
         } catch (e: Exception) {
             emptyList()
@@ -92,7 +106,81 @@ class KanariClient(private val environment: KanariEnvironment) {
                 add(address)
                 add(recipient)
                 add(amount)
-            }.toList()
+            }
+        )
+        return try {
+            val response = rpcService.executeTransaction(request)
+            response.result
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun transferToken(
+        address: String,
+        recipient: String,
+        tokenType: String,
+        amount: Long
+    ): TransactionResult? {
+        val request = RpcRequest(
+            method = "kanari_transferToken",
+            params = buildJsonArray {
+                add(address)
+                add(recipient)
+                add(tokenType)
+                add(amount)
+            }
+        )
+        return try {
+            val response = rpcService.executeTransaction(request)
+            response.result
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // Escrow Operations
+    suspend fun createEscrowDeal(
+        address: String,
+        dealId: String,
+        seller: String,
+        amount: Long,
+        tokenType: String,
+        description: String
+    ): TransactionResult? {
+        val request = RpcRequest(
+            method = "kanari_createDeal",
+            params = buildJsonArray {
+                add(address)
+                add(dealId)
+                add(seller)
+                add(amount)
+                add(description)
+                add(tokenType)
+            }
+        )
+        return try {
+            val response = rpcService.executeTransaction(request)
+            response.result
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun confirmEscrowDelivery(
+        address: String,
+        dealObjectId: String,
+        coinType: String,
+        proofObjectId: String
+    ): TransactionResult? {
+        val request = RpcRequest(
+            method = "kanari_confirmDelivery",
+            params = buildJsonArray {
+                add(address)
+                add(dealObjectId)
+                add(coinType)
+                add(proofObjectId)
+            }
         )
         return try {
             val response = rpcService.executeTransaction(request)

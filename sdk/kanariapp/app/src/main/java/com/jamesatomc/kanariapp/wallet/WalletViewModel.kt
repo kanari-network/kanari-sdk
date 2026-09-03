@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.jamesatomc.kanariapp.network.KanariClient
 import com.jamesatomc.kanariapp.network.models.AccountInfo
 import com.jamesatomc.kanariapp.network.models.TokenBalance
+import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,13 +28,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _tokenBalances = MutableStateFlow<List<TokenBalance>>(emptyList())
     val tokenBalances: StateFlow<List<TokenBalance>> = _tokenBalances.asStateFlow()
 
+    private val _transactions = MutableStateFlow<List<TransactionDetails>>(emptyList())
+    val transactions: StateFlow<List<TransactionDetails>> = _transactions.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _environment = MutableStateFlow(KanariEnvironment.TESTNET)
+    private val _environment = MutableStateFlow(KanariEnvironment.dev)
     val environment: StateFlow<KanariEnvironment> = _environment.asStateFlow()
 
     private val _isUnlocked = MutableStateFlow(false)
@@ -77,6 +81,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 
                 val balances = client.getAllBalances(address)
                 _tokenBalances.value = balances
+                
+                val txs = client.getAllTransactions(address)
+                _transactions.value = txs
                 
                 _error.value = null
             } catch (e: Exception) {
@@ -137,10 +144,14 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    suspend fun transfer(recipient: String, amount: Long): Boolean {
+    suspend fun transfer(recipient: String, amount: Long, tokenType: String = "0x2::kanari::KANARI"): Boolean {
         val address = _activeWallet.value?.address ?: return false
         return try {
-            val result = client.transfer(address, recipient, amount)
+            val result = if (tokenType == "0x2::kanari::KANARI") {
+                client.transfer(address, recipient, amount)
+            } else {
+                client.transferToken(address, recipient, tokenType, amount)
+            }
             if (result?.status == "success") {
                 refreshBalance()
                 true

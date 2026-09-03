@@ -24,7 +24,7 @@ fun RegisterScreen(
     var error by remember { mutableStateOf<String?>(null) }
     
     val scope = rememberCoroutineScope()
-    val client = remember { KanariClient(KanariEnvironment.TESTNET) }
+    val client = remember { KanariClient(KanariEnvironment.dev) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Register for Kanari") }) }
