@@ -70,6 +70,7 @@ fun KeyGenerationScreen(
     var importInput by remember { mutableStateOf("") }
     var derivationPath by remember { mutableStateOf("m/44'/637'/0'/0/0") }
     var addressCount by remember { mutableIntStateOf(1) }
+    var wordCount by remember { mutableIntStateOf(12) }
     LaunchedEffect(Unit) {
         isLoading = true
         runCatching { withContext(Dispatchers.Default) { KanariCrypto.listSupportedCurves() } }.onSuccess {
@@ -278,6 +279,22 @@ fun KeyGenerationScreen(
                         curves = curves,
                         selectedCurve = selectedCurveInfo?.name ?: defaultCurve,
                         onCurveSelected = { name -> selectedCurveInfo = curves.find { it.name == name } })
+                    if (selectedTab == 0 && selectedCurveInfo?.isPostQuantum == false) {
+                        Text(
+                            "Mnemonic Length",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            listOf(12, 24).forEachIndexed { index, count ->
+                                SegmentedButton(
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                                    onClick = { wordCount = count },
+                                    selected = wordCount == count
+                                ) { Text("$count words") }
+                            }
+                        }
+                    }
                     val showPath =
                         (selectedTab == 0 && selectedCurveInfo?.isPostQuantum == false) || (selectedTab == 1 && importMethod == ImportMethod.RECOVERY_PHRASE)
                     if (showPath) OutlinedTextField(
@@ -308,7 +325,7 @@ fun KeyGenerationScreen(
                                     val pair = KanariCrypto.generateKeypair(currentCurve)
                                     null to listOf(pair)
                                 } else {
-                                    val words = KanariCrypto.generateMnemonic(12)
+                                    val words = KanariCrypto.generateMnemonic(wordCount)
                                     val pairs = if (addressCount > 1) KanariCrypto.deriveMultipleAddresses(
                                         words,
                                         derivationPath,
