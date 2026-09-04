@@ -24,6 +24,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jamesatomc.kanariapp.network.EscrowViewModel
 import com.jamesatomc.kanariapp.network.models.EscrowConstants
 import com.jamesatomc.kanariapp.network.models.EscrowDeal
+import com.jamesatomc.kanariapp.ui.components.formatMist
+import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
 
@@ -137,7 +139,7 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
         
         Button(
             onClick = {
-                val amtLong = ((amount.toDoubleOrNull() ?: 0.0) * 1_000_000_000).toLong()
+                val amtLong = (parseAmountToMist(amount, 9) ?: 0uL).toLong()
                 viewModel.createDeal(walletAddress, sellerAddress, amtLong, "0x2::kanari::KANARI", description)
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -223,7 +225,7 @@ fun DealCard(deal: EscrowDeal) {
             Spacer(Modifier.height(12.dp))
             
             Text(
-                text = String.format(Locale.US, "%.2f KANARI", deal.amount / 1_000_000_000.0),
+                text = String.format(Locale.US, "%.2f KANARI", formatMist(deal.amount, 9)),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Black
             )

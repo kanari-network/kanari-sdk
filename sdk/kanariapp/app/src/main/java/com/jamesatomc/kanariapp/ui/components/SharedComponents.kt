@@ -42,6 +42,10 @@ import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material.icons.filled.CurrencyExchange
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.text.font.FontWeight
 
 // ---------- Utils ----------
 
@@ -85,6 +89,130 @@ fun copyToClipboard(
 fun extractAddressFromQr(raw: String): String {
     val regex = Regex("0x[0-9a-fA-F]{1,64}")
     return regex.find(raw.trim())?.value ?: raw.trim()
+}
+
+// ---------- Curve Info ----------
+
+data class CurveInfo(val displayName: String, val description: String, val isPostQuantum: Boolean)
+
+fun getCurveInfo(curveType: String): CurveInfo = when (curveType) {
+    "K256" -> CurveInfo("K256 (secp256k1)", "Bitcoin/Ethereum", false)
+    "P256" -> CurveInfo("P256 (secp256r1)", "NIST P-256", false)
+    "Ed25519" -> CurveInfo("Ed25519", "EdDSA - Fast modern", false)
+    "Dilithium2" -> CurveInfo("Dilithium2", "Post-Quantum NIST Level 2", true)
+    "Dilithium3" -> CurveInfo("Dilithium3", "Post-Quantum NIST Level 3", true)
+    "Dilithium5" -> CurveInfo("Dilithium5", "Post-Quantum NIST Level 5", true)
+    "SphincsPlusSha256Robust" -> CurveInfo("SPHINCS+-SHA256", "Hash-based Post-Quantum", true)
+    "Falcon512", "FnDsa512" -> CurveInfo("Falcon-512", "Compact Lattice PQ", true)
+    "Falcon1024", "FnDsa1024" -> CurveInfo("Falcon-1024", "Compact Lattice PQ Level 5", true)
+    "Ed25519Dilithium3" -> CurveInfo("Ed25519 + Dilithium3", "Hybrid Classical + PQ", true)
+    "K256Dilithium3" -> CurveInfo("K256 + Dilithium3", "Hybrid Classical + PQ", true)
+    else -> CurveInfo(
+        curveType,
+        if (curveType.contains("Dilithium") || curveType.contains("Falcon") || curveType.contains("Sphincs")) "Post-Quantum" else "Classical",
+        curveType.contains("Dilithium") || curveType.contains("Falcon")
+    )
+}
+
+// ---------- Shared UI ----------
+
+@Composable
+fun SecurityWarningCard(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Default.Security,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+    }
+}
+
+@Composable
+fun SecretRevealCard(
+    title: String,
+    secret: String?,
+    isVisible: Boolean,
+    onToggleVisibility: () -> Unit,
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val icon = remember(title) {
+        when (title) {
+            "Private Key" -> Icons.Filled.Visibility
+            else -> Icons.Filled.MenuBook
+        }
+    }
+    val containerColor = when (title) {
+        "Private Key" -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val contentColor = when (title) {
+        "Private Key" -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = containerColor,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = contentColor)
+                    }
+                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (isVisible && secret != null) secret else "•".repeat(32),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onCopy, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text("Copy")
+                }
+                Button(onClick = onToggleVisibility, modifier = Modifier.weight(1f)) {
+                    Text(if (isVisible) "Hide" else "Show")
+                }
+            }
+        }
+    }
 }
 
 fun generateQrBitmap(text: String, size: Int): Bitmap? = try {

@@ -30,6 +30,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.ChangePinFullScreenContent
+import com.jamesatomc.kanariapp.ui.components.showBiometricPrompt
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
@@ -122,49 +123,28 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
                             ).show()
                             return@SettingsSwitchItem
                         }
-                        val executor = androidx.core.content.ContextCompat.getMainExecutor(activity)
-                        val prompt = androidx.biometric.BiometricPrompt(
-                            activity,
-                            executor,
-                            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
-                                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
-                                    super.onAuthenticationSucceeded(result)
-                                    activity.runOnUiThread {
-                                        val ok = viewModel.setBiometricEnabled(true)
-                                        Toast.makeText(
-                                            context,
-                                            if (ok) "Biometric enabled" else "Unlock with PIN first",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
+                        showBiometricPrompt(
+                            activity = activity,
+                            title = "Enable Biometric Unlock",
+                            subtitle = "Authenticate to enable fingerprint unlock",
+                            onSuccess = {
+                                val ok = viewModel.setBiometricEnabled(true)
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Biometric enabled" else "Unlock with PIN first",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onError = { errorCode, errString ->
+                                if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED && errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                                    Toast.makeText(context, "Biometric error: $errString", Toast.LENGTH_SHORT)
+                                        .show()
                                 }
-
-                                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                                    super.onAuthenticationError(errorCode, errString)
-                                    activity.runOnUiThread {
-                                        if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED && errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                                            Toast.makeText(context, "Biometric error: $errString", Toast.LENGTH_SHORT)
-                                                .show()
-                                        }
-                                    }
-                                }
-
-                                override fun onAuthenticationFailed() {
-                                    super.onAuthenticationFailed()
-                                    activity.runOnUiThread {
-                                        Toast.makeText(
-                                            context,
-                                            "Biometric not recognized",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                            })
-                        val promptInfo =
-                            androidx.biometric.BiometricPrompt.PromptInfo.Builder().setTitle("Enable Biometric Unlock")
-                                .setSubtitle("Authenticate to enable fingerprint unlock")
-                                .setNegativeButtonText("Cancel").build()
-                        prompt.authenticate(promptInfo)
+                            },
+                            onFailed = {
+                                Toast.makeText(context, "Biometric not recognized", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     }
                 })
             Spacer(Modifier.height(24.dp))

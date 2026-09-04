@@ -29,9 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.jamesatomc.kanariapp.ui.components.PinCircles
-import com.jamesatomc.kanariapp.ui.components.PinNumberPad
-import com.jamesatomc.kanariapp.wallet.EncryptedData
+import com.jamesatomc.kanariapp.ui.components.PinVerificationContent
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletStorage
 import com.kanari.kanari_crypto.KanariCrypto
@@ -106,102 +104,41 @@ fun KeyGenerationScreen(
         )
     }, containerColor = MaterialTheme.colorScheme.background) { padding ->
         if (showSaveDialog) {
-            var pin by remember { mutableStateOf("") }
-            var pinError by remember { mutableStateOf<String?>(null) }
             Dialog(
                 onDismissRequest = { showSaveDialog = false },
-                properties = DialogProperties(usePlatformDefaultWidth = false)
+                properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Scaffold(topBar = {
-                        TopAppBar(
-                            title = { Text("Save Wallet") },
-                            navigationIcon = {
-                                IconButton(onClick = {
+                    PinVerificationContent(
+                        title = "Save Wallet",
+                        subtitle = "Enter 6-digit PIN to encrypt your wallet",
+                        onVerify = { pin -> walletStorage.verifyPin(pin) },
+                        onSuccess = { pin ->
+                            scope.launch {
+                                runCatching {
+                                    val pair = keyPairs.first()
+                                    val encryptedPk = walletStorage.encrypt(pair.privateKey, pin)
+                                    val encryptedMnemonic = mnemonic?.let { walletStorage.encrypt(it, pin) }
+                                    val record = WalletRecord(
+                                        id = java.util.UUID.randomUUID().toString(),
+                                        name = walletName,
+                                        address = pair.address,
+                                        curveType = pair.curveType,
+                                        privateKeyEncrypted = encryptedPk,
+                                        mnemonicEncrypted = encryptedMnemonic
+                                    )
+                                    val existing = walletStorage.loadWallets().toMutableList()
+                                    existing.add(record)
+                                    walletStorage.saveWallets(existing)
+                                    if (!walletStorage.hasPin()) walletStorage.savePin(pin)
+                                    snackbarHostState.showSnackbar("Wallet saved successfully!")
                                     showSaveDialog = false
-                                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                            })
-                    }) { innerPadding ->
-                        Column(
-                            Modifier.fillMaxSize().padding(innerPadding).padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Text(
-                                "Enter wallet name and PIN to encrypt your wallet.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            OutlinedTextField(
-                                value = walletName,
-                                onValueChange = { walletName = it },
-                                label = { Text("Wallet Name") },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                            Text(
-                                "Set 6-digit PIN",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.align(Alignment.CenterHorizontally)
-                            )
-                            PinCircles(length = pin.length, modifier = Modifier.align(Alignment.CenterHorizontally))
-                            pinError?.let {
-                                Text(
-                                    it,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                                )
+                                    onBack()
+                                }.onFailure { errorMessage = "Failed to save: ${it.message}" }
                             }
-                            PinNumberPad(
-                                onNumberPressed = {
-                                    if (pin.length < 6) {
-                                        pin += it; pinError = null
-                                    }
-                                },
-                                onBackspacePressed = { if (pin.isNotEmpty()) pin = pin.dropLast(1) },
-                                biometricEnabled = false,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Button(
-                                onClick = {
-                                    if (pin.length == 6) {
-                                        scope.launch {
-                                            runCatching {
-                                                val pair = keyPairs.first()
-                                                val encryptedPk = walletStorage.encrypt(pair.privateKey, pin)
-                                                val encryptedMnemonic = mnemonic?.let { walletStorage.encrypt(it, pin) }
-                                                val record = WalletRecord(
-                                                    id = java.util.UUID.randomUUID().toString(),
-                                                    name = walletName,
-                                                    address = pair.address,
-                                                    curveType = pair.curveType,
-                                                    privateKeyEncrypted = encryptedPk,
-                                                    mnemonicEncrypted = encryptedMnemonic
-                                                )
-                                                val existing = walletStorage.loadWallets().toMutableList()
-                                                existing.add(record)
-                                                walletStorage.saveWallets(existing)
-                                                if (!walletStorage.hasPin()) walletStorage.savePin(pin)
-                                                snackbarHostState.showSnackbar("Wallet saved successfully!")
-                                                showSaveDialog = false
-                                                onBack()
-                                            }.onFailure { errorMessage = "Failed to save: ${it.message}" }
-                                        }
-                                    } else pinError = "PIN must be 6 digits"
-                                },
-                                enabled = pin.length == 6 && walletName.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                shape = RoundedCornerShape(16.dp)
-                            ) { Text("Save Wallet") }
-                            TextButton(onClick = { showSaveDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    "Cancel"
-                                )
-                            }
-                        }
-                    }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }

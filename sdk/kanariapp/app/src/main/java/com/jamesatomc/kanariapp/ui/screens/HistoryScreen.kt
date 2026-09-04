@@ -23,7 +23,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
+import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
+import com.jamesatomc.kanariapp.ui.components.formatMist
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
 
@@ -111,7 +113,7 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
                     String.format(
                         Locale.US,
                         "%.2f",
-                        gasAmount / 1_000_000_000.0
+                        formatMist(gasAmount, 9)
                     )
                 }",
                 color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
@@ -130,27 +132,27 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
     ) {
         Text("Transaction Details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         HorizontalDivider()
-        DetailRow(label = "Type", value = tx.txType, copyable = false)
-        DetailRow(
+        DetailRowShared(label = "Type", value = tx.txType)
+        DetailRowShared(
             label = "Status", value = tx.status, valueColor = when (tx.status.lowercase()) {
                 "committed", "success" -> MaterialTheme.colorScheme.primary; "failed" -> MaterialTheme.colorScheme.error; else -> MaterialTheme.colorScheme.onSurface
             }
         )
-        DetailRow(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
+        DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
         CopyableDetailRow(label = "Hash", value = tx.hash)
         CopyableDetailRow(label = "Sender", value = tx.sender)
         tx.senderAddress?.let { CopyableDetailRow(label = "Sender Address", value = it) }
-        tx.module?.let { DetailRow(label = "Module", value = it) }
-        tx.function?.let { DetailRow(label = "Function", value = it) }
-        DetailRow(label = "Nonce", value = tx.nonce.toString())
-        DetailRow(label = "Gas Limit", value = tx.gasLimit.toString())
-        DetailRow(label = "Gas Price", value = tx.gasPrice.toString())
-        tx.gasUsed?.let { DetailRow(label = "Gas Used", value = it.toString()) }
-        tx.blockHeight?.let { DetailRow(label = "Block Height", value = it.toString()) }
-        tx.checkpointHeight?.let { DetailRow(label = "Checkpoint", value = it.toString()) }
+        tx.module?.let { DetailRowShared(label = "Module", value = it) }
+        tx.function?.let { DetailRowShared(label = "Function", value = it) }
+        DetailRowShared(label = "Nonce", value = tx.nonce.toString())
+        DetailRowShared(label = "Gas Limit", value = tx.gasLimit.toString())
+        DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
+        tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
+        tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }
+        tx.checkpointHeight?.let { DetailRowShared(label = "Checkpoint", value = it.toString()) }
         tx.effects?.let { eff ->
-            DetailRow(label = "Effects Status", value = eff.status)
-            DetailRow(label = "Effects Gas", value = eff.gasUsed.toString())
+            DetailRowShared(label = "Effects Status", value = eff.status)
+            DetailRowShared(label = "Effects Gas", value = eff.gasUsed.toString())
             if (!eff.objectChanges.isNullOrEmpty()) {
                 Text(
                     "Object Changes (${eff.objectChanges.size})",
@@ -204,23 +206,6 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
         }
         Spacer(Modifier.height(12.dp))
-    }
-}
-
-@Composable
-private fun DetailRow(
-    label: String,
-    value: String,
-    valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
-    copyable: Boolean = false
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium.copy(color = valueColor),
-            modifier = Modifier.padding(top = 2.dp)
-        )
     }
 }
 
