@@ -1,5 +1,6 @@
 package com.jamesatomc.kanariapp.ui.components
 
+import android.annotation.SuppressLint
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -32,7 +33,7 @@ class PinState {
 
     fun onNumber(num: String) {
         if (isChecking || entered.length >= 6) return
-        entered = entered + num
+        entered += num
         error = null
     }
 
@@ -63,7 +64,7 @@ fun rememberPinState(): PinState = remember { PinState() }
 fun PinCircles(
     length: Int,
     totalLength: Int = 6,
-    modifier: Modifier = Modifier
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.outlineVariant
@@ -90,7 +91,7 @@ fun PinNumberPad(
     onBackspacePressed: () -> Unit,
     biometricEnabled: Boolean = false,
     onBiometricPressed: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier
 ) {
     val numbers = listOf(
         listOf("1", "2", "3"),
@@ -216,7 +217,7 @@ fun PinVerificationContent(
     onSuccess: (String) -> Unit,
     biometricEnabled: Boolean = false,
     onBiometric: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier
 ) {
     val pin = rememberPinState()
     val scope = rememberCoroutineScope()

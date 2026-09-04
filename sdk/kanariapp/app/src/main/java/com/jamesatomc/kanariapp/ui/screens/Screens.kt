@@ -6,10 +6,8 @@ sealed class Screen(val route: String) {
     object Register : Screen("register")
     object Main : Screen("main")
     object Dashboard : Screen("dashboard")
-    object Send : Screen("send")
     object Receive : Screen("receive")
     object Settings : Screen("settings")
     object WalletGeneration : Screen("wallet_generation")
     object Unlock : Screen("unlock")
-    object ChangePin : Screen("change_pin")
 }

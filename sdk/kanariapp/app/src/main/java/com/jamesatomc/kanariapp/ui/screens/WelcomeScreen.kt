@@ -2,6 +2,7 @@ package com.jamesatomc.kanariapp.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jamesatomc.kanariapp.wallet.WalletStorage
@@ -28,7 +30,7 @@ fun WelcomeScreen(
     val context = LocalContext.current
     val walletStorage = remember { WalletStorage(context) }
     var hasWallet by remember { mutableStateOf(walletStorage.loadWallets().isNotEmpty()) }
-    
+
     LaunchedEffect(Unit) {
         hasWallet = walletStorage.loadWallets().isNotEmpty()
     }
@@ -36,94 +38,120 @@ fun WelcomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Kanari Wallet") },
+                title = {
+                    Text(
+                        "Kanari Wallet",
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                },
                 actions = {
                     TextButton(onClick = onNavigateToRegister) {
-                        Text("Register")
+                        Text("Register", fontWeight = FontWeight.Bold)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.surface
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
-            
+            Spacer(modifier = Modifier.height(48.dp))
+
             Text(
                 text = "Secure & Simple",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineLarge,
                 textAlign = TextAlign.Center
             )
-            
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = "Manage your Kanari Network assets with ease.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            
+
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             Card(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                border = CardDefaults.outlinedCardBorder().takeIf { false },
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "Wallet Access",
                         style = MaterialTheme.typography.titleMedium
                     )
-                    
+
                     if (hasWallet) {
                         Button(
                             onClick = onNavigateToUnlock,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.LockOpen, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Unlock Saved Wallet")
+                            Text("Unlock Saved Wallet", fontWeight = FontWeight.Bold)
                         }
                     }
-                    
+
                     FilledTonalButton(
                         onClick = onNavigateToWalletGen,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Create New Wallet")
+                        Text("Create New Wallet", fontWeight = FontWeight.Bold)
                     }
-                    
+
                     OutlinedButton(
                         onClick = onNavigateToWalletGen,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.FileDownload, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Import Existing Wallet")
+                        Text("Import Existing Wallet", fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-            
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
             TextButton(
                 onClick = onNavigateToLogin,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().height(56.dp)
             ) {
                 Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Login to Kanari Account")
+                Text("Login to Kanari Account", fontWeight = FontWeight.Bold)
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

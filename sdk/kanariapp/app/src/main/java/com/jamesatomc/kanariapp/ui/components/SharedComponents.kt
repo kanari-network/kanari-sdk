@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Contacts
@@ -42,10 +43,12 @@ import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material.icons.filled.CurrencyExchange
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.ui.text.font.FontWeight
+import kotlin.math.pow
+import androidx.core.graphics.set
+import androidx.core.graphics.createBitmap
 
 // ---------- Utils ----------
 
@@ -53,7 +56,7 @@ fun String.toShortAddress(): String =
     if (length <= 16) this else take(8) + "..." + takeLast(8)
 
 fun formatMist(amount: Long, decimals: Int): Double =
-    amount / Math.pow(10.0, decimals.toDouble())
+    amount / 10.0.pow(decimals.toDouble())
 
 fun parseAmountToMist(amountStr: String, decimals: Int): ULong? {
     val trimmed = amountStr.trim()
@@ -155,7 +158,7 @@ fun SecretRevealCard(
     val icon = remember(title) {
         when (title) {
             "Private Key" -> Icons.Filled.Visibility
-            else -> Icons.Filled.MenuBook
+            else -> Icons.AutoMirrored.Filled.MenuBook
         }
     }
     val containerColor = when (title) {
@@ -220,9 +223,10 @@ fun generateQrBitmap(text: String, size: Int): Bitmap? = try {
     val bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size)
     val w = bitMatrix.width
     val h = bitMatrix.height
-    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+    val bmp = createBitmap(w, h, Bitmap.Config.RGB_565)
     for (x in 0 until w) for (y in 0 until h) {
-        bmp.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        bmp[x, y] =
+            if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
     }
     bmp
 } catch (_: Exception) {
@@ -251,7 +255,7 @@ fun KanariTopBar(
                     Text(
                         "Kanari Wallet",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        fontWeight = FontWeight.Bold
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -269,16 +273,16 @@ fun KanariTopBar(
                             Box(
                                 Modifier.size(8.dp).background(
                                     when (environmentName.lowercase()) {
-                                        "dev" -> androidx.compose.ui.graphics.Color(0xFF2ECC71); "mainnet" -> androidx.compose.ui.graphics.Color(
-                                        0xFFE74C3C
-                                    ); else -> MaterialTheme.colorScheme.primary
+                                        "dev" -> com.jamesatomc.kanariapp.ui.theme.KanariColors.Lime
+                                        "mainnet" -> com.jamesatomc.kanariapp.ui.theme.KanariColors.Lavender
+                                        else -> MaterialTheme.colorScheme.primary
                                     }, CircleShape
                                 )
                             )
                             Text(
                                 environmentName.uppercase(),
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    fontWeight = FontWeight.Bold,
                                     letterSpacing = 0.5.sp
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -436,7 +440,7 @@ fun TokenIcon(token: TokenBalance, modifier: Modifier = Modifier) {
             } else {
                 if (isKanari || isUsdc) Text(
                     token.symbol.take(1).uppercase(),
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     color = content
                 )
                 else Icon(

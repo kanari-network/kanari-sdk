@@ -22,6 +22,7 @@ import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
+import kotlin.math.pow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +42,7 @@ fun MainScreen(
     )
 
     var bottomBarVisible by remember { mutableStateOf(true) }
-    var accumulated by remember { mutableStateOf(0f) }
+    var accumulated by remember { mutableFloatStateOf(0f) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val peekPx = with(density) { 2.dp.toPx() }
     val nestedScrollConnection = remember {
@@ -213,7 +214,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                                     String.format(
                                         java.util.Locale.US,
                                         "%.4f",
-                                        token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
+                                        token.getEffectiveAmount() / 10.0.pow(token.decimals.toDouble())
                                     )
                                 })"
                             )

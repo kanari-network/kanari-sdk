@@ -10,65 +10,101 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// Extended Kanari theme colors beyond M3 defaults
+object KanariExtendedColors {
+    val DarkPaper = Color(0xFF17211E)
+    val DarkSurface = Color(0xFF0E1513)
+    val Lime = Color(0xFFC8F43D)
+    val Lavender = Color(0xFFCABDFF)
+    val Purple = Color(0xFF7868DA)
+    val Ink = Color(0xFF111B18)
+    val Cream = Color(0xFFF7F4EB)
+    val Paper = Color(0xFFFFFDF7)
+}
+
+val LocalKanariExtended = staticCompositionLocalOf { KanariExtendedColors }
+
 private val KanariLightScheme = lightColorScheme(
-    primary = KanariPrimaryLight,
-    onPrimary = KanariOnPrimaryLight,
-    primaryContainer = KanariPrimaryContainerLight,
-    onPrimaryContainer = KanariOnPrimaryContainerLight,
-    secondary = KanariSecondaryLight,
-    onSecondary = KanariOnSecondaryLight,
-    secondaryContainer = KanariSecondaryContainerLight,
-    onSecondaryContainer = KanariOnSecondaryContainerLight,
-    tertiary = KanariTertiaryLight,
-    onTertiary = KanariOnTertiaryLight,
-    tertiaryContainer = KanariTertiaryContainerLight,
-    onTertiaryContainer = KanariOnTertiaryContainerLight,
-    error = KanariErrorLight,
-    onError = KanariOnErrorLight,
-    errorContainer = KanariErrorContainerLight,
-    background = KanariBackgroundLight,
-    onBackground = KanariOnBackgroundLight,
-    surface = KanariSurfaceLight,
-    onSurface = KanariOnSurfaceLight,
-    surfaceVariant = KanariSurfaceVariantLight,
-    onSurfaceVariant = KanariOnSurfaceVariantLight,
-    outline = KanariOutlineLight,
-    surfaceContainer = KanariSurfaceContainerLight,
-    surfaceContainerHigh = KanariSurfaceContainerHighLight,
-    scrim = KanariOnBackgroundLight.copy(alpha = 0.3f)
+    primary = Color(0xFF111B18),                // Ink
+    onPrimary = Color(0xFFF7F4EB),              // Cream
+    primaryContainer = Color(0xFFC8F43D),       // Lime
+    onPrimaryContainer = Color(0xFF111B18),     // Ink
+    secondary = Color(0xFF7868DA),              // Purple
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFCABDFF),     // Lavender
+    onSecondaryContainer = Color(0xFF111B18),   // Ink
+    tertiary = Color(0xFFC8F43D),               // Lime
+    onTertiary = Color(0xFF111B18),             // Ink
+    tertiaryContainer = Color(0xFFE8F9A8),
+    onTertiaryContainer = Color(0xFF111B18),    // Ink
+    error = Color(0xFFB42318),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFF7F4EB),             // Cream
+    onBackground = Color(0xFF111B18),           // Ink
+    surface = Color(0xFFF7F4EB),                // Cream
+    onSurface = Color(0xFF111B18),              // Ink
+    surfaceVariant = Color(0xFFD5D5CC),         // outlineVariant
+    onSurfaceVariant = Color(0xFF59625F),
+    outline = Color(0xFF8C9491),
+    outlineVariant = Color(0xFFD5D5CC),
+    scrim = Color(0xFF111B18),
+    inverseSurface = Color(0xFF111B18),
+    inversePrimary = Color(0xFFC8F43D),
+    surfaceTint = Color.Transparent,
+    surfaceDim = Color(0xFFE8E5DC),
+    surfaceBright = Color(0xFFFFFDF7),
+    surfaceContainerLowest = Color(0xFFFFFDF7),
+    surfaceContainerLow = Color(0xFFFBF8EF),
+    surfaceContainer = Color(0xFFF1EEE5),
+    surfaceContainerHigh = Color(0xFFE9E6DD),
+    surfaceContainerHighest = Color(0xFFDFDCD3)
 )
 
 private val KanariDarkScheme = darkColorScheme(
-    primary = KanariPrimaryDark,
-    onPrimary = KanariOnPrimaryDark,
-    primaryContainer = KanariPrimaryContainerDark,
-    onPrimaryContainer = KanariOnPrimaryContainerDark,
-    secondary = KanariSecondaryDark,
-    onSecondary = KanariOnSecondaryDark,
-    secondaryContainer = KanariSecondaryContainerDark,
-    onSecondaryContainer = KanariOnSecondaryContainerDark,
-    tertiary = KanariTertiaryDark,
-    onTertiary = KanariOnTertiaryDark,
-    tertiaryContainer = KanariTertiaryContainerDark,
-    onTertiaryContainer = KanariOnTertiaryContainerDark,
-    error = KanariErrorDark,
-    onError = KanariOnErrorDark,
-    errorContainer = KanariErrorContainerDark,
-    background = KanariBackgroundDark,
-    onBackground = KanariOnBackgroundDark,
-    surface = KanariSurfaceDark,
-    onSurface = KanariOnSurfaceDark,
-    surfaceVariant = KanariSurfaceVariantDark,
-    onSurfaceVariant = KanariOnSurfaceVariantDark,
-    outline = KanariOutlineDark,
-    surfaceContainer = KanariSurfaceContainerDark,
-    surfaceContainerHigh = KanariSurfaceContainerHighDark,
-    scrim = KanariBackgroundDark.copy(alpha = 0.5f)
+    primary = Color(0xFFC8F43D),               // Lime
+    onPrimary = Color(0xFF111B18),             // Ink
+    primaryContainer = Color(0xFFC8F43D),      // Lime
+    onPrimaryContainer = Color(0xFF111B18),    // Ink
+    secondary = Color(0xFFCABDFF),             // Lavender
+    onSecondary = Color(0xFF111B18),           // Ink
+    secondaryContainer = Color(0xFF4E4674),
+    onSecondaryContainer = Color(0xFFF1ECFF),
+    tertiary = Color(0xFFC8F43D),              // Lime
+    onTertiary = Color(0xFF111B18),            // Ink
+    tertiaryContainer = Color(0xFF405013),
+    onTertiaryContainer = Color(0xFFE8F9A8),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF0E1513),            // DarkSurface
+    onBackground = Color(0xFFF7F4EB),          // Cream
+    surface = Color(0xFF0E1513),               // DarkSurface
+    onSurface = Color(0xFFF7F4EB),             // Cream
+    surfaceVariant = Color(0xFF3C4642),        // outlineVariant
+    onSurfaceVariant = Color(0xFFB8C0BC),
+    outline = Color(0xFF858E8A),
+    outlineVariant = Color(0xFF3C4642),
+    scrim = Color(0xFF000000),
+    inverseSurface = Color(0xFFF7F4EB),
+    inversePrimary = Color(0xFF7868DA),
+    surfaceTint = Color.Transparent,
+    surfaceDim = Color(0xFF09100E),
+    surfaceBright = Color(0xFF2B3531),
+    surfaceContainerLowest = Color(0xFF070C0B),
+    surfaceContainerLow = Color(0xFF121A17),
+    surfaceContainer = Color(0xFF17211E),      // DarkPaper
+    surfaceContainerHigh = Color(0xFF202B27),
+    surfaceContainerHighest = Color(0xFF2A3531)
 )
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM }
@@ -91,6 +127,7 @@ fun KanariAppTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
+
         darkTheme -> KanariDarkScheme
         else -> KanariLightScheme
     }

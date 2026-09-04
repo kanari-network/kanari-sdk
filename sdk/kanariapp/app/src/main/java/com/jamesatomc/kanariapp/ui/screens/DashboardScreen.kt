@@ -15,10 +15,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +36,7 @@ import com.jamesatomc.kanariapp.ui.components.getCurveInfo
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
+import kotlin.math.pow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -307,7 +305,7 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
             headlineContent = { Text(token.symbol, style = MaterialTheme.typography.titleSmall) },
             supportingContent = { Text(token.tokenType, maxLines = 1, style = MaterialTheme.typography.bodySmall) },
             trailingContent = {
-                val f = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
+                val f = token.getEffectiveAmount() / 10.0.pow(token.decimals.toDouble())
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)

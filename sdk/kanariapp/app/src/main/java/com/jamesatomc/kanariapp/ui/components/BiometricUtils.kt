@@ -1,6 +1,5 @@
 package com.jamesatomc.kanariapp.ui.components
 
-import android.widget.Toast
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
