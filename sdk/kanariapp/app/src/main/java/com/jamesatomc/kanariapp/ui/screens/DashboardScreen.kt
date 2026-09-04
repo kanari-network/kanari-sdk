@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.AccountInfo
 import com.jamesatomc.kanariapp.network.models.TokenBalance
+import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
@@ -41,7 +42,7 @@ fun DashboardScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val environment by viewModel.environment.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    
+
     val pagerState = rememberPagerState(pageCount = { wallets.size + 1 })
     var showEnvDialog by remember { mutableStateOf(false) }
     var walletToDelete by remember { mutableStateOf<WalletRecord?>(null) }
@@ -63,10 +64,14 @@ fun DashboardScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column(modifier = Modifier.clickable { showEnvDialog = true }) {
                         Text("Kanari Wallet", style = MaterialTheme.typography.titleLarge)
-                        Text(environment.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            environment.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 },
                 actions = {
@@ -107,7 +112,7 @@ fun DashboardScreen(
                     AddWalletCard(onClick = onNavigateToWalletGen)
                 }
             }
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -125,12 +130,12 @@ fun DashboardScreen(
                     Text("Receive")
                 }
             }
-            
+
             Text(
-                text = "Assets", 
+                text = "Assets",
                 style = MaterialTheme.typography.titleMedium
             )
-            
+
             error?.let {
                 Text(
                     text = it,
@@ -139,28 +144,32 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            
+
             if (isLoading && tokenBalances.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             } else if (wallets.isEmpty()) {
-                Text("No wallets found", modifier = Modifier.align(Alignment.CenterHorizontally), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "No wallets found",
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else {
                 tokenBalances.forEach { token ->
                     AssetItem(token)
                 }
             }
-            
+
             val objects = accountInfo?.ownedObjects ?: emptyList()
             if (objects.isNotEmpty()) {
                 Text(
-                    text = "Objects & NFTs", 
+                    text = "Objects & NFTs",
                     style = MaterialTheme.typography.titleMedium
                 )
                 objects.forEach { obj ->
                     ObjectItem(obj)
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -203,9 +212,7 @@ fun DashboardScreen(
 
 @Composable
 fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete: () -> Unit) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxSize()
-    ) {
+    ElevatedCard(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -214,26 +221,22 @@ fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete
             ) {
                 Text(wallet.name, style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
-            
             val kanariToken = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
             val balance = kanariToken?.getEffectiveAmount() ?: 0L
             val decimals = kanariToken?.decimals ?: 9
-            
             Text(
-                text = String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())),
+                String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())),
                 style = MaterialTheme.typography.headlineMedium
             )
-            
             Spacer(Modifier.weight(1f))
-            
-            Text(
-                text = wallet.address.take(8) + "..." + wallet.address.takeLast(8),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            CopyableAddressRow(address = wallet.address, short = true)
         }
     }
 }

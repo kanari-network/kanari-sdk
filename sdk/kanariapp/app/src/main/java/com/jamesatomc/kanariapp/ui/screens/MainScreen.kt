@@ -3,17 +3,17 @@ package com.jamesatomc.kanariapp.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
+import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
 
@@ -38,11 +38,11 @@ fun MainScreen(
         navigationSuiteItems = {
             navItems.forEachIndexed { index, item ->
                 item(
-                    icon = { 
+                    icon = {
                         Icon(
-                            if (selectedItem == index) item.activeIcon else item.inactiveIcon, 
+                            if (selectedItem == index) item.activeIcon else item.inactiveIcon,
                             contentDescription = item.label
-                        ) 
+                        )
                     },
                     label = { Text(item.label) },
                     selected = selectedItem == index,
@@ -60,6 +60,7 @@ fun MainScreen(
                     onNavigateToSend = { showSendSheet = true },
                     onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
                 )
+
                 1 -> HistoryScreen(viewModel = viewModel)
                 2 -> EscrowScreen(walletViewModel = viewModel)
                 3 -> SettingsScreen(
@@ -87,15 +88,15 @@ fun MainScreen(
 @Composable
 fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
     val tokenBalances by viewModel.tokenBalances.collectAsState()
+    val wallets by viewModel.wallets.collectAsState()
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-
     var expanded by remember { mutableStateOf(false) }
-    var selectedToken by remember { 
-        mutableStateOf(tokenBalances.find { it.symbol == "KANARI" } ?: tokenBalances.firstOrNull()) 
+    var selectedToken by remember {
+        mutableStateOf(tokenBalances.find { it.symbol == "KANARI" } ?: tokenBalances.firstOrNull())
     }
 
     LaunchedEffect(tokenBalances) {
@@ -124,7 +125,8 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 readOnly = true,
                 label = { Text("Token") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true).fillMaxWidth()
+                modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true)
+                    .fillMaxWidth()
             )
 
             ExposedDropdownMenu(
@@ -134,7 +136,15 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 tokenBalances.forEach { token ->
                     DropdownMenuItem(
                         text = {
-                            Text("${token.symbol} (Balance: ${String.format(java.util.Locale.US, "%.4f", token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble()))})")
+                            Text(
+                                "${token.symbol} (Balance: ${
+                                    String.format(
+                                        java.util.Locale.US,
+                                        "%.4f",
+                                        token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
+                                    )
+                                })"
+                            )
                         },
                         onClick = {
                             selectedToken = token
@@ -145,41 +155,50 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             }
         }
 
-        OutlinedTextField(
+        RecipientAddressField(
             value = recipient,
-            onValueChange = { recipient = it },
-            label = { Text("Recipient Address") },
-            modifier = Modifier.fillMaxWidth()
+            onValueChange = { recipient = it; error = null },
+            wallets = wallets,
+            label = "Recipient Address"
         )
-        
+
         OutlinedTextField(
             value = amount,
-            onValueChange = { amount = it },
+            onValueChange = { amount = it; error = null },
             label = { Text("Amount") },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
-        
+
         if (error != null) {
             Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
-        
+
         Button(
             onClick = {
                 val decimals = selectedToken?.decimals ?: 9
-                val amtLong = ((amount.toDoubleOrNull() ?: 0.0) * Math.pow(10.0, decimals.toDouble())).toLong().toULong()
                 val tokenType = selectedToken?.tokenType ?: "0x2::kanari::KANARI"
-                
-                if (amtLong > 0uL && recipient.isNotEmpty()) {
-                    scope.launch {
-                        isLoading = true
-                        if (viewModel.transfer(recipient, amtLong, tokenType)) {
-                            onBack()
-                        } else {
-                            error = viewModel.error.value ?: "Transaction failed"
-                        }
-                        isLoading = false
-                    }
+                val amt = parseAmountToMist(amount, decimals)
+                if (amt == null || amt == 0uL) {
+                    error = "Invalid amount"
+                    return@Button
+                }
+                val recipientTrimmed = recipient.trim()
+                if (recipientTrimmed.isEmpty()) {
+                    error = "Recipient address required"
+                    return@Button
+                }
+                val clean = recipientTrimmed.removePrefix("0x")
+                if (clean.isEmpty() || clean.length > 64 || !clean.matches(Regex("^[0-9a-fA-F]+$"))) {
+                    error = "Invalid recipient address format"
+                    return@Button
+                }
+                scope.launch {
+                    isLoading = true
+                    error = null
+                    if (viewModel.transfer(recipientTrimmed, amt, tokenType)) onBack()
+                    else error = viewModel.error.value ?: "Transaction failed"
+                    isLoading = false
                 }
             },
             modifier = Modifier.fillMaxWidth(),

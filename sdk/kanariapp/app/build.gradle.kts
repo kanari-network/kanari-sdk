@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.androidx.compose.material3.adaptive.navigation)
     implementation(libs.androidx.compose.material3.adaptive.navigationsuite)
     implementation(libs.zxing.core)
+    implementation(libs.zxing.android.embedded)
     implementation(project(":kanari-crypto"))
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     testImplementation(libs.junit)

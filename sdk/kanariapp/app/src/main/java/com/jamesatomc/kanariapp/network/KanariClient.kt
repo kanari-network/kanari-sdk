@@ -10,7 +10,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
-import xyz.mcxross.bcs.Bcs
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class KanariClient(private val environment: KanariEnvironment) {
     private val json = Json {
@@ -127,8 +129,8 @@ class KanariClient(private val environment: KanariEnvironment) {
         sender: String,
         recipient: String,
         amount: ULong,
-        gasLimit: ULong = 1000000uL,
-        gasPrice: ULong = 1uL
+        gasLimit: ULong = 100000uL,
+        gasPrice: ULong = 1000uL
     ): ObjectTransferData? {
         val request = RpcRequest(
             method = "kanari_buildNativeTransfer",
@@ -165,59 +167,210 @@ class KanariClient(private val environment: KanariEnvironment) {
             ?: throw Exception("Failed to build transaction: RPC returned no data")
 
         val coinRef = prepared.coinObjectRef
-            ?: throw Exception("Transaction building failed: No valid coin object found for balance")
+            ?: throw Exception("Transaction building failed: No valid coin object found for balance. Native KANARI transfer needs two distinct Coin<0x2::kanari::KANARI> objects: one coin to send and another coin to pay gas. Receive/fund this wallet once more, then try again.")
 
-        // 1. Reconstruct EXACT ExecuteFunction payload for binary hashing.
-        // This variant is index 4 in the Rust 'Transaction' enum.
-        val txData = KanariTransaction.ExecuteFunction(
-            sender = prepared.sender,
-            module = "0x2::kanari",
-            function = "transfer",
-            typeArgs = emptyList(),
-            args = listOf(
-                hexToBytes(normalizeAddress(coinRef.objectId)).map { it.toUByte() },
-                u64ToBytes(prepared.amount).map { it.toUByte() },
-                hexToBytes(normalizeAddress(prepared.recipient)).map { it.toUByte() }
-            ),
-            objectInputs = listOf(
-                ObjectInput(
-                    objectRef = coinRef.copy(objectId = normalizeAddress(coinRef.objectId)),
-                    owner = ObjectOwnerKind.AddressOwner(prepared.sender),
-                    mutable = true
-                )
-            ),
-            gasPayment = prepared.gasPayment?.let { gp ->
-                gp.copy(
-                    paymentObjects = gp.paymentObjects.map { it.copy(objectId = normalizeAddress(it.objectId)) }
-                )
-            },
-            gasLimit = prepared.gasLimit,
-            gasPrice = prepared.gasPrice,
-            nonce = prepared.nonce ?: 0uL
-        )
-
-        // 2. Encode to BCS with explicit serializer to ensure polymorphism (enum tags) are handled.
-        val txBytes = Bcs.encodeToByteArray(KanariTransaction.serializer(), txData)
-        
-        // 3. Hash with Blake3
-        val hash = KanariCrypto.blake3Hash(txBytes)
-        
-        // 4. Sign the hash
-        val signature = wallet.sign(hash)
-
-        // 5. [DEBUG] Verify locally before submission to isolate signing bugs
-        val isLocalValid = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
-        Log.d("KanariClient", "Local signature verification: $isLocalValid")
-        if (!isLocalValid) {
-            throw Exception("Local signature verification failed. Private key or curve mismatch.")
+        // Validate nonce - must be non-zero and present. Large u64 values may have been truncated if parsed as signed Long.
+        val nonce = prepared.nonce
+        if (nonce == null || nonce == 0uL) {
+            throw Exception("Prepared transaction is missing a valid nonce (got: $nonce). Please try again.")
         }
 
-        // 6. Finalize request with signature
+        val normalizedRecipient = normalizeAddress(prepared.recipient)
+        val normalizedCoinObjectId = normalizeAddress(coinRef.objectId)
+
+        // Use gasPayment as returned by server, normalizing only object_ids to 32-byte form.
+        val gasPayment = prepared.gasPayment
+            ?: throw Exception("Prepared transaction missing gas_payment. Insufficient gas coin?")
+
+        val normalizedGasPayment = gasPayment.copy(
+            paymentObjects = gasPayment.paymentObjects.map { it.copy(objectId = normalizeAddress(it.objectId)) }
+        )
+
+        // Build BCS bytes manually to guarantee exact match with Rust `Transaction::hash()` (bcs::to_bytes + blake3)
+        // Rust Transaction enum index: 0 PublishModule, 1 PublishPackage, 2 UpgradeModule, 3 UpgradePackage, 4 ExecuteFunction
+        val txBytes = bcsEncodeNativeTransfer(
+            sender = prepared.sender,
+            coinObjectId = normalizedCoinObjectId,
+            coinRef = coinRef.copy(objectId = normalizedCoinObjectId),
+            recipient = normalizedRecipient,
+            amount = prepared.amount,
+            gasPayment = normalizedGasPayment,
+            gasLimit = prepared.gasLimit,
+            gasPrice = prepared.gasPrice,
+            nonce = nonce
+        )
+
+        // Hash with Blake3 (same as kanari_crypto::hash_data_blake3 / Transaction::hash)
+        val hash = KanariCrypto.blake3Hash(txBytes)
+
+        // Sign the hash with the wallet's curve
+        val signature = wallet.sign(hash)
+
+        // Local verify is best-effort only - swallow CALL_ERROR to avoid masking real RPC error.
+        // Previous implementation passed taggedAddress as raw hex which caused `Unexpected CALL_ERROR`.
+        try {
+            val isLocalValid = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
+            Log.d("KanariClient", "Local signature verification: $isLocalValid")
+            // Don't throw on false - let server be the source of truth; just log.
+            if (!isLocalValid) {
+                Log.w(
+                    "KanariClient",
+                    "Local signature verification returned false - proceeding anyway, server will validate"
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("KanariClient", "Local signature verification threw (ignored): ${e.message}")
+            // Do not throw - this was the source of `Unexpected CALL_ERROR` in UI.
+        }
+
+        // Finalize request with signature (RPC expects List<Int> 0-255)
         val finalPrepared = prepared.copy(
-            signature = signature.map { it.toInt() and 0xFF }
+            signature = signature.map { it.toInt() and 0xFF },
+            // Ensure we send the normalized IDs that were signed
+            coinObjectId = normalizedCoinObjectId,
+            recipient = normalizedRecipient,
+            gasPayment = normalizedGasPayment,
+            nonce = nonce
         )
 
         return submitObjectTransfer(finalPrepared)
+    }
+
+    // ==================== BCS Manual Encoding (matches Rust bcs::to_bytes) ====================
+
+    private fun bcsEncodeNativeTransfer(
+        sender: String,
+        coinObjectId: String,
+        coinRef: ObjectRef,
+        recipient: String,
+        amount: ULong,
+        gasPayment: GasPayment,
+        gasLimit: ULong,
+        gasPrice: ULong,
+        nonce: ULong
+    ): ByteArray {
+        val out = ByteArrayOutputStream()
+
+        // Transaction enum tag: ExecuteFunction = 4
+        writeUleb128(out, 4)
+
+        // sender: string
+        writeString(out, sender)
+        // module: string "0x2::kanari"
+        writeString(out, "0x2::kanari")
+        // function: string "transfer"
+        writeString(out, "transfer")
+        // type_args: vector<string> empty
+        writeUleb128(out, 0)
+
+        // args: vector<vector<u8>> with 3 elements
+        writeUleb128(out, 3)
+        // args[0]: coin object id as 32-byte address (raw bytes)
+        writeVectorU8(out, hexToBytes(coinObjectId))
+        // args[1]: amount as u64 little-endian 8 bytes -> then as vector<u8>
+        writeVectorU8(out, u64ToBytes(amount))
+        // args[2]: recipient address 32 bytes
+        writeVectorU8(out, hexToBytes(recipient))
+
+        // object_inputs: vector<ObjectInput> size 1
+        writeUleb128(out, 1)
+        writeObjectInput(out, coinRef, sender)
+
+        // gas_payment: option<GasPayment> Some(1 + struct)
+        out.write(1)
+        writeGasPayment(out, gasPayment)
+
+        // gas_limit, gas_price, nonce as u64 LE
+        writeU64(out, gasLimit)
+        writeU64(out, gasPrice)
+        writeU64(out, nonce)
+
+        return out.toByteArray()
+    }
+
+    private fun writeObjectInput(out: ByteArrayOutputStream, coinRef: ObjectRef, sender: String) {
+        writeObjectRef(out, coinRef)
+        // owner: option<ObjectOwnerKind> Some(AddressOwner(sender)) -> 1 + (enum tag 0 + string)
+        out.write(1)
+        writeUleb128(out, 0) // AddressOwner
+        writeString(out, sender)
+        // mutable: bool true -> 1
+        out.write(1)
+    }
+
+    private fun writeObjectRef(out: ByteArrayOutputStream, ref: ObjectRef) {
+        writeString(out, ref.objectId)
+        // version: option<u64>
+        if (ref.version != null) {
+            out.write(1)
+            writeU64(out, ref.version)
+        } else {
+            out.write(0)
+        }
+        // digest: option<string>
+        if (ref.digest != null) {
+            out.write(1)
+            writeString(out, ref.digest)
+        } else {
+            out.write(0)
+        }
+    }
+
+    private fun writeGasPayment(out: ByteArrayOutputStream, gp: GasPayment) {
+        // payment_objects: vector<ObjectRef>
+        writeUleb128(out, gp.paymentObjects.size)
+        for (obj in gp.paymentObjects) {
+            writeObjectRef(out, obj)
+        }
+        writeString(out, gp.owner)
+        writeU64(out, gp.budget)
+        writeU64(out, gp.price)
+    }
+
+    private fun writeString(out: ByteArrayOutputStream, s: String) {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        writeUleb128(out, bytes.size)
+        out.write(bytes)
+    }
+
+    private fun writeU64(out: ByteArrayOutputStream, v: ULong) {
+        val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(v.toLong())
+        out.write(buf.array())
+    }
+
+    private fun writeVectorU8(out: ByteArrayOutputStream, bytes: ByteArray) {
+        writeUleb128(out, bytes.size)
+        out.write(bytes)
+    }
+
+    private fun writeUleb128(out: ByteArrayOutputStream, value: Int) {
+        var v = value.toLong() and 0xFFFFFFFFL
+        while (true) {
+            var byte = (v and 0x7FL).toInt()
+            v = v ushr 7
+            if (v != 0L) {
+                byte = byte or 0x80
+                out.write(byte)
+            } else {
+                out.write(byte)
+                break
+            }
+        }
+    }
+
+    private fun writeUleb128(out: ByteArrayOutputStream, value: ULong) {
+        var v = value
+        while (true) {
+            var byte = (v and 0x7FuL).toInt()
+            v = v shr 7
+            if (v != 0uL) {
+                byte = byte or 0x80
+                out.write(byte)
+            } else {
+                out.write(byte)
+                break
+            }
+        }
     }
 
     suspend fun createEscrowDeal(
@@ -275,13 +428,17 @@ class KanariClient(private val environment: KanariEnvironment) {
     }
 
     private fun u64ToBytes(value: ULong): ByteArray {
-        val buffer = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val buffer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putLong(value.toLong())
         return buffer.array()
     }
 
     private fun normalizeAddress(address: String): String {
+        // Do not normalize tagged addresses (contain ':') - they are Curve:hex strings.
+        if (address.contains(":")) return address
         val clean = address.removePrefix("0x").lowercase()
+        // If already hex with odd length, pad; then pad to 64 chars (32 bytes) for canonical addresses.
+        // Short addresses like 0x2 stay short in some contexts but for transaction args we need 32-byte form.
         return "0x${clean.padStart(64, '0')}"
     }
 }

@@ -78,7 +78,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            
+
             try {
                 val info = client.getAccount(address)
                 _accountInfo.value = info
@@ -155,35 +155,80 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     suspend fun transfer(recipient: String, amount: ULong, tokenType: String = "0x2::kanari::KANARI"): Boolean {
-        val record = _activeWallet.value ?: return false
-        val pin = unlockedPin ?: return false
+        val record = _activeWallet.value ?: run {
+            _error.value = "No active wallet"
+            return false
+        }
+        val pin = unlockedPin ?: run {
+            _error.value = "Wallet is locked. Please unlock again."
+            return false
+        }
 
         return try {
-            val privateKeyEncrypted = record.privateKeyEncrypted ?: return false
+            val privateKeyEncrypted = record.privateKeyEncrypted ?: run {
+                _error.value = "Wallet missing private key"
+                return false
+            }
+            // Normalize token type comparison to allow both short and fully padded forms
+            val isKanari = tokenType == "0x2::kanari::KANARI" ||
+                    tokenType.lowercase(java.util.Locale.US) == "0x2::kanari::kanari" ||
+                    tokenType.endsWith("::kanari::KANARI", ignoreCase = true)
+
+            if (!isKanari) {
+                _error.value =
+                    "Token transfers for $tokenType not yet supported in this app build. Only KANARI native transfers are enabled. Use the kanari_pay SDK for fungible token transfers."
+                return false
+            }
+
             val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
             val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
 
-            val result = if (tokenType == "0x2::kanari::KANARI") {
-                client.transfer(wallet, recipient, amount)
-            } else {
-                // For other tokens, we would need buildTokenTransfer logic
-                null
-            }
+            val result = client.transfer(wallet, recipient, amount)
             val status = result?.status?.lowercase(java.util.Locale.US)
-            val isSuccess = result?.success == true || 
-                status == "success" || status == "executed" || 
-                status == "committed" || status == "pending"
-                
+            val isSuccess = result?.success == true ||
+                    status == "success" || status == "executed" ||
+                    status == "committed" || status == "pending" ||
+                    status == "simulated_pending"
+
             if (isSuccess) {
+                _error.value = null
                 refreshBalance()
                 true
             } else {
-                _error.value = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
+                val msg = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
+                _error.value = mapTransferError(msg)
                 false
             }
         } catch (e: Exception) {
-            _error.value = "Transfer failed: ${e.message}"
+            _error.value = mapTransferError(e.message ?: "Unknown error")
             false
+        }
+    }
+
+    private fun mapTransferError(raw: String): String {
+        val text = raw.lowercase(java.util.Locale.US)
+        return when {
+            text.contains("unexpected call_error") || text.contains("call_error") ->
+                "Transfer failed: Local crypto error (Unexpected CALL_ERROR). This was a bug in BCS signing that is now fixed. Please retry. If it persists, re-import wallet and ensure curve type is correct."
+
+            text.contains("invalid transaction signature") || text.contains("invalid_transaction_signature") ->
+                "Transfer failed: Invalid transaction signature. BCS hash mismatch - please update app and retry."
+
+            text.contains("requires two distinct") || text.contains("native_transfer_policy_not_satisfied") ||
+                    text.contains("allows_single_coin_for_transfer_and_gas") ->
+                "Native KANARI transfer needs two separate Coin<KANARI> objects: one coin to send and another coin to pay gas. Receive/fund this wallet once more, then try again."
+
+            text.contains("no single coin") && text.contains("can cover requested amount") ->
+                "Native KANARI transfer needs one Coin<KANARI> with enough balance to cover amount. Try a smaller amount or fund another coin."
+
+            text.contains("no spendable native gas coin") ->
+                "Insufficient gas coin. Need a separate Coin<KANARI> with enough Mist to pay gas (gas_limit * gas_price)."
+
+            text.contains("missing a valid nonce") || text.contains("nonce must be non-zero") ->
+                "Transfer failed: Transaction nonce error. Please try again."
+
+            raw.startsWith("Transfer failed:") -> raw
+            else -> "Transfer failed: $raw"
         }
     }
 }

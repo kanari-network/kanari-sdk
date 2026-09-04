@@ -1,9 +1,12 @@
 package com.jamesatomc.kanariapp.network.models
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
@@ -56,11 +59,11 @@ sealed class ObjectOwnerKind {
     @Serializable
     @SerialName("AddressOwner")
     data class AddressOwner(val address: String) : ObjectOwnerKind()
-    
+
     @Serializable
     @SerialName("Shared")
     object Shared : ObjectOwnerKind()
-    
+
     @Serializable
     @SerialName("Immutable")
     object Immutable : ObjectOwnerKind()
@@ -70,9 +73,15 @@ object ObjectOwnerKindSerializer : KSerializer<ObjectOwnerKind> {
     @Serializable
     @SerialName("ObjectOwnerKind")
     private sealed class Surrogate {
-        @Serializable @SerialName("AddressOwner") data class AddressOwner(val address: String) : Surrogate()
-        @Serializable @SerialName("Shared") object Shared : Surrogate()
-        @Serializable @SerialName("Immutable") object Immutable : Surrogate()
+        @Serializable
+        @SerialName("AddressOwner")
+        data class AddressOwner(val address: String) : Surrogate()
+        @Serializable
+        @SerialName("Shared")
+        object Shared : Surrogate()
+        @Serializable
+        @SerialName("Immutable")
+        object Immutable : Surrogate()
     }
 
     override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
@@ -145,10 +154,43 @@ data class BuildNativeTransferRequest(
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
 )
 
+/**
+ * Lenient ULong serializer that accepts JSON numbers (including > Long.MAX_VALUE)
+ * and JSON strings. Needed because `fresh_nonce` is a random u64 (0..2^64-1) which
+ * may be serialized as a number beyond signed 64-bit. Serializes as unquoted
+ * JSON number via JsonUnquotedLiteral to preserve full precision.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+object LenientULongSerializer : KSerializer<ULong> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LenientULong", PrimitiveKind.LONG)
+    override fun deserialize(decoder: Decoder): ULong {
+        return if (decoder is JsonDecoder) {
+            val element = decoder.decodeJsonElement()
+            if (element is JsonNull) throw SerializationException("Expected ULong but got null")
+            val prim = element.jsonPrimitive
+            val content = prim.content
+            content.toULongOrNull()
+                ?: prim.longOrNull?.toULong()
+                ?: prim.doubleOrNull?.toLong()?.toULong()
+                ?: throw SerializationException("Invalid ULong value: $content")
+        } else {
+            decoder.decodeLong().toULong()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: ULong) {
+        if (encoder is JsonEncoder) {
+            encoder.encodeJsonElement(JsonUnquotedLiteral(value.toString()))
+        } else {
+            encoder.encodeLong(value.toLong())
+        }
+    }
+}
+
 @Serializable
 data class ObjectRef(
     @SerialName("object_id") val objectId: String,
-    val version: ULong? = null,
+    @Serializable(with = LenientULongSerializer::class) val version: ULong? = null,
     val digest: String? = null
 )
 
@@ -156,8 +198,8 @@ data class ObjectRef(
 data class GasPayment(
     @SerialName("payment_objects") val paymentObjects: List<ObjectRef>,
     val owner: String,
-    val budget: ULong,
-    val price: ULong
+    @Serializable(with = LenientULongSerializer::class) val budget: ULong,
+    @Serializable(with = LenientULongSerializer::class) val price: ULong
 )
 
 @Serializable
@@ -166,10 +208,10 @@ data class ObjectTransferData(
     @SerialName("coin_object_id") val coinObjectId: String,
     @SerialName("coin_object_ref") val coinObjectRef: ObjectRef? = null,
     val recipient: String,
-    val amount: ULong,
-    @SerialName("gas_limit") val gasLimit: ULong,
-    @SerialName("gas_price") val gasPrice: ULong,
-    var nonce: ULong? = null,
+    @Serializable(with = LenientULongSerializer::class) val amount: ULong,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_limit") val gasLimit: ULong,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_price") val gasPrice: ULong,
+    @Serializable(with = LenientULongSerializer::class) var nonce: ULong? = null,
     @SerialName("gas_payment") val gasPayment: GasPayment? = null,
     var signature: List<Int>? = null,
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
