@@ -514,4 +514,3 @@ fun KeyGenerationScreen(
         }
     }
 }
-

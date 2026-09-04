@@ -159,6 +159,47 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun verifyPin(pin: String): Boolean = walletStorage.verifyPin(pin)
 
+    fun revealPrivateKey(record: WalletRecord, pin: String): String? {
+        if (!verifyPin(pin)) return null
+        val enc = record.privateKeyEncrypted ?: return null
+        return try {
+            walletStorage.decrypt(enc, pin)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun revealMnemonic(record: WalletRecord, pin: String): String? {
+        if (!verifyPin(pin)) return null
+        val enc = record.mnemonicEncrypted ?: return null
+        return try {
+            walletStorage.decrypt(enc, pin)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getAlgorithmInfo(curveType: String): Triple<String, String, Boolean> {
+        return when (curveType) {
+            "K256" -> Triple("K256 (secp256k1)", "Bitcoin/Ethereum compatible - Classical", false)
+            "P256" -> Triple("P256 (secp256r1)", "NIST P-256 - Classical", false)
+            "Ed25519" -> Triple("Ed25519", "EdDSA - Fast modern - Classical", false)
+            "Dilithium2" -> Triple("Dilithium2", "Post-Quantum NIST Level 2", true)
+            "Dilithium3" -> Triple("Dilithium3", "Post-Quantum NIST Level 3 (Recommended)", true)
+            "Dilithium5" -> Triple("Dilithium5", "Post-Quantum NIST Level 5", true)
+            "SphincsPlusSha256Robust" -> Triple("SPHINCS+-SHA256", "Hash-based Post-Quantum", true)
+            "Falcon512", "FnDsa512" -> Triple("Falcon-512", "Compact Lattice PQ", true)
+            "Falcon1024", "FnDsa1024" -> Triple("Falcon-1024", "Compact Lattice PQ Level 5", true)
+            "Ed25519Dilithium3" -> Triple("Ed25519 + Dilithium3", "Hybrid Classical + Post-Quantum", true)
+            "K256Dilithium3" -> Triple("K256 + Dilithium3", "Hybrid Classical + Post-Quantum", true)
+            else -> Triple(
+                curveType,
+                "Unknown curve type",
+                curveType.contains("Dilithium") || curveType.contains("Falcon")
+            )
+        }
+    }
+
     fun isBiometricEnabled(): Boolean = walletStorage.isBiometricEnabled()
 
     fun setBiometricEnabled(enabled: Boolean): Boolean {
