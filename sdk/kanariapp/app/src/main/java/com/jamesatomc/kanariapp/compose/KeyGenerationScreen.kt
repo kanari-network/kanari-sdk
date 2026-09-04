@@ -349,33 +349,31 @@ fun KeyGenerationScreen(
                         val supportsMnemonic = selectedCurveInfo?.isPostQuantum == false
                         
                         runCatching {
-                            calculateWithLargeStack {
-                                if (selectedTab == 0) {
-                                    // Generate logic
-                                    if (!supportsMnemonic) {
-                                        val pair = KanariCrypto.generateKeypair(currentCurve)
-                                        null to listOf(pair)
-                                    } else {
-                                        val words = KanariCrypto.generateMnemonic(12)
-                                        val pairs = if (addressCount > 1) {
-                                            KanariCrypto.deriveMultipleAddresses(words, derivationPath, currentCurve, addressCount)
-                                        } else {
-                                            val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
-                                            val pair = KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
-                                            listOf(pair)
-                                        }
-                                        words to pairs
-                                    }
+                            if (selectedTab == 0) {
+                                // Generate logic
+                                if (!supportsMnemonic) {
+                                    val pair = KanariCrypto.generateKeypair(currentCurve)
+                                    null to listOf(pair)
                                 } else {
-                                    // Import logic
-                                    if (importMethod == ImportMethod.RECOVERY_PHRASE) {
-                                        val path = derivationPath.ifEmpty { "m/44'/637'/0'/0/0" }
-                                        val pair = KanariCrypto.deriveKeypairFromPath(importInput, path, currentCurve)
-                                        null to listOf(pair)
+                                    val words = KanariCrypto.generateMnemonic(12)
+                                    val pairs = if (addressCount > 1) {
+                                        KanariCrypto.deriveMultipleAddresses(words, derivationPath, currentCurve, addressCount)
                                     } else {
-                                        val pair = KanariCrypto.importKeypairFromPrivateKey(importInput, currentCurve)
-                                        null to listOf(pair)
+                                        val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
+                                        val pair = KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
+                                        listOf(pair)
                                     }
+                                    words to pairs
+                                }
+                            } else {
+                                // Import logic
+                                if (importMethod == ImportMethod.RECOVERY_PHRASE) {
+                                    val path = derivationPath.ifEmpty { "m/44'/637'/0'/0/0" }
+                                    val pair = KanariCrypto.deriveKeypairFromPath(importInput, path, currentCurve)
+                                    null to listOf(pair)
+                                } else {
+                                    val pair = KanariCrypto.importKeypairFromPrivateKey(importInput, currentCurve)
+                                    null to listOf(pair)
                                 }
                             }
                         }.onSuccess { (words, pairs) ->
@@ -517,17 +515,3 @@ fun KeyGenerationScreen(
     }
 }
 
-/**
- * ฟังก์ชันช่วยรันงาน Crypto บนเธรดใหม่ที่มีขนาด Stack ใหญ่ขึ้น
- */
-private suspend fun <T> calculateWithLargeStack(block: () -> T): T = suspendCancellableCoroutine { cont ->
-    val thread = Thread(null, {
-        try {
-            cont.resume(block())
-        } catch (e: Throwable) {
-            cont.resumeWithException(e)
-        }
-    }, "CryptoThread", 16 * 1024 * 1024) // เพิ่มเป็น 16MB เพื่อความชัวร์สำหรับ Hybrid PQ
-
-    thread.start()
-}
