@@ -281,7 +281,7 @@ fun KeyGenerationScreen(
                                 if (importMethod == ImportMethod.RECOVERY_PHRASE) {
                                     val path = derivationPath.ifEmpty { "m/44'/637'/0'/0/0" }
                                     val pair = KanariCrypto.deriveKeypairFromPath(importInput, path, currentCurve)
-                                    null to listOf(pair)
+                                    importInput to listOf(pair)
                                 } else {
                                     val pair = KanariCrypto.importKeypairFromPrivateKey(importInput, currentCurve)
                                     null to listOf(pair)
