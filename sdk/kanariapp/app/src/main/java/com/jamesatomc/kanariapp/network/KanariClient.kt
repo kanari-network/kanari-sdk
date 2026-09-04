@@ -344,45 +344,19 @@ class KanariClient(private val environment: KanariEnvironment) {
         gasLimit: ULong,
         gasPrice: ULong,
         nonce: ULong
-    ): ByteArray {
-        val out = ByteArrayOutputStream()
-
-        // Transaction enum tag: ExecuteFunction = 4
-        writeUleb128(out, 4)
-
-        // sender: string
-        writeString(out, sender)
-        // module: string "0x2::kanari"
-        writeString(out, "0x2::kanari")
-        // function: string "transfer"
-        writeString(out, "transfer")
-        // type_args: vector<string> empty
-        writeUleb128(out, 0)
-
-        // args: vector<vector<u8>> with 3 elements
-        writeUleb128(out, 3)
-        // args[0]: coin object id as 32-byte address (raw bytes)
-        writeVectorU8(out, hexToBytes(coinObjectId))
-        // args[1]: amount as u64 little-endian 8 bytes -> then as vector<u8>
-        writeVectorU8(out, u64ToBytes(amount))
-        // args[2]: recipient address 32 bytes
-        writeVectorU8(out, hexToBytes(recipient))
-
-        // object_inputs: vector<ObjectInput> size 1
-        writeUleb128(out, 1)
-        writeObjectInput(out, coinRef, sender)
-
-        // gas_payment: option<GasPayment> Some(1 + struct)
-        out.write(1)
-        writeGasPayment(out, gasPayment)
-
-        // gas_limit, gas_price, nonce as u64 LE
-        writeU64(out, gasLimit)
-        writeU64(out, gasPrice)
-        writeU64(out, nonce)
-
-        return out.toByteArray()
-    }
+    ): ByteArray =
+        bcsEncodeExecuteFunction(
+            sender,
+            "0x2::kanari",
+            "transfer",
+            emptyList(),
+            listOf(hexToBytes(coinObjectId), u64ToBytes(amount), hexToBytes(recipient)),
+            listOf(ObjectInput(coinRef, ObjectOwnerKind.AddressOwner(sender), true)),
+            gasPayment,
+            gasLimit,
+            gasPrice,
+            nonce
+        )
 
     private fun bcsEncodeExecuteFunction(
         sender: String,
@@ -418,6 +392,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                         writeUleb128(out, 0)
                         writeString(out, o.address)
                     }
+
                     ObjectOwnerKind.Shared -> writeUleb128(out, 1)
                     ObjectOwnerKind.Immutable -> writeUleb128(out, 2)
                 }

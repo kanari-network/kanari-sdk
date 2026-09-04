@@ -38,7 +38,7 @@ fun MainNavigation(viewModel: WalletViewModel) {
     val navController = rememberNavController()
     val isUnlocked by viewModel.isUnlocked.collectAsStateWithLifecycle()
     val wallets by viewModel.wallets.collectAsStateWithLifecycle()
-    
+
     // Start destination logic
     val startDestination = remember(isUnlocked, wallets) {
         if (isUnlocked) Screen.Main.route else Screen.Welcome.route
@@ -55,7 +55,7 @@ fun MainNavigation(viewModel: WalletViewModel) {
         }
         composable(Screen.Login.route) {
             LoginScreen(
-                onLoginSuccess = { 
+                onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(Screen.Welcome.route) { inclusive = true }
                     }
@@ -90,9 +90,6 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToSend = { /* Handled in MainScreen bottom nav */ },
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
             )
-        }
-        composable(Screen.Send.route) {
-            SendScreen(onBack = { navController.popBackStack() })
         }
         composable(Screen.Receive.route) {
             ReceiveScreen(viewModel = viewModel, onBack = { navController.popBackStack() })

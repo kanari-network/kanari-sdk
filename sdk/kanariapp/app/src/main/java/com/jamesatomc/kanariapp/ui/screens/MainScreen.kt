@@ -66,6 +66,7 @@ fun MainScreen(
 
     Scaffold(
         modifier = Modifier.nestedScroll(nestedScrollConnection),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0), // Disable automatic inset handling in the top-level Scaffold
         bottomBar = {
             AnimatedVisibility(
                 visible = bottomBarVisible,
@@ -118,7 +119,11 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding()) // Only apply bottom padding for the nav bar
+        ) {
             when (selectedItem) {
                 0 -> DashboardScreen(
                     viewModel = viewModel,

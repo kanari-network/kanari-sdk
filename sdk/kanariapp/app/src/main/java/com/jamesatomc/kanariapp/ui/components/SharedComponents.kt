@@ -10,14 +10,19 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,12 +33,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.jamesatomc.kanariapp.network.models.TokenBalance
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import androidx.compose.material.icons.filled.CurrencyExchange
 
 // ---------- Utils ----------
 
@@ -91,6 +99,83 @@ fun generateQrBitmap(text: String, size: Int): Bitmap? = try {
     bmp
 } catch (_: Exception) {
     null
+}
+
+// ---------- Reusable UI (shared across Dashboard/History/Receive) ----------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun KanariTopBar(
+    environmentName: String,
+    onEnvClick: () -> Unit,
+    onReceive: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        TopAppBar(
+            title = {
+                Row(
+                    modifier = Modifier.clickable { onEnvClick() },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Kanari Wallet",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(20.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                Modifier.size(8.dp).background(
+                                    when (environmentName.lowercase()) {
+                                        "dev" -> androidx.compose.ui.graphics.Color(0xFF2ECC71); "mainnet" -> androidx.compose.ui.graphics.Color(
+                                        0xFFE74C3C
+                                    ); else -> MaterialTheme.colorScheme.primary
+                                    }, CircleShape
+                                )
+                            )
+                            Text(
+                                environmentName.uppercase(),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            actions = {
+                IconButton(onClick = onReceive) { Icon(Icons.Default.QrCode, contentDescription = "Receive") }
+                IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+        )
+        HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+    }
 }
 
 // ---------- Reusable UI ----------
@@ -200,6 +285,57 @@ fun WalletPickerDialog(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
+}
+
+@Composable
+fun TokenIcon(token: TokenBalance, modifier: Modifier = Modifier) {
+    val isKanari = token.symbol.equals("KANARI", true) || token.tokenType.endsWith("::KANARI", true)
+    val isUsdc = token.symbol.equals("USDC", true)
+    val container = when {
+        isKanari -> MaterialTheme.colorScheme.primaryContainer; isUsdc -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val content = when {
+        isKanari -> MaterialTheme.colorScheme.onPrimaryContainer; isUsdc -> MaterialTheme.colorScheme.onSecondaryContainer; else -> MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    Surface(shape = CircleShape, color = container, modifier = modifier.size(40.dp)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (!token.iconUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = token.iconUrl,
+                    contentDescription = token.symbol,
+                    modifier = Modifier.fillMaxSize().padding(6.dp)
+                )
+            } else {
+                if (isKanari || isUsdc) Text(
+                    token.symbol.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    color = content
+                )
+                else Icon(
+                    Icons.Default.CurrencyExchange,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = content
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DetailRowShared(
+    label: String,
+    value: String,
+    valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium.copy(color = valueColor),
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
 }
 
 @Composable

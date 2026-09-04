@@ -6,18 +6,11 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import coil.compose.AsyncImage
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TokenBalance
 import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
+import com.jamesatomc.kanariapp.ui.components.KanariTopBar
+import com.jamesatomc.kanariapp.ui.components.TokenIcon
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
@@ -46,220 +41,104 @@ fun DashboardScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val environment by viewModel.environment.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-
     val pagerState = rememberPagerState(pageCount = { wallets.size + 1 })
     var showEnvDialog by remember { mutableStateOf(false) }
     var walletToDelete by remember { mutableStateOf<WalletRecord?>(null) }
-
     LaunchedEffect(activeWallet) {
-        val index = wallets.indexOfFirst { it.id == activeWallet?.id }
-        if (index >= 0 && pagerState.currentPage != index) {
-            pagerState.animateScrollToPage(index)
-        }
+        val idx =
+            wallets.indexOfFirst { it.id == activeWallet?.id }; if (idx >= 0 && pagerState.currentPage != idx) pagerState.animateScrollToPage(
+        idx
+    )
     }
-
-    LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage < wallets.size) {
-            viewModel.switchWallet(wallets[pagerState.currentPage])
-        }
-    }
-
+    LaunchedEffect(pagerState.currentPage) { if (pagerState.currentPage < wallets.size) viewModel.switchWallet(wallets[pagerState.currentPage]) }
     Scaffold(
         modifier = modifier,
         topBar = {
-            Column {
-                TopAppBar(
-                title = {
-                    Row(
-                        modifier = Modifier.clickable { showEnvDialog = true },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Kanari Wallet",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                        Surface(
-                            color = when (environment.name.lowercase()) {
-                                "dev" -> MaterialTheme.colorScheme.tertiaryContainer
-                                "mainnet" -> MaterialTheme.colorScheme.errorContainer
-                                else -> MaterialTheme.colorScheme.secondaryContainer
-                            },
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                environment.name.uppercase(),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                                color = when (environment.name.lowercase()) {
-                                    "dev" -> MaterialTheme.colorScheme.onTertiaryContainer
-                                    "mainnet" -> MaterialTheme.colorScheme.onErrorContainer
-                                    else -> MaterialTheme.colorScheme.onSecondaryContainer
-                                },
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                        Icon(
-                            Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToReceive) {
-                        Icon(Icons.Default.QrCode, contentDescription = "Receive")
-                    }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                )
-                )
-                HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-            }
+            KanariTopBar(
+                environmentName = environment.name,
+                onEnvClick = { showEnvDialog = true },
+                onReceive = onNavigateToReceive,
+                onSettings = onNavigateToSettings
+            )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp),
+                modifier = Modifier.fillMaxWidth().height(180.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 pageSpacing = 12.dp
             ) { page ->
-                if (page < wallets.size) {
-                    val wallet = wallets[page]
-                    WalletCard(
-                        wallet = wallet,
-                        tokenBalances = if (activeWallet?.id == wallet.id) tokenBalances else emptyList(),
-                        onDelete = { walletToDelete = wallet }
-                    )
-                } else {
-                    AddWalletCard(onClick = onNavigateToWalletGen)
-                }
+                if (page < wallets.size) WalletCard(
+                    wallets[page],
+                    if (activeWallet?.id == wallets[page].id) tokenBalances else emptyList()
+                ) { walletToDelete = wallets[page] } else AddWalletCard(onNavigateToWalletGen)
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = onNavigateToSend,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Send")
-                }
-                OutlinedButton(
-                    onClick = onNavigateToReceive,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Receive")
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onNavigateToSend, modifier = Modifier.weight(1f)) { Text("Send") }
+                OutlinedButton(onClick = onNavigateToReceive, modifier = Modifier.weight(1f)) { Text("Receive") }
             }
-
-            Text(
-                text = "Assets",
-                style = MaterialTheme.typography.titleMedium
-            )
-
+            Text("Assets", style = MaterialTheme.typography.titleMedium)
             error?.let {
                 Text(
-                    text = it,
+                    it,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-
-            if (isLoading && tokenBalances.isEmpty()) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-            } else if (wallets.isEmpty()) {
-                Text(
+            when {
+                isLoading && tokenBalances.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                wallets.isEmpty() -> Text(
                     "No wallets found",
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    Modifier.align(Alignment.CenterHorizontally),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                tokenBalances.forEach { token ->
-                    AssetItem(token)
-                }
-            }
 
+                else -> tokenBalances.forEach { AssetItem(it) }
+            }
             val objects = accountInfo?.ownedObjects ?: emptyList()
             if (objects.isNotEmpty()) {
-                Text(
-                    text = "Objects & NFTs",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                objects.forEach { obj ->
-                    ObjectItem(obj)
-                }
+                Text("Objects & NFTs", style = MaterialTheme.typography.titleMedium)
+                objects.forEach { ObjectItem(it) }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(Modifier.height(24.dp))
         }
     }
-
-    if (showEnvDialog) {
-        EnvironmentDialog(
-            currentEnv = environment,
-            onDismiss = { showEnvDialog = false },
-            onSelect = { env ->
-                viewModel.setEnvironment(env)
-                showEnvDialog = false
-            }
-        )
-    }
-
-    walletToDelete?.let { wallet ->
+    if (showEnvDialog) EnvironmentDialog(
+        currentEnv = environment,
+        onDismiss = { showEnvDialog = false },
+        onSelect = { viewModel.setEnvironment(it); showEnvDialog = false })
+    walletToDelete?.let { w ->
         AlertDialog(
             onDismissRequest = { walletToDelete = null },
             title = { Text("Delete Wallet") },
-            text = { Text("Are you sure you want to delete '${wallet.name}'?") },
+            text = { Text("Are you sure you want to delete '${w.name}'?") },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        viewModel.deleteWallet(wallet)
-                        walletToDelete = null
-                    },
+                    onClick = { viewModel.deleteWallet(w); walletToDelete = null },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
-                }
+                ) { Text("Delete") }
             },
-            dismissButton = {
-                TextButton(onClick = { walletToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
+            dismissButton = { TextButton(onClick = { walletToDelete = null }) { Text("Cancel") } })
     }
 }
 
 @Composable
 fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxSize(),
+        Modifier.fillMaxSize(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -284,18 +163,19 @@ fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete
                 }
             }
             Spacer(Modifier.height(12.dp))
-            val kanariToken = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
-            val balance = kanariToken?.getEffectiveAmount() ?: 0L
-            val decimals = kanariToken?.decimals ?: 9
+            val t = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
             Text(
                 "Balance",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())),
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
+                String.format(
+                    Locale.US,
+                    "%.2f KANARI",
+                    (t?.getEffectiveAmount() ?: 0L) / Math.pow(10.0, (t?.decimals ?: 9).toDouble())
+                ),
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             )
             Spacer(Modifier.weight(1f))
             Surface(
@@ -304,7 +184,7 @@ fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete
             ) {
                 Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
                     CopyableAddressRow(
-                        address = wallet.address,
+                        wallet.address,
                         short = true,
                         textStyle = MaterialTheme.typography.labelMedium
                     )
@@ -318,13 +198,13 @@ fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete
 fun AddWalletCard(onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxSize(),
+        Modifier.fillMaxSize(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -347,13 +227,13 @@ fun AssetItem(token: TokenBalance) {
             headlineContent = { Text(token.symbol, style = MaterialTheme.typography.titleSmall) },
             supportingContent = { Text(token.tokenType, maxLines = 1, style = MaterialTheme.typography.bodySmall) },
             trailingContent = {
-                val formatted = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
+                val f = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        String.format(Locale.US, "%.4f", formatted),
+                        String.format(Locale.US, "%.4f", f),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -367,54 +247,9 @@ fun AssetItem(token: TokenBalance) {
 }
 
 @Composable
-fun TokenIcon(token: TokenBalance) {
-    val isKanari =
-        token.symbol.equals("KANARI", ignoreCase = true) || token.tokenType.endsWith("::KANARI", ignoreCase = true)
-    val isUsdc = token.symbol.equals("USDC", ignoreCase = true)
-    val containerColor = when {
-        isKanari -> MaterialTheme.colorScheme.primaryContainer
-        isUsdc -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.tertiaryContainer
-    }
-    val contentColor = when {
-        isKanari -> MaterialTheme.colorScheme.onPrimaryContainer
-        isUsdc -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onTertiaryContainer
-    }
-    Surface(shape = CircleShape, color = containerColor, modifier = Modifier.size(40.dp)) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            if (!token.iconUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = token.iconUrl,
-                    contentDescription = token.symbol,
-                    modifier = Modifier.fillMaxSize().padding(6.dp)
-                )
-            } else {
-                // Fallback to symbol initial or generic icon
-                if (isKanari || isUsdc) {
-                    Text(
-                        text = token.symbol.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                        color = contentColor
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.CurrencyExchange,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = contentColor
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun ObjectItem(obj: com.jamesatomc.kanariapp.network.models.ObjectInfo) {
     ListItem(
         headlineContent = { Text(obj.getEffectiveType().split("::").last()) },
         supportingContent = { Text(obj.id, maxLines = 1) },
-        leadingContent = { Icon(Icons.Default.Public, contentDescription = null) }
-    )
+        leadingContent = { Icon(Icons.Default.Public, contentDescription = null) })
 }
