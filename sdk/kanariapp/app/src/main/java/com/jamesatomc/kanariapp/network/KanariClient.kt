@@ -148,6 +148,42 @@ class KanariClient(private val environment: KanariEnvironment) {
         return response.result
     }
 
+    suspend fun buildTokenTransfer(
+        sender: String,
+        recipient: String,
+        tokenType: String,
+        amount: ULong,
+        gasLimit: ULong = 100000uL,
+        gasPrice: ULong = 1000uL
+    ): CallFunctionData? {
+        val normalizedTokenType = normalizeTokenType(tokenType)
+        val request = RpcRequest(
+            method = "kanari_buildTokenTransfer",
+            params = buildJsonObject {
+                put("sender", sender)
+                put("recipient", normalizeAddress(recipient))
+                put("token_type", normalizedTokenType)
+                put("amount", amount.toLong())
+                put("gas_limit", gasLimit.toLong())
+                put("gas_price", gasPrice.toLong())
+                put("execute_immediate", true)
+            }
+        )
+        val response = rpcService.buildTokenTransfer(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result
+    }
+
+    suspend fun submitCallFunction(data: CallFunctionData): TransactionResult? {
+        val request = RpcRequest(
+            method = "kanari_callFunction",
+            params = json.encodeToJsonElement(data)
+        )
+        val response = rpcService.callFunction(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result
+    }
+
     suspend fun submitObjectTransfer(data: ObjectTransferData): TransactionResult? {
         val request = RpcRequest(
             method = "kanari_submitObjectTransfer",
@@ -236,6 +272,66 @@ class KanariClient(private val environment: KanariEnvironment) {
         return submitObjectTransfer(finalPrepared)
     }
 
+    suspend fun transferToken(
+        wallet: KanariWallet,
+        recipient: String,
+        tokenType: String,
+        amount: ULong
+    ): TransactionResult? {
+        val prepared = buildTokenTransfer(wallet.taggedAddress, recipient, tokenType, amount)
+            ?: throw Exception("Failed to build token transfer: RPC returned no data")
+
+        val nonce = prepared.nonce ?: throw Exception("Prepared token transfer missing nonce")
+        if (nonce == 0uL) throw Exception("Prepared token transfer nonce must be non-zero")
+
+        // Normalize gas payment objectIds for signing consistency
+        val normalizedGasPayment = prepared.gasPayment?.let { gp ->
+            gp.copy(paymentObjects = gp.paymentObjects.map { it.copy(objectId = normalizeAddress(it.objectId)) })
+        }
+
+        val normalizedObjectInputs = prepared.objectInputs?.map { input ->
+            input.copy(objectRef = input.objectRef.copy(objectId = normalizeAddress(input.objectRef.objectId)))
+        } ?: emptyList()
+
+        // Convert args from List<List<Int>> to List<ByteArray>
+        val argsBytes = prepared.args.map { list -> list.map { (it and 0xFF).toByte() }.toByteArray() }
+
+        // Module is "package::module" e.g. "0xabc::usdt"
+        val fullModule = "${prepared.packageAddr}::${prepared.module}"
+
+        val txBytes = bcsEncodeExecuteFunction(
+            sender = prepared.sender,
+            module = fullModule,
+            function = prepared.function,
+            typeArgs = prepared.typeArgs,
+            args = argsBytes,
+            objectInputs = normalizedObjectInputs,
+            gasPayment = normalizedGasPayment,
+            gasLimit = prepared.gasLimit,
+            gasPrice = prepared.gasPrice,
+            nonce = nonce
+        )
+
+        val hash = KanariCrypto.blake3Hash(txBytes)
+        val signature = wallet.sign(hash)
+
+        try {
+            val ok = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
+            Log.d("KanariClient", "Token transfer local verify: $ok")
+        } catch (e: Exception) {
+            Log.w("KanariClient", "Token local verify ignored: ${e.message}")
+        }
+
+        val finalPrepared = prepared.copy(
+            // Normalize object inputs/gas payment that were signed
+            objectInputs = if (normalizedObjectInputs.isEmpty()) null else normalizedObjectInputs,
+            gasPayment = normalizedGasPayment,
+            nonce = nonce,
+            signature = signature.map { it.toInt() and 0xFF }
+        )
+        return submitCallFunction(finalPrepared)
+    }
+
     // ==================== BCS Manual Encoding (matches Rust bcs::to_bytes) ====================
 
     private fun bcsEncodeNativeTransfer(
@@ -286,6 +382,78 @@ class KanariClient(private val environment: KanariEnvironment) {
         writeU64(out, nonce)
 
         return out.toByteArray()
+    }
+
+    private fun bcsEncodeExecuteFunction(
+        sender: String,
+        module: String,
+        function: String,
+        typeArgs: List<String>,
+        args: List<ByteArray>,
+        objectInputs: List<ObjectInput>,
+        gasPayment: GasPayment?,
+        gasLimit: ULong,
+        gasPrice: ULong,
+        nonce: ULong
+    ): ByteArray {
+        val out = ByteArrayOutputStream()
+        writeUleb128(out, 4) // ExecuteFunction variant
+        writeString(out, sender)
+        writeString(out, module)
+        writeString(out, function)
+        // type_args
+        writeUleb128(out, typeArgs.size)
+        for (ta in typeArgs) writeString(out, ta)
+        // args
+        writeUleb128(out, args.size)
+        for (a in args) writeVectorU8(out, a)
+        // object_inputs
+        writeUleb128(out, objectInputs.size)
+        for (inp in objectInputs) {
+            writeObjectRef(out, inp.objectRef)
+            if (inp.owner != null) {
+                out.write(1)
+                when (val o = inp.owner) {
+                    is ObjectOwnerKind.AddressOwner -> {
+                        writeUleb128(out, 0)
+                        writeString(out, o.address)
+                    }
+                    ObjectOwnerKind.Shared -> writeUleb128(out, 1)
+                    ObjectOwnerKind.Immutable -> writeUleb128(out, 2)
+                }
+            } else {
+                out.write(0)
+            }
+            out.write(if (inp.mutable) 1 else 0)
+        }
+        // gas_payment option
+        if (gasPayment != null) {
+            out.write(1)
+            writeGasPayment(out, gasPayment)
+        } else {
+            out.write(0)
+        }
+        writeU64(out, gasLimit)
+        writeU64(out, gasPrice)
+        writeU64(out, nonce)
+        return out.toByteArray()
+    }
+
+    fun normalizeTokenType(tokenType: String): String {
+        val parts = tokenType.split("::")
+        if (parts.size < 3) throw IllegalArgumentException("Invalid token type: $tokenType (expected address::module::struct)")
+        var pkg = parts[0].trim()
+        if (!pkg.startsWith("0x")) pkg = "0x$pkg"
+        // Keep short addresses like 0x2 as-is, otherwise pad to 32 bytes for canonical form
+        val hex = pkg.removePrefix("0x")
+        val normalizedPkg = if (hex.length >= 64) {
+            "0x${hex.lowercase().padStart(64, '0')}"
+        } else {
+            // short form is valid on-chain; keep lowercase without padding for RPC compatibility
+            // but flutter's normalizeTokenType keeps short as-is
+            "0x${hex.lowercase()}"
+        }
+        return "$normalizedPkg::${parts[1]}::${parts[2]}"
     }
 
     private fun writeObjectInput(out: ByteArrayOutputStream, coinRef: ObjectRef, sender: String) {

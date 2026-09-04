@@ -12,7 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.fragment.app.FragmentActivity
 import com.jamesatomc.kanariapp.ui.screens.*
-import com.jamesatomc.kanariapp.compose.KanariTheme
+import com.jamesatomc.kanariapp.ui.theme.KanariAppTheme
 import com.jamesatomc.kanariapp.compose.KeyGenerationScreen
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
@@ -24,17 +24,18 @@ class MainActivity : FragmentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            KanariTheme {
-                MainNavigation()
+            val viewModel: WalletViewModel = viewModel()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            KanariAppTheme(themeMode = themeMode) {
+                MainNavigation(viewModel = viewModel)
             }
         }
     }
 }
 
 @Composable
-fun MainNavigation() {
+fun MainNavigation(viewModel: WalletViewModel) {
     val navController = rememberNavController()
-    val viewModel: WalletViewModel = viewModel()
     val isUnlocked by viewModel.isUnlocked.collectAsStateWithLifecycle()
     val wallets by viewModel.wallets.collectAsStateWithLifecycle()
     

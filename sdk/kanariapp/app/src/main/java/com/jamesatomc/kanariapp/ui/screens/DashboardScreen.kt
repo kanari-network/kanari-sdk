@@ -6,8 +6,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode
@@ -65,13 +67,32 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(modifier = Modifier.clickable { showEnvDialog = true }) {
-                        Text("Kanari Wallet", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            environment.name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    Row(
+                        modifier = Modifier.clickable { showEnvDialog = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Kanari Wallet", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Surface(
+                            color = when (environment.name.lowercase()) {
+                                "dev" -> MaterialTheme.colorScheme.tertiaryContainer
+                                "mainnet" -> MaterialTheme.colorScheme.errorContainer
+                                else -> MaterialTheme.colorScheme.secondaryContainer
+                            },
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                environment.name.uppercase(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                color = when (environment.name.lowercase()) {
+                                    "dev" -> MaterialTheme.colorScheme.onTertiaryContainer
+                                    "mainnet" -> MaterialTheme.colorScheme.onErrorContainer
+                                    else -> MaterialTheme.colorScheme.onSecondaryContainer
+                                },
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
@@ -81,9 +102,14 @@ fun DashboardScreen(
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -212,63 +238,66 @@ fun DashboardScreen(
 
 @Composable
 fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete: () -> Unit) {
-    ElevatedCard(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(wallet.name, style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        modifier = Modifier.size(20.dp)
-                    )
+    Card(
+        modifier = Modifier.fillMaxSize(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)) {
+                    Text(wallet.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                 }
+                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
+            Spacer(Modifier.height(12.dp))
             val kanariToken = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
             val balance = kanariToken?.getEffectiveAmount() ?: 0L
             val decimals = kanariToken?.decimals ?: 9
-            Text(
-                String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())),
-                style = MaterialTheme.typography.headlineMedium
-            )
+            Text("Balance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.weight(1f))
-            CopyableAddressRow(address = wallet.address, short = true)
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
+                Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) { CopyableAddressRow(address = wallet.address, short = true, textStyle = MaterialTheme.typography.labelMedium) }
+            }
         }
     }
 }
 
 @Composable
 fun AddWalletCard(onClick: () -> Unit) {
-    OutlinedCard(
+    Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Text("Add Wallet")
+        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            FilledTonalIconButton(onClick = onClick) { Icon(Icons.Default.Add, contentDescription = null) }
+            Spacer(Modifier.height(8.dp))
+            Text("Add Wallet", style = MaterialTheme.typography.titleSmall)
         }
     }
 }
 
 @Composable
 fun AssetItem(token: TokenBalance) {
-    ListItem(
-        headlineContent = { Text(token.symbol) },
-        supportingContent = { Text(token.tokenType, maxLines = 1) },
-        trailingContent = {
-            val formatted = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
-            Text(String.format(Locale.US, "%.4f", formatted))
-        },
-        modifier = Modifier.clickable { /* Detail */ }
-    )
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        ListItem(
+            headlineContent = { Text(token.symbol, style = MaterialTheme.typography.titleSmall) },
+            supportingContent = { Text(token.tokenType, maxLines = 1, style = MaterialTheme.typography.bodySmall) },
+            trailingContent = {
+                val formatted = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
+                    Text(String.format(Locale.US, "%.4f", formatted), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+            },
+            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+            modifier = Modifier.clickable { }
+        )
+    }
 }
 
 @Composable

@@ -293,3 +293,20 @@ data class ObjectInput(
     val owner: ObjectOwnerKind?,
     val mutable: Boolean
 )
+
+@Serializable
+data class CallFunctionData(
+    val sender: String,
+    @SerialName("package") val packageAddr: String,
+    val module: String,
+    val function: String,
+    @SerialName("type_args") val typeArgs: List<String> = emptyList(),
+    val args: List<List<Int>> = emptyList(),
+    @SerialName("object_inputs") val objectInputs: List<ObjectInput>? = null,
+    @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_limit") val gasLimit: ULong,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_price") val gasPrice: ULong,
+    @Serializable(with = LenientULongSerializer::class) val nonce: ULong? = null,
+    var signature: List<Int>? = null,
+    @SerialName("execute_immediate") val executeImmediate: Boolean? = true
+)

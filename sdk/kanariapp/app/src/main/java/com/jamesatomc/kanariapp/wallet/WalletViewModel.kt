@@ -1,6 +1,7 @@
 package com.jamesatomc.kanariapp.wallet
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jamesatomc.kanariapp.network.KanariClient
@@ -8,6 +9,7 @@ import com.jamesatomc.kanariapp.network.models.AccountInfo
 import com.jamesatomc.kanariapp.network.models.TokenBalance
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
+import com.jamesatomc.kanariapp.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +48,32 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private var unlockedPin: String? = null
 
     private var client = KanariClient(_environment.value)
+
+    private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
+
+    private val _themeMode = MutableStateFlow(loadThemeMode())
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _biometricEnabled = MutableStateFlow(walletStorage.isBiometricEnabled())
+    val biometricEnabled: StateFlow<Boolean> = _biometricEnabled.asStateFlow()
+
+    private fun loadThemeMode(): ThemeMode {
+        val saved = prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name
+        return try {
+            ThemeMode.valueOf(saved)
+        } catch (_: Exception) {
+            ThemeMode.SYSTEM
+        }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        _themeMode.value = mode
+        prefs.edit().putString("theme_mode", mode.name).apply()
+    }
+
+    fun refreshBiometricState() {
+        _biometricEnabled.value = walletStorage.isBiometricEnabled()
+    }
 
     init {
         loadWallets()
@@ -111,27 +139,75 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         if (walletStorage.verifyPin(pin)) {
             unlockedPin = pin
             _isUnlocked.value = true
+            // Sync biometric PIN if biometric is enabled (like kanari_pay)
+            if (walletStorage.isBiometricEnabled()) {
+                try {
+                    walletStorage.saveBiometricPin(pin)
+                } catch (_: Exception) {
+                }
+            }
             loadWallets()
             return true
         }
         return false
     }
 
+    fun unlockWithBiometric(): Boolean {
+        val pin = walletStorage.getBiometricPin() ?: return false
+        return unlock(pin)
+    }
+
     fun verifyPin(pin: String): Boolean = walletStorage.verifyPin(pin)
+
+    fun isBiometricEnabled(): Boolean = walletStorage.isBiometricEnabled()
+
+    fun setBiometricEnabled(enabled: Boolean): Boolean {
+        val result = if (enabled) {
+            val pin = unlockedPin ?: return false
+            walletStorage.saveBiometricPin(pin)
+            true
+        } else {
+            walletStorage.clearBiometricPin()
+            walletStorage.setBiometricEnabled(false)
+            true
+        }
+        _biometricEnabled.value = walletStorage.isBiometricEnabled()
+        return result
+    }
 
     fun changePin(oldPin: String, newPin: String): Boolean {
         if (!walletStorage.verifyPin(oldPin)) return false
-
-        try {
+        if (newPin.length != 6 || !newPin.all { it.isDigit() }) return false
+        return try {
             val wallets = walletStorage.loadWallets()
-            // We need to re-encrypt sensitive data if we were storing it in a way that depends on PIN
-            // Currently WalletStorage.kt encrypt/decrypt methods are available.
-            // But let's simplify for now: just update the master PIN verifier.
-            // In a full implementation, we'd iterate through wallets and re-encrypt secrets.
+            val reEncrypted = wallets.map { record ->
+                val newPrivate = record.privateKeyEncrypted?.let {
+                    try {
+                        walletStorage.decrypt(it, oldPin)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }?.let { walletStorage.encrypt(it, newPin) } ?: record.privateKeyEncrypted
+                val newMnemonic = record.mnemonicEncrypted?.let {
+                    try {
+                        walletStorage.decrypt(it, oldPin)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }?.let { walletStorage.encrypt(it, newPin) } ?: record.mnemonicEncrypted
+                record.copy(privateKeyEncrypted = newPrivate, mnemonicEncrypted = newMnemonic)
+            }
+            walletStorage.saveWallets(reEncrypted)
             walletStorage.savePin(newPin)
-            return true
-        } catch (e: Exception) {
-            return false
+            unlockedPin = newPin
+            if (walletStorage.isBiometricEnabled()) {
+                walletStorage.saveBiometricPin(newPin)
+            }
+            _wallets.value = reEncrypted
+            _activeWallet.value = reEncrypted.find { it.id == _activeWallet.value?.id } ?: reEncrypted.firstOrNull()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -169,21 +245,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _error.value = "Wallet missing private key"
                 return false
             }
-            // Normalize token type comparison to allow both short and fully padded forms
             val isKanari = tokenType == "0x2::kanari::KANARI" ||
                     tokenType.lowercase(java.util.Locale.US) == "0x2::kanari::kanari" ||
                     tokenType.endsWith("::kanari::KANARI", ignoreCase = true)
 
-            if (!isKanari) {
-                _error.value =
-                    "Token transfers for $tokenType not yet supported in this app build. Only KANARI native transfers are enabled. Use the kanari_pay SDK for fungible token transfers."
-                return false
-            }
-
             val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
             val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
 
-            val result = client.transfer(wallet, recipient, amount)
+            val result = if (isKanari) {
+                client.transfer(wallet, recipient, amount)
+            } else {
+                // Generic fungible token transfer via kanari_buildTokenTransfer / kanari_callFunction
+                // Amount is already in token's smallest units (as per parseAmountToMist)
+                client.transferToken(wallet, recipient, tokenType, amount)
+            }
             val status = result?.status?.lowercase(java.util.Locale.US)
             val isSuccess = result?.success == true ||
                     status == "success" || status == "executed" ||

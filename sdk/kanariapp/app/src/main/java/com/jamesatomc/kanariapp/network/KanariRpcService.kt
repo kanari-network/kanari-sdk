@@ -29,6 +29,12 @@ interface KanariRpcService {
     suspend fun submitObjectTransfer(@Body request: RpcRequest): RpcResponse<TransactionResult>
 
     @POST("rpc")
+    suspend fun buildTokenTransfer(@Body request: RpcRequest): RpcResponse<CallFunctionData>
+
+    @POST("rpc")
+    suspend fun callFunction(@Body request: RpcRequest): RpcResponse<TransactionResult>
+
+    @POST("rpc")
     suspend fun getAllBalances(@Body request: RpcRequest): RpcResponse<JsonElement>
 
     @POST("rpc")

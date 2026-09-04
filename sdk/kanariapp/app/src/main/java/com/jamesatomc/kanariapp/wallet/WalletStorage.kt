@@ -53,6 +53,8 @@ class WalletStorage(context: Context) {
         private const val KEY_WALLETS = "kanari_wallets"
         private const val KEY_PIN_SALT = "kanari_pin_salt"
         private const val KEY_PIN_VERIFIER = "kanari_pin_verifier"
+        private const val KEY_BIOMETRIC_ENABLED = "kanari_biometric_enabled"
+        private const val KEY_BIOMETRIC_PIN = "kanari_biometric_pin"
         private const val PIN_LENGTH = 6
         private const val KDF_ITERATIONS = 210000
     }
@@ -79,6 +81,29 @@ class WalletStorage(context: Context) {
         
         val candidate = deriveKey(pin, salt)
         return candidate.contentEquals(verifier)
+    }
+
+    fun isBiometricEnabled(): Boolean = sharedPrefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
+        if (!enabled) sharedPrefs.edit().remove(KEY_BIOMETRIC_PIN).apply()
+    }
+
+    fun saveBiometricPin(pin: String) {
+        require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
+        // Store PIN encrypted via EncryptedSharedPreferences (already encrypted at rest)
+        sharedPrefs.edit().putString(KEY_BIOMETRIC_PIN, pin).apply()
+        setBiometricEnabled(true)
+    }
+
+    fun getBiometricPin(): String? {
+        if (!isBiometricEnabled()) return null
+        return sharedPrefs.getString(KEY_BIOMETRIC_PIN, null)
+    }
+
+    fun clearBiometricPin() {
+        sharedPrefs.edit().remove(KEY_BIOMETRIC_PIN).remove(KEY_BIOMETRIC_ENABLED).apply()
     }
 
     fun saveWallets(wallets: List<WalletRecord>) {
