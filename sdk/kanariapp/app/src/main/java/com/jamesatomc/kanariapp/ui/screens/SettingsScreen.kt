@@ -107,85 +107,108 @@ fun SettingsScreen(
             val context = LocalContext.current
             val activity = context as? androidx.fragment.app.FragmentActivity
             val biometricManager = remember { BiometricManager.from(context) }
-            val biometricAvailable = remember {
+            val biometricStatus = remember {
                 try {
-                    biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+                    biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
                 } catch (_: Exception) {
-                    false
+                    BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE
                 }
             }
-            if (biometricAvailable) {
-                val biometricEnabled by viewModel.biometricEnabled.collectAsState()
-                SettingsSwitchItem(
-                    title = "Biometric Unlock",
-                    subtitle = if (biometricEnabled) "Enabled - use fingerprint to unlock" else "Tap to enable fingerprint / face unlock",
-                    icon = Icons.Default.Fingerprint,
-                    checked = biometricEnabled,
-                    onCheckedChange = { enabled ->
-                        if (!enabled) {
-                            viewModel.setBiometricEnabled(false)
-                            Toast.makeText(context, "Biometric disabled", Toast.LENGTH_SHORT).show()
-                        } else {
-                            if (activity == null) {
-                                val ok = viewModel.setBiometricEnabled(true)
-                                Toast.makeText(
-                                    context,
-                                    if (ok) "Biometric enabled" else "Unlock with PIN first",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@SettingsSwitchItem
-                            }
-                            val executor = androidx.core.content.ContextCompat.getMainExecutor(activity)
-                            val prompt = androidx.biometric.BiometricPrompt(
-                                activity,
-                                executor,
-                                object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
-                                    override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
-                                        super.onAuthenticationSucceeded(result)
-                                        activity.runOnUiThread {
-                                            val ok = viewModel.setBiometricEnabled(true)
-                                            Toast.makeText(
-                                                context,
-                                                if (ok) "Biometric enabled" else "Unlock with PIN first",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    }
-
-                                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                                        super.onAuthenticationError(errorCode, errString)
-                                        activity.runOnUiThread {
-                                            if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED && errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Biometric error: $errString",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                    }
-
-                                    override fun onAuthenticationFailed() {
-                                        super.onAuthenticationFailed()
-                                        activity.runOnUiThread {
-                                            Toast.makeText(
-                                                context,
-                                                "Biometric not recognized",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    }
-                                })
-                            val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
-                                .setTitle("Enable Biometric Unlock")
-                                .setSubtitle("Authenticate to enable fingerprint unlock")
-                                .setNegativeButtonText("Cancel")
-                                .build()
-                            prompt.authenticate(promptInfo)
-                        }
-                    }
-                )
+            val biometricAvailable = biometricStatus == BiometricManager.BIOMETRIC_SUCCESS
+            val biometricEnabled by viewModel.biometricEnabled.collectAsState()
+            val biometricSubtitle = when {
+                biometricEnabled -> "Enabled - use fingerprint to unlock"
+                biometricStatus == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "No fingerprint enrolled - add in system settings"
+                biometricStatus == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "No biometric hardware"
+                biometricStatus == BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Biometric unavailable"
+                biometricStatus == BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> "Security update required"
+                else -> "Tap to enable fingerprint / face unlock"
             }
+            SettingsSwitchItem(
+                title = "Biometric Unlock",
+                subtitle = biometricSubtitle,
+                icon = Icons.Default.Fingerprint,
+                checked = biometricEnabled,
+                enabled = biometricAvailable,
+                onCheckedChange = { enabled ->
+                    if (!biometricAvailable) {
+                        when (biometricStatus) {
+                            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> Toast.makeText(
+                                context,
+                                "Enroll fingerprint in system settings first",
+                                Toast.LENGTH_LONG
+                            ).show()
+
+                            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> Toast.makeText(
+                                context,
+                                "Device has no biometric hardware",
+                                Toast.LENGTH_SHORT
+                            ).show()
+
+                            else -> Toast.makeText(context, "Biometric unavailable", Toast.LENGTH_SHORT).show()
+                        }
+                        return@SettingsSwitchItem
+                    }
+                    if (!enabled) {
+                        viewModel.setBiometricEnabled(false)
+                        Toast.makeText(context, "Biometric disabled", Toast.LENGTH_SHORT).show()
+                    } else {
+                        if (activity == null) {
+                            val ok = viewModel.setBiometricEnabled(true)
+                            Toast.makeText(
+                                context,
+                                if (ok) "Biometric enabled" else "Unlock with PIN first",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@SettingsSwitchItem
+                        }
+                        val executor = androidx.core.content.ContextCompat.getMainExecutor(activity)
+                        val prompt = androidx.biometric.BiometricPrompt(
+                            activity,
+                            executor,
+                            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                                    super.onAuthenticationSucceeded(result)
+                                    activity.runOnUiThread {
+                                        val ok = viewModel.setBiometricEnabled(true)
+                                        Toast.makeText(
+                                            context,
+                                            if (ok) "Biometric enabled" else "Unlock with PIN first",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+
+                                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                                    super.onAuthenticationError(errorCode, errString)
+                                    activity.runOnUiThread {
+                                        if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED && errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                                            Toast.makeText(context, "Biometric error: $errString", Toast.LENGTH_SHORT)
+                                                .show()
+                                        }
+                                    }
+                                }
+
+                                override fun onAuthenticationFailed() {
+                                    super.onAuthenticationFailed()
+                                    activity.runOnUiThread {
+                                        Toast.makeText(
+                                            context,
+                                            "Biometric not recognized",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            })
+                        val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+                            .setTitle("Enable Biometric Unlock")
+                            .setSubtitle("Authenticate to enable fingerprint unlock")
+                            .setNegativeButtonText("Cancel")
+                            .build()
+                        prompt.authenticate(promptInfo)
+                    }
+                }
+            )
 
             Spacer(Modifier.height(24.dp))
 
@@ -433,6 +456,7 @@ fun SettingsSwitchItem(
     subtitle: String? = null,
     icon: ImageVector,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Surface(color = Color.Transparent) {
@@ -440,17 +464,29 @@ fun SettingsSwitchItem(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                    alpha = 0.4f
+                )
+            )
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold)
+                Text(
+                    title,
+                    fontWeight = FontWeight.Bold,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = 0.4f
+                    )
+                )
                 if (subtitle != null) Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.6f)
                 )
             }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
         }
     }
 }

@@ -7,20 +7,22 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import coil.compose.AsyncImage
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jamesatomc.kanariapp.network.models.AccountInfo
 import com.jamesatomc.kanariapp.network.models.TokenBalance
 import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
 import com.jamesatomc.kanariapp.wallet.WalletRecord
@@ -65,14 +67,18 @@ fun DashboardScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            Column {
+                TopAppBar(
                 title = {
                     Row(
                         modifier = Modifier.clickable { showEnvDialog = true },
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Kanari Wallet", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text(
+                            "Kanari Wallet",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
                         Surface(
                             color = when (environment.name.lowercase()) {
                                 "dev" -> MaterialTheme.colorScheme.tertiaryContainer
@@ -92,7 +98,12 @@ fun DashboardScreen(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 actions = {
@@ -107,7 +118,9 @@ fun DashboardScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
-            )
+                )
+                HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
@@ -245,21 +258,57 @@ fun WalletCard(wallet: WalletRecord, tokenBalances: List<TokenBalance>, onDelete
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)) {
-                    Text(wallet.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        wallet.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
                 }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
             val kanariToken = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
             val balance = kanariToken?.getEffectiveAmount() ?: 0L
             val decimals = kanariToken?.decimals ?: 9
-            Text("Balance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                "Balance",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                String.format(Locale.US, "%.2f KANARI", balance / Math.pow(10.0, decimals.toDouble())),
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
             Spacer(Modifier.weight(1f))
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
-                Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) { CopyableAddressRow(address = wallet.address, short = true, textStyle = MaterialTheme.typography.labelMedium) }
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            ) {
+                Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
+                    CopyableAddressRow(
+                        address = wallet.address,
+                        short = true,
+                        textStyle = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
         }
     }
@@ -274,7 +323,11 @@ fun AddWalletCard(onClick: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             FilledTonalIconButton(onClick = onClick) { Icon(Icons.Default.Add, contentDescription = null) }
             Spacer(Modifier.height(8.dp))
             Text("Add Wallet", style = MaterialTheme.typography.titleSmall)
@@ -284,19 +337,76 @@ fun AddWalletCard(onClick: () -> Unit) {
 
 @Composable
 fun AssetItem(token: TokenBalance) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
         ListItem(
+            leadingContent = { TokenIcon(token) },
             headlineContent = { Text(token.symbol, style = MaterialTheme.typography.titleSmall) },
             supportingContent = { Text(token.tokenType, maxLines = 1, style = MaterialTheme.typography.bodySmall) },
             trailingContent = {
                 val formatted = token.getEffectiveAmount() / Math.pow(10.0, token.decimals.toDouble())
-                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
-                    Text(String.format(Locale.US, "%.4f", formatted), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        String.format(Locale.US, "%.4f", formatted),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
                 }
             },
             colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
             modifier = Modifier.clickable { }
         )
+    }
+}
+
+@Composable
+fun TokenIcon(token: TokenBalance) {
+    val isKanari =
+        token.symbol.equals("KANARI", ignoreCase = true) || token.tokenType.endsWith("::KANARI", ignoreCase = true)
+    val isUsdc = token.symbol.equals("USDC", ignoreCase = true)
+    val containerColor = when {
+        isKanari -> MaterialTheme.colorScheme.primaryContainer
+        isUsdc -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val contentColor = when {
+        isKanari -> MaterialTheme.colorScheme.onPrimaryContainer
+        isUsdc -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    Surface(shape = CircleShape, color = containerColor, modifier = Modifier.size(40.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            if (!token.iconUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = token.iconUrl,
+                    contentDescription = token.symbol,
+                    modifier = Modifier.fillMaxSize().padding(6.dp)
+                )
+            } else {
+                // Fallback to symbol initial or generic icon
+                if (isKanari || isUsdc) {
+                    Text(
+                        text = token.symbol.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                        color = contentColor
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.CurrencyExchange,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = contentColor
+                    )
+                }
+            }
+        }
     }
 }
 

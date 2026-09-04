@@ -1,14 +1,20 @@
 package com.jamesatomc.kanariapp.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.material3.adaptive.navigationsuite.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -34,24 +40,85 @@ fun MainScreen(
         NavItem("Settings", Icons.Default.Settings, Icons.Outlined.Settings)
     )
 
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            navItems.forEachIndexed { index, item ->
-                item(
-                    icon = {
-                        Icon(
-                            if (selectedItem == index) item.activeIcon else item.inactiveIcon,
-                            contentDescription = item.label
-                        )
-                    },
-                    label = { Text(item.label) },
-                    selected = selectedItem == index,
-                    onClick = { selectedItem = index }
-                )
+    var bottomBarVisible by remember { mutableStateOf(true) }
+    var accumulated by remember { mutableStateOf(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val peekPx = with(density) { 2.dp.toPx() }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                accumulated += available.y
+                // increase threshold to avoid jitter - hide only after 28px down, show after 16px up
+                if (available.y < 0 && accumulated < -28) {
+                    bottomBarVisible = false
+                    accumulated = 0f
+                } else if (available.y > 0 && accumulated > 16) {
+                    bottomBarVisible = true
+                    accumulated = 0f
+                }
+                // reset if direction changes
+                if ((available.y < 0 && accumulated > 0) || (available.y > 0 && accumulated < 0)) accumulated =
+                    available.y
+                return Offset.Zero
             }
         }
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+    }
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(nestedScrollConnection),
+        bottomBar = {
+            AnimatedVisibility(
+                visible = bottomBarVisible,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = androidx.compose.animation.core.tween(
+                        320,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    )
+                ),
+                exit = slideOutVertically(
+                    // leave 2px peek (tail) visible when hidden
+                    targetOffsetY = { fullHeight -> fullHeight - peekPx.toInt() },
+                    animationSpec = androidx.compose.animation.core.tween(
+                        280,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    )
+                )
+            ) {
+                Column {
+                    // 2px tail / handle that moves with navbar - stays visible as peek
+                    HorizontalDivider(
+                        thickness = 2.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ) {
+                        navItems.forEachIndexed { index, item ->
+                            NavigationBarItem(
+                                icon = {
+                                    Icon(
+                                        if (selectedItem == index) item.activeIcon else item.inactiveIcon,
+                                        contentDescription = item.label
+                                    )
+                                },
+                                label = { Text(item.label) },
+                                selected = selectedItem == index,
+                                onClick = { selectedItem = index },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (selectedItem) {
                 0 -> DashboardScreen(
                     viewModel = viewModel,
