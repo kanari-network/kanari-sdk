@@ -224,15 +224,17 @@ impl Address {
             let mut hasher = Sha3_256::new();
 
             // Determine hashing strategy based on curve type:
-            // - Pure PQC (Dilithium*, SphincsPlus*): Hash the DECODED bytes (matching key generation)
-            // - Hybrid (Ed25519Dilithium3, K256Dilithium3): Hash the hex STRING (matching key generation)
+            // - SPHINCS+: Hash the hex STRING (client uses address_from_pqc_public_key_hex)
+            // - Hybrid (Ed25519Dilithium3, K256Dilithium3): Hash the hex STRING (contains colons between parts)
+            // - Other pure PQC (Dilithium*, Falcon*): Hash the DECODED bytes (matching key generation)
             let tag_upper = tag.to_uppercase();
             let is_hybrid = tag_upper.contains("HYBRID")
                 || tag_upper.contains("ED25519")
                 || tag_upper.contains("K256");
+            let hash_hex_string = is_hybrid || tag_upper.contains("SPHINCS");
 
-            if is_hybrid {
-                // Hybrid keys: hash the hex string representation (contains colons between parts)
+            if hash_hex_string {
+                // SPHINCS+ and hybrid keys: hash the hex string representation
                 hasher.update(addr_or_pub.as_bytes());
             } else {
                 // Pure PQC keys: decode hex to bytes first, then hash
