@@ -61,7 +61,7 @@ fun UnlockScreen(viewModel: WalletViewModel, onUnlockSuccess: () -> Unit, onBack
             title = "Welcome Back",
             subtitle = "Enter your 6-digit PIN to unlock your wallet",
             onVerify = { pin -> viewModel.unlock(pin) },
-            onSuccess = onUnlockSuccess,
+            onSuccess = { _: String -> onUnlockSuccess() },
             biometricEnabled = canUseBiometric,
             onBiometric = ::onBiometric,
             modifier = Modifier.fillMaxSize().padding(padding)

@@ -19,9 +19,8 @@ import com.jamesatomc.kanariapp.wallet.WalletViewModel
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> android.util.Log.e("KanariApp", "Uncaught", e) }
         System.setProperty("jna.nosys", "true")
-
         enableEdgeToEdge()
         setContent {
             val viewModel: WalletViewModel = viewModel()

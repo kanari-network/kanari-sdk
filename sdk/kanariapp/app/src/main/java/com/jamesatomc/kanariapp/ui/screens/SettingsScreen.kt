@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.ChangePinFullScreenContent
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
@@ -205,7 +207,17 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
 
 @Composable
 fun ChangePinDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Boolean) {
-    ChangePinFullScreenContent(onDismiss = onDismiss, onConfirm = onConfirm)
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            ChangePinFullScreenContent(onDismiss = onDismiss, onConfirm = onConfirm)
+        }
+    }
 }
 
 @Composable
