@@ -11,4 +11,5 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object WalletGeneration : Screen("wallet_generation")
     object Unlock : Screen("unlock")
+    object ChangePin : Screen("change_pin")
 }

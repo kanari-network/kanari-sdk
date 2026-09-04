@@ -193,7 +193,10 @@ fun FullScreenPinDialog(
             entered = entered.dropLast(1); error = null
         }
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Scaffold(topBar = {
                 TopAppBar(
@@ -232,6 +235,7 @@ fun FullScreenPinDialog(
         }
     }
 }
+
 @Composable
 fun PinVerificationContent(
     title: String,
@@ -253,13 +257,36 @@ fun PinVerificationContent(
         if (next.length == 6) {
             isChecking = true
             val ok = onVerify(next)
-            if (ok) onSuccess() else { error = "Invalid PIN"; entered = ""; isChecking = false }
+            if (ok) onSuccess() else {
+                error = "Invalid PIN"; entered = ""; isChecking = false
+            }
         }
     }
-    fun onBackspace() { if (entered.isNotEmpty() && !isChecking) { entered = entered.dropLast(1); error = null } }
-    Column(modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
-        PinEntryHeader(title = title, subtitle = subtitle, enteredLength = entered.length, errorText = error, isChecking = isChecking)
-        PinNumberPad(onNumberPressed = ::onNumber, onBackspacePressed = ::onBackspace, biometricEnabled = biometricEnabled, onBiometricPressed = onBiometric, modifier = Modifier.fillMaxWidth())
+
+    fun onBackspace() {
+        if (entered.isNotEmpty() && !isChecking) {
+            entered = entered.dropLast(1); error = null
+        }
+    }
+    Column(
+        modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        PinEntryHeader(
+            title = title,
+            subtitle = subtitle,
+            enteredLength = entered.length,
+            errorText = error,
+            isChecking = isChecking
+        )
+        PinNumberPad(
+            onNumberPressed = ::onNumber,
+            onBackspacePressed = ::onBackspace,
+            biometricEnabled = biometricEnabled,
+            onBiometricPressed = onBiometric,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -276,8 +303,13 @@ fun ChangePinFullScreenContent(
     var error by remember { mutableStateOf<String?>(null) }
     var isChecking by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val title = when (step) { 0 -> "Current PIN"; 1 -> "New PIN"; else -> "Confirm New PIN" }
-    val subtitle = when (step) { 0 -> "Enter current 6-digit PIN"; 1 -> "Enter new 6-digit PIN"; else -> "Re-enter new PIN to confirm" }
+    val title = when (step) {
+        0 -> "Current PIN"; 1 -> "New PIN"; else -> "Confirm New PIN"
+    }
+    val subtitle = when (step) {
+        0 -> "Enter current 6-digit PIN"; 1 -> "Enter new 6-digit PIN"; else -> "Re-enter new PIN to confirm"
+    }
+
     fun onNumber(num: String) {
         if (isChecking || entered.length >= 6) return
         val next = entered + num
@@ -285,26 +317,67 @@ fun ChangePinFullScreenContent(
         error = null
         if (next.length == 6) {
             when (step) {
-                0 -> { currentPin = next; entered = ""; step = 1 }
-                1 -> { newPin = next; entered = ""; step = 2 }
+                0 -> {
+                    currentPin = next; entered = ""; step = 1
+                }
+
+                1 -> {
+                    newPin = next; entered = ""; step = 2
+                }
+
                 2 -> {
-                    if (next != newPin) { error = "PINs do not match"; entered = "" }
-                    else if (currentPin == newPin) { error = "New PIN must be different"; entered = "" }
-                    else {
+                    if (next != newPin) {
+                        error = "PINs do not match"; entered = ""
+                    } else if (currentPin == newPin) {
+                        error = "New PIN must be different"; entered = ""
+                    } else {
                         isChecking = true
                         val ok = onConfirm(currentPin, newPin)
-                        if (ok) { Toast.makeText(context, "PIN changed successfully", Toast.LENGTH_SHORT).show(); onDismiss() }
-                        else { error = "Incorrect current PIN"; entered = ""; isChecking = false }
+                        if (ok) {
+                            Toast.makeText(context, "PIN changed successfully", Toast.LENGTH_SHORT).show(); onDismiss()
+                        } else {
+                            error = "Incorrect current PIN"; entered = ""; isChecking = false
+                        }
                     }
                 }
             }
         }
     }
-    fun onBackspace() { if (entered.isNotEmpty() && !isChecking) { entered = entered.dropLast(1); error = null } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Change PIN") }, navigationIcon = { IconButton(onClick = { if (step > 0) { step--; entered = ""; error = null } else onDismiss() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
-            PinEntryHeader(title = title, subtitle = subtitle, enteredLength = entered.length, errorText = error, isChecking = isChecking)
-            PinNumberPad(onNumberPressed = ::onNumber, onBackspacePressed = ::onBackspace, biometricEnabled = false, modifier = Modifier.fillMaxWidth())
+
+    fun onBackspace() {
+        if (entered.isNotEmpty() && !isChecking) {
+            entered = entered.dropLast(1); error = null
+        }
+    }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("Change PIN") },
+            navigationIcon = {
+                IconButton(onClick = {
+                    if (step > 0) {
+                        step--; entered = ""; error = null
+                    } else onDismiss()
+                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            })
+    }) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            PinEntryHeader(
+                title = title,
+                subtitle = subtitle,
+                enteredLength = entered.length,
+                errorText = error,
+                isChecking = isChecking
+            )
+            PinNumberPad(
+                onNumberPressed = ::onNumber,
+                onBackspacePressed = ::onBackspace,
+                biometricEnabled = false,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

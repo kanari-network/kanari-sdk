@@ -146,7 +146,10 @@ fun DashboardScreen(
     walletForDetails?.let { w ->
         androidx.compose.ui.window.Dialog(
             onDismissRequest = { walletForDetails = null },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 WalletDetailFullScreen(wallet = w, viewModel = viewModel, onDismiss = { walletForDetails = null })
