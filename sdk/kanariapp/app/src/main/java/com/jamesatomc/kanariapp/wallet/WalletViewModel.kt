@@ -157,6 +157,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         return unlock(pin)
     }
 
+    fun revealPrivateKeyWithBiometric(record: WalletRecord): String? {
+        val pin = walletStorage.getBiometricPin() ?: return null
+        return revealPrivateKey(record, pin)
+    }
+
+    fun revealMnemonicWithBiometric(record: WalletRecord): String? {
+        val pin = walletStorage.getBiometricPin() ?: return null
+        return revealMnemonic(record, pin)
+    }
+
     fun verifyPin(pin: String): Boolean = walletStorage.verifyPin(pin)
 
     fun revealPrivateKey(record: WalletRecord, pin: String): String? {

@@ -2,6 +2,8 @@
 
 package com.jamesatomc.kanariapp.ui.screens
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -37,6 +39,15 @@ import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
 import kotlin.math.pow
+
+private fun Context.findFragmentActivity(): androidx.fragment.app.FragmentActivity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is androidx.fragment.app.FragmentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -336,6 +347,7 @@ fun ObjectItem(obj: com.jamesatomc.kanariapp.network.models.ObjectInfo) {
 @Composable
 fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
+    val activity = ctx.findFragmentActivity()
     var isVerified by remember { mutableStateOf(false) }
     var revealedKey by remember { mutableStateOf<String?>(null) }
     var revealedSeed by remember { mutableStateOf<String?>(null) }
@@ -343,6 +355,35 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
     var seedVisible by remember { mutableStateOf(false) }
     val hasSeed = wallet.mnemonicEncrypted != null
     val curveInfo = remember(wallet.curveType) { getCurveInfo(wallet.curveType) }
+
+    var canUseBiometric by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        try {
+            val enabled = viewModel.isBiometricEnabled()
+            if (!enabled) canUseBiometric = false
+            else canUseBiometric = androidx.biometric.BiometricManager.from(ctx)
+                .canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+        } catch (_: Exception) {
+            canUseBiometric = false
+        }
+    }
+
+    fun onBiometric() {
+        if (activity == null) return
+        com.jamesatomc.kanariapp.ui.components.showBiometricPrompt(
+            activity = activity,
+            title = "Reveal Wallet Secrets",
+            subtitle = "Use biometrics to unlock",
+            onSuccess = {
+                val k = viewModel.revealPrivateKeyWithBiometric(wallet)
+                if (k != null) {
+                    revealedKey = k
+                    revealedSeed = if (hasSeed) viewModel.revealMnemonicWithBiometric(wallet) else null
+                    isVerified = true
+                }
+            }
+        )
+    }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Wallet Details") },
@@ -370,6 +411,8 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
                         isVerified = true
                     }
                 },
+                biometricEnabled = canUseBiometric,
+                onBiometric = ::onBiometric,
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
         } else {
@@ -461,7 +504,14 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
                             secret = revealedKey,
                             isVisible = keyVisible,
                             onToggleVisibility = { keyVisible = !keyVisible },
-                            onCopy = { copyToClipboard(ctx, revealedKey!!, label = "Private Key", toast = "Private key copied") }
+                            onCopy = {
+                                copyToClipboard(
+                                    ctx,
+                                    revealedKey!!,
+                                    label = "Private Key",
+                                    toast = "Private key copied"
+                                )
+                            }
                         )
                         SecurityWarningCard("Never share your private key")
                     }
@@ -484,7 +534,14 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
                                 secret = revealedSeed,
                                 isVisible = seedVisible,
                                 onToggleVisibility = { seedVisible = !seedVisible },
-                                onCopy = { copyToClipboard(ctx, revealedSeed!!, label = "Seed", toast = "Seed phrase copied") }
+                                onCopy = {
+                                    copyToClipboard(
+                                        ctx,
+                                        revealedSeed!!,
+                                        label = "Seed",
+                                        toast = "Seed phrase copied"
+                                    )
+                                }
                             )
                             SecurityWarningCard("Never share your seed phrase")
                         }
