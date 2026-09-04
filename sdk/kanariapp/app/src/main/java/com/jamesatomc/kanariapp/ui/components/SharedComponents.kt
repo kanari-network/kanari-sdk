@@ -67,7 +67,7 @@ fun copyToClipboard(
     context: Context,
     text: String,
     label: String = "kanari_address",
-    toast: String = "คัดลอกที่อยู่แล้ว"
+    toast: String = "Address copied"
 ) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -100,7 +100,7 @@ fun CopyableAddressRow(
     address: String,
     modifier: Modifier = Modifier,
     short: Boolean = true,
-    copyToast: String = "คัดลอกที่อยู่แล้ว",
+    copyToast: String = "Address copied",
     textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
 ) {
     val context = LocalContext.current
@@ -168,12 +168,12 @@ fun WalletPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("เลือกที่อยู่จากกระเป๋า") },
+        title = { Text("Select wallet address") },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (wallets.isEmpty()) {
                     Text(
-                        "ยังไม่มีกระเป๋าที่บันทึก",
+                        "No saved wallets",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -198,7 +198,7 @@ fun WalletPickerDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("ปิด") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -216,7 +216,7 @@ fun RecipientAddressField(
     val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             onValueChange(extractAddressFromQr(result.contents))
-            Toast.makeText(context, "สแกนสำเร็จ", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Scan successful", Toast.LENGTH_SHORT).show()
         }
     }
     val permLauncher =
@@ -225,7 +225,7 @@ fun RecipientAddressField(
                 try {
                     qrLauncher.launch(ScanOptions().apply {
                         setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        setPrompt("สแกน QR ที่อยู่กระเป๋า")
+                        setPrompt("Scan wallet QR")
                         setBeepEnabled(true)
                         setBarcodeImageEnabled(true)
                         setOrientationLocked(true)
@@ -233,9 +233,9 @@ fun RecipientAddressField(
                     })
                 } catch (e: Exception) {
                     Log.e("RecipientField", "scanner failed", e)
-                    Toast.makeText(context, "เปิดกล้องไม่สำเร็จ: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Failed to open camera: ${e.message}", Toast.LENGTH_LONG).show()
                 }
-            } else Toast.makeText(context, "ต้องการสิทธิ์กล้อง", Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
         }
 
     OutlinedTextField(
@@ -250,7 +250,7 @@ fun RecipientAddressField(
                 IconButton(onClick = { showPicker = true }) {
                     Icon(
                         Icons.Default.Contacts,
-                        contentDescription = "เลือกจากกระเป๋า",
+                        contentDescription = "Select from wallets",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -263,7 +263,7 @@ fun RecipientAddressField(
                         ) {
                             qrLauncher.launch(ScanOptions().apply {
                                 setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                setPrompt("สแกน QR ที่อยู่กระเป๋า")
+                                setPrompt("Scan wallet QR")
                                 setBeepEnabled(true)
                                 setBarcodeImageEnabled(true)
                                 setOrientationLocked(true)
@@ -272,12 +272,12 @@ fun RecipientAddressField(
                         } else permLauncher.launch(Manifest.permission.CAMERA)
                     } catch (e: Exception) {
                         Log.e("RecipientField", "launch error", e)
-                        Toast.makeText(context, "ไม่สามารถเปิดกล้องได้: ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Cannot open camera: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }) {
                     Icon(
                         Icons.Default.QrCodeScanner,
-                        contentDescription = "สแกน QR",
+                        contentDescription = "Scan QR",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

@@ -62,7 +62,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: () -> Unit) {
                 if (address.isNotEmpty()) copyToClipboard(
                     context,
                     address,
-                    toast = "คัดลอกที่อยู่แล้ว"
+                    toast = "Address copied"
                 )
             }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp)) {
                 Icon(Icons.Default.ContentCopy, contentDescription = null)
