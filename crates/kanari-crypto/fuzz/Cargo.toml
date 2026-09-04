@@ -11,48 +11,49 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.13"
+tinyvec = "=1.13.2"
 
 [dependencies.kanari-crypto]
 path = ".."
 
 [[bin]]
-name = "fuzz_target_1"
+name = "fuzz-target-1"
 path = "fuzz_targets/fuzz_target_1.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "signature_verify"
+name = "signature-verify"
 path = "fuzz_targets/signature_verify.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "hybrid_signature_verify"
+name = "hybrid-signature-verify"
 path = "fuzz_targets/hybrid_signature_verify.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "encryption_roundtrip"
+name = "encryption-roundtrip"
 path = "fuzz_targets/encryption_roundtrip.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "key_generation"
+name = "key-generation"
 path = "fuzz_targets/key_generation.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "password_hash"
+name = "password-hash"
 path = "fuzz_targets/password_hash.rs"
 test = false
 doc = false

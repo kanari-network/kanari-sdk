@@ -57,23 +57,23 @@ jobs:
 
       - name: Fuzz signature verification
         working-directory: crates/kanari-crypto
-        run: cargo +nightly fuzz run signature_verify -- -max_total_time=${FUZZ_SECONDS}
+        run: cargo +nightly fuzz run signature-verify -- -max_total_time=${FUZZ_SECONDS}
 
       - name: Fuzz hybrid K256/Ed25519 + Dilithium3 verification
         working-directory: crates/kanari-crypto
-        run: cargo +nightly fuzz run hybrid_signature_verify -- -max_total_time=${FUZZ_SECONDS}
+        run: cargo +nightly fuzz run hybrid-signature-verify -- -max_total_time=${FUZZ_SECONDS}
 
       - name: Fuzz encryption roundtrip
         working-directory: crates/kanari-crypto
-        run: cargo +nightly fuzz run encryption_roundtrip -- -max_total_time=${FUZZ_SECONDS}
+        run: cargo +nightly fuzz run encryption-roundtrip -- -max_total_time=${FUZZ_SECONDS}
 
       - name: Fuzz key generation
         working-directory: crates/kanari-crypto
-        run: cargo +nightly fuzz run key_generation -- -max_total_time=${FUZZ_SECONDS}
+        run: cargo +nightly fuzz run key-generation -- -max_total_time=${FUZZ_SECONDS}
 
       - name: Fuzz password hashing
         working-directory: crates/kanari-crypto
-        run: cargo +nightly fuzz run password_hash -- -max_total_time=${FUZZ_SECONDS}
+        run: cargo +nightly fuzz run password-hash -- -max_total_time=${FUZZ_SECONDS}
 
       - name: Upload fuzz artifacts on failure
         if: failure()
