@@ -41,13 +41,6 @@ class KanariClient(private val environment: KanariEnvironment) {
         .build()
         .create(KanariRpcService::class.java)
 
-    val escrowService: EscrowService = Retrofit.Builder()
-        .baseUrl(environment.baseUrl)
-        .client(okHttpClient)
-        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-        .build()
-        .create(EscrowService::class.java)
-
     // Auth Helper Methods
     suspend fun login(email: String, password: String): ApiResponse<LoginResponse>? {
         return try {
@@ -59,6 +52,19 @@ class KanariClient(private val environment: KanariEnvironment) {
         }
     }
 
+    private inline fun <reified T> RpcResponse<T>.orThrow(): T? {
+        if (error != null) throw Exception(error!!.message)
+        return result
+    }
+
+    private fun <T> RpcResponse<T>.orEmptyOnNotFound(emptyValue: T): T {
+        if (error != null) {
+            if (error!!.message.contains("Owner not found", ignoreCase = true)) return emptyValue
+            throw Exception(error!!.message)
+        }
+        return result ?: emptyValue
+    }
+
     // RPC Helper Methods
     suspend fun getAccount(address: String): AccountInfo? {
         val request = RpcRequest(
@@ -67,9 +73,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         )
         val response = rpcService.getAccount(request)
         if (response.error != null) {
-            if (response.error.message.contains("Owner not found", ignoreCase = true)) {
-                return null
-            }
+            if (response.error.message.contains("Owner not found", ignoreCase = true)) return null
             throw Exception(response.error.message)
         }
         return response.result
@@ -80,19 +84,11 @@ class KanariClient(private val environment: KanariEnvironment) {
             method = "kanari_getOwnerBalances",
             params = buildJsonObject { put("owner", normalizeAddress(address)) }
         )
-        val response = rpcService.getAllBalances(request)
-        if (response.error != null) {
-            if (response.error.message.contains("Owner not found", ignoreCase = true)) {
-                return emptyList()
-            }
-            throw Exception(response.error.message)
-        }
-
-        val result = response.result
+        val balances: JsonElement = rpcService.getAllBalances(request).orEmptyOnNotFound(JsonArray(emptyList()))
         val list = mutableListOf<TokenBalance>()
 
-        if (result is JsonObject) {
-            val rawBalances = result["balances"] ?: result["token_balances"]
+        if (balances is JsonObject) {
+            val rawBalances = balances["balances"] ?: balances["token_balances"]
             if (rawBalances is JsonArray) {
                 rawBalances.forEach {
                     list.add(json.decodeFromJsonElement<TokenBalance>(it))
@@ -115,14 +111,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                 put("limit", limit)
             }
         )
-        val response = rpcService.getAllTransactions(request)
-        if (response.error != null) {
-            if (response.error.message.contains("Owner not found", ignoreCase = true)) {
-                return emptyList()
-            }
-            throw Exception(response.error.message)
-        }
-        return response.result ?: emptyList()
+        return rpcService.getAllTransactions(request).orEmptyOnNotFound(emptyList())
     }
 
     suspend fun buildNativeTransfer(
@@ -514,50 +503,6 @@ class KanariClient(private val environment: KanariEnvironment) {
                 break
             }
         }
-    }
-
-    suspend fun createEscrowDeal(
-        walletAddress: String,
-        dealId: String,
-        sellerAddress: String,
-        amount: Long,
-        tokenType: String,
-        description: String
-    ): TransactionResult? {
-        val request = RpcRequest(
-            method = "kanari_createDeal",
-            params = buildJsonArray {
-                add(normalizeAddress(walletAddress))
-                add(dealId)
-                add(normalizeAddress(sellerAddress))
-                add(amount)
-                add(tokenType)
-                add(description)
-            }
-        )
-        val response = rpcService.executeTransaction(request)
-        if (response.error != null) throw Exception(response.error.message)
-        return response.result
-    }
-
-    suspend fun confirmEscrowDelivery(
-        walletAddress: String,
-        objectId: String,
-        coinType: String,
-        proofId: String
-    ): TransactionResult? {
-        val request = RpcRequest(
-            method = "kanari_confirmDelivery",
-            params = buildJsonArray {
-                add(normalizeAddress(walletAddress))
-                add(normalizeAddress(objectId))
-                add(coinType)
-                add(normalizeAddress(proofId))
-            }
-        )
-        val response = rpcService.executeTransaction(request)
-        if (response.error != null) throw Exception(response.error.message)
-        return response.result
     }
 
     private fun hexToBytes(hex: String): ByteArray {

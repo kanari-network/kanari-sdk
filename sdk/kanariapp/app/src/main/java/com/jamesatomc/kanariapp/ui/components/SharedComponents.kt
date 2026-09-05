@@ -16,21 +16,27 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -57,6 +63,18 @@ fun String.toShortAddress(): String =
 
 fun formatMist(amount: Long, decimals: Int): Double =
     amount / 10.0.pow(decimals.toDouble())
+
+fun formatAmount(amount: Long, decimals: Int, fractionDigits: Int = 4): String =
+    String.format(java.util.Locale.US, "%.${fractionDigits}f", formatMist(amount, decimals))
+
+fun validateAddress(address: String): String? {
+    val trimmed = address.trim()
+    if (trimmed.isEmpty()) return "Recipient address required"
+    val clean = trimmed.removePrefix("0x")
+    if (clean.isEmpty() || clean.length > 64 || !clean.matches(Regex("^[0-9a-fA-F]+$")))
+        return "Invalid recipient address format"
+    return null
+}
 
 fun parseAmountToMist(amountStr: String, decimals: Int): ULong? {
     val trimmed = amountStr.trim()
@@ -117,12 +135,309 @@ fun getCurveInfo(curveType: String): CurveInfo = when (curveType) {
     )
 }
 
+// ---------- Shared Composables ----------
+
+@Composable
+fun LoadingButton(
+    onClick: () -> Unit,
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isLoading: Boolean = false,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    colors: ButtonColors = ButtonDefaults.buttonColors()
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled && !isLoading,
+        modifier = modifier.height(56.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = colors
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+        } else {
+            if (icon != null) {
+                Icon(icon, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(text, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScaffoldWithBackBar(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.background,
+    content: @Composable (PaddingValues) -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = containerColor)
+            )
+        },
+        containerColor = containerColor,
+        modifier = modifier,
+        content = content
+    )
+}
+
+@Composable
+fun AuthHeroSection(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier.size(80.dp).background(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = CircleShape
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(title, style = MaterialTheme.typography.headlineMedium)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun ErrorBanner(error: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Default.Security,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                error,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+fun DetailSectionCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+@Composable
+fun rememberBiometricAvailable(viewModel: com.jamesatomc.kanariapp.wallet.WalletViewModel): Boolean {
+    val context = LocalContext.current
+    var available by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        try {
+            val enabled = viewModel.isBiometricEnabled()
+            if (!enabled) available = false
+            else available = androidx.biometric.BiometricManager.from(context)
+                .canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+        } catch (_: Exception) {
+            available = false
+        }
+    }
+    return available
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DropdownSelector(
+    label: String,
+    items: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = items.getOrElse(selectedIndex) { "" },
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = modifier.menuAnchor().fillMaxWidth(),
+            enabled = enabled,
+            shape = RoundedCornerShape(12.dp)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            items.forEachIndexed { index, item ->
+                DropdownMenuItem(
+                    text = { Text(item) },
+                    onClick = { onSelected(index); expanded = false }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CurveBadge(curveInfo: CurveInfo, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(
+            if (curveInfo.isPostQuantum) Icons.Default.Security else Icons.Default.VerifiedUser,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = if (curveInfo.isPostQuantum) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+        )
+        Text(
+            curveInfo.displayName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (curveInfo.isPostQuantum) Surface(
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Text(
+                "PQ",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+fun android.content.Context.findFragmentActivity(): androidx.fragment.app.FragmentActivity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is androidx.fragment.app.FragmentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+@Composable
+fun <T> LoadingEmptyState(
+    isLoading: Boolean,
+    items: List<T>,
+    modifier: Modifier = Modifier,
+    emptyIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.History,
+    emptyText: String = "No items yet",
+    content: @Composable () -> Unit
+) {
+    when {
+        isLoading && items.isEmpty() -> Box(
+            modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) { CircularProgressIndicator() }
+
+        items.isEmpty() -> Column(
+            modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                emptyIcon,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(emptyText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+
+        else -> content()
+    }
+}
+
+@Composable
+fun FullScreenDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SmartTabRow(
+    selectedTabIndex: Int,
+    tabs: List<String>,
+    modifier: Modifier = Modifier,
+    onTabSelected: (Int) -> Unit = {}
+) {
+    TabRow(
+        selectedTabIndex = selectedTabIndex,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        contentColor = MaterialTheme.colorScheme.primary,
+        divider = {},
+        modifier = modifier.clip(RoundedCornerShape(12.dp))
+    ) {
+        tabs.forEachIndexed { index, title ->
+            Tab(
+                selected = selectedTabIndex == index,
+                onClick = { onTabSelected(index) },
+                text = {
+                    Text(
+                        title,
+                        fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            )
+        }
+    }
+}
+
 // ---------- Shared UI ----------
 
 @Composable
 fun SecurityWarningCard(text: String, modifier: Modifier = Modifier) {
     Surface(
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        color = MaterialTheme.colorScheme.errorContainer,
         shape = RoundedCornerShape(12.dp),
         modifier = modifier.fillMaxWidth()
     ) {
@@ -194,7 +509,7 @@ fun SecretRevealCard(
                 )
             }
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -366,7 +681,7 @@ fun QrCodeImage(
     Surface(
         modifier = modifier.size(size).padding(8.dp),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = Color.White
     ) {
         if (bmp != null) Image(
             bitmap = bmp.asImageBitmap(),

@@ -24,7 +24,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
+import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
+import com.jamesatomc.kanariapp.ui.components.formatAmount
 import com.jamesatomc.kanariapp.ui.components.formatMist
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
@@ -40,7 +42,7 @@ fun HistoryScreen(viewModel: WalletViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("History") },
+                title = { Text("History", style = MaterialTheme.typography.titleLarge) },
                 actions = {
                     IconButton(onClick = { viewModel.refreshBalance() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -49,44 +51,32 @@ fun HistoryScreen(viewModel: WalletViewModel) {
             )
         }
     ) { padding ->
-        if (isLoading && transactions.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (transactions.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    Icons.Default.History,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text("No Transactions Yet", style = MaterialTheme.typography.titleMedium)
-            }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+        LoadingEmptyState(
+            isLoading = isLoading,
+            items = transactions,
+            emptyIcon = Icons.Default.History,
+            emptyText = "No Transactions Yet",
+            modifier = Modifier.padding(padding)
+        ) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(transactions, key = { it.hash }) { tx ->
-                    val myAddr = activeWallet?.address?.lowercase()
-                    val isIncoming =
-                        !(myAddr != null && (myAddr == tx.sender.lowercase() || myAddr == tx.senderAddress?.lowercase()))
-                    HistoryItem(tx, isIncoming, onClick = { selectedTx = tx })
+                    HistoryItem(tx, tx.isIncomingTo(activeWallet?.address), onClick = { selectedTx = tx })
                 }
             }
         }
     }
 
     selectedTx?.let { tx ->
-        val myAddr = activeWallet?.address?.lowercase()
-        val isIncoming =
-            !(myAddr != null && (myAddr == tx.sender.lowercase() || myAddr == tx.senderAddress?.lowercase()))
+        val isIncoming = tx.isIncomingTo(activeWallet?.address)
         ModalBottomSheet(onDismissRequest = { selectedTx = null }) {
             TransactionDetailSheet(tx = tx, isIncoming = isIncoming, onDismiss = { selectedTx = null })
         }
     }
+}
+
+private fun TransactionDetails.isIncomingTo(walletAddress: String?): Boolean {
+    val myAddr = walletAddress?.lowercase() ?: return false
+    return !(myAddr == sender.lowercase() || myAddr == senderAddress?.lowercase())
 }
 
 @Composable
@@ -109,13 +99,7 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
         trailingContent = {
             val gasAmount = tx.effects?.gasUsed ?: tx.gasUsed ?: 0L
             Text(
-                text = "${if (isIncoming) "+" else "-"}${
-                    String.format(
-                        Locale.US,
-                        "%.2f",
-                        formatMist(gasAmount, 9)
-                    )
-                }",
+                text = "${if (isIncoming) "+" else "-"}${formatAmount(gasAmount, 9, 2)}",
                 color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
         },

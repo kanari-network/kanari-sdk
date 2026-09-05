@@ -18,8 +18,12 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
+import com.jamesatomc.kanariapp.ui.components.formatAmount
+import com.jamesatomc.kanariapp.ui.components.formatMist
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
+import com.jamesatomc.kanariapp.ui.components.validateAddress
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.pow
@@ -37,7 +41,6 @@ fun MainScreen(
     val navItems = listOf(
         NavItem("Home", Icons.Default.Home, Icons.Outlined.Home),
         NavItem("History", Icons.Default.History, Icons.Outlined.History),
-        NavItem("Escrow", Icons.Default.Security, Icons.Outlined.Security),
         NavItem("Settings", Icons.Default.Settings, Icons.Outlined.Settings)
     )
 
@@ -129,14 +132,13 @@ fun MainScreen(
                 0 -> DashboardScreen(
                     viewModel = viewModel,
                     onNavigateToReceive = { navController.navigate(Screen.Receive.route) },
-                    onNavigateToSettings = { selectedItem = 3 },
+                    onNavigateToSettings = { selectedItem = 2 },
                     onNavigateToSend = { showSendSheet = true },
                     onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
                 )
 
                 1 -> HistoryScreen(viewModel = viewModel)
-                2 -> EscrowScreen(walletViewModel = viewModel)
-                3 -> SettingsScreen(
+                2 -> SettingsScreen(
                     viewModel = viewModel,
                     onLogout = onLogout,
                     onBack = { selectedItem = 0 }
@@ -198,6 +200,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 readOnly = true,
                 label = { Text("Token") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                 modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true)
                     .fillMaxWidth()
             )
@@ -210,13 +213,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "${token.symbol} (Balance: ${
-                                    String.format(
-                                        java.util.Locale.US,
-                                        "%.4f",
-                                        token.getEffectiveAmount() / 10.0.pow(token.decimals.toDouble())
-                                    )
-                                })"
+                                "${token.symbol} (Balance: ${formatAmount(token.getEffectiveAmount(), token.decimals)})"
                             )
                         },
                         onClick = {
@@ -239,6 +236,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             value = amount,
             onValueChange = { amount = it; error = null },
             label = { Text("Amount") },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
@@ -247,39 +245,30 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
-        Button(
+        LoadingButton(
             onClick = {
                 val decimals = selectedToken?.decimals ?: 9
                 val tokenType = selectedToken?.tokenType ?: "0x2::kanari::KANARI"
                 val amt = parseAmountToMist(amount, decimals)
                 if (amt == null || amt == 0uL) {
-                    error = "Invalid amount"
-                    return@Button
+                    error = "Invalid amount"; return@LoadingButton
                 }
-                val recipientTrimmed = recipient.trim()
-                if (recipientTrimmed.isEmpty()) {
-                    error = "Recipient address required"
-                    return@Button
-                }
-                val clean = recipientTrimmed.removePrefix("0x")
-                if (clean.isEmpty() || clean.length > 64 || !clean.matches(Regex("^[0-9a-fA-F]+$"))) {
-                    error = "Invalid recipient address format"
-                    return@Button
+                val addrError = validateAddress(recipient)
+                if (addrError != null) {
+                    error = addrError; return@LoadingButton
                 }
                 scope.launch {
-                    isLoading = true
-                    error = null
-                    if (viewModel.transfer(recipientTrimmed, amt, tokenType)) onBack()
+                    isLoading = true; error = null
+                    if (viewModel.transfer(recipient.trim(), amt, tokenType)) onBack()
                     else error = viewModel.error.value ?: "Transaction failed"
                     isLoading = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading && recipient.isNotEmpty() && amount.isNotEmpty() && selectedToken != null
-        ) {
-            if (isLoading) CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            else Text("Send")
-        }
+            text = "Send",
+            enabled = recipient.isNotEmpty() && amount.isNotEmpty() && selectedToken != null,
+            isLoading = isLoading,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

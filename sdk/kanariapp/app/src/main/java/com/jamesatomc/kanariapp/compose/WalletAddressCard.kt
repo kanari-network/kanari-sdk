@@ -1,8 +1,5 @@
 package com.jamesatomc.kanariapp.compose
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jamesatomc.kanariapp.ui.components.copyToClipboard
 
 @Composable
 fun WalletAddressCard(
@@ -90,9 +88,4 @@ fun WalletAddressCard(
             )
         }
     }
-}
-
-private fun copyToClipboard(context: Context, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("kanari_address", text))
 }

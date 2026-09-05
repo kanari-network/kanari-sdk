@@ -1,9 +1,7 @@
 package com.jamesatomc.kanariapp.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -17,14 +15,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jamesatomc.kanariapp.network.KanariClient
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
+import com.jamesatomc.kanariapp.ui.components.AuthHeroSection
+import com.jamesatomc.kanariapp.ui.components.ErrorBanner
+import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,10 +45,8 @@ fun LoginScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Login") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                title = { Text("Login", style = MaterialTheme.typography.titleLarge) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         containerColor = MaterialTheme.colorScheme.surface
@@ -64,55 +61,22 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(16.dp))
 
-            // AuthHero
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Login,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Welcome Back",
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                "Sign in to access your Kanari wallet and synced sessions.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+            AuthHeroSection(
+                icon = Icons.AutoMirrored.Filled.Login,
+                title = "Welcome Back",
+                subtitle = "Sign in to access your Kanari wallet and synced sessions."
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // AppPanel
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant
-                )
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        "Account",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Account", style = MaterialTheme.typography.titleMedium)
 
                     OutlinedTextField(
                         value = email,
@@ -128,10 +92,8 @@ fun LoginScreen(
                     )
 
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        placeholder = { Text("Enter your password") },
+                        value = password, onValueChange = { password = it },
+                        label = { Text("Password") }, placeholder = { Text("Enter your password") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                         trailingIcon = {
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -142,86 +104,40 @@ fun LoginScreen(
                             }
                         },
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        enabled = !isLoading
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        singleLine = true, enabled = !isLoading
                     )
 
-                    if (error != null) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.errorContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    error!!,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
+                    if (error != null) ErrorBanner(error = error!!)
                 }
             }
 
             Spacer(Modifier.height(24.dp))
 
-            Button(
+            LoadingButton(
                 onClick = {
                     scope.launch {
-                        isLoading = true
-                        error = null
+                        isLoading = true; error = null
                         val response = client.login(email, password)
-                        if (response?.success == true) {
-                            onLoginSuccess()
-                        } else {
-                            error = response?.error ?: "Login failed"
-                        }
+                        if (response?.success == true) onLoginSuccess() else error = response?.error ?: "Login failed"
                         isLoading = false
                     }
                 },
-                enabled = !isLoading && email.isNotEmpty() && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                if (isLoading) CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-                else {
-                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Login", fontWeight = FontWeight.Bold)
-                }
-            }
+                text = "Login",
+                icon = Icons.AutoMirrored.Filled.Login,
+                enabled = email.isNotEmpty() && password.isNotEmpty(),
+                isLoading = isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(Modifier.height(12.dp))
 
-            TextButton(
-                onClick = onNavigateToRegister,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Don't have an account? Register", fontWeight = FontWeight.Bold)
+            TextButton(onClick = onNavigateToRegister, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("Don't have an account? Register")
             }
 
             Spacer(Modifier.height(8.dp))
-
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
             Spacer(Modifier.height(8.dp))
 
             OutlinedButton(
@@ -229,7 +145,7 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Create or Import Local Wallet", fontWeight = FontWeight.Bold)
+                Text("Create or Import Local Wallet")
             }
 
             Spacer(Modifier.height(16.dp))

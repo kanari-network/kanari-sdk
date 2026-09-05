@@ -49,6 +49,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     private var client = KanariClient(_environment.value)
 
+    fun getClient(): KanariClient = client
+
     private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
 
     private val _themeMode = MutableStateFlow(loadThemeMode())
