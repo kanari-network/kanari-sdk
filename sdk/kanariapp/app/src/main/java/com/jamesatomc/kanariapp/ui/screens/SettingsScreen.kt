@@ -28,6 +28,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.ChangePinFullScreenContent
+import com.jamesatomc.kanariapp.ui.components.LoadingButton
+import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
 import com.jamesatomc.kanariapp.ui.components.showBiometricPrompt
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
@@ -40,23 +42,11 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
     var showPinDialog by remember { mutableStateOf(false) }
     var showEnvDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Settings", fontWeight = FontWeight.Black) },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground
-            )
-        )
-    }, containerColor = MaterialTheme.colorScheme.background) { padding ->
+    ScaffoldWithBackBar(
+        title = "Settings",
+        onBack = onBack,
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             Text(
                 "APPEARANCE",
@@ -158,16 +148,13 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
                 icon = Icons.Default.Public,
                 onClick = { showEnvDialog = true })
             Spacer(Modifier.weight(1f))
-            Button(
+            LoadingButton(
                 onClick = onLogout,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(12.dp),
+                text = "Logout",
+                icon = Icons.AutoMirrored.Filled.Logout,
+                modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-                Spacer(Modifier.width(12.dp))
-                Text("Logout", fontWeight = FontWeight.Bold)
-            }
+            )
         }
     }
     if (showPinDialog) ChangePinDialog(
@@ -213,7 +200,7 @@ fun EnvironmentDialog(currentEnv: KanariEnvironment, onDismiss: () -> Unit, onSe
                 }
             }
         }
-    }, confirmButton = {})
+    }, confirmButton = { })
 }
 
 @Composable
@@ -238,7 +225,7 @@ fun ThemeDialog(current: ThemeMode, onDismiss: () -> Unit, onSelect: (ThemeMode)
                 }
             }
         }
-    }, confirmButton = {})
+    }, confirmButton = { })
 }
 
 @Composable
@@ -274,7 +261,7 @@ fun SettingsSwitchItem(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Surface(color = Color.Transparent) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 icon,
                 contentDescription = null,

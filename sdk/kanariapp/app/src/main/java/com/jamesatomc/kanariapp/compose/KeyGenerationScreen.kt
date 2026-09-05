@@ -143,7 +143,7 @@ fun KeyGenerationScreen(
             }
         }
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(scrollState).navigationBarsPadding().padding(20.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(scrollState).navigationBarsPadding().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             TabRow(
@@ -171,7 +171,7 @@ fun KeyGenerationScreen(
                 }
             }
             ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
                         if (selectedTab == 0) "Wallet Settings" else "Import Details",
                         style = MaterialTheme.typography.titleMedium,
@@ -343,7 +343,7 @@ fun KeyGenerationScreen(
                 }
                 mnemonic?.let { words ->
                     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(20.dp)) {
+                        Column(Modifier.padding(16.dp)) {
                             Text(
                                 "Recovery Mnemonic",
                                 style = MaterialTheme.typography.titleSmall,
@@ -362,7 +362,7 @@ fun KeyGenerationScreen(
                 }
                 keyPairs.forEachIndexed { index, pair ->
                     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,

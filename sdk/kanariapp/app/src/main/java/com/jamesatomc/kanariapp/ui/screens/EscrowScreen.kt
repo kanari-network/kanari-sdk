@@ -16,12 +16,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jamesatomc.kanariapp.network.EscrowViewModel
 import com.jamesatomc.kanariapp.network.models.EscrowConstants
 import com.jamesatomc.kanariapp.network.models.EscrowDeal
+import com.jamesatomc.kanariapp.ui.components.ErrorBanner
+import com.jamesatomc.kanariapp.ui.components.formatAmount
 import com.jamesatomc.kanariapp.ui.components.formatMist
+import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
+import com.jamesatomc.kanariapp.ui.components.SmartTabRow
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import java.util.Locale
 
@@ -29,12 +34,13 @@ import java.util.Locale
 @Composable
 fun EscrowScreen(
     walletViewModel: WalletViewModel,
-    escrowViewModel: EscrowViewModel = viewModel()
+    escrowViewModel: EscrowViewModel = viewModel(factory = EscrowViewModel.Factory(walletViewModel.getClient()))
 ) {
-    val isLoading by escrowViewModel.isLoading.collectAsState()
-    val deals by escrowViewModel.deals.collectAsState()
-    val activeWallet by walletViewModel.activeWallet.collectAsState()
-    
+    val isLoading by escrowViewModel.isLoading.collectAsStateWithLifecycle()
+    val deals by escrowViewModel.deals.collectAsStateWithLifecycle()
+    val error by escrowViewModel.error.collectAsStateWithLifecycle()
+    val activeWallet by walletViewModel.activeWallet.collectAsStateWithLifecycle()
+
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Buy", "Sell", "History")
 
@@ -60,25 +66,16 @@ fun EscrowScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.background,
-                contentColor = MaterialTheme.colorScheme.primary,
-                divider = {}
-            ) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) }
-                    )
-                }
-            }
+            if (error != null) ErrorBanner(
+                error = error!!,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            SmartTabRow(selectedTabIndex = selectedTab, tabs = tabs, onTabSelected = { selectedTab = it })
 
             when (selectedTab) {
                 0 -> CreateDealTab(activeWallet?.address ?: "", escrowViewModel)
-                1 -> ActiveDealsTab(deals.filter { it.state < 2 }, isLoading)
-                2 -> ActiveDealsTab(deals.filter { it.state >= 2 }, isLoading)
+                1 -> ActiveDealsTab(deals.filter { it.state < 2 }, isLoading, activeWallet?.address, escrowViewModel)
+                2 -> ActiveDealsTab(deals.filter { it.state >= 2 }, isLoading, activeWallet?.address, escrowViewModel)
             }
         }
     }
@@ -89,7 +86,7 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
     var sellerAddress by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -102,9 +99,9 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        
+
         Spacer(Modifier.height(8.dp))
-        
+
         OutlinedTextField(
             value = sellerAddress,
             onValueChange = { sellerAddress = it },
@@ -112,7 +109,7 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         )
-        
+
         OutlinedTextField(
             value = amount,
             onValueChange = { amount = it },
@@ -121,7 +118,7 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             shape = RoundedCornerShape(12.dp)
         )
-        
+
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
@@ -130,9 +127,9 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
             minLines = 2,
             shape = RoundedCornerShape(12.dp)
         )
-        
+
         Spacer(Modifier.weight(1f))
-        
+
         Button(
             onClick = {
                 val amtLong = (parseAmountToMist(amount, 9) ?: 0uL).toLong()
@@ -150,41 +147,32 @@ fun CreateDealTab(walletAddress: String, viewModel: EscrowViewModel) {
 }
 
 @Composable
-fun ActiveDealsTab(deals: List<EscrowDeal>, isLoading: Boolean) {
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-    } else if (deals.isEmpty()) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                Icons.Default.Security, 
-                contentDescription = null, 
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-            Spacer(Modifier.height(16.dp))
-            Text("No deals found", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        }
-    } else {
+fun ActiveDealsTab(
+    deals: List<EscrowDeal>,
+    isLoading: Boolean,
+    walletAddress: String? = null,
+    viewModel: EscrowViewModel? = null
+) {
+    LoadingEmptyState(
+        isLoading = isLoading,
+        items = deals,
+        emptyIcon = Icons.Default.Security,
+        emptyText = "No deals found"
+    ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(deals) { deal ->
-                DealCard(deal)
+                DealCard(deal, walletAddress, viewModel)
             }
         }
     }
 }
 
 @Composable
-fun DealCard(deal: EscrowDeal) {
+fun DealCard(deal: EscrowDeal, walletAddress: String? = null, viewModel: EscrowViewModel? = null) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -204,7 +192,7 @@ fun DealCard(deal: EscrowDeal) {
                     color = MaterialTheme.colorScheme.primary
                 )
                 Badge(
-                    containerColor = when(deal.state) {
+                    containerColor = when (deal.state) {
                         0 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                         3 -> MaterialTheme.colorScheme.error.copy(alpha = 0.2f)
                         else -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
@@ -217,15 +205,15 @@ fun DealCard(deal: EscrowDeal) {
                     )
                 }
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             Text(
-                text = String.format(Locale.US, "%.2f KANARI", formatMist(deal.amount, 9)),
+                text = "${formatAmount(deal.amount, 9, 2)} KANARI",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Black
             )
-            
+
             if (deal.description.isNotEmpty()) {
                 Text(
                     deal.description,
@@ -234,13 +222,18 @@ fun DealCard(deal: EscrowDeal) {
                     maxLines = 1
                 )
             }
-            
+
             Spacer(Modifier.height(16.dp))
-            
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (deal.state == 0) {
                     Button(
-                        onClick = { /* Confirm Delivery */ },
+                        onClick = {
+                            if (walletAddress != null && viewModel != null) viewModel.confirmDelivery(
+                                walletAddress,
+                                deal
+                            )
+                        },
                         modifier = Modifier.weight(1f).height(40.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {

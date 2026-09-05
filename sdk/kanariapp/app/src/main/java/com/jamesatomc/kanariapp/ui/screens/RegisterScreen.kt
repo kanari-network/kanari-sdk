@@ -1,9 +1,7 @@
 package com.jamesatomc.kanariapp.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -13,19 +11,22 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jamesatomc.kanariapp.network.KanariClient
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.network.models.RegisterRequest
+import com.jamesatomc.kanariapp.ui.components.AuthHeroSection
+import com.jamesatomc.kanariapp.ui.components.ErrorBanner
+import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,9 +50,7 @@ fun RegisterScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Register") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         containerColor = MaterialTheme.colorScheme.surface
@@ -66,55 +65,22 @@ fun RegisterScreen(
         ) {
             Spacer(Modifier.height(16.dp))
 
-            // AuthHero
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.PersonAdd,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Create Your Account",
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                "Set up your Kanari account and choose the wallet that fits your use case.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+            AuthHeroSection(
+                icon = Icons.Default.PersonAdd,
+                title = "Create Your Account",
+                subtitle = "Set up your Kanari account and choose the wallet that fits your use case."
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // AppPanel
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant
-                )
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        "Account Details",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Account Details", style = MaterialTheme.typography.titleMedium)
 
                     OutlinedTextField(
                         value = email,
@@ -130,10 +96,8 @@ fun RegisterScreen(
                     )
 
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        placeholder = { Text("Strong password required") },
+                        value = password, onValueChange = { password = it },
+                        label = { Text("Password") }, placeholder = { Text("Strong password required") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                         trailingIcon = {
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -144,16 +108,12 @@ fun RegisterScreen(
                             }
                         },
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        enabled = !isLoading
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        singleLine = true, enabled = !isLoading
                     )
 
-                    // Password requirements card
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
@@ -161,29 +121,22 @@ fun RegisterScreen(
                         )
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                "Password requirements",
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                            Text("Password requirements", style = MaterialTheme.typography.labelLarge)
                             Spacer(Modifier.height(8.dp))
-                            val hasMinLength = password.length >= 8
-                            val hasUppercase = password.contains(Regex("[A-Z]"))
-                            val hasLowercase = password.contains(Regex("[a-z]"))
-                            val hasDigit = password.contains(Regex("[0-9]"))
-                            val hasSpecial = password.contains(Regex("[!@#\$%^&*(),.?\":{}|<>]"))
-                            RequirementRow("At least 8 characters", hasMinLength)
-                            RequirementRow("One uppercase letter", hasUppercase)
-                            RequirementRow("One lowercase letter", hasLowercase)
-                            RequirementRow("One digit", hasDigit)
-                            RequirementRow("One special character", hasSpecial)
+                            RequirementRow("At least 8 characters", password.length >= 8)
+                            RequirementRow("One uppercase letter", password.contains(Regex("[A-Z]")))
+                            RequirementRow("One lowercase letter", password.contains(Regex("[a-z]")))
+                            RequirementRow("One digit", password.contains(Regex("[0-9]")))
+                            RequirementRow(
+                                "One special character",
+                                password.contains(Regex("[!@#\$%^&*(),.?\":{}|<>]"))
+                            )
                         }
                     }
 
                     OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm Password") },
-                        placeholder = { Text("Re-enter your password") },
+                        value = confirmPassword, onValueChange = { confirmPassword = it },
+                        label = { Text("Confirm Password") }, placeholder = { Text("Re-enter your password") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                         trailingIcon = {
                             IconButton(onClick = { confirmVisible = !confirmVisible }) {
@@ -194,34 +147,21 @@ fun RegisterScreen(
                             }
                         },
                         visualTransformation = if (confirmVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        enabled = !isLoading
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        singleLine = true, enabled = !isLoading
                     )
                 }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // Curve selection panel
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant
-                )
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "Wallet Cryptography",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Wallet Cryptography", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Ed25519 — Fast and secure default",
                         style = MaterialTheme.typography.bodyMedium,
@@ -233,68 +173,34 @@ fun RegisterScreen(
             Spacer(Modifier.height(16.dp))
 
             if (error != null) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            error!!,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
+                ErrorBanner(error = error!!); Spacer(Modifier.height(16.dp))
             }
 
-            Button(
+            LoadingButton(
                 onClick = {
                     scope.launch {
-                        isLoading = true
-                        error = null
+                        isLoading = true; error = null
                         try {
                             val response = client.authService.register(RegisterRequest(email, password))
-                            if (response.isSuccessful && response.body()?.success == true) {
-                                onRegisterSuccess()
-                            } else {
-                                error = response.body()?.error ?: "Registration failed"
-                            }
+                            if (response.isSuccessful && response.body()?.success == true) onRegisterSuccess()
+                            else error = response.body()?.error ?: "Registration failed"
                         } catch (e: Exception) {
                             error = e.message
                         }
                         isLoading = false
                     }
                 },
-                enabled = !isLoading && email.isNotEmpty() && password.isNotEmpty() && confirmPassword == password,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                if (isLoading) CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-                else {
-                    Icon(Icons.Default.PersonAdd, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Create Account", fontWeight = FontWeight.Bold)
-                }
-            }
+                text = "Create Account",
+                icon = Icons.Default.PersonAdd,
+                enabled = email.isNotEmpty() && password.isNotEmpty() && confirmPassword == password,
+                isLoading = isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(Modifier.height(12.dp))
 
-            TextButton(
-                onClick = onNavigateToLogin,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Already have an account? Login", fontWeight = FontWeight.Bold)
+            TextButton(onClick = onNavigateToLogin, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("Already have an account? Login")
             }
 
             Spacer(Modifier.height(16.dp))
@@ -310,14 +216,12 @@ private fun RequirementRow(text: String, isValid: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(
-            if (isValid) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
+            if (isValid) Icons.Default.CheckCircle else Icons.Default.Cancel,
+            contentDescription = null, modifier = Modifier.size(16.dp),
             tint = if (isValid) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text,
-            style = MaterialTheme.typography.bodySmall,
+            text, style = MaterialTheme.typography.bodySmall,
             color = if (isValid) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
