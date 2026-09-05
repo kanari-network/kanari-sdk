@@ -1,55 +1,72 @@
 package com.jamesatomc.kanariapp.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jamesatomc.kanariapp.ui.components.QrCodeImage
+import com.jamesatomc.kanariapp.ui.components.copyToClipboard
+import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReceiveScreen(onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Receive") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
+fun ReceiveScreen(viewModel: WalletViewModel, onBack: () -> Unit) {
+    val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val address = activeWallet?.address ?: ""
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("Receive") },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
                 }
-            )
-        }
-    ) { padding ->
+            })
+    }) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
+            Modifier.fillMaxSize().padding(padding).padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text("Your Wallet Address", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // In a real app, generate QR code here
-            Box(
-                modifier = Modifier
-                    .size(200.dp)
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
+            Text("Your Wallet Address", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(24.dp))
+            QrCodeImage(address = address)
+            Spacer(Modifier.height(24.dp))
+            Surface(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
             ) {
-                Text("[QR Code Placeholder]")
+                Text(
+                    address.ifEmpty { "No wallet selected" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(16.dp)
+                )
             }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("0x...", style = MaterialTheme.typography.bodyLarge)
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { /* Copy to clipboard */ }) {
+            Spacer(Modifier.height(32.dp))
+            Button(onClick = {
+                if (address.isNotEmpty()) copyToClipboard(
+                    context,
+                    address,
+                    toast = "Address copied"
+                )
+            }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
                 Text("Copy Address")
             }
         }

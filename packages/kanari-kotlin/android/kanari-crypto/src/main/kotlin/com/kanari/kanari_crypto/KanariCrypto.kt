@@ -14,6 +14,9 @@ import uniffi.kanari_kotlin.importKeypairFromPrivateKey as ffiImportKeypairFromP
 import uniffi.kanari_kotlin.listSupportedCurves as ffiListSupportedCurves
 import uniffi.kanari_kotlin.signMessageApi
 import uniffi.kanari_kotlin.verifySignatureApi
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * High-level entry point for Kanari cryptographic operations on Android.
@@ -23,63 +26,88 @@ import uniffi.kanari_kotlin.verifySignatureApi
 object KanariCrypto {
     const val DEFAULT_CURVE = "Ed25519"
 
-    fun generateKeypair(curveName: String = DEFAULT_CURVE): KeyPairModel =
+    suspend fun generateKeypair(curveName: String = DEFAULT_CURVE): KeyPairModel = calculateWithLargeStack {
         generateKeypairApi(curveName).toModel()
+    }
 
-    fun generateMnemonic(wordCount: Int = 12): String {
+    suspend fun generateMnemonic(wordCount: Int = 12): String = calculateWithLargeStack {
         require(wordCount == 12 || wordCount == 24) {
             "Only 12 or 24-word mnemonics are supported"
         }
-        return generateMnemonicApi(wordCount.toUInt())
+        generateMnemonicApi(wordCount.toUInt())
     }
 
-    fun deriveKeypairFromMnemonic(
+    suspend fun deriveKeypairFromMnemonic(
         mnemonic: String,
         curveName: String = DEFAULT_CURVE,
-    ): KeyPairModel = ffiDeriveKeypairFromMnemonic(mnemonic, curveName).toModel()
+    ): KeyPairModel = calculateWithLargeStack {
+        ffiDeriveKeypairFromMnemonic(mnemonic, curveName).toModel()
+    }
 
-    fun deriveKeypairFromPath(
+    suspend fun deriveKeypairFromPath(
         mnemonic: String,
         derivationPath: String,
         curveName: String = DEFAULT_CURVE,
-    ): KeyPairModel =
+    ): KeyPairModel = calculateWithLargeStack {
         deriveKeypairFromPathApi(mnemonic, derivationPath, curveName).toModel()
+    }
 
-    fun deriveMultipleAddresses(
+    suspend fun deriveMultipleAddresses(
         mnemonic: String,
         pathTemplate: String,
         curveName: String = DEFAULT_CURVE,
         count: Int,
-    ): List<KeyPairModel> =
+    ): List<KeyPairModel> = calculateWithLargeStack {
         deriveMultipleAddressesApi(mnemonic, pathTemplate, curveName, count.toUInt())
             .map { it.toModel() }
+    }
 
-    fun importKeypairFromPrivateKey(
+    suspend fun importKeypairFromPrivateKey(
         privateKey: String,
         curveName: String = DEFAULT_CURVE,
-    ): KeyPairModel =
+    ): KeyPairModel = calculateWithLargeStack {
         ffiImportKeypairFromPrivateKey(privateKey, curveName).toModel()
+    }
 
-    fun signMessage(
+    suspend fun signMessage(
         privateKey: String,
         message: ByteArray,
         curveName: String = DEFAULT_CURVE,
-    ): ByteArray =
+    ): ByteArray = calculateWithLargeStack {
         signMessageApi(privateKey, message.toUByteList(), curveName).toByteArray()
+    }
 
-    fun verifySignature(
+    suspend fun verifySignature(
         address: String,
         message: ByteArray,
         signature: ByteArray,
         curveName: String = DEFAULT_CURVE,
-    ): Boolean =
+    ): Boolean = calculateWithLargeStack {
         verifySignatureApi(address, message.toUByteList(), signature.toUByteList(), curveName)
+    }
 
     fun blake3Hash(data: ByteArray): ByteArray =
         blake3HashApi(data.toUByteList()).toByteArray()
 
     fun listSupportedCurves(): List<CurveInfoModel> =
         ffiListSupportedCurves().map { it.toModel() }
+
+    /**
+     * Executes crypto operations on a new thread with a larger stack size.
+     * Required for Post-Quantum (PQ) and Hybrid curves (e.g. Dilithium) 
+     * which can exceed the default Android stack limit.
+     */
+    private suspend fun <T> calculateWithLargeStack(block: () -> T): T = suspendCancellableCoroutine { cont ->
+        val thread = Thread(null, {
+            try {
+                cont.resume(block())
+            } catch (e: Throwable) {
+                cont.resumeWithException(e)
+            }
+        }, "KanariCryptoThread", 16 * 1024 * 1024) // 16MB stack
+
+        thread.start()
+    }
 }
 
 private fun KeyPairData.toModel(): KeyPairModel =

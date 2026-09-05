@@ -1,8 +1,9 @@
 import org.gradle.api.publish.maven.MavenPublication
 
 plugins {
-    id("com.android.library")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     id("maven-publish")
 }
 
@@ -53,6 +54,8 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.bcs)
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     debugImplementation(libs.androidx.ui.tooling)

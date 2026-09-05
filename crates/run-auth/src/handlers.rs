@@ -160,6 +160,16 @@ pub async fn register(
             "k256" | "secp256k1" => Some(CurveType::K256),
             "p256" | "secp256r1" | "nist" => Some(CurveType::P256),
 
+            // Pure PQC
+            "dilithium2" => Some(CurveType::Dilithium2),
+            "dilithium3" => Some(CurveType::Dilithium3),
+            "dilithium5" => Some(CurveType::Dilithium5),
+            "sphincsplus" | "sphincs" | "sphincs_sha256_robust" | "SphincsPlusSha256Robust" => {
+                Some(CurveType::SphincsPlusSha256Robust)
+            }
+            "falcon512" => Some(CurveType::Falcon512),
+            "falcon1024" => Some(CurveType::Falcon1024),
+
             // Hybrid Schemes
             "ed25519dilithium3" => Some(CurveType::Ed25519Dilithium3),
             "k256dilithium3" => Some(CurveType::K256Dilithium3),

@@ -1,12 +1,12 @@
 package com.jamesatomc.kanariapp.network.models
 
 enum class KanariEnvironment(
-    val baseUrl: String,
+    val url: String,
     val authUrl: String
 ) {
-    LOCAL("http://10.0.2.2:6767", "http://10.0.2.2:3000"), // Use 10.0.2.2 for Android emulator to localhost
-    TESTNET("https://testnet.kanari.network", "https://auth.testnet.kanari.network"),
-    MAINNET("https://mainnet.kanari.network", "https://auth.mainnet.kanari.network");
+    local("http://10.0.2.2:6767/", "http://10.0.2.2:3000/"), 
+    dev("http://192.168.1.102:19001/", "http://10.0.2.2:3000/");
 
-    val rpcUrl: String get() = "$baseUrl/rpc"
+    val rpcUrl: String get() = "${url.removeSuffix("/")}/rpc"
+    val baseUrl: String get() = url
 }

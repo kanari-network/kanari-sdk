@@ -12,32 +12,32 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.fragment.app.FragmentActivity
 import com.jamesatomc.kanariapp.ui.screens.*
-import com.jamesatomc.kanariapp.compose.KanariTheme
+import com.jamesatomc.kanariapp.ui.theme.KanariAppTheme
 import com.jamesatomc.kanariapp.compose.KeyGenerationScreen
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> android.util.Log.e("KanariApp", "Uncaught", e) }
         System.setProperty("jna.nosys", "true")
-
         enableEdgeToEdge()
         setContent {
-            KanariTheme {
-                MainNavigation()
+            val viewModel: WalletViewModel = viewModel()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            KanariAppTheme(themeMode = themeMode) {
+                MainNavigation(viewModel = viewModel)
             }
         }
     }
 }
 
 @Composable
-fun MainNavigation() {
+fun MainNavigation(viewModel: WalletViewModel) {
     val navController = rememberNavController()
-    val viewModel: WalletViewModel = viewModel()
     val isUnlocked by viewModel.isUnlocked.collectAsStateWithLifecycle()
     val wallets by viewModel.wallets.collectAsStateWithLifecycle()
-    
+
     // Start destination logic
     val startDestination = remember(isUnlocked, wallets) {
         if (isUnlocked) Screen.Main.route else Screen.Welcome.route
@@ -54,7 +54,7 @@ fun MainNavigation() {
         }
         composable(Screen.Login.route) {
             LoginScreen(
-                onLoginSuccess = { 
+                onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(Screen.Welcome.route) { inclusive = true }
                     }
@@ -90,11 +90,8 @@ fun MainNavigation() {
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
             )
         }
-        composable(Screen.Send.route) {
-            SendScreen(onBack = { navController.popBackStack() })
-        }
         composable(Screen.Receive.route) {
-            ReceiveScreen(onBack = { navController.popBackStack() })
+            ReceiveScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(Screen.Settings.route) {
             SettingsScreen(

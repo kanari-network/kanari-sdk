@@ -21,7 +21,7 @@ data class RpcError(
 @Serializable
 data class RpcRequest(
     val method: String,
-    val params: List<JsonElement> = emptyList(),
+    val params: JsonElement, // Changed from List<JsonElement> to match dynamic usage in Flutter
     val jsonrpc: String = "2.0",
-    val id: Int = 1
+    val id: Long = System.currentTimeMillis()
 )

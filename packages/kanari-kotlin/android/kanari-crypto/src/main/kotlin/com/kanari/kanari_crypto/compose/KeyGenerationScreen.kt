@@ -36,11 +36,8 @@ import com.kanari.kanari_crypto.KanariCrypto
 import com.kanari.kanari_crypto.model.CurveInfoModel
 import com.kanari.kanari_crypto.model.KeyPairModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,23 +141,26 @@ fun KeyGenerationScreen(
                         val isPqOnly = selectedCurveInfo?.isPostQuantum == true && selectedCurveInfo?.isHybrid == false
                         
                         runCatching {
-                            calculateWithLargeStack {
-                                if (isPqOnly) {
-                                    val pair = KanariCrypto.generateKeypair(currentCurve)
-                                    null to listOf(pair)
+                            if (isPqOnly) {
+                                val pair = KanariCrypto.generateKeypair(currentCurve)
+                                null to listOf(pair)
+                            } else {
+                                val words = KanariCrypto.generateMnemonic(12)
+                                val pairs = if (addressCount > 1) {
+                                    // ใช้ฟังก์ชัน deriveMultipleAddresses
+                                    KanariCrypto.deriveMultipleAddresses(
+                                        words,
+                                        derivationPath,
+                                        currentCurve,
+                                        addressCount
+                                    )
                                 } else {
-                                    val words = KanariCrypto.generateMnemonic(12)
-                                    val pairs = if (addressCount > 1) {
-                                        // ใช้ฟังก์ชัน deriveMultipleAddresses
-                                        KanariCrypto.deriveMultipleAddresses(words, derivationPath, currentCurve, addressCount)
-                                    } else {
-                                        // ใช้ฟังก์ชัน deriveKeypairFromPath (หรือ default ถ้า path ว่าง)
-                                        val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
-                                        val pair = KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
-                                        listOf(pair)
-                                    }
-                                    words to pairs
+                                    // ใช้ฟังก์ชัน deriveKeypairFromPath (หรือ default ถ้า path ว่าง)
+                                    val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
+                                    val pair = KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
+                                    listOf(pair)
                                 }
+                                words to pairs
                             }
                         }.onSuccess { (words, pairs) ->
                             mnemonic = words
@@ -232,17 +232,3 @@ fun KeyGenerationScreen(
     }
 }
 
-/**
- * ฟังก์ชันช่วยรันงาน Crypto บนเธรดใหม่ที่มีขนาด Stack ใหญ่ขึ้น
- */
-private suspend fun <T> calculateWithLargeStack(block: () -> T): T = suspendCancellableCoroutine { cont ->
-    val thread = Thread(null, {
-        try {
-            cont.resume(block())
-        } catch (e: Throwable) {
-            cont.resumeWithException(e)
-        }
-    }, "CryptoThread", 16 * 1024 * 1024) // เพิ่มเป็น 16MB เพื่อความชัวร์สำหรับ Hybrid PQ
-
-    thread.start()
-}

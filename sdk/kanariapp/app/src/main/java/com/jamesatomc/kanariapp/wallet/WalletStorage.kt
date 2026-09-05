@@ -5,7 +5,6 @@ import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -13,6 +12,7 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import androidx.core.content.edit
 
 @Serializable
 data class EncryptedData(
@@ -53,6 +53,8 @@ class WalletStorage(context: Context) {
         private const val KEY_WALLETS = "kanari_wallets"
         private const val KEY_PIN_SALT = "kanari_pin_salt"
         private const val KEY_PIN_VERIFIER = "kanari_pin_verifier"
+        private const val KEY_BIOMETRIC_ENABLED = "kanari_biometric_enabled"
+        private const val KEY_BIOMETRIC_PIN = "kanari_biometric_pin"
         private const val PIN_LENGTH = 6
         private const val KDF_ITERATIONS = 210000
     }
@@ -64,10 +66,10 @@ class WalletStorage(context: Context) {
         val salt = ByteArray(16).apply { SecureRandom().nextBytes(this) }
         val verifier = deriveKey(pin, salt)
         
-        sharedPrefs.edit()
-            .putString(KEY_PIN_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
-            .putString(KEY_PIN_VERIFIER, Base64.encodeToString(verifier, Base64.NO_WRAP))
-            .apply()
+        sharedPrefs.edit {
+            putString(KEY_PIN_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
+                .putString(KEY_PIN_VERIFIER, Base64.encodeToString(verifier, Base64.NO_WRAP))
+        }
     }
 
     fun verifyPin(pin: String): Boolean {
@@ -81,9 +83,32 @@ class WalletStorage(context: Context) {
         return candidate.contentEquals(verifier)
     }
 
+    fun isBiometricEnabled(): Boolean = sharedPrefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        sharedPrefs.edit { putBoolean(KEY_BIOMETRIC_ENABLED, enabled) }
+        if (!enabled) sharedPrefs.edit { remove(KEY_BIOMETRIC_PIN) }
+    }
+
+    fun saveBiometricPin(pin: String) {
+        require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
+        // Store PIN encrypted via EncryptedSharedPreferences (already encrypted at rest)
+        sharedPrefs.edit { putString(KEY_BIOMETRIC_PIN, pin) }
+        setBiometricEnabled(true)
+    }
+
+    fun getBiometricPin(): String? {
+        if (!isBiometricEnabled()) return null
+        return sharedPrefs.getString(KEY_BIOMETRIC_PIN, null)
+    }
+
+    fun clearBiometricPin() {
+        sharedPrefs.edit { remove(KEY_BIOMETRIC_PIN).remove(KEY_BIOMETRIC_ENABLED) }
+    }
+
     fun saveWallets(wallets: List<WalletRecord>) {
         val data = json.encodeToString(wallets)
-        sharedPrefs.edit().putString(KEY_WALLETS, data).apply()
+        sharedPrefs.edit { putString(KEY_WALLETS, data) }
     }
 
     fun loadWallets(): List<WalletRecord> {
