@@ -200,7 +200,9 @@ fun EnvironmentDialog(currentEnv: KanariEnvironment, onDismiss: () -> Unit, onSe
                 }
             }
         }
-    }, confirmButton = { })
+    }, confirmButton = {
+        TextButton(onClick = onDismiss) { Text("Done") }
+    })
 }
 
 @Composable
@@ -225,7 +227,9 @@ fun ThemeDialog(current: ThemeMode, onDismiss: () -> Unit, onSelect: (ThemeMode)
                 }
             }
         }
-    }, confirmButton = { })
+    }, confirmButton = {
+        TextButton(onClick = onDismiss) { Text("Done") }
+    })
 }
 
 @Composable

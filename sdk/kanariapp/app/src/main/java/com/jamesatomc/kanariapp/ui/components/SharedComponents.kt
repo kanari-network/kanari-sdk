@@ -32,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -237,7 +238,18 @@ fun ErrorBanner(error: String, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(error, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+            Icon(
+                Icons.Default.Security,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                error,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -381,7 +393,10 @@ fun <T> LoadingEmptyState(
 fun FullScreenDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
     }
@@ -406,7 +421,12 @@ fun SmartTabRow(
             Tab(
                 selected = selectedTabIndex == index,
                 onClick = { onTabSelected(index) },
-                text = { Text(title, fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal) }
+                text = {
+                    Text(
+                        title,
+                        fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
             )
         }
     }
@@ -417,7 +437,7 @@ fun SmartTabRow(
 @Composable
 fun SecurityWarningCard(text: String, modifier: Modifier = Modifier) {
     Surface(
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        color = MaterialTheme.colorScheme.errorContainer,
         shape = RoundedCornerShape(12.dp),
         modifier = modifier.fillMaxWidth()
     ) {
@@ -489,7 +509,7 @@ fun SecretRevealCard(
                 )
             }
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -661,7 +681,7 @@ fun QrCodeImage(
     Surface(
         modifier = modifier.size(size).padding(8.dp),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = Color.White
     ) {
         if (bmp != null) Image(
             bitmap = bmp.asImageBitmap(),

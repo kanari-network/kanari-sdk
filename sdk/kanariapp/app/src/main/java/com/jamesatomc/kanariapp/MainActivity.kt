@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,7 +46,11 @@ fun MainNavigation(viewModel: WalletViewModel) {
     }
 
     NavHost(navController = navController, startDestination = startDestination) {
-        composable(Screen.Welcome.route) {
+        composable(
+            Screen.Welcome.route,
+            enterTransition = { fadeIn(tween(300)) },
+            exitTransition = { fadeOut(tween(200)) }
+        ) {
             WelcomeScreen(
                 onNavigateToLogin = { navController.navigate(Screen.Login.route) },
                 onNavigateToRegister = { navController.navigate(Screen.Register.route) },
@@ -52,7 +58,13 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToUnlock = { navController.navigate(Screen.Unlock.route) }
             )
         }
-        composable(Screen.Login.route) {
+        composable(
+            Screen.Login.route,
+            enterTransition = { slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)) },
+            exitTransition = { slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(200)) },
+            popEnterTransition = { slideInHorizontally(tween(300)) { -it } + fadeIn(tween(300)) },
+            popExitTransition = { slideOutHorizontally(tween(200)) { it / 3 } + fadeOut(tween(200)) }
+        ) {
             LoginScreen(
                 onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
@@ -63,7 +75,13 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
             )
         }
-        composable(Screen.Register.route) {
+        composable(
+            Screen.Register.route,
+            enterTransition = { slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)) },
+            exitTransition = { slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(200)) },
+            popEnterTransition = { slideInHorizontally(tween(300)) { -it } + fadeIn(tween(300)) },
+            popExitTransition = { slideOutHorizontally(tween(200)) { it / 3 } + fadeOut(tween(200)) }
+        ) {
             RegisterScreen(
                 onRegisterSuccess = { navController.navigate(Screen.Login.route) },
                 onNavigateToLogin = { navController.popBackStack() }

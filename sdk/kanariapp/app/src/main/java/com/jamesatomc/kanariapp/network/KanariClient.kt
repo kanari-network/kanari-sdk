@@ -41,13 +41,6 @@ class KanariClient(private val environment: KanariEnvironment) {
         .build()
         .create(KanariRpcService::class.java)
 
-    val escrowService: EscrowService = Retrofit.Builder()
-        .baseUrl(environment.baseUrl)
-        .client(okHttpClient)
-        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-        .build()
-        .create(EscrowService::class.java)
-
     // Auth Helper Methods
     suspend fun login(email: String, password: String): ApiResponse<LoginResponse>? {
         return try {
@@ -510,50 +503,6 @@ class KanariClient(private val environment: KanariEnvironment) {
                 break
             }
         }
-    }
-
-    suspend fun createEscrowDeal(
-        walletAddress: String,
-        dealId: String,
-        sellerAddress: String,
-        amount: Long,
-        tokenType: String,
-        description: String
-    ): TransactionResult? {
-        val request = RpcRequest(
-            method = "kanari_createDeal",
-            params = buildJsonArray {
-                add(normalizeAddress(walletAddress))
-                add(dealId)
-                add(normalizeAddress(sellerAddress))
-                add(amount)
-                add(tokenType)
-                add(description)
-            }
-        )
-        val response = rpcService.executeTransaction(request)
-        if (response.error != null) throw Exception(response.error.message)
-        return response.result
-    }
-
-    suspend fun confirmEscrowDelivery(
-        walletAddress: String,
-        objectId: String,
-        coinType: String,
-        proofId: String
-    ): TransactionResult? {
-        val request = RpcRequest(
-            method = "kanari_confirmDelivery",
-            params = buildJsonArray {
-                add(normalizeAddress(walletAddress))
-                add(normalizeAddress(objectId))
-                add(coinType)
-                add(normalizeAddress(proofId))
-            }
-        )
-        val response = rpcService.executeTransaction(request)
-        if (response.error != null) throw Exception(response.error.message)
-        return response.result
     }
 
     private fun hexToBytes(hex: String): ByteArray {

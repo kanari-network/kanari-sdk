@@ -43,6 +43,7 @@ fun CurveSelector(
             label = { Text("Select curve") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable, true)
                 .fillMaxWidth()

@@ -37,7 +37,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             Surface(
                 Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                color = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
                 Text(
                     address.ifEmpty { "No wallet selected" },

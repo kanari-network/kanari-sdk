@@ -41,7 +41,6 @@ fun MainScreen(
     val navItems = listOf(
         NavItem("Home", Icons.Default.Home, Icons.Outlined.Home),
         NavItem("History", Icons.Default.History, Icons.Outlined.History),
-        NavItem("Escrow", Icons.Default.Security, Icons.Outlined.Security),
         NavItem("Settings", Icons.Default.Settings, Icons.Outlined.Settings)
     )
 
@@ -133,14 +132,13 @@ fun MainScreen(
                 0 -> DashboardScreen(
                     viewModel = viewModel,
                     onNavigateToReceive = { navController.navigate(Screen.Receive.route) },
-                    onNavigateToSettings = { selectedItem = 3 },
+                    onNavigateToSettings = { selectedItem = 2 },
                     onNavigateToSend = { showSendSheet = true },
                     onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
                 )
 
                 1 -> HistoryScreen(viewModel = viewModel)
-                2 -> EscrowScreen(walletViewModel = viewModel)
-                3 -> SettingsScreen(
+                2 -> SettingsScreen(
                     viewModel = viewModel,
                     onLogout = onLogout,
                     onBack = { selectedItem = 0 }
@@ -202,6 +200,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 readOnly = true,
                 label = { Text("Token") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                 modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true)
                     .fillMaxWidth()
             )
@@ -237,6 +236,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             value = amount,
             onValueChange = { amount = it; error = null },
             label = { Text("Amount") },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
@@ -250,9 +250,13 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 val decimals = selectedToken?.decimals ?: 9
                 val tokenType = selectedToken?.tokenType ?: "0x2::kanari::KANARI"
                 val amt = parseAmountToMist(amount, decimals)
-                if (amt == null || amt == 0uL) { error = "Invalid amount"; return@LoadingButton }
+                if (amt == null || amt == 0uL) {
+                    error = "Invalid amount"; return@LoadingButton
+                }
                 val addrError = validateAddress(recipient)
-                if (addrError != null) { error = addrError; return@LoadingButton }
+                if (addrError != null) {
+                    error = addrError; return@LoadingButton
+                }
                 scope.launch {
                     isLoading = true; error = null
                     if (viewModel.transfer(recipient.trim(), amt, tokenType)) onBack()

@@ -42,7 +42,7 @@ fun HistoryScreen(viewModel: WalletViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("History") },
+                title = { Text("History", style = MaterialTheme.typography.titleLarge) },
                 actions = {
                     IconButton(onClick = { viewModel.refreshBalance() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -51,7 +51,13 @@ fun HistoryScreen(viewModel: WalletViewModel) {
             )
         }
     ) { padding ->
-        LoadingEmptyState(isLoading = isLoading, items = transactions, emptyIcon = Icons.Default.History, emptyText = "No Transactions Yet", modifier = Modifier.padding(padding)) {
+        LoadingEmptyState(
+            isLoading = isLoading,
+            items = transactions,
+            emptyIcon = Icons.Default.History,
+            emptyText = "No Transactions Yet",
+            modifier = Modifier.padding(padding)
+        ) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(transactions, key = { it.hash }) { tx ->
                     HistoryItem(tx, tx.isIncomingTo(activeWallet?.address), onClick = { selectedTx = tx })

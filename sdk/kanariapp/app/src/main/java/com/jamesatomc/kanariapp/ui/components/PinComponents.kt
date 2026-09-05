@@ -201,7 +201,7 @@ fun PinEntryHeader(
         }
         if (isChecking) {
             CircularProgressIndicator(
-                modifier = Modifier.size(22.dp).padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp).size(22.dp),
                 strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.primary
             )

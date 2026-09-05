@@ -22,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,9 @@ import com.jamesatomc.kanariapp.ui.components.CopyableAddressRow
 import com.jamesatomc.kanariapp.ui.components.CurveBadge
 import com.jamesatomc.kanariapp.ui.components.DetailSectionCard
 import com.jamesatomc.kanariapp.ui.components.FullScreenDialog
+import com.jamesatomc.kanariapp.ui.components.IsometricCoinStack
+import com.jamesatomc.kanariapp.ui.components.IsometricGlobeChain
+import com.jamesatomc.kanariapp.ui.components.IsometricShieldLock
 import com.jamesatomc.kanariapp.ui.components.KanariTopBar
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.PinVerificationContent
@@ -98,11 +102,28 @@ fun DashboardScreen(
             ) { page ->
                 if (page < wallets.size) {
                     val w = wallets[page]
-                    WalletCard(
-                        w,
-                        if (activeWallet?.id == w.id) tokenBalances else emptyList(),
-                        onDelete = { walletToDelete = w },
-                        onViewDetails = { walletForDetails = w })
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                            val scale = androidx.compose.ui.util.lerp(
+                                0.88f,
+                                1f,
+                                1f - kotlin.math.abs(pageOffset).coerceIn(0f, 1f)
+                            )
+                            scaleX = scale; scaleY = scale
+                            alpha = androidx.compose.ui.util.lerp(
+                                0.6f,
+                                1f,
+                                1f - kotlin.math.abs(pageOffset).coerceIn(0f, 1f)
+                            )
+                        }
+                    ) {
+                        WalletCard(
+                            w,
+                            if (activeWallet?.id == w.id) tokenBalances else emptyList(),
+                            onDelete = { walletToDelete = w },
+                            onViewDetails = { walletForDetails = w })
+                    }
                 } else AddWalletCard(onNavigateToWalletGen)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -174,74 +195,83 @@ fun WalletCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        Box(Modifier.fillMaxSize()) {
+            IsometricCoinStack(
+                modifier = Modifier
+                    .size(100.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 8.dp)
+                    .graphicsLayer { alpha = 0.15f }
+            )
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        wallet.name,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onViewDetails,
-                        modifier = Modifier.size(32.dp)
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Visibility,
-                            contentDescription = "View details",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                        Text(
+                            wallet.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = onViewDetails,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Visibility,
+                                contentDescription = "View details",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(top = 6.dp)
-            ) {
-                CurveBadge(curveInfo)
-            }
-            Spacer(Modifier.height(8.dp))
-            val t = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
-            Text(
-                "Balance",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "${formatAmount(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9, 2)} KANARI",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            )
-            Spacer(Modifier.weight(1f))
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-            ) {
-                Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    CopyableAddressRow(
-                        wallet.address,
-                        short = true,
-                        textStyle = MaterialTheme.typography.labelMedium
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 6.dp)
+                ) {
+                    CurveBadge(curveInfo)
+                }
+                Spacer(Modifier.height(8.dp))
+                val t = tokenBalances.find { it.tokenType == "0x2::kanari::KANARI" }
+                Text(
+                    "Balance",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "${formatAmount(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9, 2)} KANARI",
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                )
+                Spacer(Modifier.weight(1f))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                ) {
+                    Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
+                        CopyableAddressRow(
+                            wallet.address,
+                            short = true,
+                            textStyle = MaterialTheme.typography.labelMedium
+                        )
+                    }
                 }
             }
         }
@@ -301,7 +331,13 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
 fun ObjectItem(obj: com.jamesatomc.kanariapp.network.models.ObjectInfo) {
     ListItem(
         headlineContent = { Text(obj.getEffectiveType().split("::").last()) },
-        supportingContent = { Text(obj.id, maxLines = 1) },
+        supportingContent = {
+            Text(
+                obj.id,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        },
         leadingContent = { Icon(Icons.Default.Public, contentDescription = null) })
 }
 
@@ -368,7 +404,7 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
             )
         } else {
             Column(
-                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 DetailSectionCard {
@@ -396,70 +432,78 @@ fun WalletDetailFullScreen(wallet: WalletRecord, viewModel: WalletViewModel, onD
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-            DetailSectionCard {
-                Text("Address", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    wallet.address,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Button(onClick = {
-                    copyToClipboard(ctx, wallet.address, toast = "Address copied")
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(
-                        Icons.Default.Public,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    ); Spacer(Modifier.width(8.dp)); Text("Copy Address")
-                }
-            }
-            DetailSectionCard {
-                SecretRevealCard(
-                    title = "Private Key",
-                    secret = revealedKey,
-                    isVisible = keyVisible,
-                    onToggleVisibility = { keyVisible = !keyVisible },
-                    onCopy = {
-                        copyToClipboard(
-                            ctx,
-                            revealedKey!!,
-                            label = "Private Key",
-                            toast = "Private key copied"
-                        )
-                    }
-                )
-                SecurityWarningCard("Never share your private key")
-            }
-            DetailSectionCard {
-                if (!hasSeed) {
+                DetailSectionCard {
+                    Text("Address", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "This wallet was imported from private key - no seed phrase available",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        wallet.address,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                } else {
+                    Button(onClick = {
+                        copyToClipboard(ctx, wallet.address, toast = "Address copied")
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(
+                            Icons.Default.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        ); Spacer(Modifier.width(8.dp)); Text("Copy Address")
+                    }
+                }
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    IsometricShieldLock(
+                        modifier = Modifier.size(120.dp)
+                    )
+                }
+                DetailSectionCard {
                     SecretRevealCard(
-                        title = "Seed Phrase",
-                        secret = revealedSeed,
-                        isVisible = seedVisible,
-                        onToggleVisibility = { seedVisible = !seedVisible },
+                        title = "Private Key",
+                        secret = revealedKey,
+                        isVisible = keyVisible,
+                        onToggleVisibility = { keyVisible = !keyVisible },
                         onCopy = {
                             copyToClipboard(
                                 ctx,
-                                revealedSeed!!,
-                                label = "Seed",
-                                toast = "Seed phrase copied"
+                                revealedKey!!,
+                                label = "Private Key",
+                                toast = "Private key copied"
                             )
                         }
                     )
-                    SecurityWarningCard("Never share your seed phrase")
+                    SecurityWarningCard("Never share your private key")
                 }
+                DetailSectionCard {
+                    if (!hasSeed) {
+                        Text(
+                            "This wallet was imported from private key - no seed phrase available",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        SecretRevealCard(
+                            title = "Seed Phrase",
+                            secret = revealedSeed,
+                            isVisible = seedVisible,
+                            onToggleVisibility = { seedVisible = !seedVisible },
+                            onCopy = {
+                                copyToClipboard(
+                                    ctx,
+                                    revealedSeed!!,
+                                    label = "Seed",
+                                    toast = "Seed phrase copied"
+                                )
+                            }
+                        )
+                        SecurityWarningCard("Never share your seed phrase")
+                    }
+                }
+                OutlinedButton(
+                    onClick = { isVerified = false; revealedKey = null; revealedSeed = null },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Lock") }
             }
-            OutlinedButton(
-                onClick = { isVerified = false; revealedKey = null; revealedSeed = null },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Lock") }
         }
     }
 }
