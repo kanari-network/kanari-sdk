@@ -1,6 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// MoveRuntime parsers and helpers
+// This module provides utility functions for parsing Move changesets, resolving dynamic fields, and managing object
+// IDs within the Kanari Move runtime. It includes functionality for extracting balance values from resource bytes, determining if a struct tag represents a balance or treasury resource, and preloading objects for execution. Additionally, it defines a custom dynamic field resolver that interacts with the persistent store and state overlay to retrieve dynamic field values.
+// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner.
+// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
+
 use crate::changeset::ChangeSet;
 use crate::common::ids::object_id_from_bytes;
 use kanari_types::event::Event;

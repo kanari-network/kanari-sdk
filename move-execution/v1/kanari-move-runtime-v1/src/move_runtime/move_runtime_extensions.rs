@@ -3,6 +3,9 @@
 
 // Extended functionality for MoveRuntime
 // Includes module verification and advanced session management
+// This module provides additional functionality for the MoveRuntime, including module verification before publishing, checking for module availability in storage, retrieving module bytecode, and listing all published modules. It also includes advanced session management features that allow for more complex transaction execution scenarios.
+// The functions in this module are used internally by the MoveRuntime to ensure that modules are valid and that the runtime state is consistent during transaction execution. It also provides mechanisms for managing the lifecycle of modules and ensuring that they can be upgraded or published with the appropriate context and persistence.
+// The module is designed to work with the Kanari Move runtime and integrates with the ChangeSet and StateOverlay types to provide a comprehensive solution for managing Move modules and their associated state.
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;

@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Helper functions for MoveRuntime resource parsing and object ID generation
+// This module provides utility functions for parsing Move changesets, resolving dynamic fields, and managing object IDs within the Kanari Move runtime. It includes functionality for extracting balance values from resource bytes, determining if a struct tag represents a balance or treasury resource, and preloading objects for execution. Additionally, it defines a custom dynamic field resolver that interacts with the persistent store and state overlay to retrieve dynamic field values.
+// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner.
+// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
+// The module also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;

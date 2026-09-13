@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Gas metering and accounting operations
+// This module provides functions for applying gas accounting to a ChangeSet, calculating storage impact from Move VM changesets and Kanari ChangeSets, and managing gas consumption and storage charges. It includes functionality for charging execution gas, charging storage gas, and rebating storage for deleted objects. The module also handles the calculation of storage bytes written and deleted based on Move VM changes, Kanari objects, and events, ensuring accurate gas accounting during transaction execution.
+// The functions in this module are used internally by the MoveRuntime to facilitate gas management and ensure that transactions are executed within the specified gas limits and pricing.
+// The module also provides error handling and reporting for gas accounting operations, allowing for consistent and reliable gas management across different execution paths.
+// The module is designed to work with the Kanari Move runtime and integrates with the ChangeSet and StateOverlay types to provide a comprehensive gas accounting solution for Move transactions.
+// The module also includes logic for determining the gas units derived from GasOperation and reporting them in the ChangeSet, while ensuring that monetary debit and credit operations are handled at the engine layer for consistency across different execution paths.
 use crate::changeset::ChangeSet;
 use anyhow::Result;
 use kanari_types::GasConfig;
