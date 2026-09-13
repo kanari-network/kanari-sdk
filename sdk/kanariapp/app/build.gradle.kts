@@ -78,7 +78,7 @@ dependencies {
     implementation(libs.androidx.datastore)
     implementation(libs.tink.android)
     implementation(project(":kanari-crypto"))
-    implementation("net.java.dev.jna:jna:5.19.1@aar")
+    implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
