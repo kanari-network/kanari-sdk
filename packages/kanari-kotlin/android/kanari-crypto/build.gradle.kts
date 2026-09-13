@@ -55,7 +55,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     implementation(libs.kotlinx.serialization.json)
-    implementation("net.java.dev.jna:jna:5.19.1@aar")
+    implementation(libs.jna) { artifact { type = "aar" } }
 
     debugImplementation(libs.androidx.ui.tooling)
 }
@@ -65,7 +65,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "com.kanari"
             artifactId = "kanari-crypto"
-            version = "0.2.7"
+            version = "0.2.9"
 
             afterEvaluate {
                 from(components["release"])
