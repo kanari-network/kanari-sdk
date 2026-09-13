@@ -77,7 +77,7 @@ dependencies {
     implementation(libs.qrcode.kotlin)
     implementation(libs.androidx.datastore)
     implementation(libs.tink.android)
-    implementation(project(":kanari-crypto"))
+    implementation("io.github.jamesatomc:kanari-crypto:0.2.9")
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
