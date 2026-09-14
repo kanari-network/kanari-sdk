@@ -145,7 +145,7 @@ bip32 = "0.5.3"                                                                 
 hex = "0.4.3"
 base64 = "0.23.1"
 primitive-types = { version = "0.14.0", default-features = true }                   # U256, H160, etc.
-
+ethnum = { version = "1.5.3", default-features = true }                                 # Ethereum-specific numeric types
 # ============================================================================
 # Cryptography - Post-Quantum (PQC)
 # ============================================================================
