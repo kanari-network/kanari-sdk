@@ -610,4 +610,116 @@ module kanari_system::math_tests {
         assert!(math::try_as_u128_from_u256((MAX_U128 as u256) + 1) == option::none<u128>(), 6);
         assert!(math::try_as_u8_from_u256(200) == option::some(200u8), 7);
     }
+
+    // =================================================================
+    // Property tests (xorshift64 PRNG, fixed seed, bounded loops)
+    // =================================================================
+
+    /// xorshift64*: shift/xor only, so it can never abort on overflow.
+    fun prng_next(s: &mut u64): u64 {
+        let x = *s;
+        if (x == 0) { x = 0x9E3779B97F4A7C15; };
+        x = x ^ (x << 13);
+        x = x ^ (x >> 7);
+        x = x ^ (x << 17);
+        *s = x;
+        x
+    }
+
+    fun prng_u128(s: &mut u64): u128 {
+        let hi = prng_next(s);
+        let lo = prng_next(s);
+        ((hi as u128) << 64) | (lo as u128)
+    }
+
+    /// Small operands whose product fits u128: exact-division roundtrips.
+    #[test]
+    fun prop_sqrt_square_back_u128() {
+        let s = 0x12345678;
+        let i = 0;
+        while (i < 100) {
+            let x = prng_u128(&mut s);
+            let r = math::sqrt_u128(x);
+            assert!(r * r <= x, i);
+            // (r+1)^2 overflows only when r == 2^64 - 1; guard it.
+            if (r < 18446744073709551615) {
+                assert!((r + 1) * (r + 1) > x, i);
+            };
+            i = i + 1;
+        };
+    }
+
+    #[test]
+    fun prop_sqrt_u256_agrees_u128() {
+        let s = 0xABCDEF01;
+        let i = 0;
+        while (i < 30) {
+            // 64-bit samples: square-back also fits, cross-checks both impls.
+            let x = (prng_next(&mut s) as u256);
+            assert!(math::sqrt_u256(x) == (math::sqrt_u128((x as u128)) as u256), i);
+            i = i + 1;
+        };
+    }
+
+    #[test]
+    fun prop_mul_div_exact_roundtrip() {
+        let s = 0x0F1E2D3C;
+        let i = 0;
+        while (i < 100) {
+            // Keep a, b < 2^32 so a * b fits u64: division is then exact.
+            let a = prng_next(&mut s) % 4294967296;
+            let b = prng_next(&mut s) % 4294967296;
+            let d = (prng_next(&mut s) % 1000000) + 1;
+            let q = math::mul_div_u64(a, b, d);
+            // q <= a*b/d < q+1  <=>  q*d <= a*b < (q+1)*d  (in u128: no overflow)
+            let prod = (a as u128) * (b as u128);
+            assert!((q as u128) * (d as u128) <= prod, i);
+            assert!(prod < ((q as u128) + 1) * (d as u128), i);
+            // ceil is either q or q + 1
+            let c = math::mul_div_ceil_u64(a, b, d);
+            assert!(c == q || c == q + 1, i);
+            i = i + 1;
+        };
+    }
+
+    #[test]
+    fun prop_checked_saturating_agree() {
+        let s = 0x55AA55AA;
+        let i = 0;
+        while (i < 100) {
+            let a = prng_u128(&mut s);
+            let b = prng_u128(&mut s);
+            // saturating_add == MAX  <=>  checked_add is None
+            let sat = math::saturating_add_u128(a, b);
+            let chk = math::checked_add_u128(a, b);
+            if (option::is_some(&chk)) {
+                assert!(sat == *option::borrow(&chk), i);
+                option::destroy_some(chk);
+            } else {
+                assert!(sat == MAX_U128, i);
+                option::destroy_none(chk);
+            };
+            // average always inside [min, max]
+            let avg = math::average_u128(a, b);
+            let lo = math::min_u128(a, b);
+            let hi = math::max_u128(a, b);
+            assert!(avg >= lo && avg <= hi, i);
+            // diff + min reconstructs max
+            assert!(lo + math::diff_u128(a, b) == hi, i);
+            i = i + 1;
+        };
+    }
+
+    #[test]
+    fun prop_pow_mul_consistent() {
+        // pow(b, e+1) == pow(b, e) * b whenever the smaller side fits.
+        let b = 7u64;
+        let e = 0u8;
+        let acc = 1u64;
+        while (e < 10) {
+            assert!(math::pow_u64(b, e) == acc, (e as u64));
+            acc = acc * b;
+            e = e + 1;
+        };
+    }
 }

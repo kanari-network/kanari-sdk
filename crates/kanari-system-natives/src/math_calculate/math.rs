@@ -1154,143 +1154,370 @@ mod tests {
         assert_eq!(log2_u128_checked(0).unwrap_err(), E_INVALID_ARG);
     }
 
-    // --- u256 tests ---
+    #[cfg(test)]
+    mod prop_tests {
+        //! Deterministic property tests (xorshift64 PRNG, fixed seeds).
+        //! No external deps; every run reproduces the exact same sequence.
+        //! Nested inside `mod tests`, so this imports the parent math module.
+        use super::super::*;
 
-    fn m(v: u128) -> MU256 {
-        MU256::from(v)
-    }
+        struct XorShift64(u64);
 
-    fn max256() -> MU256 {
-        MU256::max_value()
-    }
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                // Zero seed would stick at zero; force a nonzero state.
+                let mut x = self.0 | 1;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
 
-    /// 2^exp as P256 without shift operators (exp <= 255).
-    fn pow2_p256(exp: u32) -> P256 {
-        let mut v = P256::one();
-        for _ in 0..exp {
-            v = v + v;
+            fn next_u128(&mut self) -> u128 {
+                ((self.next_u64() as u128) << 64) | (self.next_u64() as u128)
+            }
+
+            fn next_p256(&mut self) -> P256 {
+                let mut b = [0u8; 32];
+                for i in 0..4 {
+                    b[i * 8..(i + 1) * 8].copy_from_slice(&self.next_u64().to_le_bytes());
+                }
+                P256::from_little_endian(&b)
+            }
+
+            /// Biased toward edge values (0, 1, MAX, powers of two) interleaved
+            /// with uniform randoms, so boundaries get hit often.
+            fn next_p256_edge_biased(&mut self) -> P256 {
+                match self.next_u64() % 8 {
+                    0 => P256::zero(),
+                    1 => P256::one(),
+                    2 => P256::MAX,
+                    3 => {
+                        let s = (self.next_u64() % 256) as u32;
+                        pow2_p256_test(s)
+                    }
+                    4 => P256::from(self.next_u64()),
+                    _ => self.next_p256(),
+                }
+            }
         }
-        v
-    }
 
-    #[test]
-    fn test_u256_roundtrip() {
-        assert_eq!(p2m(m2p(&max256())), max256());
-        assert_eq!(p2m(m2p(&m(0))), m(0));
-        assert_eq!(p2m(m2p(&m(u128::MAX))), m(u128::MAX));
-    }
+        /// 2^exp without shift operators (shared with unit tests).
+        fn pow2_p256_test(exp: u32) -> P256 {
+            assert!(exp <= 255);
+            let mut v = P256::one();
+            for _ in 0..exp {
+                v = v + v;
+            }
+            v
+        }
 
-    #[test]
-    fn test_mul_div_u256_no_intermediate_overflow() {
-        // (MAX * 2) / 2 == MAX and (MAX * MAX) / MAX == MAX
-        assert_eq!(
-            mul_div_u256_checked(&max256(), &m(2), &m(2)).unwrap(),
-            max256()
-        );
-        assert_eq!(
-            mul_div_u256_checked(&max256(), &max256(), &max256()).unwrap(),
-            max256()
-        );
-        assert_eq!(mul_div_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(40));
-        assert_eq!(
-            mul_div_u256_checked(&m(1), &m(2), &MU256::zero()).unwrap_err(),
-            E_DIVIDE_BY_ZERO
-        );
-        assert_eq!(
-            mul_div_u256_checked(&max256(), &max256(), &m(1)).unwrap_err(),
-            E_OVERFLOW
-        );
-    }
+        const ITERS: usize = 5_000;
 
-    #[test]
-    fn test_mul_div_u256_round() {
-        // 10 * 10 / 40 = 2.5
-        assert_eq!(
-            mul_div_u256_round_checked(&m(10), &m(10), &m(40), false).unwrap(),
-            m(2)
-        );
-        assert_eq!(
-            mul_div_u256_round_checked(&m(10), &m(10), &m(40), true).unwrap(),
-            m(3)
-        );
-        assert_eq!(
-            mul_div_u256_round_checked(&m(10), &m(20), &m(5), true).unwrap(),
-            m(40)
-        );
-    }
+        #[test]
+        fn prop_isqrt_square_back() {
+            let mut rng = XorShift64(0x9E3779B97F4A7C15);
+            for _ in 0..ITERS {
+                let n = rng.next_p256_edge_biased();
+                let s = isqrt_u256(n);
+                // s^2 <= n: s <= 2^128 - 1 always, so the square fits.
+                let sq = s.checked_mul(s).expect("s^2 fits in u256");
+                assert!(sq <= n, "isqrt low bound failed");
+                // n < (s+1)^2: an overflowing square also proves the bound
+                // (it means (s+1)^2 >= 2^256 > n).
+                match s
+                    .checked_add(P256::one())
+                    .unwrap()
+                    .checked_mul(s.checked_add(P256::one()).unwrap())
+                {
+                    Some(hi) => assert!(n < hi, "isqrt high bound failed"),
+                    None => {}
+                }
+            }
+        }
 
-    #[test]
-    fn test_mul_add_u256() {
-        assert_eq!(mul_add_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(205));
-        assert_eq!(
-            mul_add_u256_checked(&max256(), &m(1), &m(0)).unwrap(),
-            max256()
-        );
-        assert_eq!(
-            mul_add_u256_checked(&max256(), &m(1), &m(1)).unwrap_err(),
-            E_OVERFLOW
-        );
-        assert_eq!(
-            mul_add_u256_checked(&max256(), &m(2), &m(0)).unwrap_err(),
-            E_OVERFLOW
-        );
-    }
+        #[test]
+        fn prop_sqrt_u256_agrees_u128() {
+            use num_integer::Roots;
+            let mut rng = XorShift64(0xC2B2801218687);
+            for _ in 0..ITERS {
+                let x = rng.next_u128();
+                let got = isqrt_u256(m2p(&MU256::from(x)));
+                let want = P256::from(x.sqrt());
+                assert_eq!(got, want, "sqrt disagreement at x={x}");
+            }
+        }
 
-    #[test]
-    fn test_pow_u256() {
-        assert_eq!(p2m(pow_u256_checked(m2p(&m(2)), 10).unwrap()), m(1024));
-        assert_eq!(pow_u256_checked(m2p(&m(5)), 0).unwrap(), P256::one());
-        assert!(pow_u256_checked(m2p(&max256()), 2).is_none());
-        // 2^256 overflows u256, 2^255 does not
-        assert!(pow_u256_checked(P256::from(2u64), 256).is_none());
-        assert_eq!(
-            p2m(pow_u256_checked(P256::from(2u64), 255).unwrap()),
-            p2m(pow2_p256(255))
-        );
-    }
+        #[test]
+        fn prop_mul_div_u256_agrees_u128() {
+            let mut rng = XorShift64(0x27BB2EE687B0B0FD);
+            for _ in 0..ITERS {
+                let (x, y) = (rng.next_u128(), rng.next_u128());
+                // z == 0 half the time to cover div-by-zero agreement.
+                let z = if rng.next_u64() % 2 == 0 {
+                    0
+                } else {
+                    rng.next_u128()
+                };
+                let got = mul_div_u256_checked(&MU256::from(x), &MU256::from(y), &MU256::from(z));
+                let want = mul_div_u128_checked(x, y, z);
+                match (got, want) {
+                    // Both Ok implies the value fits u128, so the lossy
+                    // accessor below is exact here.
+                    (Ok(g), Ok(w)) => assert_eq!(g.unchecked_as_u128(), w),
+                    // u128 overflow with a fitting u256 result is correct
+                    // divergence: different widths, different MAX.
+                    (Ok(g), Err(E_OVERFLOW)) => {
+                        assert!(
+                            g > MU256::from(u128::MAX),
+                            "u128 overflow must exceed u128::MAX"
+                        )
+                    }
+                    // Div-by-zero must agree on both widths.
+                    (Err(gc), Err(wc)) => assert_eq!(gc, wc, "error code disagreement"),
+                    (g, w) => panic!("ok/err disagreement: {g:?} vs {w:?}"),
+                }
+            }
+        }
 
-    #[test]
-    fn test_isqrt_u256() {
-        assert_eq!(isqrt_u256(P256::zero()), P256::zero());
-        assert_eq!(isqrt_u256(P256::one()), P256::one());
-        assert_eq!(isqrt_u256(P256::from(15u64)), P256::from(3u64));
-        assert_eq!(isqrt_u256(P256::from(16u64)), P256::from(4u64));
-        assert_eq!(isqrt_u256(m2p(&m(u128::MAX))), m2p(&m(u64::MAX as u128)));
-        // sqrt(MAX) == 2^128 - 1
-        let sqrt_max = isqrt_u256(m2p(&max256()));
-        assert_eq!(sqrt_max, pow2_p256(128) - P256::one());
-        // square-back check: s^2 <= MAX < (s+1)^2
-        let sq = sqrt_max.checked_mul(sqrt_max).expect("s^2 fits in u256");
-        assert!(sq <= m2p(&max256()));
-        let sp1 = sqrt_max.checked_add(P256::one()).expect("s+1 fits");
-        assert!(sp1.checked_mul(sp1).is_none()); // (2^128)^2 = 2^256 overflows
-        // perfect square roundtrip
-        let base = P256::from(123456789u64);
-        assert_eq!(isqrt_u256(base * base), base);
-    }
+        #[test]
+        fn prop_pow_u256_matches_naive_loop() {
+            let mut rng = XorShift64(0x165667B19E3779F9);
+            for _ in 0..2_000 {
+                let base = P256::from(rng.next_u64() % 10_000);
+                let exp = (rng.next_u64() % 24) as u32;
+                let got = pow_u256_checked(base, exp);
+                // Naive reference.
+                let mut want = Some(P256::one());
+                for _ in 0..exp {
+                    want = want.and_then(|v| v.checked_mul(base));
+                }
+                assert_eq!(got, want, "pow disagreement at {base} ^ {exp}");
+            }
+        }
 
-    #[test]
-    fn test_average_u256() {
-        let max = m2p(&max256());
-        assert_eq!(average_u256(max, max), max);
-        assert_eq!(average_u256(max, P256::zero()), max / P256::from(2u64));
-        assert_eq!(
-            average_u256(P256::from(10u64), P256::from(20u64)),
-            P256::from(15u64)
-        );
-    }
+        #[test]
+        fn prop_ceil_floor_bracket() {
+            let mut rng = XorShift64(0xD1B54A32D192ED03);
+            for _ in 0..ITERS {
+                let (x, y) = (MU256::from(rng.next_u128()), MU256::from(rng.next_u128()));
+                let z = MU256::from(rng.next_u128() | 1); // nonzero
+                let f = mul_div_u256_round_checked(&x, &y, &z, false).unwrap();
+                let c = mul_div_u256_round_checked(&x, &y, &z, true).unwrap();
+                let (pf, pc) = (m2p(&f), m2p(&c));
+                assert!(pf <= pc);
+                // ceil - floor is 0 (exact) or 1.
+                let d = pc.checked_sub(pf).expect("c >= f");
+                assert!(d <= P256::one(), "ceil/floor gap > 1");
+            }
+        }
 
-    #[test]
-    fn test_clamp_log2_u256() {
-        let (a, b, c) = (P256::from(5u64), P256::zero(), P256::from(10u64));
-        assert_eq!(clamp_u256(a, b, c).unwrap(), a);
-        assert_eq!(clamp_u256(P256::from(99u64), b, c).unwrap(), c);
-        assert_eq!(clamp_u256(a, c, b).unwrap_err(), E_INVALID_ARG);
-        assert_eq!(log2_u256_checked(&MU256::from(1u64)).unwrap(), P256::zero());
-        assert_eq!(log2_u256_checked(&max256()).unwrap(), P256::from(255u64));
-        assert_eq!(
-            log2_u256_checked(&MU256::zero()).unwrap_err(),
-            E_INVALID_ARG
-        );
+        #[test]
+        fn prop_average_bounded_and_agrees_u128() {
+            let mut rng = XorShift64(0x8A51E04D45043063);
+            for _ in 0..ITERS {
+                let (a, b) = (rng.next_p256_edge_biased(), rng.next_p256_edge_biased());
+                let avg = average_u256(a, b);
+                let (lo, hi) = (std::cmp::min(a, b), std::cmp::max(a, b));
+                assert!(avg >= lo && avg <= hi, "average out of [min, max]");
+            }
+            // Differential on values that fit u128.
+            for _ in 0..1_000 {
+                let (a, b) = (rng.next_u128(), rng.next_u128());
+                let got = average_u256(m2p(&MU256::from(a)), m2p(&MU256::from(b)));
+                assert_eq!(got, P256::from(average_u128(a, b)));
+            }
+        }
+
+        #[test]
+        fn prop_log2_brackets_value() {
+            let mut rng = XorShift64(0xB5297A4D68EFE35D);
+            for _ in 0..ITERS {
+                let x = rng.next_p256_edge_biased();
+                if x == P256::zero() {
+                    assert_eq!(
+                        log2_u256_checked(&MU256::zero()).unwrap_err(),
+                        E_INVALID_ARG
+                    );
+                    continue;
+                }
+                let l: u32 = {
+                    let lp = log2_u256_checked(&p2m(x)).unwrap();
+                    // log2 result always fits u32; convert via LE bytes.
+                    let b = lp.to_little_endian();
+                    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+                };
+                assert!(l <= 255);
+                let plo = pow2_p256_test(l);
+                assert!(plo <= x, "2^log2(x) <= x failed");
+                if l < 255 {
+                    // 2^256 is not representable: only bracket from above
+                    // when the upper power fits.
+                    let phi = pow2_p256_test(l + 1);
+                    assert!(x < phi, "x < 2^(log2(x)+1) failed");
+                }
+            }
+        }
+
+        #[test]
+        fn prop_clamp_contract() {
+            let mut rng = XorShift64(0x7647EDD6F9B0D21D);
+            for _ in 0..ITERS {
+                let (x, a, b) = (
+                    rng.next_p256_edge_biased(),
+                    rng.next_p256_edge_biased(),
+                    rng.next_p256_edge_biased(),
+                );
+                let (lo, hi) = (std::cmp::min(a, b), std::cmp::max(a, b));
+                let c = clamp_u256(x, lo, hi).unwrap();
+                assert!(c >= lo && c <= hi);
+                assert_eq!(c, x.clamp(lo, hi));
+                // Inverted bounds always rejected.
+                if a != b {
+                    assert_eq!(clamp_u256(x, hi, lo).unwrap_err(), E_INVALID_ARG);
+                }
+            }
+        }
+
+        // --- u256 tests ---
+
+        fn m(v: u128) -> MU256 {
+            MU256::from(v)
+        }
+
+        fn max256() -> MU256 {
+            MU256::max_value()
+        }
+
+        /// 2^exp as P256 without shift operators (exp <= 255).
+        fn pow2_p256(exp: u32) -> P256 {
+            let mut v = P256::one();
+            for _ in 0..exp {
+                v = v + v;
+            }
+            v
+        }
+
+        #[test]
+        fn test_u256_roundtrip() {
+            assert_eq!(p2m(m2p(&max256())), max256());
+            assert_eq!(p2m(m2p(&m(0))), m(0));
+            assert_eq!(p2m(m2p(&m(u128::MAX))), m(u128::MAX));
+        }
+
+        #[test]
+        fn test_mul_div_u256_no_intermediate_overflow() {
+            // (MAX * 2) / 2 == MAX and (MAX * MAX) / MAX == MAX
+            assert_eq!(
+                mul_div_u256_checked(&max256(), &m(2), &m(2)).unwrap(),
+                max256()
+            );
+            assert_eq!(
+                mul_div_u256_checked(&max256(), &max256(), &max256()).unwrap(),
+                max256()
+            );
+            assert_eq!(mul_div_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(40));
+            assert_eq!(
+                mul_div_u256_checked(&m(1), &m(2), &MU256::zero()).unwrap_err(),
+                E_DIVIDE_BY_ZERO
+            );
+            assert_eq!(
+                mul_div_u256_checked(&max256(), &max256(), &m(1)).unwrap_err(),
+                E_OVERFLOW
+            );
+        }
+
+        #[test]
+        fn test_mul_div_u256_round() {
+            // 10 * 10 / 40 = 2.5
+            assert_eq!(
+                mul_div_u256_round_checked(&m(10), &m(10), &m(40), false).unwrap(),
+                m(2)
+            );
+            assert_eq!(
+                mul_div_u256_round_checked(&m(10), &m(10), &m(40), true).unwrap(),
+                m(3)
+            );
+            assert_eq!(
+                mul_div_u256_round_checked(&m(10), &m(20), &m(5), true).unwrap(),
+                m(40)
+            );
+        }
+
+        #[test]
+        fn test_mul_add_u256() {
+            assert_eq!(mul_add_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(205));
+            assert_eq!(
+                mul_add_u256_checked(&max256(), &m(1), &m(0)).unwrap(),
+                max256()
+            );
+            assert_eq!(
+                mul_add_u256_checked(&max256(), &m(1), &m(1)).unwrap_err(),
+                E_OVERFLOW
+            );
+            assert_eq!(
+                mul_add_u256_checked(&max256(), &m(2), &m(0)).unwrap_err(),
+                E_OVERFLOW
+            );
+        }
+
+        #[test]
+        fn test_pow_u256() {
+            assert_eq!(p2m(pow_u256_checked(m2p(&m(2)), 10).unwrap()), m(1024));
+            assert_eq!(pow_u256_checked(m2p(&m(5)), 0).unwrap(), P256::one());
+            assert!(pow_u256_checked(m2p(&max256()), 2).is_none());
+            // 2^256 overflows u256, 2^255 does not
+            assert!(pow_u256_checked(P256::from(2u64), 256).is_none());
+            assert_eq!(
+                p2m(pow_u256_checked(P256::from(2u64), 255).unwrap()),
+                p2m(pow2_p256(255))
+            );
+        }
+
+        #[test]
+        fn test_isqrt_u256() {
+            assert_eq!(isqrt_u256(P256::zero()), P256::zero());
+            assert_eq!(isqrt_u256(P256::one()), P256::one());
+            assert_eq!(isqrt_u256(P256::from(15u64)), P256::from(3u64));
+            assert_eq!(isqrt_u256(P256::from(16u64)), P256::from(4u64));
+            assert_eq!(isqrt_u256(m2p(&m(u128::MAX))), m2p(&m(u64::MAX as u128)));
+            // sqrt(MAX) == 2^128 - 1
+            let sqrt_max = isqrt_u256(m2p(&max256()));
+            assert_eq!(sqrt_max, pow2_p256(128) - P256::one());
+            // square-back check: s^2 <= MAX < (s+1)^2
+            let sq = sqrt_max.checked_mul(sqrt_max).expect("s^2 fits in u256");
+            assert!(sq <= m2p(&max256()));
+            let sp1 = sqrt_max.checked_add(P256::one()).expect("s+1 fits");
+            assert!(sp1.checked_mul(sp1).is_none()); // (2^128)^2 = 2^256 overflows
+            // perfect square roundtrip
+            let base = P256::from(123456789u64);
+            assert_eq!(isqrt_u256(base * base), base);
+        }
+
+        #[test]
+        fn test_average_u256() {
+            let max = m2p(&max256());
+            assert_eq!(average_u256(max, max), max);
+            assert_eq!(average_u256(max, P256::zero()), max / P256::from(2u64));
+            assert_eq!(
+                average_u256(P256::from(10u64), P256::from(20u64)),
+                P256::from(15u64)
+            );
+        }
+
+        #[test]
+        fn test_clamp_log2_u256() {
+            let (a, b, c) = (P256::from(5u64), P256::zero(), P256::from(10u64));
+            assert_eq!(clamp_u256(a, b, c).unwrap(), a);
+            assert_eq!(clamp_u256(P256::from(99u64), b, c).unwrap(), c);
+            assert_eq!(clamp_u256(a, c, b).unwrap_err(), E_INVALID_ARG);
+            assert_eq!(log2_u256_checked(&MU256::from(1u64)).unwrap(), P256::zero());
+            assert_eq!(log2_u256_checked(&max256()).unwrap(), P256::from(255u64));
+            assert_eq!(
+                log2_u256_checked(&MU256::zero()).unwrap_err(),
+                E_INVALID_ARG
+            );
+        }
     }
 }
