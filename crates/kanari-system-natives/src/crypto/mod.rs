@@ -105,22 +105,28 @@ impl GasParameters {
     /// large messages become a DoS concern. For now the flat fee covers
     /// the typical small-message path.
     pub fn production() -> Self {
-        // Discounted 25% (x0.75) for affordability.
+        // Affordability schedule: flat fees in the low thousands so a
+        // single verify fits comfortably in `max_gas_per_tx = 100_000`.
+        // Relative order follows measured cost (decompress < ed25519 <
+        // k1 < falcon < dilithium < hybrid < rs256 < sphincs), but the
+        // absolute scale is deliberately cheap — DoS protection for
+        // large messages relies on the 1MB cap, not on pricing the
+        // worst case.
         Self {
-            ecrecover: 2_137_500.into(),
-            decompress_pubkey: 300_000.into(),
-            verify_k1: 2_850_000.into(),
-            verify_r1: 7_275_000.into(),
-            ed25519_verify: 1_762_500.into(),
-            dilithium2_verify: 5_475_000.into(),
-            dilithium3_verify: 8_775_000.into(),
-            dilithium5_verify: 12_825_000.into(),
-            sphincs_plus_sha256_robust_verify: 35_625_000.into(),
-            falcon512_verify: 2_700_000.into(),
-            falcon1024_verify: 4_050_000.into(),
-            ed25519_dilithium3_verify: 11_250_000.into(),
-            k256_dilithium3_verify: 11_700_000.into(),
-            rs256_verify: 13_650_000.into(),
+            ecrecover: 1_800.into(),
+            decompress_pubkey: 500.into(),
+            verify_k1: 2_400.into(),
+            verify_r1: 6_000.into(),
+            ed25519_verify: 1_500.into(),
+            dilithium2_verify: 4_600.into(),
+            dilithium3_verify: 7_200.into(),
+            dilithium5_verify: 9_500.into(),
+            sphincs_plus_sha256_robust_verify: 9_900.into(),
+            falcon512_verify: 2_200.into(),
+            falcon1024_verify: 3_400.into(),
+            ed25519_dilithium3_verify: 8_500.into(),
+            k256_dilithium3_verify: 8_800.into(),
+            rs256_verify: 9_800.into(),
         }
     }
 }
