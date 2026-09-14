@@ -38,10 +38,6 @@ fn bcs_u64(v: u64) -> Result<Vec<u8>> {
     bcs::to_bytes(&v).context("Failed to BCS-encode u64")
 }
 
-fn bcs_bytes(v: &[u8]) -> Result<Vec<u8>> {
-    bcs::to_bytes(&v.to_vec()).context("Failed to BCS-encode bytes")
-}
-
 fn bcs_string(s: &str) -> Result<Vec<u8>> {
     bcs::to_bytes(&s.as_bytes().to_vec()).context("Failed to BCS-encode string")
 }
@@ -69,8 +65,9 @@ pub enum MultisigCommand {
         owners: String,
         #[arg(long)]
         threshold: u64,
-        /// Coin object ID to fund the wallet with
-        #[arg(long)]
+        /// Coin object ID, `auto:<mist_amount>`, or omit to auto-pick the
+        /// richest coin (resolved from the API)
+        #[arg(long, default_value = "")]
         coin: String,
         /// Coin type (default 0x2::kanari::KANARI)
         #[arg(long, default_value = KANARI_COIN_TYPE)]
@@ -153,7 +150,9 @@ pub enum MultisigCommand {
     Deposit {
         #[arg(long)]
         wallet: String,
-        #[arg(long)]
+        /// Coin object ID, `auto:<mist_amount>`, or omit to auto-pick the
+        /// richest coin of the wallet's type (resolved from the API)
+        #[arg(long, default_value = "")]
         coin: String,
         #[arg(long)]
         coin_type: Option<String>,
@@ -161,6 +160,16 @@ pub enum MultisigCommand {
         from: Option<String>,
         #[arg(long)]
         password: Option<String>,
+        #[arg(long = "rpc")]
+        rpc_endpoint: Option<String>,
+    },
+    /// List your coin objects (from the API) to pick --coin/--wallet IDs
+    Coins {
+        #[arg(long)]
+        from: Option<String>,
+        /// Filter by coin type (default 0x2::kanari::KANARI)
+        #[arg(long, default_value = KANARI_COIN_TYPE)]
+        coin_type: String,
         #[arg(long = "rpc")]
         rpc_endpoint: Option<String>,
     },
@@ -212,6 +221,139 @@ async fn resolve_tx(
         },
         client,
     ))
+}
+
+/// A coin object with its decoded balance, listed from the API.
+struct ListedCoin {
+    id: String,
+    balance: u64,
+    version: u64,
+}
+
+fn coin_balance_from_data(data: &[u8]) -> Option<u64> {
+    // Coin<T> BCS: UID (32 bytes addr) ++ Balance(u64 LE). Balance sits in
+    // the last 8 bytes.
+    if data.len() < 8 {
+        return None;
+    }
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&data[data.len() - 8..]);
+    Some(u64::from_le_bytes(buf))
+}
+
+/// List owned coin objects of `coin_type` via the API (same source as
+/// `kanari client objects`, but filtered + balance-decoded).
+async fn list_coins(
+    client: &RpcClient,
+    owner_normalized: &str,
+    coin_type: &str,
+) -> Result<Vec<ListedCoin>> {
+    let response = client
+        .get_objects(kanari_rpc_api::GetObjectsRequest {
+            owner: Some(owner_normalized.to_string()),
+            owner_kind: None,
+            object_type: Some(coin_type.to_string()),
+            min_version: None,
+            max_version: None,
+        })
+        .await
+        .context("Failed to list coin objects from API")?;
+    let mut coins = Vec::new();
+    for obj in response.objects {
+        if !obj.type_.contains("::coin::Coin<") {
+            continue;
+        }
+        let balance = coin_balance_from_data(&obj.data).unwrap_or(0);
+        coins.push(ListedCoin {
+            id: obj.id,
+            balance,
+            version: obj.version,
+        });
+    }
+    coins.sort_by_key(|c| std::cmp::Reverse(c.balance));
+    Ok(coins)
+}
+
+/// Extract the `T` in `0x2::multisig::MultisigWallet<T>` from a wallet
+/// object so callers don't have to pass `--coin-type` by hand.
+async fn wallet_coin_type(client: &RpcClient, wallet_id: &str) -> Result<String> {
+    let normalized = normalize_addr(wallet_id)?;
+    let obj = client
+        .get_object(&normalized)
+        .await
+        .with_context(|| format!("Failed to fetch wallet object {}", normalized))?;
+    // Type looks like `0x2::multisig::MultisigWallet<0xABC::james::JAMES>`.
+    let inner = obj
+        .type_
+        .split_once('<')
+        .and_then(|(_, rest)| rest.strip_suffix('>'))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Object {} is not a multisig wallet (type: {})",
+                normalized,
+                obj.type_
+            )
+        })?;
+    Ok(inner.trim().to_string())
+}
+
+/// Prefer an explicit `--coin-type`; otherwise read `T` from the wallet
+/// object via the API.
+async fn resolve_wallet_coin_type(
+    client: &RpcClient,
+    wallet_id: &str,
+    coin_type_opt: &Option<String>,
+) -> Result<String> {
+    if let Some(t) = coin_type_opt
+        && !t.trim().is_empty()
+    {
+        return Ok(t.trim().to_string());
+    }
+    let detected = wallet_coin_type(client, wallet_id).await?;
+    eprintln!("  Detected wallet coin type: {}", detected);
+    Ok(detected)
+}
+
+/// Resolve `--coin`: an object ID verbatim, `auto:<amount>` to pick the
+/// smallest owned coin holding at least `amount` (from the API), or empty
+/// (omitted flag) to pick the richest coin outright.
+async fn resolve_coin_arg(
+    client: &RpcClient,
+    owner_normalized: &str,
+    coin_arg: &str,
+    coin_type: &str,
+) -> Result<String> {
+    if coin_arg.trim().is_empty() {
+        let coins = list_coins(client, owner_normalized, coin_type).await?;
+        let picked = coins.first().ok_or_else(|| {
+            anyhow::anyhow!("No owned {} coin found; check `multisig coins`", coin_type)
+        })?;
+        eprintln!(
+            "  Auto-picked coin {} (balance {} mist)",
+            picked.id, picked.balance
+        );
+        return Ok(picked.id.clone());
+    }
+    if let Some(amount_str) = coin_arg.strip_prefix("auto:") {
+        let amount: u64 = amount_str
+            .parse()
+            .context("Invalid auto amount; use auto:<mist_amount>")?;
+        let mut coins = list_coins(client, owner_normalized, coin_type).await?;
+        coins.retain(|c| c.balance >= amount);
+        let picked = coins.pop().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No owned {} coin holds >= {} mist; check `multisig coins`",
+                coin_type,
+                amount
+            )
+        })?;
+        eprintln!(
+            "  Auto-picked coin {} (balance {} mist)",
+            picked.id, picked.balance
+        );
+        return Ok(picked.id);
+    }
+    Ok(normalize_addr(coin_arg)?)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -308,6 +450,8 @@ impl Multisig {
                     parsed_owners.len(),
                     threshold
                 );
+                let coin_id =
+                    resolve_coin_arg(&client, &tx.sender_normalized, coin, coin_type).await?;
                 submit_entry(
                     &tx,
                     &client,
@@ -316,9 +460,9 @@ impl Multisig {
                     vec![
                         bcs_address_vec(&parsed_owners)?,
                         bcs_u64(*threshold)?,
-                        bcs_addr(&normalize_addr(coin)?)?,
+                        bcs_addr(&coin_id)?,
                     ],
-                    vec![coin.clone()],
+                    vec![coin_id],
                     "",
                 )
                 .await
@@ -343,15 +487,13 @@ impl Multisig {
                 )
                 .await?;
                 eprintln!("Proposing transfer of {} to {}...", amount, to);
+                let resolved_coin_type =
+                    resolve_wallet_coin_type(&client, wallet, coin_type).await?;
                 submit_entry(
                     &tx,
                     &client,
                     "propose_transfer_entry",
-                    vec![
-                        coin_type
-                            .clone()
-                            .unwrap_or_else(|| KANARI_COIN_TYPE.to_string()),
-                    ],
+                    vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
                         bcs_addr(&normalize_addr(to)?)?,
@@ -381,15 +523,13 @@ impl Multisig {
                 )
                 .await?;
                 eprintln!("Approving proposal {}...", proposal);
+                let resolved_coin_type =
+                    resolve_wallet_coin_type(&client, wallet, coin_type).await?;
                 submit_entry(
                     &tx,
                     &client,
                     "approve_entry",
-                    vec![
-                        coin_type
-                            .clone()
-                            .unwrap_or_else(|| KANARI_COIN_TYPE.to_string()),
-                    ],
+                    vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
                         bcs_addr(&normalize_addr(proposal)?)?,
@@ -416,15 +556,13 @@ impl Multisig {
                 )
                 .await?;
                 eprintln!("Executing proposal {}...", proposal);
+                let resolved_coin_type =
+                    resolve_wallet_coin_type(&client, wallet, coin_type).await?;
                 submit_entry(
                     &tx,
                     &client,
                     "execute_entry",
-                    vec![
-                        coin_type
-                            .clone()
-                            .unwrap_or_else(|| KANARI_COIN_TYPE.to_string()),
-                    ],
+                    vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
                         bcs_addr(&normalize_addr(proposal)?)?,
@@ -451,15 +589,13 @@ impl Multisig {
                 )
                 .await?;
                 eprintln!("Cancelling proposal {}...", proposal);
+                let resolved_coin_type =
+                    resolve_wallet_coin_type(&client, wallet, coin_type).await?;
                 submit_entry(
                     &tx,
                     &client,
                     "cancel_entry",
-                    vec![
-                        coin_type
-                            .clone()
-                            .unwrap_or_else(|| KANARI_COIN_TYPE.to_string()),
-                    ],
+                    vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
                         bcs_addr(&normalize_addr(proposal)?)?,
@@ -485,26 +621,50 @@ impl Multisig {
                     self.gas_price,
                 )
                 .await?;
-                eprintln!("Depositing coin {} into wallet {}...", coin, wallet);
+                let resolved_coin_type = coin_type
+                    .clone()
+                    .unwrap_or_else(|| KANARI_COIN_TYPE.to_string());
+                let coin_id =
+                    resolve_coin_arg(&client, &tx.sender_normalized, coin, &resolved_coin_type)
+                        .await?;
+                eprintln!("Depositing coin {} into wallet {}...", coin_id, wallet);
                 submit_entry(
                     &tx,
                     &client,
                     "deposit_entry",
-                    vec![
-                        coin_type
-                            .clone()
-                            .unwrap_or_else(|| KANARI_COIN_TYPE.to_string()),
-                    ],
-                    vec![
-                        bcs_addr(&normalize_addr(wallet)?)?,
-                        bcs_bytes(&hex::decode(
-                            normalize_addr(coin)?.trim_start_matches("0x"),
-                        )?)?,
-                    ],
-                    vec![wallet.clone(), coin.clone()],
+                    vec![resolved_coin_type],
+                    vec![bcs_addr(&normalize_addr(wallet)?)?, bcs_addr(&coin_id)?],
+                    vec![wallet.clone(), coin_id],
                     "",
                 )
                 .await
+            }
+            MultisigCommand::Coins {
+                from,
+                coin_type,
+                rpc_endpoint,
+            } => {
+                let sender_normalized = resolve_sender(from.clone())?;
+                let rpc = get_rpc_endpoint(rpc_endpoint.clone());
+                let client = RpcClient::new(&rpc);
+                check_node_connection(&client, &rpc).await?;
+                let coins = list_coins(&client, &sender_normalized, coin_type).await?;
+                if coins.is_empty() {
+                    eprintln!("No {} coins owned by {}", coin_type, sender_normalized);
+                    return Ok(());
+                }
+                eprintln!("COINS ({}):", coin_type);
+                for (i, c) in coins.iter().enumerate() {
+                    eprintln!(
+                        "  #{} ID: {}  balance: {} mist  version: {}",
+                        i + 1,
+                        c.id,
+                        c.balance,
+                        c.version
+                    );
+                }
+                eprintln!("Use an ID as --coin, or --coin auto:<mist_amount>.");
+                Ok(())
             }
         }
     }
