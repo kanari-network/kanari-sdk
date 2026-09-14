@@ -81,11 +81,11 @@ module kanari_system::object {
     // authorization has completed.
     public native fun save_object<T: key>(obj: &T);
 
-    /// Internal-only legacy loader retained for runtime compatibility.
+    /// Load a mutable object reference from storage.
     ///
-    /// This function is intentionally not public. Arbitrary published modules must
-    /// receive mutable object references as transaction inputs so the trusted runtime
-    /// can authenticate ownership before Move execution begins.
+    /// The runtime authenticates ownership / shared-object authorization
+    /// before resolving the reference (borrowed objects are tracked for
+    /// writeback), so this stays public like `borrow_global`.
     public native fun borrow_global_mut<T: key>(addr: address): &mut T;
 
     /// Load an object from storage by its address and return an immutable reference.
