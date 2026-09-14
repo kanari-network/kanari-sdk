@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! MoveRuntime is the core runtime for executing Move transactions in Kanari. It provides an interface for executing Move entry functions, publishing and upgrading modules, and managing the state of Move objects. The runtime handles the interaction between the Move VM, the underlying storage, and the Kanari-specific extensions such as object ownership and event handling.
-//! 
+//!
 //! The MoveRuntime is designed to be thread-safe and supports concurrent execution of transactions. It maintains a cache of published modules and provides mechanisms for validating module compatibility during upgrades. The runtime also includes utilities for parsing Move changesets into Kanari-specific state changes, ensuring that the effects of Move transactions are correctly reflected in the Kanari state model.
-//! 
+//!
 //! The main components of the MoveRuntime include:
 //! - `MoveVM`: The Move virtual machine instance used for executing Move bytecode.
 //! - `KanariMoveResolver`: A resolver that provides access to Move modules and resources stored in the Kanari state.
 //! - `ObjectStorage`: An abstraction for storing and retrieving Move objects, supporting both in-memory and persistent storage backends.
-//! 
+//!
 //! The MoveRuntime provides a high-level API for executing transactions, publishing modules, and managing state, while encapsulating the complexities of the underlying Move VM and storage mechanisms.
-//! 
+//!
 //! The MoveRuntime is intended to be used by higher-level components such as the TransactionScheduler, which orchestrates the execution of transactions and manages the overall state of the blockchain.
-//! 
+//!
 //! The MoveRuntime is also responsible for ensuring that transactions are executed in a manner consistent with the Kanari protocol, including enforcing ownership semantics, validating object inputs, and applying changesets to the state. It provides a robust foundation for building applications and services on top of the Kanari blockchain platform.
 use crate::state::default_owner_kind_for_type;
 use crate::storage::resolver::KanariMoveResolver;
@@ -410,9 +410,12 @@ impl MoveRuntime {
                 KanariAddress::std_account_address(),
                 move_stdlib_natives::GasParameters::zeros(),
             ),
+            // Node execution prices system natives with the production
+            // schedule; tests/dev tooling (move_cli Test, unit tests) keep
+            // `zeros()` so assertions stay gas-agnostic.
             kanari_system_natives::all_natives(
                 sys_addr,
-                kanari_system_natives::GasParameters::zeros(),
+                kanari_system_natives::GasParameters::production(),
             ),
         ]
     }

@@ -10,6 +10,9 @@ mod rs256;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod benches;
+
 use std::{collections::VecDeque, sync::Arc};
 
 use move_core_types::gas_algebra::InternalGas;
@@ -74,6 +77,50 @@ impl GasParameters {
             ed25519_dilithium3_verify: 0.into(),
             k256_dilithium3_verify: 0.into(),
             rs256_verify: 0.into(),
+        }
+    }
+
+    /// Sui-style production schedule: `zeros()` is for tests/dev only;
+    /// node software injects `production()` at the `all_natives` call site.
+    ///
+    /// Calibrated by release-build micro-benchmarks (x86_64,
+    /// `crypto_calibrate --release`):
+    ///
+    /// ```text
+    /// k1_decompress ~7.7us  | ed25519_verify ~46us   | k1_ecrecover ~56us
+    /// falcon512 ~71us       | k1_verify ~75us        | falcon1024 ~108us
+    /// dilithium2 ~145us     | r1_verify ~193us       | dilithium3 ~233us
+    /// hybrid_ed+dil3 ~299us | hybrid_k256+dil3 ~312us| dilithium5 ~341us
+    /// rs256_rfc ~363us      | sphincs ~949us
+    /// sha256_1KB ~0.7us     | sha256_1MB ~647us      | dilithium3_1MB ~3.2ms
+    /// ```
+    ///
+    /// Anchor: same as `math_calculate` (cheapest math ops = 100 units
+    /// ~= 2ns, i.e. ~50 units/ns). Values below round the measured
+    /// ns/op up to a conservative flat fee for small messages.
+    ///
+    /// NOTE: verify natives accept up to 1MB messages (hashed or signed
+    /// directly). Large-message cost grows separately (`sha256_1MB`,
+    /// `dilithium3_1MB`); a future `per_byte` slope should be added if
+    /// large messages become a DoS concern. For now the flat fee covers
+    /// the typical small-message path.
+    pub fn production() -> Self {
+        // Discounted 25% (x0.75) for affordability.
+        Self {
+            ecrecover: 2_137_500.into(),
+            decompress_pubkey: 300_000.into(),
+            verify_k1: 2_850_000.into(),
+            verify_r1: 7_275_000.into(),
+            ed25519_verify: 1_762_500.into(),
+            dilithium2_verify: 5_475_000.into(),
+            dilithium3_verify: 8_775_000.into(),
+            dilithium5_verify: 12_825_000.into(),
+            sphincs_plus_sha256_robust_verify: 35_625_000.into(),
+            falcon512_verify: 2_700_000.into(),
+            falcon1024_verify: 4_050_000.into(),
+            ed25519_dilithium3_verify: 11_250_000.into(),
+            k256_dilithium3_verify: 11_700_000.into(),
+            rs256_verify: 13_650_000.into(),
         }
     }
 }

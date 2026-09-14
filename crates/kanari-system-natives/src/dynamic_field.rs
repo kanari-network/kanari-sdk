@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use better_any::{Tid, TidAble};
-use move_core_types::gas_algebra::InternalGas;
+use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
 use move_core_types::runtime_value::MoveTypeLayout;
 use move_core_types::vm_status::StatusCode;
 use move_vm_runtime::native_charge_gas_early_exit;
@@ -28,6 +28,8 @@ pub struct GasParameters {
     pub borrow_mut: InternalGas,
     pub remove: InternalGas,
     pub exists_: InternalGas,
+    /// Per-byte rate over serialized name (+ value, where touched).
+    pub per_byte: InternalGasPerByte,
 }
 
 impl GasParameters {
@@ -38,6 +40,21 @@ impl GasParameters {
             borrow_mut: 0.into(),
             remove: 0.into(),
             exists_: 0.into(),
+            per_byte: 0.into(),
+        }
+    }
+
+    pub fn production() -> Self {
+        // Map lookup + (de)serialization per op. per_byte covers serialized
+        // name/value traffic; bases are conservative estimates (map + layout
+        // work ~ a small hash). Revisit with context-level benchmarks.
+        Self {
+            add: 8_000.into(),
+            borrow: 4_000.into(),
+            borrow_mut: 4_000.into(),
+            remove: 6_000.into(),
+            exists_: 2_000.into(),
+            per_byte: 50.into(),
         }
     }
 }
@@ -387,11 +404,12 @@ fn with_live_field<R>(
 }
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
-    let add_gas = gas_params.add;
-    let borrow_gas = gas_params.borrow;
-    let borrow_mut_gas = gas_params.borrow_mut;
-    let remove_gas = gas_params.remove;
-    let exists_gas = gas_params.exists_;
+    let per_byte = gas_params.per_byte;
+    let add_gas = (gas_params.add, per_byte);
+    let borrow_gas = (gas_params.borrow, per_byte);
+    let borrow_mut_gas = (gas_params.borrow_mut, per_byte);
+    let remove_gas = (gas_params.remove, per_byte);
+    let exists_gas = (gas_params.exists_, per_byte);
 
     let add: NativeFunction =
         Arc::new(move |context, ty_args, args| native_add(add_gas, context, ty_args, args));
@@ -415,13 +433,14 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
 }
 
 fn native_add(
-    gas_base: InternalGas,
+    gas_params: (InternalGas, InternalGasPerByte),
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    let (gas_base, gas_per_byte) = gas_params;
     native_charge_gas_early_exit!(context, gas_base);
     expect_native_signature(arguments.len(), 3, ty_args.len(), 2)?;
 
@@ -435,6 +454,11 @@ fn native_add(
     let location = parse_field_location(context, &ty_args[0], uid_ref, name)?;
     let value_spec = parse_value_spec(context, &ty_args[1])?;
     let value_bytes = serialize_arg_with_layout(&value, &value_spec.layout)?;
+    // Size-dependent charge after sizes are known, before any state effect.
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new((location.name_bytes.len() + value_bytes.len()) as u64)
+    );
 
     if field_exists(context, &location)? {
         return Ok(NR::err(context.gas_used(), E_FIELD_ALREADY_EXISTS));
@@ -455,17 +479,22 @@ fn native_add(
 }
 
 fn native_borrow_mut(
-    gas_base: InternalGas,
+    gas_params: (InternalGas, InternalGasPerByte),
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    let (gas_base, gas_per_byte) = gas_params;
     native_charge_gas_early_exit!(context, gas_base);
     expect_native_signature(arguments.len(), 2, ty_args.len(), 2)?;
 
     let request = parse_borrow_request(context, &ty_args, &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(request.location.name_bytes.len() as u64)
+    );
     let borrowed = with_live_field(context, &request.location, &request.value_spec, |entry| {
         entry.state = DynamicFieldState::Dirty;
         entry.borrow_ref()
@@ -478,17 +507,22 @@ fn native_borrow_mut(
 }
 
 fn native_borrow(
-    gas_base: InternalGas,
+    gas_params: (InternalGas, InternalGasPerByte),
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    let (gas_base, gas_per_byte) = gas_params;
     native_charge_gas_early_exit!(context, gas_base);
     expect_native_signature(arguments.len(), 2, ty_args.len(), 2)?;
 
     let request = parse_borrow_request(context, &ty_args, &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(request.location.name_bytes.len() as u64)
+    );
     let borrowed = with_live_field(context, &request.location, &request.value_spec, |entry| {
         entry.borrow_ref()
     })?;
@@ -500,17 +534,22 @@ fn native_borrow(
 }
 
 fn native_remove(
-    gas_base: InternalGas,
+    gas_params: (InternalGas, InternalGasPerByte),
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    let (gas_base, gas_per_byte) = gas_params;
     native_charge_gas_early_exit!(context, gas_base);
     expect_native_signature(arguments.len(), 2, ty_args.len(), 2)?;
 
     let request = parse_borrow_request(context, &ty_args, &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(request.location.name_bytes.len() as u64)
+    );
     let removed = with_live_field(context, &request.location, &request.value_spec, |entry| {
         let value = entry.read_value()?;
         entry.state = DynamicFieldState::Deleted;
@@ -524,17 +563,22 @@ fn native_remove(
 }
 
 fn native_exists_(
-    gas_base: InternalGas,
+    gas_params: (InternalGas, InternalGasPerByte),
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    let (gas_base, gas_per_byte) = gas_params;
     native_charge_gas_early_exit!(context, gas_base);
     expect_native_signature(arguments.len(), 2, ty_args.len(), 1)?;
 
     let location = parse_exists_location(context, &ty_args[0], &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(location.name_bytes.len() as u64)
+    );
     Ok(NR::ok(
         context.gas_used(),
         smallvec![Value::bool(field_exists(context, &location)?)],

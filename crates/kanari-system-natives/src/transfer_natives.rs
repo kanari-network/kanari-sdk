@@ -56,6 +56,21 @@ impl GasParameters {
             },
         }
     }
+
+    pub fn production() -> Self {
+        // Serialize + record one transfer. per_byte matches the repo-wide
+        // serialization rate (50 units/B); base covers type-tag + UID work.
+        Self {
+            transfer_with_uid: TransferWithUidGasParameters {
+                base: 8_000.into(),
+                per_byte: 50.into(),
+            },
+            freeze_object: FreezeObjectGasParameters {
+                base: 8_000.into(),
+                per_byte: 50.into(),
+            },
+        }
+    }
 }
 
 fn serialize_object_data(

@@ -128,6 +128,8 @@ pub struct TryPowU128GasParameters {
 #[derive(Debug, Clone)]
 pub struct SqrtU256GasParameters {
     pub base: InternalGas,
+    /// Per-bit charge: binary-search sqrt cost grows with input bit length.
+    pub per_bit: InternalGas,
 }
 
 #[derive(Debug, Clone)]
@@ -274,6 +276,12 @@ fn pow_gas_cost(base: &InternalGas, per_exponent: &InternalGas, exponent: u64) -
     // repeated-multiply work). Avoids charging O(1) for pow(2, 2^32).
     InternalGas::new(
         u64::from(*base).saturating_add(u64::from(*per_exponent).saturating_mul(exponent)),
+    )
+}
+
+fn sqrt_u256_gas_cost(params: &SqrtU256GasParameters, bits: u64) -> InternalGas {
+    InternalGas::new(
+        u64::from(params.base).saturating_add(u64::from(params.per_bit).saturating_mul(bits)),
     )
 }
 
@@ -805,11 +813,14 @@ pub fn native_sqrt_u256(
     use move_vm_types::natives::function::NativeResult as NR;
 
     expect_native_signature(args.len(), 1, _ty_args.len(), 0)?;
-    native_charge_gas_early_exit!(context, gas_params.base);
     let x: MU256 = pop_arg!(args, MU256);
+    // Charge by input size BEFORE the work: binary-search cost grows with
+    // bit length, and charging after would let out-of-gas escape.
+    let px = m2p(&x);
+    native_charge_gas_early_exit!(context, sqrt_u256_gas_cost(gas_params, px.bits() as u64));
     Ok(NR::ok(
         context.gas_used(),
-        smallvec![Value::u256(p2m(isqrt_u256(m2p(&x))))],
+        smallvec![Value::u256(p2m(isqrt_u256(px)))],
     ))
 }
 
