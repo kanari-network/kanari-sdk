@@ -4,6 +4,7 @@
 #[test_only]
 module kanari_system::math_tests {
     use kanari_system::math;
+    use std::option;
 
     const E_DIVIDE_BY_ZERO: u64 = 2;
     const E_INVALID_ARG: u64 = 3;
@@ -525,5 +526,88 @@ module kanari_system::math_tests {
         assert!(math::mul_add_u64(10, 20, 5) == 205, 0);
         assert!(math::mul_add_u64(MAX_U64, 1, 0) == MAX_U64, 1);
         assert!(math::pow2_u64(10) == 1024, 2);
+    }
+
+    // =================================================================
+    // Checked / saturating / lossless / narrowing
+    // =================================================================
+    #[test]
+    fun test_checked_arithmetic() {
+        // u8 boundaries
+        assert!(math::checked_add_u8(200, 55) == option::some(255u8), 0);
+        assert!(math::checked_add_u8(200, 56) == option::none<u8>(), 1);
+        assert!(math::checked_sub_u8(5, 10) == option::none<u8>(), 2);
+        assert!(math::checked_mul_u8(16, 16) == option::none<u8>(), 3);
+        assert!(math::checked_mul_u8(0, MAX_U8) == option::some(0u8), 4);
+        assert!(math::checked_div_u8(10, 0) == option::none<u8>(), 5);
+        assert!(math::checked_pow_u8(2, 7) == option::some(128u8), 6);
+        assert!(math::checked_pow_u8(2, 8) == option::none<u8>(), 7);
+        // u64 / u128 / u256 spot checks
+        assert!(math::checked_add_u64(MAX_U64, 1) == option::none<u64>(), 8);
+        assert!(math::checked_mul_u64(MAX_U64, 2) == option::none<u64>(), 9);
+        assert!(math::checked_div_u64(10, 0) == option::none<u64>(), 10);
+        assert!(math::checked_sub_u128(5, 10) == option::none<u128>(), 11);
+        assert!(math::checked_pow_u128(10, 39) == option::none<u128>(), 12);
+        assert!(math::checked_add_u256(MAX_U256, 1) == option::none<u256>(), 13);
+        assert!(math::checked_mul_u256(MAX_U256, MAX_U256) == option::none<u256>(), 14);
+        assert!(math::checked_pow_u256(2, 255) == option::some(math::pow2_u256(255)), 15);
+        assert!(math::checked_pow_u256(2, 256) == option::none<u256>(), 16);
+        // u16 / u32 spot checks
+        assert!(math::checked_add_u16(MAX_U16, 1) == option::none<u16>(), 17);
+        assert!(math::checked_mul_u32(MAX_U32, 2) == option::none<u32>(), 18);
+    }
+
+    #[test]
+    fun test_saturating_arithmetic() {
+        assert!(math::saturating_add_u8(200, 100) == 255, 0);
+        assert!(math::saturating_sub_u8(5, 10) == 0, 1);
+        assert!(math::saturating_mul_u8(16, 16) == 255, 2);
+        assert!(math::saturating_pow_u8(2, 8) == 255, 3);
+        assert!(math::saturating_mul_div_u8(MAX_U8, MAX_U8, 1) == 255, 4);
+        assert!(math::saturating_add_u64(MAX_U64, 1) == MAX_U64, 5);
+        assert!(math::saturating_mul_u128(MAX_U128, 2) == MAX_U128, 6);
+        assert!(math::saturating_pow_u128(10, 39) == MAX_U128, 7);
+        assert!(math::saturating_mul_div_u128(MAX_U128, MAX_U128, 1) == MAX_U128, 8);
+        assert!(math::saturating_add_u256(MAX_U256, 1) == MAX_U256, 9);
+        assert!(math::saturating_pow_u256(2, 300) == MAX_U256, 10);
+        assert!(math::saturating_sub_u32(5, 10) == 0, 11);
+        assert!(math::saturating_mul_u16(MAX_U16, 2) == MAX_U16, 12);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::math, abort_code = E_DIVIDE_BY_ZERO)]
+    fun test_saturating_mul_div_zero() {
+        math::saturating_mul_div_u64(10, 20, 0);
+    }
+
+    #[test]
+    fun test_shifts_and_lossless() {
+        assert!(math::checked_shl_u8(1, 7) == option::some(128u8), 0);
+        assert!(math::checked_shl_u8(1, 8) == option::none<u8>(), 1);
+        assert!(math::lossless_shl_u8(64, 2) == option::none<u8>(), 2); // 256, bits lost
+        assert!(math::lossless_shl_u8(32, 2) == option::some(128u8), 3);
+        assert!(math::lossless_shr_u8(128, 2) == option::some(32u8), 4);
+        assert!(math::lossless_shr_u8(101, 2) == option::none<u8>(), 5); // 25*4=100 != 101
+        assert!(math::lossless_div_u64(100, 4) == option::some(25u64), 6);
+        assert!(math::lossless_div_u64(100, 3) == option::none<u64>(), 7);
+        assert!(math::lossless_div_u64(100, 0) == option::none<u64>(), 8);
+        assert!(math::checked_shl_u64(1, 64) == option::none<u64>(), 9);
+        assert!(math::lossless_shl_u128(1, 127) == option::some(math::pow2_u128(127)), 10);
+        assert!(math::lossless_shl_u256(1, 255) == option::some(math::pow2_u256(255)), 11);
+        assert!(math::bitwise_not_u8(0) == 255, 12);
+        assert!(math::bitwise_not_u64(0) == MAX_U64, 13);
+        assert!(math::bitwise_not_u256(0) == MAX_U256, 14);
+    }
+
+    #[test]
+    fun test_try_as_narrowing() {
+        assert!(math::try_as_u8_from_u16(255) == option::some(255u8), 0);
+        assert!(math::try_as_u8_from_u16(256) == option::none<u8>(), 1);
+        assert!(math::try_as_u32_from_u64((MAX_U32 as u64)) == option::some(MAX_U32), 2);
+        assert!(math::try_as_u32_from_u64((MAX_U32 as u64) + 1) == option::none<u32>(), 3);
+        assert!(math::try_as_u64_from_u128((MAX_U64 as u128)) == option::some(MAX_U64), 4);
+        assert!(math::try_as_u128_from_u256((MAX_U128 as u256)) == option::some(MAX_U128), 5);
+        assert!(math::try_as_u128_from_u256((MAX_U128 as u256) + 1) == option::none<u128>(), 6);
+        assert!(math::try_as_u8_from_u256(200) == option::some(200u8), 7);
     }
 }
