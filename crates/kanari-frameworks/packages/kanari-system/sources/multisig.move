@@ -440,6 +440,80 @@ module kanari_system::multisig {
         execute_transaction(wallet, proposal, ctx);
     }
 
+    // --- Entry wrappers (callable via CLI/RPC `call`) ---
+    //
+    // The `public fun` API above moves objects by value, which the generic
+    // `call` path cannot always wire up. These entry points take object IDs
+    // (resolved to refs by the runtime) so every step of the wallet flow is
+    // drivable from `kanari multisig ...` / `kanari call ...`.
+
+    /// Create a wallet from a funded coin object. Consumes the coin object.
+    public entry fun create_wallet_entry<T>(
+        owners: vector<address>,
+        threshold: u64,
+        initial_funds: Coin<T>,
+        ctx: &mut TxContext,
+    ) {
+        let wallet = create_wallet(owners, threshold, initial_funds, ctx);
+        transfer::public_transfer(wallet, tx_context::sender(ctx));
+    }
+
+    /// Top up the wallet. Consumes the deposited coin object.
+    public entry fun deposit_entry<T>(
+        wallet: &mut MultisigWallet<T>,
+        funds: Coin<T>,
+        ctx: &TxContext,
+    ) {
+        deposit(wallet, funds, ctx);
+    }
+
+    /// Propose a transfer. The proposal object goes to the proposer.
+    public entry fun propose_transfer_entry<T>(
+        wallet: &MultisigWallet<T>,
+        target_address: address,
+        amount: u64,
+        description: vector<u8>,
+        ttl_ms: u64,
+        ctx: &mut TxContext,
+    ) {
+        let proposal = propose_transfer(
+            wallet,
+            target_address,
+            amount,
+            string::utf8(description),
+            ttl_ms,
+            ctx,
+        );
+        transfer::public_transfer(proposal, tx_context::sender(ctx));
+    }
+
+    /// Approve someone else's proposal (proposer auto-approved at creation).
+    public entry fun approve_entry<T>(
+        wallet: &MultisigWallet<T>,
+        proposal: &mut TransactionProposal,
+        ctx: &mut TxContext,
+    ) {
+        approve_transaction(wallet, proposal, ctx);
+    }
+
+    /// Execute a proposal whose threshold is met. Consumes the proposal.
+    public entry fun execute_entry<T>(
+        wallet: &mut MultisigWallet<T>,
+        proposal: TransactionProposal,
+        ctx: &mut TxContext,
+    ) {
+        execute_transaction(wallet, proposal, ctx);
+    }
+
+    /// Cancel your own live proposal. Consumes the proposal.
+    public entry fun cancel_entry<T>(
+        wallet: &MultisigWallet<T>,
+        proposal: TransactionProposal,
+        ctx: &TxContext,
+    ) {
+        cancel_proposal(wallet, proposal, ctx);
+    }
+
     // --- Read API ---
 
     public fun is_owner<T>(wallet: &MultisigWallet<T>, addr: address): bool {

@@ -9,6 +9,7 @@ pub mod burn;
 pub mod envs;
 pub mod fanout;
 pub mod faucet;
+pub mod multisig;
 pub mod objects;
 pub mod owner;
 pub mod stats;
@@ -49,6 +50,8 @@ pub enum ClientCommand {
     View(view::View),
     /// Stress test: faucet tokens and send N transactions
     StressTest(stress_test::StressTest),
+    /// Multisig wallet: create/propose/approve/execute/cancel/deposit
+    Multisig(multisig::Multisig),
 }
 
 impl ClientCommand {
@@ -67,6 +70,7 @@ impl ClientCommand {
             ClientCommand::Objects(cmd) => cmd.execute().await,
             ClientCommand::View(cmd) => cmd.execute().await,
             ClientCommand::StressTest(cmd) => cmd.execute().await,
+            ClientCommand::Multisig(cmd) => cmd.execute().await,
         }
     }
 }
