@@ -73,17 +73,11 @@ module kanari_system::deny_list {
         // If address not found, do nothing (no-op)
     }
 
-    // Get the length of the deny list
-    #[test_only]
-    public fun length(d: &DenyList): u64 {
-        vector::length(&d.addresses)
-    }
-
-    // Check if an address is in the deny list
-    #[test_only]
+    // Check if an address is in the deny list.
+    // Public (not test-only): regulated-coin transfer paths enforce this.
     public fun contains(d: &DenyList, addr: address): bool {
         let len = vector::length(&d.addresses);
-        let  i = 0;
+        let i = 0;
         while (i < len) {
             let existing_addr = *vector::borrow(&d.addresses, i);
             if (existing_addr == addr) {
@@ -92,6 +86,11 @@ module kanari_system::deny_list {
             i = i + 1;
         };
         false
+    }
+
+    /// Length of the deny list (public read API).
+    public fun length(d: &DenyList): u64 {
+        vector::length(&d.addresses)
     }
 
     // Get address at index (for testing purposes)

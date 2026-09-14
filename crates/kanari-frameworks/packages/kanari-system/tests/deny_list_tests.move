@@ -319,4 +319,77 @@ module kanari_system::deny_list_tests {
         assert!(deny_list::get_address_at(denylist_ref, 0) == addr1, 1);
         assert!(deny_list::get_address_at(denylist_ref, 1) == addr2, 2);
     }
+
+    // =================================================================
+    // Tests: Regulated transfers (production contains + enforced send)
+    // =================================================================
+
+    struct REG has drop {}
+
+    fun setup_regulated(ctx: &mut tx_context::TxContext): (
+        kanari_system::coin::TreasuryCap<REG>,
+        kanari_system::deny_list::DenyCap<REG>,
+        kanari_system::coin::CoinMetadata<REG>,
+    ) {
+        kanari_system::coin::create_regulated_currency(
+            REG {},
+            6,
+            b"REG",
+            b"Regulated",
+            b"regulated tests",
+            std::option::none(),
+            ctx,
+        )
+    }
+
+    #[test]
+    fun test_regulated_send_allowed_then_denied() {
+        let ctx = &mut tx_context::dummy();
+        let (cap, denycap, meta) = setup_regulated(ctx);
+        let denylist = &mut deny_list::new_denylist();
+        deny_list::deny_list_add<REG>(denylist, &denycap, @0xBAD, ctx);
+        assert!(deny_list::contains(denylist, @0xBAD), 0);
+        assert!(!deny_list::contains(denylist, @0xCAFE), 1);
+
+        let coin_val = kanari_system::coin::mint(&mut cap, 1000, ctx);
+        let c = &mut coin_val;
+        // Allowed recipient goes through.
+        kanari_system::pay::split_and_transfer_checked(
+            c, 100, @0xCAFE, denylist, ctx,
+        );
+        assert!(kanari_system::coin::value(c) == 900, 2);
+
+        // Remove from list => allowed again.
+        deny_list::deny_list_remove<REG>(denylist, &denycap, @0xBAD, ctx);
+        kanari_system::pay::split_and_transfer_checked(
+            c, 100, @0xBAD, denylist, ctx,
+        );
+        assert!(kanari_system::coin::value(c) == 800, 3);
+
+        kanari_system::transfer::public_transfer(
+            kanari_system::coin::split(c, 800, ctx), @0x1,
+        );
+        kanari_system::transfer::public_freeze_object(cap);
+        kanari_system::transfer::public_freeze_object(denycap);
+        kanari_system::transfer::public_freeze_object(meta);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 1)]
+    fun test_regulated_send_to_denied_aborts() {
+        // EDENIED in pay module.
+        let ctx = &mut tx_context::dummy();
+        let (cap, denycap, meta) = setup_regulated(ctx);
+        let denylist = &mut deny_list::new_denylist();
+        deny_list::deny_list_add<REG>(denylist, &denycap, @0xBAD, ctx);
+
+        let coin_val = kanari_system::coin::mint(&mut cap, 1000, ctx);
+        let c = &mut coin_val;
+        kanari_system::pay::split_and_transfer_checked(
+            c, 100, @0xBAD, denylist, ctx,
+        );
+        kanari_system::transfer::public_freeze_object(cap);
+        kanari_system::transfer::public_freeze_object(denycap);
+        kanari_system::transfer::public_freeze_object(meta);
+    }
 }

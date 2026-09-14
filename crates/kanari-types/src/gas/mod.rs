@@ -34,7 +34,7 @@ macro_rules! select_gas_impl {
     };
 }
 
-select_gas_impl!(v2);
+select_gas_impl!(v3_1);
 
 #[cfg(test)]
 mod tests {

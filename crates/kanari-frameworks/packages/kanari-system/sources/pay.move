@@ -4,11 +4,16 @@
 module kanari_system::pay {
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::coin::{Self, Coin};
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::transfer;
     use std::vector;
 
     /// For when empty vector is supplied into join function.
     const ENoCoins: u64 = 0;
+    /// Recipient is on the deny list.
+    const EDENIED: u64 = 1;
+    /// Vector fan-out exceeds `coin::max_split_parts`.
+    const ETOO_MANY_COINS: u64 = 2;
 
     // #[allow(lint(self_transfer))]
     /// Transfer `c` to the sender of the current transaction
@@ -29,6 +34,7 @@ module kanari_system::pay {
     public entry fun split_vec<T>(
         self: &mut Coin<T>, split_amounts: vector<u64>, ctx: &mut TxContext
     ) {
+        assert!(vector::length(&split_amounts) <= coin::max_split_parts(), ETOO_MANY_COINS);
         let (i, len) = (0, vector::length(&split_amounts));
         while (i < len) {
             split(self, *vector::borrow(&split_amounts, i), ctx);
@@ -42,6 +48,20 @@ module kanari_system::pay {
         c: &mut Coin<T>, amount: u64, recipient: address, ctx: &mut TxContext
     ) {
         transfer::public_transfer(coin::split(c, amount, ctx), recipient)
+    }
+
+    /// Regulated send: like `split_and_transfer`, but aborts `EDENIED` when
+    /// `recipient` is on the given deny list. Plain `split_and_transfer`
+    /// deliberately skips the check (permissionless coin path).
+    public entry fun split_and_transfer_checked<T>(
+        c: &mut Coin<T>,
+        amount: u64,
+        recipient: address,
+        deny: &DenyList,
+        ctx: &mut TxContext,
+    ) {
+        assert!(!deny_list::contains(deny, recipient), EDENIED);
+        split_and_transfer(c, amount, recipient, ctx)
     }
 
 
@@ -67,6 +87,7 @@ module kanari_system::pay {
 
     /// Join everything in `coins` with `self`
     public entry fun join_vec<T>(self: &mut Coin<T>, coins: vector<Coin<T>>) {
+        assert!(vector::length(&coins) <= coin::max_split_parts(), ETOO_MANY_COINS);
         let (i, len) = (0, vector::length(&coins));
         while (i < len) {
             let coin = vector::pop_back(&mut coins);
@@ -80,6 +101,7 @@ module kanari_system::pay {
     /// Join a vector of `Coin` into a single object and transfer it to `receiver`.
     public entry fun join_vec_and_transfer<T>(coins: vector<Coin<T>>, receiver: address) {
         assert!(vector::length(&coins) > 0, ENoCoins);
+        assert!(vector::length(&coins) <= coin::max_split_parts() + 1, ETOO_MANY_COINS);
 
         let self = vector::pop_back(&mut coins);
         join_vec(&mut self, coins);

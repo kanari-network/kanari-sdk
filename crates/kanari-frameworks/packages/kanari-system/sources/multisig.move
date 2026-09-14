@@ -21,6 +21,7 @@ module kanari_system::multisig {
     use std::vector;
     use kanari_system::bcs;
     use kanari_system::coin::{Self, Coin};
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::event;
     use kanari_system::math;
     use kanari_system::object::{Self, UID};
@@ -45,6 +46,7 @@ module kanari_system::multisig {
     const E_INVALID_PAYLOAD: u64 = 15;
     const E_NOT_EXPIRED: u64 = 16;
     const E_ZERO_AMOUNT: u64 = 17;
+    const E_DENIED: u64 = 18;
 
     // --- Transaction Types ---
     const TX_TYPE_TRANSFER: u8 = 0;
@@ -420,6 +422,22 @@ module kanari_system::multisig {
             executed: _, created_at_ms: _, expires_at_ms: _,
         } = proposal;
         object::delete(id);
+    }
+
+    /// Regulated execution: like `execute_transaction`, but transfer proposals
+    /// additionally abort `E_DENIED` when the recipient is on `deny`.
+    /// Non-transfer proposals ignore the list. Use this entry point whenever
+    /// the wallet custodies a regulated coin.
+    public fun execute_transfer_checked<T>(
+        wallet: &mut MultisigWallet<T>,
+        proposal: TransactionProposal,
+        deny: &DenyList,
+        ctx: &mut TxContext,
+    ) {
+        if (proposal.tx_type == TX_TYPE_TRANSFER) {
+            assert!(!deny_list::contains(deny, proposal.target_address), E_DENIED);
+        };
+        execute_transaction(wallet, proposal, ctx);
     }
 
     // --- Read API ---
@@ -920,5 +938,65 @@ module kanari_system::multisig {
         destroy_proposal(p);
         destroy_wallet(wallet);
         destroy_cap(cap, meta);
+    }
+
+    #[test_only]
+    fun setup_regulated_wallet(
+        owners: vector<address>,
+        threshold: u64,
+        fund_amount: u64,
+        ctx: &mut TxContext,
+    ): (
+        MultisigWallet<TestCoin>,
+        coin::TreasuryCap<TestCoin>,
+        deny_list::DenyCap<TestCoin>,
+        deny_list::DenyList,
+        coin::CoinMetadata<TestCoin>,
+    ) {
+        let (cap, denycap, meta) = coin::create_regulated_currency(
+            TestCoin {},
+            6,
+            b"REG",
+            b"Regulated",
+            b"multisig regulated tests",
+            std::option::none(),
+            ctx,
+        );
+        let funds = coin::mint(&mut cap, fund_amount, ctx);
+        let wallet = create_wallet(owners, threshold, funds, ctx);
+        let deny = deny_list::new_denylist();
+        (wallet, cap, denycap, deny, meta)
+    }
+
+    #[test]
+    fun test_regulated_execute_allowed() {
+        let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, denycap, deny, meta) =
+            setup_regulated_wallet(owners1(), 1, 1_000, &mut ctx1);
+        deny_list::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
+        let p = propose_transfer(
+            &wallet, @0xCAFE, 100, string::utf8(b"ok"), 60_000, &mut ctx1,
+        );
+        execute_transfer_checked(&mut wallet, p, &deny, &mut ctx1);
+        assert!(balance(&wallet) == 900, 0);
+        destroy_wallet(wallet);
+        destroy_cap(cap, meta);
+        transfer::public_freeze_object(denycap);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_DENIED)]
+    fun test_regulated_execute_denied() {
+        let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, denycap, deny, meta) =
+            setup_regulated_wallet(owners1(), 1, 1_000, &mut ctx1);
+        deny_list::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
+        let p = propose_transfer(
+            &wallet, @0xBAD, 100, string::utf8(b"no"), 60_000, &mut ctx1,
+        );
+        execute_transfer_checked(&mut wallet, p, &deny, &mut ctx1);
+        destroy_wallet(wallet);
+        destroy_cap(cap, meta);
+        transfer::public_freeze_object(denycap);
     }
 }

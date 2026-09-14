@@ -5,11 +5,13 @@
 /// Uses proper address types with validation
 module kanari_system::transfer {
     use std::vector;
+    use kanari_system::math;
     use kanari_system::object::UID;
 
     /// Error codes
     const ERR_INVALID_AMOUNT: u64 = 1;
     const ERR_SAME_ADDRESS: u64 = 2;
+    const ERR_OVERFLOW: u64 = 3;
 
     /// Transfer record
     struct Transfer has copy, drop {
@@ -48,18 +50,20 @@ module kanari_system::transfer {
         transfer.to
     }
 
-    /// Calculate total from multiple transfers
+    /// Calculate total from multiple transfers.
+    /// Aborts `ERR_OVERFLOW` instead of a generic arithmetic error.
     public fun total_amount(transfers: &vector<Transfer>): u64 {
         let total = 0u64;
         let len = vector::length(transfers);
         let i = 0u64;
-        
+
         while (i < len) {
             let transfer = vector::borrow(transfers, i);
+            assert!(transfer.amount <= math::max_u64_value() - total, ERR_OVERFLOW);
             total = total + transfer.amount;
             i = i + 1;
         };
-        
+
         total
     }
 
@@ -110,6 +114,15 @@ module kanari_system::transfer {
         vector::push_back(&mut transfers, create_transfer(@0x3, @0x4, 300));
         
         assert!(total_amount(&transfers) == 600, 0);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = ERR_OVERFLOW)]
+    fun test_total_amount_overflow() {
+        let transfers = vector::empty<Transfer>();
+        vector::push_back(&mut transfers, create_transfer(@0x1, @0x2, 18446744073709551615));
+        vector::push_back(&mut transfers, create_transfer(@0x2, @0x3, 1));
+        total_amount(&transfers);
     }
 
     #[test]

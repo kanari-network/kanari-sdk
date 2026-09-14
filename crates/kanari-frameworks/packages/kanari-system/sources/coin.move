@@ -25,6 +25,16 @@ module kanari_system::coin {
     const EUNDERFLOW: u64 = 5;
     /// Invalid decimal count.
     const EINVALID_DECIMALS: u64 = 6;
+    /// Split fan-out exceeds the per-call object cap.
+    const ETOO_MANY_PARTS: u64 = 7;
+
+    /// Maximum coins one `divide_into_n` call may create. Bounds object
+    /// creation per call even when transaction gas accounting is permissive;
+    /// large airdrops should batch across transactions.
+    const MAX_SPLIT_PARTS: u64 = 1024;
+
+    /// The per-call split fan-out cap (see `MAX_SPLIT_PARTS`).
+    public fun max_split_parts(): u64 { MAX_SPLIT_PARTS }
 
     // --- Data Structures ---
 
@@ -154,17 +164,21 @@ module kanari_system::coin {
 
     /// Burn coins, decreasing total supply
     public fun burn<T>(cap: &mut TreasuryCap<T>, coin: Coin<T>): u64 {
-        let Coin { id: _, balance } = coin;
+        let Coin { id, balance } = coin;
         let value = kanari_system::balance::destroy<T>(balance);
         assert!(cap.total_supply >= value, EUNDERFLOW);
         cap.total_supply = cap.total_supply - value;
         object::save_object(cap);
+        // Burned coins must vanish from storage; dropping the UID would leak
+        // the object entry.
+        object::delete(id);
         value
     }
 
     /// Convert a `Coin<T>` into its inner `Balance<T>`.
     public fun into_balance<T>(coin: Coin<T>): Balance<T> {
-        let Coin { id: _, balance } = coin;
+        let Coin { id, balance } = coin;
+        object::delete(id);
         balance
     }
 
@@ -205,10 +219,12 @@ module kanari_system::coin {
     }
 
     /// Join two coins together (adds the balance of 'other' into 'coin').
+    /// The absorbed coin's object is deleted from storage.
     public fun join<T>(coin: &mut Coin<T>, other: Coin<T>) {
-        let Coin { id: _, balance } = other;
+        let Coin { id, balance } = other;
         kanari_system::balance::merge(&mut coin.balance, balance);
         object::save_object(coin);
+        object::delete(id);
     }
 
     /// Entry wrapper for joining two coin objects owned by the sender.
@@ -219,9 +235,10 @@ module kanari_system::coin {
     /// Destroy a zero-balance coin. This function can only be called on coins with 0 balance.
     /// Useful for cleaning up empty coin objects to save storage.
     public fun destroy_zero<T>(coin: Coin<T>) {
-        let Coin { id: _, balance } = coin;
+        let Coin { id, balance } = coin;
         assert!(kanari_system::balance::value(&balance) == 0, EZERO_AMOUNT);
         kanari_system::balance::destroy<T>(balance);
+        object::delete(id);
     }
 
 
@@ -231,6 +248,7 @@ module kanari_system::coin {
         self: &mut Coin<T>, n: u64, ctx: &mut TxContext
     ): vector<Coin<T>> {
         assert!(n > 0, EInvalidArg);
+        assert!(n <= MAX_SPLIT_PARTS, ETOO_MANY_PARTS);
         assert!(n <= value(self), ENotEnough);
 
         let vec = vector::empty<Coin<T>>();

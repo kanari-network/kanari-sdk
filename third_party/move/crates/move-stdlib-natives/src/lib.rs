@@ -81,6 +81,8 @@ impl GasParameters {
             },
             signer: signer::GasParameters {
                 borrow_address: signer::BorrowAddressGasParameters { base: 0.into() },
+                address_to_bytes: signer::AddressToBytesGasParameters { base: 0.into() },
+                address_to_u64: signer::AddressToU64GasParameters { base: 0.into() },
             },
             string: string::GasParameters {
                 check_utf8: string::CheckUtf8GasParameters {
