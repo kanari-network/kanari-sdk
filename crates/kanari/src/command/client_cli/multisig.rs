@@ -484,7 +484,7 @@ async fn resolve_coin_arg(
         );
         return Ok(picked.id);
     }
-    Ok(normalize_addr(coin_arg)?)
+    normalize_addr(coin_arg)
 }
 
 /// An object used by a multisig entry call, with the mutability the Move

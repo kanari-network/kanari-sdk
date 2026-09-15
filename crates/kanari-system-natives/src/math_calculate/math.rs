@@ -1237,13 +1237,12 @@ mod tests {
                 assert!(sq <= n, "isqrt low bound failed");
                 // n < (s+1)^2: an overflowing square also proves the bound
                 // (it means (s+1)^2 >= 2^256 > n).
-                match s
+                if let Some(hi) = s
                     .checked_add(P256::one())
                     .unwrap()
                     .checked_mul(s.checked_add(P256::one()).unwrap())
                 {
-                    Some(hi) => assert!(n < hi, "isqrt high bound failed"),
-                    None => {}
+                    assert!(n < hi, "isqrt high bound failed");
                 }
             }
         }
@@ -1266,7 +1265,7 @@ mod tests {
             for _ in 0..ITERS {
                 let (x, y) = (rng.next_u128(), rng.next_u128());
                 // z == 0 half the time to cover div-by-zero agreement.
-                let z = if rng.next_u64() % 2 == 0 {
+                let z = if rng.next_u64().is_multiple_of(2) {
                     0
                 } else {
                     rng.next_u128()
