@@ -100,11 +100,11 @@ module kanari_system::transfer {
     /// Internal transfer that extracts UID for tracking
     native fun transfer_with_uid<T: key + store>(obj: T, recipient: address);
 
-    /// Share an object by returning it instead of transferring
-    /// The caller should handle storage. This is a workaround for object tracking.
-    public fun share_object<T: store>(obj: T): T {
-        obj
-    }
+    /// Share an object: anyone can use it as a mutable transaction input.
+    /// Unlike `freeze_object` (immutable forever), shared objects stay
+    /// mutable but lose single-owner control — the Sui `share_object` model.
+    /// The object must have `key` and `store`.
+    public native fun share_object<T: key + store>(obj: T);
 
     #[test]
     fun test_total_amount() {

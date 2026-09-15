@@ -69,6 +69,8 @@ impl super::MoveRuntime {
                 .unwrap_or_else(|| {
                     if obj.is_frozen {
                         kanari_types::transaction::ObjectOwnerKind::Immutable
+                    } else if obj.is_shared {
+                        kanari_types::transaction::ObjectOwnerKind::Shared
                     } else {
                         kanari_types::transaction::ObjectOwnerKind::AddressOwner(
                             owner.to_hex_literal(),
