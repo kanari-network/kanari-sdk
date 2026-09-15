@@ -46,6 +46,8 @@ mod tests {
         assert_eq!(params.ed25519_dilithium3_verify, 0.into());
         assert_eq!(params.k256_dilithium3_verify, 0.into());
         assert_eq!(params.rs256_verify, 0.into());
+        assert_eq!(params.zklogin_verify, 0.into());
+        assert_eq!(params.zklogin_proof_verify, 0.into());
     }
 
     #[test]

@@ -1,13 +1,16 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// zkLogin (Sui-style) without the ZK proof — Phase 3b.
+/// zkLogin (Sui-style) — Phase 3b (linkable JWT path) + Phase 3c (private
+/// Groth16 path).
 ///
-/// Verifies: ephemeral Ed25519 signature + JWT RS256 against a JWK +
-/// claim binding (iss/aud/exp/nonce). `sub` and `salt` are visible inputs,
-/// so this does NOT hide the user identity from the chain (that needs the
-/// Groth16 circuit, Phase 3c). Use it where Google-login UX matters more
-/// than unlinkability.
+/// - `verify` / `verify_session`: ephemeral Ed25519 signature + JWT RS256
+///   against a JWK + claim binding (iss/aud/exp/nonce). `sub` and `salt`
+///   are visible inputs — simple Google-login UX, but linkable.
+/// - `verify_proof` / `verify_private_session`: BN254 Groth16 proof against
+///   a caller-supplied verifying key + public inputs. When the circuit keeps
+///   `sub`/`salt` private, the chain learns nothing linkable beyond the
+///   public inputs (e.g. the derived address).
 module kanari_system::zklogin {
     use std::vector;
 
@@ -26,6 +29,9 @@ module kanari_system::zklogin {
     #[allow(unused_const)]
     /// JWT expired.
     const E_EXPIRED: u64 = 5;
+    #[allow(unused_const)]
+    /// Groth16 verifying key / proof malformed.
+    const E_INVALID_PROOF: u64 = 6;
 
     const EPHEMERAL_PUBKEY_LENGTH: u64 = 32;
     const EPHEMERAL_SIG_LENGTH: u64 = 64;
@@ -110,6 +116,43 @@ module kanari_system::zklogin {
         randomness: &vector<u8>,
     ): bool;
 
+    /// BN254 Groth16 proof check (Phase 3c, non-aborting).
+    ///
+    /// `vk_bytes`: compressed `VerifyingKey<Bn254>`; `public_inputs_bytes`:
+    /// concatenated 32-byte big-endian field elements; `proof_bytes`:
+    /// compressed `Proof<Bn254>`. No `sub`/`salt`/JWT crosses this boundary,
+    /// so a circuit that keeps them private gives real unlinkability.
+    /// Aborts `E_INVALID_PROOF` on empty/malformed key or proof.
+    public fun verify_proof(
+        vk_bytes: &vector<u8>,
+        public_inputs_bytes: &vector<u8>,
+        proof_bytes: &vector<u8>,
+    ): bool {
+        assert!(vector::length(vk_bytes) > 0, E_INVALID_PROOF);
+        assert!(vector::length(proof_bytes) > 0, E_INVALID_PROOF);
+        native_verify_proof(vk_bytes, public_inputs_bytes, proof_bytes)
+    }
+
+    native fun native_verify_proof(
+        vk_bytes: &vector<u8>,
+        public_inputs_bytes: &vector<u8>,
+        proof_bytes: &vector<u8>,
+    ): bool;
+
+    /// Private session check: Groth16 proof valid AND ephemeral sig valid.
+    /// The JWT-private counterpart of `verify_session`.
+    public fun verify_private_session(
+        vk_bytes: &vector<u8>,
+        public_inputs_bytes: &vector<u8>,
+        proof_bytes: &vector<u8>,
+        ephemeral_pubkey: &vector<u8>,
+        msg: &vector<u8>,
+        ephemeral_sig: &vector<u8>,
+    ): bool {
+        verify_proof(vk_bytes, public_inputs_bytes, proof_bytes)
+            && verify_ephemeral(ephemeral_pubkey, msg, ephemeral_sig)
+    }
+
     /// Full session check: JWT valid AND nonce bound AND ephemeral sig valid.
     /// One call for login gates.
     public fun verify_session(
@@ -142,6 +185,13 @@ module kanari_system::zklogin {
     fun test_rejects_bad_pubkey_length() {
         // 1-byte key aborts in the Move length guard.
         verify_ephemeral(&x"00", &b"m", &x"00");
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_INVALID_PROOF)]
+    fun test_rejects_empty_proof() {
+        // Empty VK aborts in the Move length guard before the native.
+        verify_proof(&x"", &x"", &x"00");
     }
 
     #[test]

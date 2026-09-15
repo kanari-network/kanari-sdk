@@ -225,6 +225,14 @@ data-encoding = "2.11.1"                                                        
 # zkLogin (OIDC JWT verification, Sui-style)
 # ============================================================================
 jsonwebtoken = { version = "11.0.0", default-features = false, features = ["rust_crypto"] } # JWT RS256 verify (Phase 3a)
+ark-bn254 = { version = "0.6.0" }                                                           # BN254 pairing curve (Phase 3c Groth16)
+ark-groth16 = { version = "0.6.0" }                                                         # Groth16 verifier (Phase 3c)
+ark-ff = { version = "0.6.0" }                                                              # Field arithmetic (Phase 3c)
+ark-ec = { version = "0.6.0" }                                                              # Curve groups (Phase 3c)
+ark-serialize = { version = "0.6.0" }                                                       # Canonical (de)serialization (Phase 3c)
+ark-relations = { version = "0.6.0" }                                                       # Constraint system (Phase 3c tests/prover)
+ark-snark = { version = "0.6.0" }                                                           # SNARK trait (Phase 3c verifier)
+ark-std = { version = "0.6.0" }                                                             # ark_std::test_rng (Phase 3c tests)
 
 # ============================================================================
 # Time & Date Handling

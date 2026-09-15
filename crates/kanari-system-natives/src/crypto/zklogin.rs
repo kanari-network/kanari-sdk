@@ -1,19 +1,22 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! zkLogin native functions (Phase 3b, no Groth16).
+//! zkLogin native functions (Phase 3b + 3c).
 //!
-//! On-chain verification = ephemeral Ed25519 signature over the tx payload
-//! + JWT RS256 verification against an approved JWK + claim binding
-//! (iss/aud/exp/nonce). The Groth16 proof step (hiding `sub`/`salt` from the
-//! chain) is NOT implemented: `sub` and `salt` are visible inputs here.
-//! That is the documented privacy tradeoff of this phase — full Sui-style
-//! ZK privacy needs the BN254 circuit (Phase 3c).
+//! Two verification paths share the ephemeral Ed25519 session key:
+//! - Phase 3b (linkable): JWT RS256 verification against an approved JWK +
+//!   claim binding (iss/aud/exp/nonce). `sub` and `salt` are visible inputs.
+//! - Phase 3c (private): BN254 Groth16 proof against a caller-supplied
+//!   verifying key + public inputs. Private witnesses (`sub`/`salt`) never
+//!   reach the chain when the circuit keeps them private.
 
 use kanari_crypto::cryptos::verify_ed25519_native;
 use kanari_crypto::signatures::zklogin::{
     JwksDocument, compute_nonce, decode_jwt_claims, derive_zklogin_address, verify_claims_timing,
     verify_jwt_with_jwks,
+};
+use kanari_crypto::signatures::zklogin_proof::{
+    MAX_PROOF_BYTES, MAX_VK_BYTES, verify_groth16_proof,
 };
 
 use move_core_types::gas_algebra::InternalGas;
@@ -36,6 +39,8 @@ pub const E_INVALID_JWK: u64 = 2;
 pub const E_INVALID_EPHEMERAL_SIG: u64 = 3;
 pub const E_CLAIM_MISMATCH: u64 = 4;
 pub const E_EXPIRED: u64 = 5;
+/// Groth16 verifying key / proof malformed (must match zklogin.move).
+pub const E_INVALID_PROOF: u64 = 6;
 
 // Bounds (DoS caps, aligned with other crypto natives)
 pub const MAX_JWT_BYTES: usize = 16 * 1024; // 16 KiB
@@ -197,15 +202,54 @@ fn make_check_nonce_native(gas_cost: InternalGas) -> NativeFunction {
     )
 }
 
+/// `zklogin::verify_proof(vk_bytes, public_inputs_bytes, proof_bytes) -> bool`
+/// BN254 Groth16 check (Phase 3c). Non-aborting: `false` for a well-formed
+/// but unsatisfying proof; aborts `E_INVALID_PROOF` on malformed input.
+fn make_verify_proof_native(gas_cost: InternalGas) -> NativeFunction {
+    make_native(
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+            use move_vm_types::natives::function::NativeResult as NR;
+            native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
+
+            let proof_ref: VectorRef = pop_arg!(arguments, VectorRef);
+            let inputs_ref: VectorRef = pop_arg!(arguments, VectorRef);
+            let vk_ref: VectorRef = pop_arg!(arguments, VectorRef);
+            let vk_bytes = vk_ref.as_bytes_ref().to_vec();
+            let inputs_bytes = inputs_ref.as_bytes_ref().to_vec();
+            let proof_bytes = proof_ref.as_bytes_ref().to_vec();
+            if vk_bytes.len() > MAX_VK_BYTES || proof_bytes.len() > MAX_PROOF_BYTES {
+                return Ok(err(E_INVALID_PROOF, context));
+            }
+            // Panic catcher: arkworks deserialization is fallible, but a
+            // native must never unwind into the VM.
+            let verified = std::panic::catch_unwind(|| {
+                verify_groth16_proof(&vk_bytes, &inputs_bytes, &proof_bytes)
+            });
+            match verified {
+                Ok(Ok(valid)) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(valid)])),
+                Ok(Err(e)) => {
+                    use kanari_crypto::signatures::SignatureError;
+                    match e {
+                        SignatureError::InvalidFormat(_) => Ok(err(E_INVALID_PROOF, context)),
+                        // Well-formed inputs that fail inside the SNARK: not
+                        // attributable to the caller, report `false`.
+                        _ => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)])),
+                    }
+                }
+                Err(_) => Ok(err(E_INVALID_PROOF, context)),
+            }
+        },
+    )
+}
+
 /// Creates the zklogin native functions iterator.
 pub fn make_zklogin_natives(
     gas_cost: InternalGas,
+    proof_gas_cost: InternalGas,
 ) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = vec![
-        (
-            "native_verify".to_string(),
-            make_verify_native(gas_cost),
-        ),
+        ("native_verify".to_string(), make_verify_native(gas_cost)),
         (
             "native_verify_ephemeral".to_string(),
             make_verify_ephemeral_native(gas_cost),
@@ -217,6 +261,10 @@ pub fn make_zklogin_natives(
         (
             "native_check_nonce".to_string(),
             make_check_nonce_native(gas_cost),
+        ),
+        (
+            "native_verify_proof".to_string(),
+            make_verify_proof_native(proof_gas_cost),
         ),
     ];
 
@@ -234,11 +282,14 @@ mod tests {
         assert_eq!(super::E_INVALID_EPHEMERAL_SIG, 3);
         assert_eq!(E_CLAIM_MISMATCH, 4);
         assert_eq!(E_EXPIRED, 5);
+        assert_eq!(E_INVALID_PROOF, 6);
     }
 
     #[test]
     fn bounds_are_sane() {
         assert_eq!(MAX_JWT_BYTES, 16 * 1024);
         assert_eq!(MAX_JWKS_BYTES, 64 * 1024);
+        assert_eq!(MAX_VK_BYTES, 32 * 1024);
+        assert_eq!(MAX_PROOF_BYTES, 1024);
     }
 }

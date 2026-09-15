@@ -60,6 +60,7 @@ pub struct GasParameters {
     pub k256_dilithium3_verify: InternalGas,
     pub rs256_verify: InternalGas,
     pub zklogin_verify: InternalGas,
+    pub zklogin_proof_verify: InternalGas,
 }
 
 impl GasParameters {
@@ -80,6 +81,7 @@ impl GasParameters {
             k256_dilithium3_verify: 0.into(),
             rs256_verify: 0.into(),
             zklogin_verify: 0.into(),
+            zklogin_proof_verify: 0.into(),
         }
     }
 
@@ -132,6 +134,8 @@ impl GasParameters {
             rs256_verify: 9_800.into(),
             // RSA-2048 verify class (jsonwebtoken RS256 + JSON parse).
             zklogin_verify: 9_800.into(),
+            // BN254 pairing class (~2-4ms): Groth16 proof verification.
+            zklogin_proof_verify: 28_000.into(),
         }
     }
 }
@@ -224,5 +228,5 @@ pub fn make_rs256(
 pub fn make_zklogin(
     gas_params: GasParameters,
 ) -> impl Iterator<Item = (String, move_vm_runtime::native_functions::NativeFunction)> {
-    zklogin::make_zklogin_natives(gas_params.zklogin_verify)
+    zklogin::make_zklogin_natives(gas_params.zklogin_verify, gas_params.zklogin_proof_verify)
 }
