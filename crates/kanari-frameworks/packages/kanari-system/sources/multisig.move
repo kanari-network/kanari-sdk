@@ -447,35 +447,51 @@ module kanari_system::multisig {
     // (resolved to refs by the runtime) so every step of the wallet flow is
     // drivable from `kanari multisig ...` / `kanari call ...`.
 
-    /// Create a wallet from a funded coin object. Consumes the coin object.
+    /// Create a wallet funded with `amount` drawn from a coin object you
+    /// own. The coin stays in your wallet: `amount` is split off into the
+    /// new multisig wallet, the remainder is saved back. Pass the coin's
+    /// 32-byte object ID as `funds_id` (declared in `object_inputs`).
     public entry fun create_wallet_entry<T>(
         owners: vector<address>,
         threshold: u64,
-        initial_funds: Coin<T>,
+        funds_id: address,
+        amount: u64,
         ctx: &mut TxContext,
     ) {
+        let source = object::borrow_global_mut<Coin<T>>(funds_id);
+        let initial_funds = coin::split(source, amount, ctx);
+        object::save_object(source);
         let wallet = create_wallet(owners, threshold, initial_funds, ctx);
         transfer::public_transfer(wallet, tx_context::sender(ctx));
     }
 
-    /// Top up the wallet. Consumes the deposited coin object.
+    /// Top up the wallet by splitting `amount` off a coin you own.
     public entry fun deposit_entry<T>(
         wallet: &mut MultisigWallet<T>,
-        funds: Coin<T>,
-        ctx: &TxContext,
+        funds_id: address,
+        amount: u64,
+        ctx: &mut TxContext,
     ) {
+        let source = object::borrow_global_mut<Coin<T>>(funds_id);
+        let funds = coin::split(source, amount, ctx);
+        object::save_object(source);
         deposit(wallet, funds, ctx);
     }
 
     /// Propose a transfer. The proposal object goes to the proposer.
+    ///
+    /// Objects arrive by ID and are borrowed inside (the runtime's escrow
+    /// pattern): entry params that are object refs cannot be bound from raw
+    /// address args, so every entry below takes IDs and borrows.
     public entry fun propose_transfer_entry<T>(
-        wallet: &MultisigWallet<T>,
+        wallet_id: address,
         target_address: address,
         amount: u64,
         description: vector<u8>,
         ttl_ms: u64,
         ctx: &mut TxContext,
     ) {
+        let wallet = object::borrow_global<MultisigWallet<T>>(wallet_id);
         let proposal = propose_transfer(
             wallet,
             target_address,
@@ -489,29 +505,118 @@ module kanari_system::multisig {
 
     /// Approve someone else's proposal (proposer auto-approved at creation).
     public entry fun approve_entry<T>(
-        wallet: &MultisigWallet<T>,
+        wallet_id: address,
+        proposal_id: address,
+        ctx: &mut TxContext,
+    ) {
+        let wallet = object::borrow_global<MultisigWallet<T>>(wallet_id);
+        let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
+        approve_transaction(wallet, proposal, ctx);
+        // Persist the new approval: without this the borrowed mutation only
+        // lives in the VM writeback set for tracked borrows and the second
+        // approval is lost on commit.
+        object::save_object(proposal);
+    }
+
+    /// Execute a proposal whose threshold is met. Marks the proposal executed
+    /// (tombstone) instead of deleting it: entry functions cannot move a
+    /// stored object by value, and the flag blocks any re-execution.
+    public entry fun execute_entry<T>(
+        wallet_id: address,
+        proposal_id: address,
+        ctx: &mut TxContext,
+    ) {
+        let wallet = object::borrow_global_mut<MultisigWallet<T>>(wallet_id);
+        let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
+        execute_borrowed(wallet, proposal, ctx);
+        object::save_object(wallet);
+        object::save_object(proposal);
+    }
+
+    /// Cancel your own live proposal. Tombstones like `execute_entry`.
+    public entry fun cancel_entry<T>(
+        wallet_id: address,
+        proposal_id: address,
+        ctx: &TxContext,
+    ) {
+        let wallet = object::borrow_global<MultisigWallet<T>>(wallet_id);
+        let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
+        cancel_borrowed(wallet, proposal, ctx);
+        object::save_object(proposal);
+    }
+
+    /// Borrowed-ref variant of `execute_transaction` for entry calls.
+    /// Same checks and effects; tombstones instead of deleting.
+    fun execute_borrowed<T>(
+        wallet: &mut MultisigWallet<T>,
         proposal: &mut TransactionProposal,
         ctx: &mut TxContext,
     ) {
-        approve_transaction(wallet, proposal, ctx);
+        let sender = tx_context::sender(ctx);
+        assert_bound(wallet, proposal);
+        assert!(is_owner(wallet, sender), E_NOT_OWNER);
+        assert!(!proposal.executed, E_TRANSACTION_ALREADY_EXECUTED);
+        assert!(!is_expired(proposal, ctx), E_PROPOSAL_EXPIRED);
+        assert!(has_enough_approvals(wallet, proposal), E_THRESHOLD_NOT_MET);
+
+        let wallet_id = wallet_address(wallet);
+        let proposal_id = object::id_to_address(&object::uid_to_inner(&proposal.id));
+
+        if (proposal.tx_type == TX_TYPE_TRANSFER) {
+            let amount = proposal.amount;
+            assert!(amount > 0, E_ZERO_AMOUNT);
+            assert!(coin::value(&wallet.funds) >= amount, E_INSUFFICIENT_BALANCE);
+            let out = coin::split(&mut wallet.funds, amount, ctx);
+            transfer::public_transfer(out, proposal.target_address);
+        } else if (proposal.tx_type == TX_TYPE_ADD_OWNER) {
+            let new_owner = proposal.target_address;
+            assert!(!is_owner(wallet, new_owner), E_ALREADY_OWNER);
+            vector::push_back(&mut wallet.owners, new_owner);
+            event::emit(OwnerChangedEvent { wallet_id, action: 0, owner: new_owner });
+        } else if (proposal.tx_type == TX_TYPE_REMOVE_OWNER) {
+            let doomed = proposal.target_address;
+            assert!(is_owner(wallet, doomed), E_OWNER_NOT_FOUND);
+            assert!(vector::length(&wallet.owners) > 1, E_CANNOT_REMOVE_LAST_OWNER);
+            remove_owner_addr(&mut wallet.owners, doomed);
+            assert!(owner_count(wallet) >= wallet.threshold, E_INVALID_THRESHOLD);
+            event::emit(OwnerChangedEvent { wallet_id, action: 1, owner: doomed });
+        } else if (proposal.tx_type == TX_TYPE_CHANGE_THRESHOLD) {
+            let new_threshold = decode_threshold(&proposal.payload);
+            assert!(new_threshold > 0, E_INVALID_THRESHOLD);
+            assert!(new_threshold <= owner_count(wallet), E_INVALID_THRESHOLD);
+            let old = wallet.threshold;
+            wallet.threshold = new_threshold;
+            event::emit(ThresholdChangedEvent {
+                wallet_id, old_threshold: old, new_threshold,
+            });
+        } else {
+            abort E_INVALID_TRANSACTION_TYPE
+        };
+
+        wallet.transaction_count = wallet.transaction_count + 1;
+        proposal.executed = true;
+        event::emit(TransactionExecutedEvent {
+            wallet_id, transaction_id: proposal_id, executor: sender,
+        });
     }
 
-    /// Execute a proposal whose threshold is met. Consumes the proposal.
-    public entry fun execute_entry<T>(
-        wallet: &mut MultisigWallet<T>,
-        proposal: TransactionProposal,
-        ctx: &mut TxContext,
-    ) {
-        execute_transaction(wallet, proposal, ctx);
-    }
-
-    /// Cancel your own live proposal. Consumes the proposal.
-    public entry fun cancel_entry<T>(
+    /// Borrowed-ref variant of `cancel_proposal` for entry calls.
+    fun cancel_borrowed<T>(
         wallet: &MultisigWallet<T>,
-        proposal: TransactionProposal,
+        proposal: &mut TransactionProposal,
         ctx: &TxContext,
     ) {
-        cancel_proposal(wallet, proposal, ctx);
+        let sender = tx_context::sender(ctx);
+        assert_bound(wallet, proposal);
+        assert!(sender == proposal.proposer, E_NOT_PROPOSER);
+        assert!(!proposal.executed, E_TRANSACTION_ALREADY_EXECUTED);
+
+        proposal.executed = true;
+        event::emit(ProposalCancelledEvent {
+            wallet_id: wallet_address(wallet),
+            transaction_id: object::id_to_address(&object::uid_to_inner(&proposal.id)),
+            canceller: sender,
+        });
     }
 
     // --- Read API ---

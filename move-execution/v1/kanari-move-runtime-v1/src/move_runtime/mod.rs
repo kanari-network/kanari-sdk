@@ -1617,7 +1617,17 @@ impl MoveRuntime {
                     if let Some(stored_obj) =
                         self.get_object_for_execution(&object_id, state_overlay.as_deref())?
                     {
-                        if !bound_from_explicit_input && let Some(s_addr) = sender {
+                        // Raw address args (not declared in object_inputs) may
+                        // only touch sender-owned / system / zero-address
+                        // objects. Objects declared explicitly in object_inputs
+                        // opted into dependency tracking, so cross-owner reads
+                        // (e.g. a co-owner approving a multisig proposal) are
+                        // allowed here — Move-level authorization (is_owner,
+                        // capability checks) still applies inside the called
+                        // function.
+                        let declared_explicitly =
+                            bound_from_explicit_input || explicit_object_ids.contains(&object_id);
+                        if !declared_explicitly && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
                             if stored_obj.owner != s_addr

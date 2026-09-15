@@ -340,6 +340,16 @@ impl RpcClient {
             .await?;
 
         let result = response.result.context("No result in response")?;
+        // Preview failures carry the VM abort in `error_message`/`effects`;
+        // surface it so callers don't get a bare "failed" status.
+        if result["success"].as_bool() == Some(false)
+            && let Some(msg) = result
+                .get("error_message")
+                .and_then(|m| m.as_str())
+                .filter(|m| !m.is_empty())
+        {
+            anyhow::bail!("Preview failed: {}", msg);
+        }
 
         let status = TransactionStatus {
             hash: result["hash"]
