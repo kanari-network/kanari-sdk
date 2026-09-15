@@ -88,16 +88,18 @@ fn make_verify_native(gas_cost: InternalGas) -> NativeFunction {
             // Panic catcher: jsonwebtoken contains no panic paths we know of,
             // but a native must never unwind into the VM.
             let verified = std::panic::catch_unwind(|| {
-                verify_jwt_with_jwks(jwt_str, &jwks, iss_str, aud_str, now_ref)
+                verify_jwt_with_jwks(jwt_str, &jwks, iss_str, aud_str, None, now_ref)
             });
             match verified {
                 Ok(Ok(_)) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true)])),
                 Ok(Err(e)) => {
                     use kanari_crypto::signatures::SignatureError;
+                    // Each failure maps to exactly one code: bad signature
+                    // and expiry are distinguishable on-chain.
                     let code = match e {
                         SignatureError::InvalidFormat(_) => E_INVALID_JWT,
                         SignatureError::InvalidPublicKey(_) => E_CLAIM_MISMATCH,
-                        SignatureError::VerificationFailed => E_EXPIRED,
+                        SignatureError::Expired => E_EXPIRED,
                         _ => E_INVALID_JWT,
                     };
                     Ok(err(code, context))

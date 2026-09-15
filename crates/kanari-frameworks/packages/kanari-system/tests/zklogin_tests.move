@@ -66,11 +66,17 @@ module kanari_system::zklogin_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 5)]
+    #[expected_failure(abort_code = 1)]
     fun test_verify_jwt_wrong_aud_aborts() {
-        // NOTE: native maps signature/aud failures to E_EXPIRED(5), not
-        // E_CLAIM_MISMATCH — locked here so any change is deliberate.
+        // Bad signature/audience => E_INVALID_JWT(1); expiry alone => 5.
         zklogin::verify(&jwt(), &jwks(), &iss(), &b"someone-else", NOW);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 5)]
+    fun test_verify_jwt_expired_aborts() {
+        // Fixture exp is 2000000000; far-future `now` trips E_EXPIRED only.
+        zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), 2000000100);
     }
 
     #[test]

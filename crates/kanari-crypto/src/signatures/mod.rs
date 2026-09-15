@@ -66,6 +66,9 @@ pub enum SignatureError {
     #[error("Signature verification failed")]
     VerificationFailed,
 
+    #[error("Token expired")]
+    Expired,
+
     #[error("Invalid signature length")]
     InvalidSignatureLength,
 }

@@ -100,13 +100,16 @@ pub fn verify_zklogin_authenticator(
     EphemeralKeypair::verify(&auth.ephemeral_pubkey, tx_hash, &auth.ephemeral_sig)?;
     match &auth.kind {
         ZkAuthKind::Jwt(jwt) => {
-            let claims = verify_jwt_with_jwks(&jwt.jwt, &jwt.jwks, &jwt.iss, &jwt.aud, now_secs)?;
             // Nonce must bind THIS session key (not just any valid login).
             let expected = compute_nonce(&auth.ephemeral_pubkey, auth.max_epoch, &jwt.randomness);
-            match &claims.nonce {
-                Some(n) if *n == expected => {}
-                _ => return Err(SignatureError::VerificationFailed),
-            }
+            let claims = verify_jwt_with_jwks(
+                &jwt.jwt,
+                &jwt.jwks,
+                &jwt.iss,
+                &jwt.aud,
+                Some(expected.as_str()),
+                now_secs,
+            )?;
             let address = derive_zklogin_address_v2(&claims.iss, &jwt.aud, &claims.sub, &jwt.salt)?;
             Ok(VerifiedZkLogin {
                 address,

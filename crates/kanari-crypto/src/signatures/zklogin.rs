@@ -33,9 +33,6 @@ pub const ISS_FACEBOOK: &str = "https://www.facebook.com";
 pub const ISS_TWITCH: &str = "https://id.twitch.tv/oauth2";
 pub const ISS_KAKAO: &str = "https://kauth.kakao.com";
 
-/// Domain separator for zkLogin address derivation (Sui: `"zkLogin"`).
-pub const ZKLOGIN_ADDRESS_SEED: &[u8] = b"zkLogin";
-
 /// Minimal JWT payload claims needed for zkLogin.
 #[derive(Debug, Clone, Deserialize)]
 pub struct JwtClaims {
@@ -98,44 +95,6 @@ pub fn decode_jwt_claims(jwt: &str) -> Result<JwtClaims, SignatureError> {
         .map_err(|_| SignatureError::InvalidFormat("JWT payload is not base64url".to_string()))?;
     serde_json::from_slice::<JwtClaims>(&bytes)
         .map_err(|e| SignatureError::InvalidFormat(format!("JWT payload is not valid claims: {e}")))
-}
-
-/// Sui-compatible zkLogin address derivation:
-/// `address = SHA256("zkLogin" || iss_len || iss || aud_len || aud || sub_len || sub || salt)`,
-/// truncated to the first 32 bytes (already 32) rendered as `0x`-hex.
-/// Length prefixes are 8-byte big-endian (BCS u64), matching Sui's
-/// `compute_zklogin_address` intent (domain-separated, unambiguous).
-///
-/// LEGACY (v1): variable-length fields make this scheme unprovable in R1CS
-/// (the constraint system needs fixed widths). New code must use
-/// [`derive_zklogin_address_v2`]; this stays for already-issued test
-/// sessions only and will be removed before mainnet.
-pub fn derive_zklogin_address(
-    iss: &str,
-    aud: &str,
-    sub: &str,
-    salt: &[u8],
-) -> Result<String, SignatureError> {
-    use sha2::{Digest, Sha256};
-
-    if iss.is_empty() || aud.is_empty() || sub.is_empty() {
-        return Err(SignatureError::InvalidFormat(
-            "zkLogin iss/aud/sub must all be non-empty".to_string(),
-        ));
-    }
-    if salt.len() != 32 {
-        return Err(SignatureError::InvalidFormat(
-            "zkLogin salt must be exactly 32 bytes".to_string(),
-        ));
-    }
-    let mut h = Sha256::new();
-    h.update(ZKLOGIN_ADDRESS_SEED);
-    for part in [iss.as_bytes(), aud.as_bytes(), sub.as_bytes()] {
-        h.update((part.len() as u64).to_be_bytes());
-        h.update(part);
-    }
-    h.update(salt);
-    Ok(format!("0x{}", hex::encode(h.finalize())))
 }
 
 /// Fixed-width caps for the v2 address scheme. Every real-world value fits
@@ -217,13 +176,15 @@ pub fn derive_address_from_claims(
 
 /// Check `exp` against `now_unix_secs` with a clock-skew leeway.
 /// `None` exp fails closed (Sui requires exp in the proof circuit).
+/// Expiry has its own error so callers (and chains) never confuse it with
+/// a bad signature.
 pub fn verify_claims_timing(claims: &JwtClaims, now_unix_secs: u64) -> Result<(), SignatureError> {
     const LEEWAY_SECS: u64 = 60;
     let exp = claims
         .exp
         .ok_or_else(|| SignatureError::InvalidFormat("JWT has no exp claim".to_string()))?;
     if now_unix_secs > exp.saturating_add(LEEWAY_SECS) {
-        return Err(SignatureError::VerificationFailed);
+        return Err(SignatureError::Expired);
     }
     Ok(())
 }
@@ -419,6 +380,9 @@ impl RsaJwk {
 /// 2. RS256 signature verifies with that JWK.
 /// 3. `iss` equals `expected_iss`, `aud` contains `expected_aud`.
 /// 4. `exp` is fresh per `verify_claims_timing` (`now_unix_secs`).
+/// 5. When `expected_nonce` is `Some`, the `nonce` claim must equal it
+///    exactly (missing or different => error). Pass `None` only when the
+///    caller enforces the binding separately (e.g. on-chain `check_nonce`).
 ///
 /// `validate_exp = false` in the inner validator because expiry is checked
 /// with our own leeway logic (same instant, single clock read by the caller).
@@ -427,6 +391,7 @@ pub fn verify_jwt_with_jwks(
     jwks: &JwksDocument,
     expected_iss: &str,
     expected_aud: &str,
+    expected_nonce: Option<&str>,
     now_unix_secs: u64,
 ) -> Result<JwtClaims, SignatureError> {
     use jsonwebtoken::Algorithm;
@@ -454,6 +419,12 @@ pub fn verify_jwt_with_jwks(
     let data = jsonwebtoken::decode::<JwtClaims>(jwt, &jwk.decoding_key()?, &validation)
         .map_err(|_| SignatureError::VerificationFailed)?;
     verify_claims_timing(&data.claims, now_unix_secs)?;
+    if let Some(expected) = expected_nonce {
+        match &data.claims.nonce {
+            Some(n) if n == expected => {}
+            _ => return Err(SignatureError::VerificationFailed),
+        }
+    }
     Ok(data.claims)
 }
 
@@ -487,9 +458,6 @@ mod tests {
         // Different sub => different address.
         let c = derive_zklogin_address_v2(ISS_GOOGLE, "client123", "other", &salt).unwrap();
         assert_ne!(a, c);
-        // v1 and v2 are different schemes for the same inputs.
-        let legacy = derive_zklogin_address(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
-        assert_ne!(a, legacy);
     }
 
     #[test]
@@ -579,7 +547,8 @@ mod tests {
             "test-key-1",
             r#"{"iss":"https://accounts.google.com","aud":"client123","sub":"user456","exp":9999999999}"#,
         );
-        let claims = verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "client123", 1_000_000).unwrap();
+        let claims =
+            verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "client123", None, 1_000_000).unwrap();
         assert_eq!(claims.sub, "user456");
     }
 
@@ -605,13 +574,19 @@ mod tests {
         let bad_kid_header =
             general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","kid":"nope","typ":"JWT"}"#);
         let bad_kid = format!("{}.{}.{}", bad_kid_header, parts[1], parts[2]);
-        assert!(verify_jwt_with_jwks(&bad_kid, &jwks, ISS_GOOGLE, "client123", 1_000_000).is_err());
+        assert!(
+            verify_jwt_with_jwks(&bad_kid, &jwks, ISS_GOOGLE, "client123", None, 1_000_000)
+                .is_err()
+        );
         // Tampered signature.
         parts[2] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
         let bad_sig = parts.join(".");
-        assert!(verify_jwt_with_jwks(&bad_sig, &jwks, ISS_GOOGLE, "client123", 1_000_000).is_err());
+        assert!(
+            verify_jwt_with_jwks(&bad_sig, &jwks, ISS_GOOGLE, "client123", None, 1_000_000)
+                .is_err()
+        );
         // Wrong audience.
-        assert!(verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "other", 1_000_000).is_err());
+        assert!(verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "other", None, 1_000_000).is_err());
     }
 
     #[test]

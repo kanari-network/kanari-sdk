@@ -11,13 +11,13 @@
 //! 4. Catch the authorization `code` on `127.0.0.1:<port>` (or paste it).
 //! 5. Exchange code for `id_token`, fetch Google JWKS, verify the JWT.
 //! 6. Fail closed unless the JWT `nonce` equals ours.
-//! 7. `derive_zklogin_address(iss, aud, sub, salt)` + persist the session.
+//! 7. `derive_zklogin_address_v2(iss, aud, sub, salt)` + persist the session.
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use clap::Parser;
 use kanari_crypto::signatures::zklogin::{
-    EphemeralKeypair, ISS_GOOGLE, JwksDocument, compute_nonce, derive_zklogin_address,
+    EphemeralKeypair, ISS_GOOGLE, JwksDocument, compute_nonce, derive_zklogin_address_v2,
     generate_randomness, generate_salt, verify_jwt_with_jwks,
 };
 use sha2::{Digest, Sha256};
@@ -155,17 +155,14 @@ impl Login {
             .json()
             .context("cannot parse Google JWKS")?;
         let now = now_unix_secs()?;
-        let claims = verify_jwt_with_jwks(&id_token, &jwks, ISS_GOOGLE, &client_id, now)
-            .map_err(|e| anyhow::anyhow!("JWT verification failed: {e:?}"))?;
+        // Nonce checked inside (step 6 folded in): fail closed unless the
+        // JWT nonce equals the one bound to THIS session key.
+        let claims =
+            verify_jwt_with_jwks(&id_token, &jwks, ISS_GOOGLE, &client_id, Some(&nonce), now)
+                .map_err(|e| anyhow::anyhow!("JWT verification failed: {e:?}"))?;
 
-        // --- 6. Nonce binding, fail closed ---
-        anyhow::ensure!(
-            claims.nonce.as_deref() == Some(nonce.as_str()),
-            "JWT nonce does not match this login session (wrong account or replayed token?)"
-        );
-
-        // --- 7. Address + session ---
-        let address = derive_zklogin_address(&claims.iss, &client_id, &claims.sub, &salt)
+        // --- 7. Address + session (canonical v2 scheme, matches chain) ---
+        let address = derive_zklogin_address_v2(&claims.iss, &client_id, &claims.sub, &salt)
             .map_err(|e| anyhow::anyhow!("address derivation failed: {e:?}"))?;
         let session = ZkLoginSession {
             version: SESSION_VERSION,
@@ -520,12 +517,12 @@ mod tests {
         // Same iss/aud/salt, different sub => different address. The login
         // flow additionally requires the JWT nonce to equal ours, so a token
         // minted for another session can never yield our address.
-        use kanari_crypto::signatures::zklogin::derive_zklogin_address;
+        use kanari_crypto::signatures::zklogin::derive_zklogin_address_v2;
         let salt = [7u8; 32];
         let a =
-            derive_zklogin_address("https://accounts.google.com", "client123", "user456", &salt)
+            derive_zklogin_address_v2("https://accounts.google.com", "client123", "user456", &salt)
                 .unwrap();
-        let b = derive_zklogin_address(
+        let b = derive_zklogin_address_v2(
             "https://accounts.google.com",
             "client123",
             "attacker",
