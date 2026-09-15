@@ -3407,6 +3407,7 @@ name = "kanari"
 version = "0.2.9"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "bcs",
  "clap",
  "hex",
@@ -3430,7 +3431,9 @@ dependencies = [
  "move-vm-test-utils",
  "reqwest",
  "rpassword",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
 ]
 

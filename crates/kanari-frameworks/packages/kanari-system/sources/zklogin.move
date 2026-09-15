@@ -64,20 +64,24 @@ module kanari_system::zklogin {
     ): bool;
 
     /// Ed25519 check for the ephemeral session key (non-aborting).
+    /// Argument order is (sig, pk, msg): the native pops `msg`, then `pk`,
+    /// then `sig` off the call stack, so the first declared parameter binds
+    /// to the signature. Verified by `test_verify_ephemeral_accepts_fixture`
+    /// with a real vector (swapped order returns false).
     public fun verify_ephemeral(
+        sig: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         msg: &vector<u8>,
-        sig: &vector<u8>,
     ): bool {
         assert!(vector::length(ephemeral_pubkey) == EPHEMERAL_PUBKEY_LENGTH, E_INVALID_EPHEMERAL_SIG);
         assert!(vector::length(sig) == EPHEMERAL_SIG_LENGTH, E_INVALID_EPHEMERAL_SIG);
-        native_verify_ephemeral(ephemeral_pubkey, msg, sig)
+        native_verify_ephemeral(sig, ephemeral_pubkey, msg)
     }
 
     native fun native_verify_ephemeral(
+        sig: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         msg: &vector<u8>,
-        sig: &vector<u8>,
     ): bool;
 
     /// Derive the 32-byte zkLogin address from claims + salt.
@@ -150,7 +154,7 @@ module kanari_system::zklogin {
         ephemeral_sig: &vector<u8>,
     ): bool {
         verify_proof(vk_bytes, public_inputs_bytes, proof_bytes)
-            && verify_ephemeral(ephemeral_pubkey, msg, ephemeral_sig)
+            && verify_ephemeral(ephemeral_sig, ephemeral_pubkey, msg)
     }
 
     /// Full session check: JWT valid AND nonce bound AND ephemeral sig valid.
@@ -169,7 +173,7 @@ module kanari_system::zklogin {
     ): bool {
         verify(jwt, jwks_json, iss, aud, now_secs)
             && check_nonce(jwt, ephemeral_pubkey, max_epoch, randomness)
-            && verify_ephemeral(ephemeral_pubkey, msg, ephemeral_sig)
+            && verify_ephemeral(ephemeral_sig, ephemeral_pubkey, msg)
     }
 
     #[test]

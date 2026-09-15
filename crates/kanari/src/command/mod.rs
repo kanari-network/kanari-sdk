@@ -8,3 +8,4 @@ pub mod keytool_cli;
 pub mod move_cli;
 pub mod rpc_helpers;
 pub mod tx_output;
+pub mod zklogin_cli;

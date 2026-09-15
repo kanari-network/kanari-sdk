@@ -221,6 +221,17 @@ impl EphemeralKeypair {
         self.public
     }
 
+    /// Export the raw 32-byte secret for session persistence (CLI login
+    /// sessions, future transaction signing).
+    ///
+    /// Handle with care: anyone holding these bytes can sign as the
+    /// ephemeral key until `max_epoch`. The CLI stores them with
+    /// owner-only file permissions and warns on every save.
+    #[must_use]
+    pub fn secret_bytes(&self) -> [u8; 32] {
+        *self.secret
+    }
+
     /// Sign a transaction payload with the ephemeral secret.
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
         use ed25519_dalek::Signer as _;
