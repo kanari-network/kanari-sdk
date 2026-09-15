@@ -2,8 +2,12 @@ package com.kanari.kanari_crypto
 
 import com.kanari.kanari_crypto.model.CurveInfoModel
 import com.kanari.kanari_crypto.model.KeyPairModel
+import com.kanari.kanari_crypto.model.ZkLoginClaimsModel
+import com.kanari.kanari_crypto.model.ZkLoginNonceModel
 import uniffi.kanari_kotlin.CurveInfo
 import uniffi.kanari_kotlin.KeyPairData
+import uniffi.kanari_kotlin.ZkLoginClaimsData
+import uniffi.kanari_kotlin.ZkLoginNonceData
 import uniffi.kanari_kotlin.blake3HashApi
 import uniffi.kanari_kotlin.deriveKeypairFromMnemonic as ffiDeriveKeypairFromMnemonic
 import uniffi.kanari_kotlin.deriveKeypairFromPathApi
@@ -106,6 +110,63 @@ object KanariCrypto {
     fun listSupportedCurves(): List<CurveInfoModel> =
         ffiListSupportedCurves().map { it.toModel() }
 
+    // ---- zkLogin (Google OIDC bound to an ephemeral key) ----
+    //
+    // Crypto vectors live in Rust (`kanari_crypto::signatures::zklogin`)
+    // so Kotlin and the chain can never drift. The OAuth browser dance
+    // stays in the app layer; these functions own prepare/verify/derive.
+
+    /** Fresh ephemeral key + randomness + salt bound into an OIDC nonce. */
+    suspend fun zkLoginPrepareNonce(maxEpoch: Long): ZkLoginNonceModel =
+        calculateWithLargeStack {
+            uniffi.kanari_kotlin.zkloginPrepareNonce(maxEpoch.toULong()).toModel()
+        }
+
+    /** Verify an id_token against a provider JWKS (RS256 + iss/aud/exp + nonce). */
+    suspend fun zkLoginVerifyJwt(
+        jwt: String,
+        jwksJson: String,
+        expectedIss: String,
+        expectedAud: String,
+        expectedNonce: String?,
+        nowSecs: Long,
+    ): ZkLoginClaimsModel = calculateWithLargeStack {
+        uniffi.kanari_kotlin.zkloginVerifyJwt(
+            jwt, jwksJson, expectedIss, expectedAud, expectedNonce, nowSecs.toULong()
+        ).toModel()
+    }
+
+    /** Derive the canonical v2 zkLogin address (matches chain + CLI). */
+    suspend fun zkLoginDeriveAddress(
+        iss: String,
+        aud: String,
+        sub: String,
+        salt: ByteArray,
+    ): String = calculateWithLargeStack {
+        require(salt.size == 32) { "salt must be 32 bytes" }
+        uniffi.kanari_kotlin.zkloginDeriveAddress(iss, aud, sub, salt.toUByteList())
+    }
+
+    /** Sign bytes with a 32-byte ephemeral secret from `zkLoginPrepareNonce`. */
+    suspend fun zkLoginSignEphemeral(secret: ByteArray, message: ByteArray): ByteArray =
+        calculateWithLargeStack {
+            require(secret.size == 32) { "ephemeral secret must be 32 bytes" }
+            uniffi.kanari_kotlin.zkloginSignEphemeral(
+                secret.toUByteList(), message.toUByteList()
+            ).toByteArray()
+        }
+
+    /** Verify an ephemeral Ed25519 signature (false = wrong, throw = malformed). */
+    suspend fun zkLoginVerifyEphemeral(
+        pubkey: ByteArray,
+        message: ByteArray,
+        signature: ByteArray,
+    ): Boolean = calculateWithLargeStack {
+        uniffi.kanari_kotlin.zkloginVerifyEphemeral(
+            pubkey.toUByteList(), message.toUByteList(), signature.toUByteList()
+        )
+    }
+
     /**
      * Executes crypto operations on a new thread with a larger stack size.
      * Required for Post-Quantum (PQ) and Hybrid curves (e.g. Dilithium) 
@@ -132,6 +193,25 @@ private fun KeyPairData.toModel(): KeyPairModel =
         taggedAddress = taggedAddress,
         rawPublicKey = rawPublicKey.map { it.toByte() }.toByteArray(),
         curveType = curveType,
+    )
+
+private fun ZkLoginNonceData.toModel(): ZkLoginNonceModel =
+    ZkLoginNonceModel(
+        ephemeralPubkey = ephemeralPubkey.map { it.toByte() }.toByteArray(),
+        ephemeralSecret = ephemeralSecret.map { it.toByte() }.toByteArray(),
+        randomness = randomness.map { it.toByte() }.toByteArray(),
+        salt = salt.map { it.toByte() }.toByteArray(),
+        maxEpoch = maxEpoch.toLong(),
+        nonce = nonce,
+    )
+
+private fun ZkLoginClaimsData.toModel(): ZkLoginClaimsModel =
+    ZkLoginClaimsModel(
+        iss = iss,
+        aud = aud,
+        sub = sub,
+        exp = exp?.toLong(),
+        nonce = nonce,
     )
 
 private fun CurveInfo.toModel(): CurveInfoModel =

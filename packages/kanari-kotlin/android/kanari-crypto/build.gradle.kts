@@ -56,7 +56,7 @@ mavenPublishing {
     coordinates(
         groupId = "io.github.jamesatomc",
         artifactId = "kanari-crypto",
-        version = "0.2.9",
+        version = "0.3.0",
     )
 
     pom {

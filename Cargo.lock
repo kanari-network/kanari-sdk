@@ -3644,6 +3644,7 @@ dependencies = [
  "hex",
  "kanari-crypto",
  "serde",
+ "serde_json",
  "uniffi",
 ]
 
