@@ -57,9 +57,9 @@ impl Sign {
         EphemeralKeypair::verify(&keypair.public_bytes(), &msg, &sig)
             .map_err(|e| anyhow::anyhow!("self-verification failed: {e:?}"))?;
 
-        println!("address: {}", session.address);
-        println!("pubkey:  {}", session.ephemeral_pubkey_hex);
-        println!("sig:     {}", hex::encode(sig));
+        eprintln!("address: {}", session.address);
+        eprintln!("pubkey:  {}", session.ephemeral_pubkey_hex);
+        eprintln!("sig:     {}", hex::encode(sig));
         Ok(())
     }
 }

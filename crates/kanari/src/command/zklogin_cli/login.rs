@@ -269,12 +269,13 @@ fn percent_decode(s: &str) -> String {
     let raw = s.as_bytes();
     let mut i = 0;
     while i < raw.len() {
-        if raw[i] == b'%' && i + 2 < raw.len() {
-            if let (Some(h), Some(l)) = (hex_val(raw[i + 1]), hex_val(raw[i + 2])) {
-                bytes.push(h << 4 | l);
-                i += 3;
-                continue;
-            }
+        if raw[i] == b'%'
+            && i + 2 < raw.len()
+            && let (Some(h), Some(l)) = (hex_val(raw[i + 1]), hex_val(raw[i + 2]))
+        {
+            bytes.push(h << 4 | l);
+            i += 3;
+            continue;
         }
         bytes.push(if raw[i] == b'+' { b' ' } else { raw[i] });
         i += 1;

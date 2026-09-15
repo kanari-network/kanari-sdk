@@ -57,6 +57,8 @@ ark-serialize.workspace = true
 ark-relations.workspace = true
 ark-snark.workspace = true
 ark-std.workspace = true
+ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
+ark-r1cs-std = "0.6.0"
 
 # Memory security
 zeroize.workspace = true

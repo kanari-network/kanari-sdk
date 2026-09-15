@@ -12,8 +12,8 @@
 
 use kanari_crypto::cryptos::verify_ed25519_native;
 use kanari_crypto::signatures::zklogin::{
-    JwksDocument, compute_nonce, decode_jwt_claims, derive_zklogin_address, verify_claims_timing,
-    verify_jwt_with_jwks,
+    JwksDocument, compute_nonce, decode_jwt_claims, derive_zklogin_address_v2,
+    verify_claims_timing, verify_jwt_with_jwks,
 };
 use kanari_crypto::signatures::zklogin_proof::{
     MAX_PROOF_BYTES, MAX_VK_BYTES, verify_groth16_proof,
@@ -157,7 +157,7 @@ fn make_derive_address_native(gas_cost: InternalGas) -> NativeFunction {
             ) else {
                 return Ok(err(E_CLAIM_MISMATCH, context));
             };
-            match derive_zklogin_address(iss, aud, sub, &salt_bytes) {
+            match derive_zklogin_address_v2(iss, aud, sub, &salt_bytes) {
                 Ok(hex_addr) => {
                     let bytes = hex::decode(hex_addr.trim_start_matches("0x")).unwrap_or_default();
                     Ok(NR::ok(

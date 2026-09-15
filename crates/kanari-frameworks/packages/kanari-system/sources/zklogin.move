@@ -32,6 +32,8 @@ module kanari_system::zklogin {
     #[allow(unused_const)]
     /// Groth16 verifying key / proof malformed.
     const E_INVALID_PROOF: u64 = 6;
+    /// Pinned verifying-key hash mismatch.
+    const E_VK_MISMATCH: u64 = 7;
 
     const EPHEMERAL_PUBKEY_LENGTH: u64 = 32;
     const EPHEMERAL_SIG_LENGTH: u64 = 64;
@@ -142,6 +144,23 @@ module kanari_system::zklogin {
         public_inputs_bytes: &vector<u8>,
         proof_bytes: &vector<u8>,
     ): bool;
+
+    /// Pinned-key proof check: aborts unless `sha2_256(vk_bytes)` equals the
+    /// ceremony VK hash the contract trusts, then verifies the proof.
+    /// Deployments hardcode their ceremony hash here (or pass it from a
+    /// versioned config object); proofs against any other VK abort, so a
+    /// locally-generated (toxic-waste) setup can never pass as canonical.
+    public fun verify_pinned_proof(
+        expected_vk_hash: vector<u8>,
+        vk_bytes: vector<u8>,
+        public_inputs_bytes: &vector<u8>,
+        proof_bytes: &vector<u8>,
+    ): bool {
+        assert!(std::vector::length(&expected_vk_hash) == 32, E_VK_MISMATCH);
+        let ok = verify_proof(&vk_bytes, public_inputs_bytes, proof_bytes);
+        assert!(std::hash::sha2_256(vk_bytes) == expected_vk_hash, E_VK_MISMATCH);
+        ok
+    }
 
     /// Private session check: Groth16 proof valid AND ephemeral sig valid.
     /// The JWT-private counterpart of `verify_session`.

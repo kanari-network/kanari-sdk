@@ -270,6 +270,7 @@ dependencies = [
  "num-bigint 0.4.8",
  "rayon",
  "sha2 0.10.9",
+ "tracing",
 ]
 
 [[package]]
@@ -3407,6 +3408,7 @@ name = "kanari"
 version = "0.2.9"
 dependencies = [
  "anyhow",
+ "ark-std",
  "base64 0.23.1",
  "bcs",
  "clap",
@@ -3525,9 +3527,11 @@ dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
  "ark-bn254",
+ "ark-crypto-primitives",
  "ark-ec",
  "ark-ff",
  "ark-groth16",
+ "ark-r1cs-std",
  "ark-relations",
  "ark-serialize",
  "ark-snark",

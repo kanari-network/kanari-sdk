@@ -105,6 +105,11 @@ pub fn decode_jwt_claims(jwt: &str) -> Result<JwtClaims, SignatureError> {
 /// truncated to the first 32 bytes (already 32) rendered as `0x`-hex.
 /// Length prefixes are 8-byte big-endian (BCS u64), matching Sui's
 /// `compute_zklogin_address` intent (domain-separated, unambiguous).
+///
+/// LEGACY (v1): variable-length fields make this scheme unprovable in R1CS
+/// (the constraint system needs fixed widths). New code must use
+/// [`derive_zklogin_address_v2`]; this stays for already-issued test
+/// sessions only and will be removed before mainnet.
 pub fn derive_zklogin_address(
     iss: &str,
     aud: &str,
@@ -133,7 +138,68 @@ pub fn derive_zklogin_address(
     Ok(format!("0x{}", hex::encode(h.finalize())))
 }
 
+/// Fixed-width caps for the v2 address scheme. Every real-world value fits
+/// with margin (Google iss 27B, client-ID aud ~72B, numeric sub ~21B,
+/// UUID sub 36B); larger inputs are rejected, never silently truncated.
+pub const MAX_ISS_BYTES: usize = 64;
+pub const MAX_AUD_BYTES: usize = 96;
+pub const MAX_SUB_BYTES: usize = 64;
+
+/// Circuit-friendly zkLogin address derivation (v2):
+/// `address = SHA256("zkLogin-v2" || iss[64] || aud[96] || sub[64] || salt[32])`
+/// with zero padding. Fixed widths make the preimage exactly 263 bytes, so
+/// the same layout is directly constrainable in R1CS
+/// (see `zklogin_circuit`). Unambiguous by construction — no length
+/// prefixes needed.
+///
+/// This is a DIFFERENT scheme from v1 (different addresses for the same
+/// inputs). v1 never reached production (test sessions only); v2 is the
+/// canonical scheme going forward.
+pub fn derive_zklogin_address_v2(
+    iss: &str,
+    aud: &str,
+    sub: &str,
+    salt: &[u8],
+) -> Result<String, SignatureError> {
+    use sha2::{Digest, Sha256};
+
+    let (iss_b, aud_b, sub_b) = (iss.as_bytes(), aud.as_bytes(), sub.as_bytes());
+    if iss_b.is_empty() || aud_b.is_empty() || sub_b.is_empty() {
+        return Err(SignatureError::InvalidFormat(
+            "zkLogin iss/aud/sub must all be non-empty".to_string(),
+        ));
+    }
+    if iss_b.len() > MAX_ISS_BYTES || aud_b.len() > MAX_AUD_BYTES || sub_b.len() > MAX_SUB_BYTES {
+        return Err(SignatureError::InvalidFormat(format!(
+            "zkLogin field too long (iss<={MAX_ISS_BYTES}, aud<={MAX_AUD_BYTES}, sub<={MAX_SUB_BYTES})"
+        )));
+    }
+    if salt.len() != 32 {
+        return Err(SignatureError::InvalidFormat(
+            "zkLogin salt must be exactly 32 bytes".to_string(),
+        ));
+    }
+    let mut preimage = Vec::with_capacity(10 + MAX_ISS_BYTES + MAX_AUD_BYTES + MAX_SUB_BYTES + 32);
+    preimage.extend_from_slice(b"zkLogin-v2");
+    preimage.extend_from_slice(&pad_zero(iss_b, MAX_ISS_BYTES));
+    preimage.extend_from_slice(&pad_zero(aud_b, MAX_AUD_BYTES));
+    preimage.extend_from_slice(&pad_zero(sub_b, MAX_SUB_BYTES));
+    preimage.extend_from_slice(salt);
+    debug_assert_eq!(
+        preimage.len(),
+        10 + MAX_ISS_BYTES + MAX_AUD_BYTES + MAX_SUB_BYTES + 32
+    );
+    Ok(format!("0x{}", hex::encode(Sha256::digest(&preimage))))
+}
+
+fn pad_zero(data: &[u8], width: usize) -> Vec<u8> {
+    let mut out = vec![0u8; width];
+    out[..data.len()].copy_from_slice(data);
+    out
+}
+
 /// Convenience: derive from decoded claims + expected audience + salt.
+/// Uses the canonical v2 scheme.
 pub fn derive_address_from_claims(
     claims: &JwtClaims,
     expected_aud: &str,
@@ -146,7 +212,7 @@ pub fn derive_address_from_claims(
             expected_aud
         )));
     }
-    derive_zklogin_address(&claims.iss, expected_aud, &claims.sub, salt)
+    derive_zklogin_address_v2(&claims.iss, expected_aud, &claims.sub, salt)
 }
 
 /// Check `exp` against `now_unix_secs` with a clock-skew leeway.
@@ -412,21 +478,26 @@ mod tests {
     }
 
     #[test]
-    fn derives_stable_address() {
+    fn derives_stable_address_v2() {
         let salt = [7u8; 32];
-        let a = derive_zklogin_address(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
-        let b = derive_zklogin_address(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
+        let a = derive_zklogin_address_v2(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
+        let b = derive_zklogin_address_v2(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
         assert_eq!(a, b);
         assert!(a.starts_with("0x") && a.len() == 66);
         // Different sub => different address.
-        let c = derive_zklogin_address(ISS_GOOGLE, "client123", "other", &salt).unwrap();
+        let c = derive_zklogin_address_v2(ISS_GOOGLE, "client123", "other", &salt).unwrap();
         assert_ne!(a, c);
+        // v1 and v2 are different schemes for the same inputs.
+        let legacy = derive_zklogin_address(ISS_GOOGLE, "client123", "user456", &salt).unwrap();
+        assert_ne!(a, legacy);
     }
 
     #[test]
     fn rejects_bad_salt_and_empty_claims() {
-        assert!(derive_zklogin_address(ISS_GOOGLE, "a", "b", &[0u8; 16]).is_err());
-        assert!(derive_zklogin_address("", "a", "b", &[0u8; 32]).is_err());
+        assert!(derive_zklogin_address_v2(ISS_GOOGLE, "a", "b", &[0u8; 16]).is_err());
+        assert!(derive_zklogin_address_v2("", "a", "b", &[0u8; 32]).is_err());
+        assert!(derive_zklogin_address_v2(ISS_GOOGLE, "a", &"x".repeat(65), &[0u8; 32]).is_err());
+        assert!(derive_zklogin_address_v2(ISS_GOOGLE, &"y".repeat(97), "b", &[0u8; 32]).is_err());
     }
 
     #[test]

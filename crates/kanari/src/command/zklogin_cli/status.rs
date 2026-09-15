@@ -36,11 +36,11 @@ impl Status {
             .map(|exp| now <= exp.saturating_add(60))
             .unwrap_or(false);
 
-        println!("address:   {}", session.address);
-        println!("provider:   {}", session.provider);
-        println!("sub:        {}", session.sub);
-        println!("max_epoch:  {}", session.max_epoch);
-        println!(
+        eprintln!("address:   {}", session.address);
+        eprintln!("provider:   {}", session.provider);
+        eprintln!("sub:        {}", session.sub);
+        eprintln!("max_epoch:  {}", session.max_epoch);
+        eprintln!(
             "id_token:   {}",
             if live {
                 "valid"
@@ -49,9 +49,9 @@ impl Status {
             }
         );
         if let Some(exp) = session.id_token_expires_at_unix {
-            println!("expires_at: {exp} (unix secs)");
+            eprintln!("expires_at: {exp} (unix secs)");
         }
-        println!(
+        eprintln!(
             "nonce bound: {}",
             claims.nonce.as_deref().unwrap_or("<missing>")
         );
@@ -75,9 +75,9 @@ impl Logout {
                 .context("no zkLogin session found")?,
         };
         if session::delete_session(&address)? {
-            println!("deleted session {address}");
+            eprintln!("deleted session {address}");
         } else {
-            println!("no session for {address}");
+            eprintln!("no session for {address}");
         }
         Ok(())
     }

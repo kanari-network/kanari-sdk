@@ -56,7 +56,7 @@ pub const MAX_PUBLIC_INPUTS: usize = 64;
 
 /// Decode concatenated 32-byte big-endian field elements into `Fr`.
 pub fn public_inputs_from_be_bytes(bytes: &[u8]) -> Result<Vec<Fr>, SignatureError> {
-    if bytes.len() % 32 != 0 {
+    if !bytes.len().is_multiple_of(32) {
         return Err(SignatureError::InvalidFormat(format!(
             "public inputs must be a multiple of 32 bytes, got {}",
             bytes.len()
@@ -69,8 +69,10 @@ pub fn public_inputs_from_be_bytes(bytes: &[u8]) -> Result<Vec<Fr>, SignatureErr
         )));
     }
     Ok(bytes
-        .chunks_exact(32)
-        .map(Fr::from_be_bytes_mod_order)
+        .as_chunks::<32>()
+        .0
+        .iter()
+        .map(|chunk: &[u8; 32]| Fr::from_be_bytes_mod_order(chunk))
         .collect())
 }
 

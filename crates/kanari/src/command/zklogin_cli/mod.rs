@@ -7,6 +7,7 @@
 //! lives in `kanari_crypto::signatures::zklogin`; this module is the network
 //! + browser + session glue.
 
+pub mod circuits;
 pub mod login;
 pub mod session;
 pub mod sign;
@@ -27,6 +28,13 @@ pub enum ZkLoginCommand {
     /// Sign bytes with a session's ephemeral secret (client half of
     /// sending a tx as the zkLogin address)
     Sign(sign::Sign),
+    /// Demo-grade Groth16 setup for the binding circuit (toxic waste!
+    /// production needs an MPC ceremony)
+    SetupCircuit(circuits::SetupCircuit),
+    /// Prove session binding (salt/sub + randomness) with a setup PK
+    Prove(circuits::Prove),
+    /// Verify a proof package offline (pin check + Groth16 verify)
+    VerifyProof(circuits::VerifyProof),
 }
 
 impl ZkLoginCommand {
@@ -36,6 +44,9 @@ impl ZkLoginCommand {
             ZkLoginCommand::Status(cmd) => cmd.execute(),
             ZkLoginCommand::Logout(cmd) => cmd.execute(),
             ZkLoginCommand::Sign(cmd) => cmd.execute(),
+            ZkLoginCommand::SetupCircuit(cmd) => cmd.execute(),
+            ZkLoginCommand::Prove(cmd) => cmd.execute(),
+            ZkLoginCommand::VerifyProof(cmd) => cmd.execute(),
         }
     }
 }

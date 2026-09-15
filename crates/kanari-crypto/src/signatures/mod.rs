@@ -42,7 +42,9 @@ pub mod p256;
 pub(crate) mod slh_dsa_provider;
 pub mod sphincs;
 pub(crate) mod validation;
+pub mod zk_authenticator;
 pub mod zklogin;
+pub mod zklogin_circuit;
 pub mod zklogin_proof;
 
 pub use batch::{BatchVerificationItem, verify_batch_tagged, verify_batch_with_curve};
