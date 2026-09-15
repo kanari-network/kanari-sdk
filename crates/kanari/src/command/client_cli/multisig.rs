@@ -41,9 +41,12 @@ fn bcs_u64(v: u64) -> Result<Vec<u8>> {
     bcs::to_bytes(&v).context("Failed to BCS-encode u64")
 }
 
-/// Parse a human amount like `"1.5"` into mist using the coin's decimals
-/// (fetched from owner balances via the API). Plain integers keep working
-/// as mist for backward compatibility.
+/// Parse a human amount into base units using the coin's decimals
+/// (fetched from owner balances via the API).
+///
+/// `"1000"` means 1000 whole coins (scaled by decimals), `"1.5"` means one
+/// and a half. Raw base-unit integers are unambiguous only when they carry
+/// a `mist:` prefix (e.g. `mist:1000`).
 async fn parse_human_amount(
     client: &RpcClient,
     owner_normalized: &str,
@@ -51,18 +54,24 @@ async fn parse_human_amount(
     raw: &str,
 ) -> Result<u64> {
     let s = raw.trim();
-    // Fast path: pure integer = mist (old behavior).
-    if let Ok(mist) = s.parse::<u64>() {
-        return Ok(mist);
+    // Explicit escape hatch: raw base units.
+    if let Some(mist_str) = s.strip_prefix("mist:") {
+        return mist_str
+            .parse::<u64>()
+            .with_context(|| format!("Invalid mist amount '{}'; use mist:<integer>", s));
     }
     let decimals = coin_decimals(client, owner_normalized, coin_type).await?;
     let (whole, frac) = match s.split_once('.') {
         Some((w, f)) => (w, f),
-        None => anyhow::bail!(
-            "Invalid amount '{}'; use mist integer or decimal like \"1.5\"",
-            s
-        ),
+        // Bare integer = whole coins (NOT mist). Use `mist:` for raw units.
+        None => (s, ""),
     };
+    if frac.is_empty() && whole.parse::<u64>().is_err() {
+        anyhow::bail!(
+            "Invalid amount '{}'; use whole coins (e.g. \"1000\"), decimal (e.g. \"1.5\"), or mist:<integer>",
+            s
+        );
+    }
     if frac.len() > decimals as usize {
         anyhow::bail!(
             "Amount '{}' exceeds {} decimals for {}",
@@ -176,11 +185,11 @@ pub enum MultisigCommand {
         owners: String,
         #[arg(long)]
         threshold: u64,
-        /// Funding amount: mist integer (e.g. `1000000000`) or decimal
-        /// (e.g. `1.5`, converted with the coin's decimals)
+        /// Funding amount: whole coins (e.g. `1000`), decimal (e.g. `1.5`),
+        /// or raw base units (`mist:1000`). Decimals come from the coin.
         #[arg(long)]
         amount: String,
-        /// Funding coin object ID, `auto:<mist_amount>`, or omit to
+        /// Funding coin object ID, `auto:<amount>`, or omit to
         /// auto-pick the richest coin (resolved from the API)
         #[arg(long, default_value = "")]
         coin: String,
@@ -200,7 +209,8 @@ pub enum MultisigCommand {
         wallet: String,
         #[arg(long)]
         to: String,
-        /// Transfer amount: mist integer or decimal (e.g. `1.5`)
+        /// Transfer amount: whole coins (e.g. `1000`), decimal (e.g. `1.5`),
+        /// or raw base units (`mist:1000`)
         #[arg(long)]
         amount: String,
         #[arg(long, default_value = "")]
@@ -266,10 +276,11 @@ pub enum MultisigCommand {
     Deposit {
         #[arg(long)]
         wallet: String,
-        /// Deposit amount: mist integer or decimal (e.g. `1.5`)
+        /// Deposit amount: whole coins (e.g. `1000`), decimal (e.g. `1.5`),
+        /// or raw base units (`mist:1000`)
         #[arg(long)]
         amount: String,
-        /// Funding coin object ID, `auto:<mist_amount>`, or omit to
+        /// Funding coin object ID, `auto:<amount>`, or omit to
         /// auto-pick the richest coin of the wallet's type (from the API)
         #[arg(long, default_value = "")]
         coin: String,
@@ -860,7 +871,7 @@ impl Multisig {
                         c.version
                     );
                 }
-                eprintln!("Use an ID as --coin, or --coin auto:<mist_amount>.");
+                eprintln!("Use an ID as --coin, or --coin auto:<amount> (e.g. auto:1000).");
                 Ok(())
             }
         }
