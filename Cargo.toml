@@ -222,6 +222,11 @@ qrcode = "0.14.1"                                                               
 data-encoding = "2.11.1"                                                            # Data encoding utilities
 
 # ============================================================================
+# zkLogin (OIDC JWT verification, Sui-style)
+# ============================================================================
+jsonwebtoken = { version = "11.0.0", default-features = false, features = ["rust_crypto"] } # JWT RS256 verify (Phase 3a)
+
+# ============================================================================
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }

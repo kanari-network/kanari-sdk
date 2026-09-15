@@ -800,7 +800,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "curve25519-dalek 5.0.0",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "sha2 0.11.0",
  "sha3 0.12.0",
 ]
@@ -1353,9 +1353,11 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
+ "digest 0.10.7",
  "fiat-crypto 0.2.9",
  "rustc_version",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -1497,6 +1499,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid 0.9.6",
+ "pem-rfc7468 0.7.0",
  "zeroize",
 ]
 
@@ -1507,7 +1510,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a69dedd701da44b0536442edf09c81a64b0ab97a7a4a5e3d1971f00027cbc63d"
 dependencies = [
  "const-oid 0.10.2",
- "pem-rfc7468",
+ "pem-rfc7468 1.0.0",
  "zeroize",
 ]
 
@@ -1632,6 +1635,7 @@ dependencies = [
  "elliptic-curve 0.13.8",
  "rfc6979 0.4.0",
  "signature 2.2.0",
+ "spki 0.7.3",
 ]
 
 [[package]]
@@ -1647,6 +1651,16 @@ dependencies = [
  "signature 3.0.0",
  "spki 0.8.0",
  "zeroize",
+]
+
+[[package]]
+name = "ed25519"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
+dependencies = [
+ "pkcs8 0.10.2",
+ "signature 2.2.0",
 ]
 
 [[package]]
@@ -1677,12 +1691,26 @@ dependencies = [
 
 [[package]]
 name = "ed25519-dalek"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
+dependencies = [
+ "curve25519-dalek 4.1.3",
+ "ed25519 2.2.3",
+ "serde",
+ "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-dalek"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
  "curve25519-dalek 5.0.0",
- "ed25519",
+ "ed25519 3.0.0",
  "keccak",
  "rand_core 0.10.1",
  "serde",
@@ -1711,6 +1739,9 @@ dependencies = [
  "ff 0.13.1",
  "generic-array",
  "group 0.13.0",
+ "hkdf 0.12.4",
+ "pem-rfc7468 0.7.0",
+ "pkcs8 0.10.2",
  "rand_core 0.6.4",
  "sec1 0.7.3",
  "subtle",
@@ -1730,7 +1761,7 @@ dependencies = [
  "ff 0.14.0",
  "group 0.14.0",
  "hybrid-array",
- "pem-rfc7468",
+ "pem-rfc7468 1.0.0",
  "pkcs8 0.11.0",
  "rand_core 0.10.1",
  "sec1 0.8.1",
@@ -2404,6 +2435,15 @@ checksum = "b07f60793ff0a4d9cef0f18e63b5357e06209987153a64648c972c1e5aff336f"
 
 [[package]]
 name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac 0.12.1",
+]
+
+[[package]]
+name = "hkdf"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
@@ -2927,6 +2967,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonwebtoken"
+version = "11.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "881733cbc631fc9e472e24447ce32a64bedf2da498d6d8570b08edc87de71f65"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek 2.2.0",
+ "getrandom 0.2.17",
+ "hmac 0.12.1",
+ "js-sys",
+ "p256 0.13.2",
+ "p384",
+ "rand 0.8.7",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "signature 2.2.0",
+ "zeroize",
+]
+
+[[package]]
 name = "k256"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2947,7 +3009,7 @@ dependencies = [
  "cpubits",
  "ecdsa 0.17.0",
  "elliptic-curve 0.14.1",
- "primeorder",
+ "primeorder 0.14.0",
  "sha2 0.11.0",
  "signature 3.0.0",
  "wnaf",
@@ -3015,7 +3077,7 @@ name = "kanari-benchmarks"
 version = "0.2.9"
 dependencies = [
  "anyhow",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "hex",
  "kanari-core",
  "kanari-crypto",
@@ -3044,7 +3106,7 @@ dependencies = [
  "blake3",
  "consensus",
  "dag",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "fs2",
  "hex",
  "kanari-crypto",
@@ -3077,18 +3139,19 @@ dependencies = [
  "bip39",
  "blake3",
  "chrono",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "falcon-rs",
  "fs2",
  "hex",
  "hmac 0.13.0",
+ "jsonwebtoken",
  "k256 0.14.0",
  "kanari-common",
  "lazy_static",
  "log",
  "ml-dsa",
  "move-core-types",
- "p256",
+ "p256 0.14.0",
  "proptest",
  "rand 0.10.2",
  "rayon",
@@ -3220,7 +3283,7 @@ dependencies = [
  "anyhow",
  "bincode 2.0.1",
  "clap",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "flate2",
  "futures",
  "hex",
@@ -3359,7 +3422,7 @@ version = "0.2.9"
 dependencies = [
  "base64 0.23.1",
  "better_any",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "ethnum",
  "hex",
  "k256 0.14.0",
@@ -3369,11 +3432,12 @@ dependencies = [
  "move-vm-runtime",
  "move-vm-types",
  "num-integer",
- "p256",
+ "p256 0.14.0",
  "primitive-types",
  "rand 0.10.2",
  "rsa",
  "secp256k1 0.33.1",
+ "serde_json",
  "sha2 0.11.0",
  "sha3 0.12.0",
  "smallvec",
@@ -3564,8 +3628,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d77f16caa4f4d2667a1fad5bb1a3a4a4556967c1bff93525ebb2975847fa3de"
 dependencies = [
  "bs58",
- "ed25519-dalek",
- "hkdf",
+ "ed25519-dalek 3.0.0",
+ "hkdf 0.13.0",
  "multihash",
  "prost",
  "rand 0.10.2",
@@ -4872,6 +4936,18 @@ dependencies = [
 
 [[package]]
 name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "ecdsa 0.16.9",
+ "elliptic-curve 0.13.8",
+ "primeorder 0.13.6",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "p256"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c9239b2dbc807adbbe147e8cf72ea7450c3a0aabe62cb8e75ff4ec22e1f72a"
@@ -4879,8 +4955,20 @@ dependencies = [
  "ecdsa 0.17.0",
  "elliptic-curve 0.14.1",
  "primefield",
- "primeorder",
+ "primeorder 0.14.0",
  "sha2 0.11.0",
+]
+
+[[package]]
+name = "p384"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe42f1670a52a47d448f14b6a5c61dd78fce51856e68edaa38f7ae3a46b8d6b6"
+dependencies = [
+ "ecdsa 0.16.9",
+ "elliptic-curve 0.13.8",
+ "primeorder 0.13.6",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -4975,6 +5063,15 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest 0.10.7",
  "hmac 0.12.1",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]
@@ -5217,6 +5314,15 @@ dependencies = [
  "rand_core 0.10.1",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve 0.13.8",
 ]
 
 [[package]]
@@ -6139,6 +6245,7 @@ dependencies = [
  "base16ct 0.2.0",
  "der 0.7.10",
  "generic-array",
+ "pkcs8 0.10.2",
  "subtle",
  "zeroize",
 ]

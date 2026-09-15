@@ -116,7 +116,8 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
         "k256_dilithium3",
         crypto::make_k256_dilithium3(gas_params.crypto.clone())
     );
-    add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto));
+    add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto.clone()));
+    add_module_natives!("zklogin", crypto::make_zklogin(gas_params.crypto));
 
     add_module_natives!("event", event::make_all(gas_params.event));
     add_module_natives!("math", math_calculate::make_all(gas_params.math_calculate));

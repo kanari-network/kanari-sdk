@@ -42,6 +42,7 @@ pub mod p256;
 pub(crate) mod slh_dsa_provider;
 pub mod sphincs;
 pub(crate) mod validation;
+pub mod zklogin;
 
 pub use batch::{BatchVerificationItem, verify_batch_tagged, verify_batch_with_curve};
 pub(crate) use validation::MAX_PUBLIC_KEY_OR_ADDRESS_SIZE;

@@ -6,6 +6,7 @@ mod ecdsa_r1;
 mod ed25519;
 mod pqc;
 mod rs256;
+mod zklogin;
 
 #[cfg(test)]
 mod tests;
@@ -58,6 +59,7 @@ pub struct GasParameters {
     pub ed25519_dilithium3_verify: InternalGas,
     pub k256_dilithium3_verify: InternalGas,
     pub rs256_verify: InternalGas,
+    pub zklogin_verify: InternalGas,
 }
 
 impl GasParameters {
@@ -77,6 +79,7 @@ impl GasParameters {
             ed25519_dilithium3_verify: 0.into(),
             k256_dilithium3_verify: 0.into(),
             rs256_verify: 0.into(),
+            zklogin_verify: 0.into(),
         }
     }
 
@@ -127,6 +130,8 @@ impl GasParameters {
             ed25519_dilithium3_verify: 8_500.into(),
             k256_dilithium3_verify: 8_800.into(),
             rs256_verify: 9_800.into(),
+            // RSA-2048 verify class (jsonwebtoken RS256 + JSON parse).
+            zklogin_verify: 9_800.into(),
         }
     }
 }
@@ -214,4 +219,10 @@ pub fn make_rs256(
     gas_params: GasParameters,
 ) -> impl Iterator<Item = (String, move_vm_runtime::native_functions::NativeFunction)> {
     rs256::make_rs256_natives(gas_params.rs256_verify)
+}
+
+pub fn make_zklogin(
+    gas_params: GasParameters,
+) -> impl Iterator<Item = (String, move_vm_runtime::native_functions::NativeFunction)> {
+    zklogin::make_zklogin_natives(gas_params.zklogin_verify)
 }
