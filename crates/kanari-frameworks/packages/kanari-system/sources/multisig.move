@@ -20,6 +20,7 @@ module kanari_system::multisig {
     use std::string;
     use std::vector;
     use kanari_system::bcs;
+    use kanari_system::borrow;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::event;
@@ -509,13 +510,13 @@ module kanari_system::multisig {
         proposal_id: address,
         ctx: &mut TxContext,
     ) {
-        let wallet = object::borrow_global<MultisigWallet<T>>(wallet_id);
+        let wallet = borrow::borrow<MultisigWallet<T>>(wallet_id);
         let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
         approve_transaction(wallet, proposal, ctx);
         // Persist the new approval: without this the borrowed mutation only
         // lives in the VM writeback set for tracked borrows and the second
         // approval is lost on commit.
-        object::save_object(proposal);
+        borrow::save(proposal);
     }
 
     /// Execute a proposal whose threshold is met. Marks the proposal executed
@@ -526,11 +527,12 @@ module kanari_system::multisig {
         proposal_id: address,
         ctx: &mut TxContext,
     ) {
+        borrow::assert_distinct(wallet_id, proposal_id);
         let wallet = object::borrow_global_mut<MultisigWallet<T>>(wallet_id);
         let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
         execute_borrowed(wallet, proposal, ctx);
-        object::save_object(wallet);
-        object::save_object(proposal);
+        borrow::save(wallet);
+        borrow::save(proposal);
     }
 
     /// Cancel your own live proposal. Tombstones like `execute_entry`.
@@ -539,10 +541,10 @@ module kanari_system::multisig {
         proposal_id: address,
         ctx: &TxContext,
     ) {
-        let wallet = object::borrow_global<MultisigWallet<T>>(wallet_id);
+        let wallet = borrow::borrow<MultisigWallet<T>>(wallet_id);
         let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
         cancel_borrowed(wallet, proposal, ctx);
-        object::save_object(proposal);
+        borrow::save(proposal);
     }
 
     /// Borrowed-ref variant of `execute_transaction` for entry calls.

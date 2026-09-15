@@ -79,8 +79,8 @@ module kanari_system::coin {
         // 1. Consume the witness type
         let _ = witness;
         
-        // Basic safety checks for decimals
-        assert!(decimals <= 27, EINVALID_DECIMALS); 
+        // Sui standard: decimals must be 0-9
+        assert!(decimals <= 9, EINVALID_DECIMALS); 
 
         // Convert byte literals into string types
         let symbol = ascii::string(symbol_bytes);
@@ -114,7 +114,8 @@ module kanari_system::coin {
         ctx: &mut TxContext,
     ): (TreasuryCap<T>, kanari_system::deny_list::DenyCap<T>, CoinMetadata<T>) {
         let _ = witness;
-        assert!(decimals <= 27, EINVALID_DECIMALS);
+        // Sui standard: decimals must be 0-9
+        assert!(decimals <= 9, EINVALID_DECIMALS);
 
         let symbol = ascii::string(symbol_bytes);
         let name = string::utf8(name_bytes);
@@ -263,7 +264,7 @@ module kanari_system::coin {
 
 
     // ==========================================
-    // 🟢 Functions to update CoinMetadata
+    // Functions to update CoinMetadata
     // ==========================================
 
     /// Update the icon URL for the given coin type. 
