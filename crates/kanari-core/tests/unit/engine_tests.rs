@@ -1102,9 +1102,112 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
     assert!(
         bind_err
             .to_string()
-            .contains("Invalid transaction signature"),
+            .contains("Signature verification failed"),
         "unexpected: {bind_err:#}"
     );
+}
+
+/// Per-sender nonce watermark: after a tx with nonce N commits, a DIFFERENT
+/// payload with the same or a lower nonce from the same sender is rejected at
+/// admission, even though its hash was never seen before. Restarts preserve
+/// the watermark.
+#[test]
+fn committed_nonce_watermark_rejects_same_or_older_nonce_replay() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+
+    let (tx1, tx1_resend, tx_stale_new_payload) = {
+        let make = |nonce: u64, coin_id: &str| {
+            signed_transfer_with_refs(
+                &sender,
+                &recipient.address,
+                coin_id,
+                3_000_000,
+                "0x1001",
+                1_000_000,
+                nonce,
+            )
+        };
+        (make(1, "0xaaaa"), make(1, "0xaaaa"), make(1, "0xbbbb"))
+    };
+
+    let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+    if engine.persistent_store.is_none() {
+        return;
+    }
+    configure_single_authority_consensus(&mut engine);
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 3_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0xbbbb", 3_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+
+    engine.submit_transactions_batch(vec![tx1.clone()]).unwrap();
+    drive_consensus_to_height(&engine, 1);
+    assert!(
+        engine
+            .try_is_transaction_committed(&tx1.transaction_hash().to_vec())
+            .unwrap()
+    );
+
+    // Exact resend still caught by the executed-hash guard.
+    let hash_err = engine
+        .submit_transactions_batch(vec![tx1_resend])
+        .unwrap_err();
+    assert!(
+        hash_err.to_string().contains("already executed"),
+        "unexpected: {hash_err:#}"
+    );
+
+    // Same nonce, never-before-seen payload: previously admitted, now rejected
+    // by the committed-nonce watermark.
+    let stale_err = engine
+        .submit_transactions_batch(vec![tx_stale_new_payload])
+        .unwrap_err();
+    assert!(
+        stale_err.to_string().contains("nonce 1 for sender")
+            && stale_err.to_string().contains("is stale"),
+        "unexpected: {stale_err:#}"
+    );
+
+    // Restart keeps the watermark; a brand-new nonce is still accepted.
+    let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+    if restarted.persistent_store.is_none() {
+        return;
+    }
+    configure_single_authority_consensus(&mut restarted);
+    let stale_after_restart = restarted
+        .submit_transactions_batch(vec![signed_transfer_with_refs(
+            &sender,
+            &recipient.address,
+            "0xcccc",
+            1_000_000,
+            "0x1001",
+            1_000_000,
+            1,
+        )])
+        .unwrap_err();
+    assert!(
+        stale_after_restart.to_string().contains("is stale"),
+        "unexpected: {stale_after_restart:#}"
+    );
+
+    let fresh_after_restart = signed_transfer_with_refs(
+        &sender,
+        &recipient.address,
+        "0xcccc",
+        1_000_000,
+        "0x1001",
+        1_000_000,
+        2,
+    );
+    fund_sender_with_coin(&restarted, &sender.address, "0xcccc", 1_000_000);
+    restarted
+        .submit_transactions_batch(vec![fresh_after_restart])
+        .unwrap();
+    drive_consensus_to_height(&restarted, 2);
+    assert_eq!(restarted.get_stats().height, 2);
+    restarted.state_read().validate_smt_consistency().unwrap();
 }
 
 #[test]

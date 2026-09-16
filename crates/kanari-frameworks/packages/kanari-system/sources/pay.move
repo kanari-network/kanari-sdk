@@ -14,6 +14,8 @@ module kanari_system::pay {
     const EDENIED: u64 = 1;
     /// Vector fan-out exceeds `coin::max_split_parts`.
     const ETOO_MANY_COINS: u64 = 2;
+    /// Sending to the sender themselves: use `keep`/`split` instead.
+    const ESELF_PAY: u64 = 3;
 
     // #[allow(lint(self_transfer))]
     /// Transfer `c` to the sender of the current transaction
@@ -43,10 +45,13 @@ module kanari_system::pay {
     }
 
     /// Send `amount` units of `c` to `recipient`
-    /// Aborts with `EVALUE` if `amount` is greater than or equal to `amount`
+    /// Aborts `ESELF_PAY` when `recipient` is the transaction sender; keep
+    /// the coin with `keep`/`split` instead. Aborts `EVALUE` if `amount` is
+    /// greater than or equal to `amount`.
     public entry fun split_and_transfer<T>(
         c: &mut Coin<T>, amount: u64, recipient: address, ctx: &mut TxContext
     ) {
+        assert!(recipient != tx_context::sender(ctx), ESELF_PAY);
         transfer::public_transfer(coin::split(c, amount, ctx), recipient)
     }
 

@@ -199,7 +199,19 @@ impl BlockchainEngine {
         let mut accepted_counts_by_access = ahash::AHashMap::new();
         let mut accepted_counts_by_primary_access = ahash::AHashMap::new();
         let mut accepted_counts_by_congestion_access = ahash::AHashMap::new();
-        for (tx_hash, sender, _, primary_access, congestion_access, access_keys) in &batch_metadata
+
+        // Per-sender committed nonce watermark (persistent nodes). Any tx whose
+        // nonce is not strictly greater than the sender's highest committed nonce
+        // is a replay of the same or an earlier sequence, regardless of payload.
+        let sender_watermark = self
+            .persistent_store
+            .as_ref()
+            .map(|store| super::BlockchainEngine::load_sender_nonce_watermark(store))
+            .transpose()?
+            .unwrap_or_default();
+
+        for (tx_hash, sender, nonce, primary_access, congestion_access, access_keys) in
+            &batch_metadata
         {
             if mempool.pending_tx_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone())
             {
@@ -209,6 +221,16 @@ impl BlockchainEngine {
             if executed_hashes.contains(tx_hash) {
                 let tx_hash_hex = hex::encode(tx_hash);
                 anyhow::bail!("Transaction {} already executed", tx_hash_hex);
+            }
+            if let Some(max_committed) = sender_watermark.get(sender)
+                && *max_committed >= *nonce
+            {
+                anyhow::bail!(
+                    "Transaction nonce {} for sender {} is stale: max committed nonce for sender is {}",
+                    nonce,
+                    sender,
+                    max_committed
+                );
             }
 
             let current_sender_depth = mempool

@@ -134,6 +134,13 @@ module kanari_system::math {
     /// Floor log2. Aborts E_INVALID_ARG on 0.
     public native fun log2_u256(x: u256): u256;
 
+    /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
+    public native fun ceil_div_u64(x: u64, y: u64): u64;
+    /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
+    public native fun ceil_div_u128(x: u128, y: u128): u128;
+    /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
+    public native fun ceil_div_u256(x: u256, y: u256): u256;
+
     // =================================================================
     // u8 helpers (pure Move over u64/u128 natives)
     // =================================================================
@@ -543,22 +550,6 @@ module kanari_system::math {
     // =================================================================
     // Division with rounding
     // =================================================================
-
-    /// Ceil division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
-    public fun ceil_div_u64(x: u64, y: u64): u64 {
-        assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
-    }
-
-    public fun ceil_div_u128(x: u128, y: u128): u128 {
-        assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
-    }
-
-    public fun ceil_div_u256(x: u256, y: u256): u256 {
-        assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
-    }
 
     /// Legacy names kept for backwards compatibility.
     public fun divide_and_round_up(x: u64, y: u64): u64 { ceil_div_u64(x, y) }

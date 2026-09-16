@@ -189,6 +189,21 @@ pub struct Log2U256GasParameters {
     pub base: InternalGas,
 }
 
+#[derive(Debug, Clone)]
+pub struct CeilDivU64GasParameters {
+    pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct CeilDivU128GasParameters {
+    pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct CeilDivU256GasParameters {
+    pub base: InternalGas,
+}
+
 // =================================================================
 // Internal Helper Functions (pure, unit-testable)
 // =================================================================
@@ -406,6 +421,37 @@ fn log2_u256_checked(x: &MU256) -> Result<P256, u64> {
         return Err(E_INVALID_ARG);
     }
     Ok(P256::from(m2p(x).bits() as u64 - 1))
+}
+
+/// Round-up division. Aborts with E_DIVIDE_BY_ZERO when `b == 0`.
+/// `a / b + (a % b != 0)` never overflows (see module comment).
+fn ceil_div_u64(a: u64, b: u64) -> Result<u64, u64> {
+    if b == 0 {
+        return Err(E_DIVIDE_BY_ZERO);
+    }
+    let q = a / b;
+    let r = a % b;
+    Ok(if r == 0 { q } else { q + 1 })
+}
+
+/// Round-up division for u128. Aborts with E_DIVIDE_BY_ZERO when `b == 0`.
+fn ceil_div_u128(a: u128, b: u128) -> Result<u128, u64> {
+    if b == 0 {
+        return Err(E_DIVIDE_BY_ZERO);
+    }
+    let q = a / b;
+    let r = a % b;
+    Ok(if r == 0 { q } else { q + 1 })
+}
+
+/// Round-up division for u256. Aborts with E_DIVIDE_BY_ZERO when `b == 0`.
+fn ceil_div_u256(a: P256, b: P256) -> Result<P256, u64> {
+    if b.is_zero() {
+        return Err(E_DIVIDE_BY_ZERO);
+    }
+    let q = a / b;
+    let r = a % b;
+    Ok(if r.is_zero() { q } else { q + P256::from(1u64) })
 }
 
 // =================================================================
@@ -1069,6 +1115,66 @@ pub fn native_log2_u256(
     }
 }
 
+/// Round-up division for u64. Aborts with E_DIVIDE_BY_ZERO when b == 0.
+pub fn native_ceil_div_u64(
+    gas_params: &CeilDivU64GasParameters,
+    context: &mut NativeContext,
+    _ty_args: Vec<Type>,
+    mut args: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
+    expect_native_signature(args.len(), 2, _ty_args.len(), 0)?;
+    native_charge_gas_early_exit!(context, gas_params.base);
+    let b: u64 = pop_arg!(args, u64);
+    let a: u64 = pop_arg!(args, u64);
+
+    match ceil_div_u64(a, b) {
+        Ok(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::u64(v)])),
+        Err(code) => Ok(NR::err(context.gas_used(), code)),
+    }
+}
+
+/// Round-up division for u128. Aborts with E_DIVIDE_BY_ZERO when b == 0.
+pub fn native_ceil_div_u128(
+    gas_params: &CeilDivU128GasParameters,
+    context: &mut NativeContext,
+    _ty_args: Vec<Type>,
+    mut args: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
+    expect_native_signature(args.len(), 2, _ty_args.len(), 0)?;
+    native_charge_gas_early_exit!(context, gas_params.base);
+    let b: u128 = pop_arg!(args, u128);
+    let a: u128 = pop_arg!(args, u128);
+
+    match ceil_div_u128(a, b) {
+        Ok(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::u128(v)])),
+        Err(code) => Ok(NR::err(context.gas_used(), code)),
+    }
+}
+
+/// Round-up division for u256. Aborts with E_DIVIDE_BY_ZERO when b == 0.
+pub fn native_ceil_div_u256(
+    gas_params: &CeilDivU256GasParameters,
+    context: &mut NativeContext,
+    _ty_args: Vec<Type>,
+    mut args: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
+    expect_native_signature(args.len(), 2, _ty_args.len(), 0)?;
+    native_charge_gas_early_exit!(context, gas_params.base);
+    let b: MU256 = pop_arg!(args, MU256);
+    let a: MU256 = pop_arg!(args, MU256);
+
+    match ceil_div_u256(m2p(&a), m2p(&b)) {
+        Ok(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::u256(p2m(v))])),
+        Err(code) => Ok(NR::err(context.gas_used(), code)),
+    }
+}
+
 // =================================================================
 // Unit Tests
 // =================================================================
@@ -1076,6 +1182,150 @@ pub fn native_log2_u256(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_integer::Roots;
+
+    /// Deterministic boundary sweep over {0,1,2,MAX/2,MAX-1,MAX} for every
+    /// binary width. Not proptest: no flakiness, runs every CI cycle.
+    const BOUNDS_U64: [u64; 6] = [0, 1, 2, u64::MAX / 2, u64::MAX - 1, u64::MAX];
+    const BOUNDS_U128: [u128; 6] = [0, 1, 2, u128::MAX / 2, u128::MAX - 1, u128::MAX];
+
+    fn bounds_p256() -> Vec<P256> {
+        [
+            P256::zero(),
+            P256::one(),
+            P256::from(2u64),
+            P256::MAX / P256::from(2u64),
+            P256::MAX - P256::from(1u64),
+            P256::MAX,
+        ]
+        .to_vec()
+    }
+
+    #[test]
+    fn test_ceil_div_u64_boundary_sweep() {
+        for &a in &BOUNDS_U64 {
+            for &b in &BOUNDS_U64 {
+                if b == 0 {
+                    assert_eq!(ceil_div_u64(a, 0).unwrap_err(), E_DIVIDE_BY_ZERO);
+                    continue;
+                }
+                let got = ceil_div_u64(a, b).unwrap();
+                assert_eq!(got, a.div_ceil(b), "ceil_div({a},{b})");
+            }
+        }
+        // Round-up matches floor + remainder branch; never exceeds a.
+        assert_eq!(ceil_div_u64(u64::MAX, 2).unwrap(), u64::MAX / 2 + 1);
+        assert_eq!(ceil_div_u64(10, 1).unwrap(), 10);
+        assert_eq!(ceil_div_u64(0, u64::MAX).unwrap(), 0);
+        // Overflow-free at the top: a / b + 1 < MAX always when remainder > 0.
+        assert!(ceil_div_u64(u64::MAX, u64::MAX).unwrap() == 1);
+    }
+
+    #[test]
+    fn test_ceil_div_u128_boundary_sweep() {
+        for &a in &BOUNDS_U128 {
+            for &b in &BOUNDS_U128 {
+                if b == 0 {
+                    assert_eq!(ceil_div_u128(a, 0).unwrap_err(), E_DIVIDE_BY_ZERO);
+                    continue;
+                }
+                assert_eq!(ceil_div_u128(a, b).unwrap(), a.div_ceil(b));
+            }
+        }
+        assert_eq!(ceil_div_u128(u128::MAX, u128::MAX).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_ceil_div_u256_boundary_sweep() {
+        for a in bounds_p256() {
+            for b in bounds_p256() {
+                if b.is_zero() {
+                    assert_eq!(ceil_div_u256(a, b).unwrap_err(), E_DIVIDE_BY_ZERO);
+                    continue;
+                }
+                // Reference computed in the U512 wide domain: (a + b - 1) / b.
+                let numerator = P512::from(a) + P512::from(b) - P512::one();
+                let expected = numerator / P512::from(b);
+                assert_eq!(P512::from(ceil_div_u256(a, b).unwrap()), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn test_average_boundary_sweep_no_overflow() {
+        for &a in &BOUNDS_U64 {
+            for &b in &BOUNDS_U64 {
+                let got = average_u64(a, b);
+                let expect_reference = (a as u128 + b as u128) / 2;
+                assert_eq!(got as u128, expect_reference, "avg({a},{b})");
+            }
+        }
+        for &a in &BOUNDS_U128 {
+            for &b in &BOUNDS_U128 {
+                // Reference uses U256 so the sum cannot overflow.
+                let sum: ethnum::U256 = ethnum::U256::from(a) + ethnum::U256::from(b);
+                assert_eq!(
+                    ethnum::U256::from(average_u128(a, b)),
+                    sum / ethnum::U256::from(2u8),
+                    "avg128({a},{b})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_sqrt_u64_perfect_squares_and_floor() {
+        for n in 0u64..512 {
+            let sq = n * n;
+            assert_eq!(sq.sqrt(), n);
+            // Floor property: sqrt(sq + 1) is n, unless sq + 1 is itself a
+            // perfect square of n + 1 (only at n == 0 here).
+            let expected = if sq + 1 < (n + 1) * (n + 1) { n } else { n + 1 };
+            assert_eq!((sq + 1).sqrt(), expected);
+        }
+        assert_eq!(u64::MAX.sqrt(), 4294967295u64);
+        assert_eq!(0u64.sqrt(), 0);
+        assert_eq!(1u64.sqrt(), 1);
+        assert!(4294967295u64 * 4294967295u64 <= u64::MAX);
+        // (2^32-1)^2 is the largest perfect square representable in u64.
+        assert_eq!((4294967295u64 * 4294967295u64).sqrt(), 4294967295u64);
+    }
+
+    #[test]
+    fn test_sqrt_u128_floor_roundtrip() {
+        let big = u128::MAX.sqrt();
+        assert_eq!(big, 18446744073709551615u128);
+        let sq = big * big;
+        assert!(sq <= u128::MAX);
+        // (big + 1)^2 == sq + 2*big + 1 must exceed MAX: avoid overflow by
+        // comparing the gap instead of squaring big + 1.
+        assert!(u128::MAX - sq < 2 * big + 1);
+        assert_eq!(0u128.sqrt(), 0);
+        assert_eq!(1u128.sqrt(), 1);
+    }
+
+    #[test]
+    fn test_clamp_boundary_sweep() {
+        for &x in &BOUNDS_U64 {
+            assert_eq!(clamp_u64(x, 0, u64::MAX).unwrap(), x);
+            assert_eq!(clamp_u64(x, u64::MAX, u64::MAX).unwrap(), u64::MAX);
+        }
+        assert_eq!(clamp_u64(5, 10, 20).unwrap(), 10);
+        assert_eq!(clamp_u64(25, 10, 20).unwrap(), 20);
+        assert_eq!(clamp_u64(10, 10, 20).unwrap(), 10);
+        assert_eq!(clamp_u64(15, 10, 20).unwrap(), 15);
+        assert_eq!(clamp_u64(1, 20, 10).unwrap_err(), E_INVALID_ARG);
+    }
+
+    #[test]
+    fn test_log2_boundary_and_zero() {
+        assert_eq!(log2_u64_checked(0).unwrap_err(), E_INVALID_ARG);
+        assert_eq!(log2_u64_checked(1).unwrap(), 0);
+        assert_eq!(log2_u64_checked(u64::MAX).unwrap(), 63);
+        assert_eq!(log2_u128_checked(u128::MAX).unwrap(), 127);
+        let max_bits = log2_u256_checked(&MU256::max_value()).unwrap();
+        assert_eq!(max_bits, P256::from(255u64));
+    }
 
     #[test]
     fn test_mul_div_u128_avoids_intermediate_overflow() {

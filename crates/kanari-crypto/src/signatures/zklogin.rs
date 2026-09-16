@@ -46,6 +46,14 @@ pub struct JwtClaims {
     /// Expiry (unix seconds). Checked by `verify_claims_timing`.
     #[serde(default)]
     pub exp: Option<u64>,
+    /// Issued-at (unix seconds). Checked by `verify_claims_timing` when
+    /// present: must not be in the future beyond the clock-skew leeway.
+    #[serde(default)]
+    pub iat: Option<u64>,
+    /// Not-before (unix seconds). Checked by `verify_claims_timing` when
+    /// present: must not be in the future beyond the clock-skew leeway.
+    #[serde(default)]
+    pub nbf: Option<u64>,
     /// Nonce bound to the ephemeral key (checked in Phase 3).
     #[serde(default)]
     pub nonce: Option<String>,
@@ -174,8 +182,9 @@ pub fn derive_address_from_claims(
     derive_zklogin_address_v2(&claims.iss, expected_aud, &claims.sub, salt)
 }
 
-/// Check `exp` against `now_unix_secs` with a clock-skew leeway.
-/// `None` exp fails closed (Sui requires exp in the proof circuit).
+/// Check `exp`/`iat`/`nbf` against `now_unix_secs` with a clock-skew leeway.
+/// `None` exp fails closed (Sui requires exp in the proof circuit). When
+/// `iat`/`nbf` are present they must not lie beyond the leeway in the future.
 /// Expiry has its own error so callers (and chains) never confuse it with
 /// a bad signature.
 pub fn verify_claims_timing(claims: &JwtClaims, now_unix_secs: u64) -> Result<(), SignatureError> {
@@ -184,6 +193,20 @@ pub fn verify_claims_timing(claims: &JwtClaims, now_unix_secs: u64) -> Result<()
         .exp
         .ok_or_else(|| SignatureError::InvalidFormat("JWT has no exp claim".to_string()))?;
     if now_unix_secs > exp.saturating_add(LEEWAY_SECS) {
+        return Err(SignatureError::Expired);
+    }
+    // A token that claims to have been issued too far in the future is a
+    // clock-integrity violation (or a misconfigured clock): treat as expired.
+    if let Some(iat) = claims.iat
+        && iat > now_unix_secs.saturating_add(LEEWAY_SECS)
+    {
+        return Err(SignatureError::Expired);
+    }
+    // A `nbf` after now means the IDP has not yet activated the token.
+    // Fail closed instead of honoring it early.
+    if let Some(nbf) = claims.nbf
+        && now_unix_secs.saturating_add(LEEWAY_SECS) < nbf
+    {
         return Err(SignatureError::Expired);
     }
     Ok(())
@@ -418,6 +441,13 @@ pub fn verify_jwt_with_jwks(
     validation.set_audience(&[expected_aud]);
     let data = jsonwebtoken::decode::<JwtClaims>(jwt, &jwk.decoding_key()?, &validation)
         .map_err(|_| SignatureError::VerificationFailed)?;
+    // `sub` must be present and non-empty: it is half of the address
+    // preimage, and an empty subject would alias every login of that issuer.
+    if data.claims.sub.trim().is_empty() {
+        return Err(SignatureError::InvalidFormat(
+            "JWT sub is empty".to_string(),
+        ));
+    }
     verify_claims_timing(&data.claims, now_unix_secs)?;
     if let Some(expected) = expected_nonce {
         match &data.claims.nonce {
@@ -482,6 +512,33 @@ mod tests {
     }
 
     #[test]
+    fn checks_iat_not_in_future() {
+        let mut claims = decode_jwt_claims(&test_jwt()).unwrap();
+        // No iat => no extra bound (exp still governs).
+        assert!(verify_claims_timing(&claims, 1_000_000).is_ok());
+        // iat within leeway (now + 60) is tolerated (clock skew).
+        claims.iat = Some(1_000_000 + 60);
+        assert!(verify_claims_timing(&claims, 1_000_000).is_ok());
+        // iat beyond leeway in the future fails closed.
+        claims.iat = Some(1_000_000 + 61);
+        assert!(verify_claims_timing(&claims, 1_000_000).is_err());
+    }
+
+    #[test]
+    fn checks_nbf_not_in_future() {
+        let mut claims = decode_jwt_claims(&test_jwt()).unwrap();
+        // nbf at/before now passes.
+        claims.nbf = Some(1_000_000);
+        assert!(verify_claims_timing(&claims, 1_000_000).is_ok());
+        // nbf exactly at the leeway boundary is tolerated.
+        claims.nbf = Some(1_000_000 + 60);
+        assert!(verify_claims_timing(&claims, 1_000_000).is_ok());
+        // nbf in the future beyond leeway fails closed.
+        claims.nbf = Some(1_000_000 + 61);
+        assert!(verify_claims_timing(&claims, 1_000_000).is_err());
+    }
+
+    #[test]
     fn ephemeral_sign_verify_roundtrip() {
         let kp = EphemeralKeypair::from_secret([9u8; 32]).unwrap();
         let msg = b"kanari zklogin ephemeral test";
@@ -526,8 +583,43 @@ mod tests {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(kid.to_string());
         let key = EncodingKey::from_rsa_der(der);
-        let claims: serde_json::Value = serde_json::from_str(payload_json).unwrap();
+        // Parse leniently: tests mint structurally-odd claims (empty sub)
+        // that must still reach `verify_jwt_with_jwks` to prove it rejects
+        // them. A strict parse here would fail the test before the code
+        // under test ever runs.
+        let claims: serde_json::Value = serde_json::from_str(payload_json)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
         encode(&header, &claims, &key).unwrap()
+    }
+
+    /// Mint a JWT whose payload bytes are used verbatim (no serde
+    /// roundtrip): for claims `encode` would normalize away (empty-string
+    /// `sub` must survive signing so the verifier can reject it).
+    fn sign_raw_payload_jwt(der: &[u8], kid: &str, payload_json: &str) -> String {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header};
+        use rsa::{
+            pkcs1::DecodeRsaPrivateKey,
+            sha2::Sha256,
+            signature::{SignatureEncoding, Signer},
+        };
+        let header = {
+            let mut h = Header::new(Algorithm::RS256);
+            h.kid = Some(kid.to_string());
+            h
+        };
+        let header_b64 =
+            general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
+        let signing_input = format!("{header_b64}.{payload_b64}");
+        let key = EncodingKey::from_rsa_der(der);
+        let _ = key;
+        let sk = rsa::RsaPrivateKey::from_pkcs1_der(der).unwrap();
+        let scheme = rsa::pkcs1v15::SigningKey::<Sha256>::new(sk);
+        let sig = scheme.sign(signing_input.as_bytes());
+        format!(
+            "{signing_input}.{}",
+            general_purpose::URL_SAFE_NO_PAD.encode(sig.to_bytes())
+        )
     }
 
     #[test]
@@ -587,6 +679,34 @@ mod tests {
         );
         // Wrong audience.
         assert!(verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "other", None, 1_000_000).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_sub() {
+        let (n, e, der) = rsa_test_key();
+        let jwks = JwksDocument {
+            keys: vec![RsaJwk {
+                kid: Some("test-key-1".to_string()),
+                kty: "RSA".to_string(),
+                alg: Some("RS256".to_string()),
+                n,
+                e,
+            }],
+        };
+        for sub in [r#""#.to_string(), "   ".to_string()] {
+            let jwt = sign_raw_payload_jwt(
+                &der,
+                "test-key-1",
+                &format!(
+                    r#"{{"iss":"https://accounts.google.com","aud":"client123","sub":{sub},"exp":9999999999}}"#
+                ),
+            );
+            assert!(
+                verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "client123", None, 1_000_000)
+                    .is_err(),
+                "empty/blank sub must be rejected"
+            );
+        }
     }
 
     #[test]

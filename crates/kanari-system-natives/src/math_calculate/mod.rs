@@ -39,6 +39,9 @@ pub struct GasParameters {
     pub log2_u64: math::Log2U64GasParameters,
     pub log2_u128: math::Log2U128GasParameters,
     pub log2_u256: math::Log2U256GasParameters,
+    pub ceil_div_u64: math::CeilDivU64GasParameters,
+    pub ceil_div_u128: math::CeilDivU128GasParameters,
+    pub ceil_div_u256: math::CeilDivU256GasParameters,
 }
 
 impl GasParameters {
@@ -95,6 +98,9 @@ impl GasParameters {
             log2_u64: math::Log2U64GasParameters { base: 0.into() },
             log2_u128: math::Log2U128GasParameters { base: 0.into() },
             log2_u256: math::Log2U256GasParameters { base: 0.into() },
+            ceil_div_u64: math::CeilDivU64GasParameters { base: 0.into() },
+            ceil_div_u128: math::CeilDivU128GasParameters { base: 0.into() },
+            ceil_div_u256: math::CeilDivU256GasParameters { base: 0.into() },
         }
     }
 
@@ -188,6 +194,9 @@ impl GasParameters {
             log2_u64: math::Log2U64GasParameters { base: G::new(100) },
             log2_u128: math::Log2U128GasParameters { base: G::new(100) },
             log2_u256: math::Log2U256GasParameters { base: G::new(500) },
+            ceil_div_u64: math::CeilDivU64GasParameters { base: G::new(120) },
+            ceil_div_u128: math::CeilDivU128GasParameters { base: G::new(180) },
+            ceil_div_u256: math::CeilDivU256GasParameters { base: G::new(700) },
         }
     }
 }
@@ -223,6 +232,9 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let log2_u64_params = gas_params.log2_u64;
     let log2_u128_params = gas_params.log2_u128;
     let log2_u256_params = gas_params.log2_u256;
+    let ceil_div_u64_params = gas_params.ceil_div_u64;
+    let ceil_div_u128_params = gas_params.ceil_div_u128;
+    let ceil_div_u256_params = gas_params.ceil_div_u256;
 
     let sqrt_u128: NativeFunction = Arc::new(move |context, ty_args, args| {
         math::native_sqrt_u128(&sqrt_u128_params, context, ty_args, args)
@@ -314,6 +326,15 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let log2_u256: NativeFunction = Arc::new(move |context, ty_args, args| {
         math::native_log2_u256(&log2_u256_params, context, ty_args, args)
     });
+    let ceil_div_u64: NativeFunction = Arc::new(move |context, ty_args, args| {
+        math::native_ceil_div_u64(&ceil_div_u64_params, context, ty_args, args)
+    });
+    let ceil_div_u128: NativeFunction = Arc::new(move |context, ty_args, args| {
+        math::native_ceil_div_u128(&ceil_div_u128_params, context, ty_args, args)
+    });
+    let ceil_div_u256: NativeFunction = Arc::new(move |context, ty_args, args| {
+        math::native_ceil_div_u256(&ceil_div_u256_params, context, ty_args, args)
+    });
 
     make_module_natives([
         ("sqrt_u128", sqrt_u128),
@@ -346,6 +367,9 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
         ("log2_u64", log2_u64),
         ("log2_u128", log2_u128),
         ("log2_u256", log2_u256),
+        ("ceil_div_u64", ceil_div_u64),
+        ("ceil_div_u128", ceil_div_u128),
+        ("ceil_div_u256", ceil_div_u256),
     ])
 }
 
@@ -394,8 +418,11 @@ mod tests {
             p.log2_u64.base,
             p.log2_u128.base,
             p.log2_u256.base,
+            p.ceil_div_u64.base,
+            p.ceil_div_u128.base,
+            p.ceil_div_u256.base,
         ];
-        assert_eq!(bases.len(), 30);
+        assert_eq!(bases.len(), 33);
         for (i, b) in bases.into_iter().enumerate() {
             assert!(nonzero(b), "production base #{i} is zero");
         }

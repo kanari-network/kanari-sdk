@@ -107,4 +107,53 @@ module kanari_system::pay_tests {
         transfer::public_transfer(coin_val, @0x1);
         cleanup(cap, meta);
     }
+
+    // =================================================================
+    // Self-transfer and self-join hardening
+    // =================================================================
+
+    // Sending to the transaction sender is rejected (pay's ESELF_PAY = 3) — use
+    // `pay::keep`/`split` to keep the coin instead.
+    #[test]
+    #[expected_failure(location = kanari_system::pay, abort_code = 3)]
+    fun test_split_and_transfer_self_rejected() {
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let coin_val = coin::mint(&mut cap, 1000, &mut ctx);
+        let sender = tx_context::sender(&ctx);
+        pay::split_and_transfer(&mut coin_val, 300, sender, &mut ctx);
+        transfer::public_transfer(coin_val, @0x1);
+        cleanup(cap, meta);
+    }
+
+    // The regulated path inherits the self-pay rejection before the deny check.
+    #[test]
+    #[expected_failure(location = kanari_system::pay, abort_code = 3)]
+    fun test_split_and_transfer_checked_self_rejected() {
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let coin_val = coin::mint(&mut cap, 1000, &mut ctx);
+        let sender = tx_context::sender(&ctx);
+        let denylist = &mut kanari_system::deny_list::new_denylist();
+        pay::split_and_transfer_checked(&mut coin_val, 300, sender, denylist, &mut ctx);
+        transfer::public_transfer(coin_val, @0x1);
+        cleanup(cap, meta);
+    }
+
+    // Splitting then re-joining the same coin is deliberately allowed: it is a
+    // balance-neutral no-op used by aggregators. A literal self-join of one
+    // object into itself is structurally impossible — Move cannot hold both
+    // `&mut Coin` and by-value `Coin` for the same global object.
+    #[test]
+    fun test_rejoin_split_coin_still_allowed() {
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let coin_val = coin::mint(&mut cap, 1000, &mut ctx);
+        let part = coin::split(&mut coin_val, 300, &mut ctx);
+        assert!(coin::value(&coin_val) == 700, 0);
+        coin::join(&mut coin_val, part);
+        assert!(coin::value(&coin_val) == 1000, 1);
+        transfer::public_transfer(coin_val, @0x1);
+        cleanup(cap, meta);
+    }
 }

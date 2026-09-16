@@ -48,6 +48,7 @@ module kanari_system::multisig {
     const E_NOT_EXPIRED: u64 = 16;
     const E_ZERO_AMOUNT: u64 = 17;
     const E_DENIED: u64 = 18;
+    const E_ZERO_ADDRESS: u64 = 19;
 
     // --- Transaction Types ---
     const TX_TYPE_TRANSFER: u8 = 0;
@@ -154,6 +155,12 @@ module kanari_system::multisig {
         assert!(threshold > 0, E_INVALID_THRESHOLD);
         assert!(threshold <= (owners_len as u64), E_INVALID_THRESHOLD);
         check_duplicate_owners(&owners);
+        // Reject the zero address: it can never approve and poisons the owner set.
+        let i = 0;
+        while (i < owners_len) {
+            assert!(*vector::borrow(&owners, i) != @0x0, E_ZERO_ADDRESS);
+            i = i + 1;
+        };
 
         let wallet = MultisigWallet<T> {
             id: object::new(ctx),
@@ -258,6 +265,7 @@ module kanari_system::multisig {
         ttl_ms: u64,
         ctx: &mut TxContext,
     ): TransactionProposal {
+        assert!(new_owner != @0x0, E_ZERO_ADDRESS);
         assert!(!is_owner(wallet, new_owner), E_ALREADY_OWNER);
         new_proposal(
             wallet, TX_TYPE_ADD_OWNER, new_owner, 0,
@@ -979,6 +987,29 @@ module kanari_system::multisig {
         let ctx2 = tx_context::new_from_hint(@0x2, 2, 0, 1001, 0);
         approve_transaction(&wallet, &mut p, &mut ctx2);
         execute_transaction(&mut wallet, p, &mut ctx2);
+        destroy_wallet(wallet);
+        destroy_cap(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_ZERO_ADDRESS)]
+    fun test_create_wallet_rejects_zero_address_owner() {
+        let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, meta) =
+            setup_funded_wallet(vector::singleton(@0x0), 1, 1_000, &mut ctx1);
+        destroy_wallet(wallet);
+        destroy_cap(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_ZERO_ADDRESS)]
+    fun test_propose_add_owner_rejects_zero_address() {
+        let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, meta) =
+            setup_funded_wallet(owners1(), 1, 1_000, &mut ctx1);
+        let p = propose_add_owner(&wallet, @0x0, string::utf8(b"nope"), 60_000, &mut ctx1);
+        // Unreachable: `propose_add_owner` aborts on the zero address.
+        cancel_proposal(&wallet, p, &ctx1);
         destroy_wallet(wallet);
         destroy_cap(cap, meta);
     }

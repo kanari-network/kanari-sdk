@@ -170,6 +170,13 @@ module kanari_system::math_tests {
         // legacy aliases still work
         assert!(math::divide_and_round_up(10, 3) == 4, 6);
         assert!(math::divide_and_round_up_u128(10, 3) == 4, 7);
+        // boundary values never overflow
+        assert!(math::ceil_div_u64(MAX_U64, MAX_U64) == 1, 8);
+        assert!(math::ceil_div_u64(MAX_U64, 2) == (MAX_U64 / 2) + 1, 9);
+        assert!(math::ceil_div_u128(MAX_U128, MAX_U128) == 1, 10);
+        assert!(math::ceil_div_u128(MAX_U128, 2) == (MAX_U128 / 2) + 1, 11);
+        assert!(math::ceil_div_u256(MAX_U256, MAX_U256) == 1, 12);
+        assert!(math::ceil_div_u256(MAX_U256, 2) == (MAX_U256 / 2) + 1, 13);
     }
 
     #[test]

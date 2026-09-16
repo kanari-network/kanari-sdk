@@ -891,6 +891,22 @@ impl BlockchainEngine {
         b"tx_recent"
     }
 
+    /// Per-sender highest committed transaction nonce. Admission rejects any tx
+    /// whose nonce is not strictly greater than this watermark, closing
+    /// same-nonce/-lower-nonce replay even when the transaction bytes differ.
+    fn sender_nonce_watermark_key() -> &'static [u8] {
+        b"sender_nonce_watermark_v1"
+    }
+
+    pub(crate) fn load_sender_nonce_watermark(
+        store: &PersistentStore,
+    ) -> Result<std::collections::BTreeMap<String, u64>> {
+        Ok(store
+            .load::<std::collections::BTreeMap<String, u64>>(Self::sender_nonce_watermark_key())
+            .context("Failed to load sender nonce watermark")?
+            .unwrap_or_default())
+    }
+
     fn history_pruned_through_key() -> &'static [u8] {
         b"runtime:history_pruned_through"
     }
@@ -1012,6 +1028,22 @@ impl BlockchainEngine {
         updates.push((
             Self::recent_transaction_hashes_key().to_vec(),
             bcs::to_bytes(&recent_hashes).context("Failed to encode recent transaction index")?,
+        ));
+
+        // Monotonic per-sender nonce watermark: max committed nonce per sender.
+        // Stored alongside the checkpoint so replay admission survives restarts.
+        use crate::engine::mempool::NormalizeAddr as _;
+        let mut sender_watermark = Self::load_sender_nonce_watermark(store)?;
+        for tx in checkpoint.transactions.iter() {
+            let sender = Self::normalize_addr(tx.transaction.sender_address());
+            let nonce = tx.transaction.nonce();
+            if nonce > sender_watermark.get(&sender).copied().unwrap_or(0) {
+                sender_watermark.insert(sender, nonce);
+            }
+        }
+        updates.push((
+            Self::sender_nonce_watermark_key().to_vec(),
+            bcs::to_bytes(&sender_watermark).context("Failed to encode sender nonce watermark")?,
         ));
         updates.push((
             Self::checkpoint_transactions_key(checkpoint.sequence),
@@ -1705,9 +1737,20 @@ impl BlockchainEngine {
     }
 
     pub(crate) fn get_expected_nonce(&self, address_hex: &str) -> u64 {
-        // Legacy wire field only. Account sequence is no longer a state/consensus rule;
-        // keep this as a best-effort transaction nonce so older clients get distinct hashes.
+        // Nonce is monotonic per sender: never below the highest committed nonce,
+        // and at least one above anything already pending.
+        let committed = self
+            .persistent_store
+            .as_ref()
+            .and_then(|store| Self::load_sender_nonce_watermark(store).ok())
+            .and_then(|watermark| {
+                use crate::engine::mempool::NormalizeAddr as _;
+                watermark.get(&Self::normalize_addr(address_hex)).copied()
+            })
+            .unwrap_or(0);
         self.pending_tx_count_for_sender(address_hex)
+            .saturating_add(committed)
+            .saturating_add(1)
     }
 
     fn resolve_account_objects(
