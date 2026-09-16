@@ -24,4 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Kanari App"
 include(":app")
+// Local kanari-kotlin: Rust crypto (incl. zkLogin FFI) via UniFFI + JNA.
+// Replaces the published Maven artifact so the app always tracks the tree.
+includeBuild("../../packages/kanari-kotlin/android") { dependencySubstitution { substitute(module("io.github.jamesatomc:kanari-crypto")).using(project(":kanari-crypto")) } }
  

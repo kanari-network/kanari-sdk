@@ -29,10 +29,16 @@ pub const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 pub const GOOGLE_JWKS_URL: &str = "https://www.googleapis.com/oauth2/v3/certs";
 const HTTP_TIMEOUT_SECS: u64 = 30;
 
+/// Built-in default OAuth client ID (same value as the app's
+/// `DEFAULT_CLIENT_ID`). Public identifier, safe to embed — never put a
+/// client *secret* here.
+pub const DEFAULT_CLIENT_ID: &str =
+    "1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com";
+
 #[derive(Parser, Debug)]
 pub struct Login {
     /// OAuth client ID (also the expected JWT `aud`).
-    /// Falls back to KANARI_ZKLOGIN_CLIENT_ID when omitted.
+    /// Falls back to KANARI_ZKLOGIN_CLIENT_ID, then the built-in default.
     #[arg(long)]
     pub client_id: Option<String>,
     /// OIDC provider. Only `google` is supported for now.
@@ -73,7 +79,7 @@ impl Login {
             .clone()
             .or_else(|| std::env::var("KANARI_ZKLOGIN_CLIENT_ID").ok())
             .filter(|s| !s.is_empty())
-            .context("pass --client-id or set KANARI_ZKLOGIN_CLIENT_ID")?;
+            .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
 
         // --- 1-2. Ephemeral key, randomness, salt, nonce ---
         let ephemeral = EphemeralKeypair::generate().context("cannot generate ephemeral key")?;
@@ -146,14 +152,14 @@ impl Login {
             })?;
 
         // --- 5b. JWKS fetch + JWT verify (sig/kid/iss/aud/exp) ---
-        let jwks: JwksDocument = http
-            .get(GOOGLE_JWKS_URL)
-            .send()
-            .context("cannot fetch Google JWKS")?
-            .error_for_status()
-            .context("Google JWKS request failed")?
-            .json()
-            .context("cannot parse Google JWKS")?;
+        let jwks: JwksDocument = serde_json::from_slice(&read_capped(
+            http.get(GOOGLE_JWKS_URL)
+                .send()
+                .context("cannot fetch Google JWKS")?
+                .error_for_status()
+                .context("Google JWKS request failed")?,
+        )?)
+        .context("cannot parse Google JWKS")?;
         let now = now_unix_secs()?;
         // Nonce checked inside (step 6 folded in): fail closed unless the
         // JWT nonce equals the one bound to THIS session key.
@@ -407,14 +413,14 @@ fn exchange_code(
         .iter()
         .map(|(k, v)| format!("{k}={}", percent_encode(v)))
         .collect();
-    let resp: serde_json::Value = http
-        .post(GOOGLE_TOKEN_URL)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body.join("&"))
-        .send()
-        .context("token request failed (network?)")?
-        .json()
-        .context("token endpoint did not return JSON")?;
+    let resp: serde_json::Value = serde_json::from_slice(&read_capped(
+        http.post(GOOGLE_TOKEN_URL)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body.join("&"))
+            .send()
+            .context("token request failed (network?)")?,
+    )?)
+    .context("token endpoint did not return JSON")?;
     if let Some(id_token) = resp.get("id_token").and_then(|v| v.as_str()) {
         return Ok(id_token.to_string());
     }
@@ -436,6 +442,27 @@ fn exchange_code(
 fn needs_client_secret(err: &anyhow::Error) -> bool {
     let s = format!("{err:#}");
     s.contains("invalid_client") || s.contains("unauthorized_client") || s.contains("client_secret")
+}
+
+/// Max HTTP response we buffer (JWKS + token endpoints answer in KiBs).
+/// The declared Content-Length is checked first, but a lying header must
+/// not bypass the cap — the streaming `.take()` below is the real guard.
+const MAX_HTTP_BYTES: u64 = 256 * 1024;
+
+fn read_capped(resp: reqwest::blocking::Response) -> Result<Vec<u8>> {
+    if let Some(len) = resp.content_length() {
+        anyhow::ensure!(len <= MAX_HTTP_BYTES, "HTTP response too large ({len} bytes)");
+    }
+    let mut buf = Vec::new();
+    use std::io::Read;
+    resp.take(MAX_HTTP_BYTES + 1)
+        .read_to_end(&mut buf)
+        .context("cannot read HTTP response")?;
+    anyhow::ensure!(
+        (buf.len() as u64) <= MAX_HTTP_BYTES,
+        "HTTP response too large"
+    );
+    Ok(buf)
 }
 
 fn now_unix_secs() -> Result<u64> {

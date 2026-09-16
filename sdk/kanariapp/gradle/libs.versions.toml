@@ -24,6 +24,9 @@ qrcodeKotlin = "4.5.0"
 datastore = "1.2.1"
 tink = "1.23.0"
 jna = "5.19.1"
+credentials = "1.7.0-alpha03"
+credentialsPlayServices = "1.7.0-alpha03"
+googleId = "1.2.0"
 
 [libraries]
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
@@ -68,6 +71,9 @@ qrcode-kotlin = { group = "io.github.g0dkar", name = "qrcode-kotlin", version.re
 androidx-datastore = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentialsPlayServices" }
+google-id = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleId" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

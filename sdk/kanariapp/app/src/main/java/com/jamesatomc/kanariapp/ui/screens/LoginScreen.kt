@@ -24,6 +24,7 @@ import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.AuthHeroSection
 import com.jamesatomc.kanariapp.ui.components.ErrorBanner
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
+import com.jamesatomc.kanariapp.ui.components.SuccessBanner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +38,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var zkAddress by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
@@ -108,6 +110,7 @@ fun LoginScreen(
                     )
 
                     if (error != null) ErrorBanner(error = error!!)
+                    if (zkAddress != null) SuccessBanner(message = "zkLogin: ${zkAddress!!}")
                 }
             }
 
@@ -116,7 +119,7 @@ fun LoginScreen(
             LoadingButton(
                 onClick = {
                     scope.launch {
-                        isLoading = true; error = null
+                        isLoading = true; error = null; zkAddress = null
                         val response = client.login(email, password)
                         if (response?.success == true) onLoginSuccess() else error = response?.error ?: "Login failed"
                         isLoading = false
@@ -128,6 +131,42 @@ fun LoginScreen(
                 isLoading = isLoading,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(Modifier.height(12.dp))
+
+            var zkLoading by remember { mutableStateOf(false) }
+            // Activity context: Credential Manager needs it for the OS sheet.
+            val context = androidx.compose.ui.platform.LocalContext.current
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        zkLoading = true; error = null; zkAddress = null
+                        try {
+                            val result =
+                                com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.login(
+                                    context = context,
+                                )
+                            zkAddress = result.session.address
+                            onLoginSuccess()
+                        } catch (e: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
+                            // User dismissed the sheet: not an error, stay put.
+                        } catch (e: Exception) {
+                            error = e.message ?: "Google login failed"
+                        } finally {
+                            zkLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !isLoading && !zkLoading
+            ) {
+                if (zkLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Sign in with Google")
+            }
 
             Spacer(Modifier.height(12.dp))
 
