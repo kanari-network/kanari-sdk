@@ -3494,6 +3494,7 @@ version = "0.2.9"
 dependencies = [
  "ahash",
  "anyhow",
+ "base64 0.23.1",
  "bcs",
  "blake3",
  "consensus",
@@ -3501,6 +3502,7 @@ dependencies = [
  "ed25519-dalek 3.0.0",
  "fs2",
  "hex",
+ "jsonwebtoken",
  "kanari-crypto",
  "kanari-move-runtime-v1",
  "kanari-rpc-api",
@@ -3512,8 +3514,10 @@ dependencies = [
  "num_cpus",
  "proptest",
  "rayon",
+ "rsa",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "smt",
  "tempfile",
  "tokio",
@@ -3823,11 +3827,13 @@ dependencies = [
 name = "kanari-system-natives"
 version = "0.2.9"
 dependencies = [
+ "ark-std",
  "base64 0.23.1",
  "better_any",
  "ed25519-dalek 3.0.0",
  "ethnum",
  "hex",
+ "jsonwebtoken",
  "k256 0.14.0",
  "kanari-crypto",
  "log",

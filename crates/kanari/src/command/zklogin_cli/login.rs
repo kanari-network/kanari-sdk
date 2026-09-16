@@ -94,9 +94,14 @@ impl Login {
         // --- PKCE (public-client code exchange, no secret required) ---
         let verifier = URL_SAFE_NO_PAD.encode(randomness);
         let challenge = pkce_challenge(&verifier);
+        // CSRF/login-confusion guard: random per run, echoed back by the
+        // provider, verified on every callback before the code is touched.
+        // Without this, any local process could inject its own code into our
+        // loopback listener and log the victim into the attacker's account.
+        let state = hex::encode(generate_randomness().context("cannot sample state")?);
 
         let redirect_uri = format!("http://127.0.0.1:{}/callback", self.port);
-        let auth_url = build_auth_url(&client_id, &redirect_uri, &nonce, &challenge);
+        let auth_url = build_auth_url(&client_id, &redirect_uri, &nonce, &challenge, &state);
         eprintln!("Ephemeral pubkey: {}", hex::encode(pubkey));
         eprintln!("Nonce:            {nonce}");
         eprintln!("\nOpen this URL to log in with Google:\n{auth_url}\n");
@@ -106,13 +111,13 @@ impl Login {
 
         // --- 4. Authorization code via loopback (or manual paste) ---
         let code = if self.manual {
-            read_code_manually()?
+            read_code_manually(Some(&state))?
         } else {
-            match wait_for_code(self.port, self.timeout_secs) {
+            match wait_for_code(self.port, self.timeout_secs, &state) {
                 Ok(code) => code,
                 Err(e) => {
                     eprintln!("Loopback failed ({e:#}); falling back to manual paste.");
-                    read_code_manually()?
+                    read_code_manually(Some(&state))?
                 }
             }
         };
@@ -226,7 +231,13 @@ pub fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-pub fn build_auth_url(client_id: &str, redirect_uri: &str, nonce: &str, challenge: &str) -> String {
+pub fn build_auth_url(
+    client_id: &str,
+    redirect_uri: &str,
+    nonce: &str,
+    challenge: &str,
+    state: &str,
+) -> String {
     let q = [
         ("client_id", client_id.to_string()),
         ("redirect_uri", redirect_uri.to_string()),
@@ -237,6 +248,7 @@ pub fn build_auth_url(client_id: &str, redirect_uri: &str, nonce: &str, challeng
         ("code_challenge_method", "S256".to_string()),
         ("access_type", "online".to_string()),
         ("prompt", "select_account".to_string()),
+        ("state", state.to_string()),
     ];
     let query: Vec<String> = q
         .iter()
@@ -259,23 +271,32 @@ fn percent_encode(s: &str) -> String {
 
 /// Extract `?code=` (or `?error=`) from a loopback callback path/query.
 pub fn extract_code(path_and_query: &str) -> Result<String> {
+    extract_param(path_and_query, "code")?
+        .ok_or_else(|| anyhow::anyhow!("no authorization code in redirect (missing ?code=)"))
+}
+
+/// Extract the OAuth `state` param, if present. Callers compare against the
+/// value sent in the auth URL; missing/mismatch = forged or crossed request.
+pub fn extract_state(path_and_query: &str) -> Result<Option<String>> {
+    extract_param(path_and_query, "state")
+}
+
+fn extract_param(path_and_query: &str, key: &str) -> Result<Option<String>> {
     let query = path_and_query.split_once('?').map(|(_, q)| q).unwrap_or("");
     // Strip fragment if the user pasted a full URL.
     let query = query.split_once('#').map(|(q, _)| q).unwrap_or(query);
-    let mut code = None;
-    let mut error = None;
+    let mut found = None;
     for pair in query.split('&') {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        match k {
-            "code" => code = Some(percent_decode(v)),
-            "error" => error = Some(percent_decode(v)),
-            _ => {}
+        // Provider errors take precedence over any code/state present.
+        if k == "error" {
+            anyhow::bail!("provider returned an error: {}", percent_decode(v));
+        }
+        if found.is_none() && k == key {
+            found = Some(percent_decode(v));
         }
     }
-    if let Some(e) = error {
-        anyhow::bail!("provider returned an error: {e}");
-    }
-    code.ok_or_else(|| anyhow::anyhow!("no authorization code in redirect (missing ?code=)"))
+    Ok(found)
 }
 
 fn percent_decode(s: &str) -> String {
@@ -331,8 +352,11 @@ fn open_browser(url: &str) {
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
 }
 
-/// Serve one loopback callback and return the authorization code.
-fn wait_for_code(port: u16, timeout_secs: u64) -> Result<String> {
+/// Serve loopback callbacks until one carries our `state`, then return its
+/// authorization code. Requests with a missing/mismatched state are answered
+/// with a failure page and ignored (never accepted): without this, any local
+/// process could feed us its own code and log us into its account.
+fn wait_for_code(port: u16, timeout_secs: u64, expected_state: &str) -> Result<String> {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
 
@@ -362,7 +386,7 @@ fn wait_for_code(port: u16, timeout_secs: u64) -> Result<String> {
             .next()
             .and_then(|l| l.split_whitespace().nth(1))
             .unwrap_or("/");
-        let outcome = extract_code(path);
+        let outcome = check_state(path, expected_state).and_then(|p| extract_code(&p));
         let body = match &outcome {
             Ok(_) => "<h1>Logged in</h1><p>You can close this tab and return to the CLI.</p>",
             Err(e) => &format!("<h1>Login failed</h1><p>{e:#}</p>"),
@@ -375,11 +399,26 @@ fn wait_for_code(port: u16, timeout_secs: u64) -> Result<String> {
             )
             .as_bytes(),
         );
-        return outcome;
+        match outcome {
+            // State mismatch: ignore and keep waiting for OUR redirect.
+            Err(e) if e.to_string().starts_with("state mismatch") => continue,
+            done => return done,
+        }
     }
 }
 
-fn read_code_manually() -> Result<String> {
+/// Verify the callback carries the state we sent. Returns the path
+/// unchanged on match so callers can parse the code from it.
+fn check_state(path_and_query: &str, expected_state: &str) -> Result<String> {
+    match extract_state(path_and_query)? {
+        Some(state) if state == expected_state => Ok(path_and_query.to_string()),
+        _ => {
+            anyhow::bail!("state mismatch: this redirect was not started by this login (ignoring)")
+        }
+    }
+}
+
+fn read_code_manually(expected_state: Option<&str>) -> Result<String> {
     use std::io::{BufRead, Write};
     eprint!("Paste the full redirect URL (or just the code): ");
     let _ = std::io::stderr().flush();
@@ -394,6 +433,9 @@ fn read_code_manually() -> Result<String> {
     }
     // Accept either a bare code or a full URL containing ?code=.
     if line.starts_with("http") {
+        if let Some(expected) = expected_state {
+            check_state(line, expected)?;
+        }
         extract_code(line)
     } else {
         Ok(line.to_string())
@@ -506,6 +548,7 @@ mod tests {
             "http://127.0.0.1:8765/callback",
             "NONCE",
             "CHAL",
+            "STATE123",
         );
         assert!(url.starts_with(GOOGLE_AUTH_URL));
         for needle in [
@@ -516,6 +559,7 @@ mod tests {
             "nonce=NONCE",
             "code_challenge=CHAL",
             "code_challenge_method=S256",
+            "state=STATE123",
         ] {
             assert!(url.contains(needle), "missing {needle}");
         }
@@ -530,6 +574,18 @@ mod tests {
         assert_eq!(extract_code("/callback?scope=x&code=A%2BB").unwrap(), "A+B");
         assert!(extract_code("/callback").is_err());
         assert!(extract_code("/callback?error=access_denied").is_err());
+    }
+
+    #[test]
+    fn state_mismatch_is_rejected() {
+        // Attacker-injected or crossed redirect: right code, wrong state.
+        let good = "/callback?code=AUTHCODE&state=OURS123";
+        assert_eq!(check_state(good, "OURS123").unwrap(), good);
+        assert!(check_state("/callback?code=AUTHCODE&state=EVIL", "OURS123").is_err());
+        // Missing state is also a rejection (never downgrade to unchecked).
+        assert!(check_state("/callback?code=AUTHCODE", "OURS123").is_err());
+        assert_eq!(extract_state(good).unwrap(), Some("OURS123".to_string()));
+        assert_eq!(extract_state("/callback?code=X").unwrap(), None);
     }
 
     #[test]

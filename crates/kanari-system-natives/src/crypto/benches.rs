@@ -270,4 +270,139 @@ fn crypto_calibrate() {
             .unwrap()
         });
     }
+
+    // --- zkLogin JWT full path (mint once with deterministic RSA key) ---
+    {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use kanari_crypto::signatures::zklogin::{
+            ISS_GOOGLE, JwksDocument, compute_nonce, derive_zklogin_address_v2,
+            verify_jwt_with_jwks,
+        };
+
+        struct Xor(u64);
+        impl rsa::rand_core::RngCore for Xor {
+            fn next_u32(&mut self) -> u32 {
+                self.next_u64() as u32
+            }
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0 | 1;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                let mut i = 0;
+                while i < dest.len() {
+                    let b = self.next_u64().to_le_bytes();
+                    let n = core::cmp::min(8, dest.len() - i);
+                    dest[i..i + n].copy_from_slice(&b[..n]);
+                    i += n;
+                }
+            }
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rsa::rand_core::Error> {
+                self.fill_bytes(dest);
+                Ok(())
+            }
+        }
+        impl rsa::rand_core::CryptoRng for Xor {}
+        use rsa::pkcs1::EncodeRsaPrivateKey as _;
+        use rsa::traits::PublicKeyParts as _;
+
+        let mut rng = Xor(0xBEEF);
+        let sk = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+        let pk = rsa::RsaPublicKey::from(&sk);
+        let n_b64 = URL_SAFE_NO_PAD.encode(pk.n().to_bytes_be());
+        let e_b64 = URL_SAFE_NO_PAD.encode(pk.e().to_bytes_be());
+        let der = sk.to_pkcs1_der().unwrap().as_bytes().to_vec();
+
+        // Nonce binds a fixed ephemeral session (same shape as login flow).
+        let eph_pub = [42u8; 32];
+        let nonce = compute_nonce(&eph_pub, 1000, &[7u8; 32]);
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+        header.kid = Some("bench-1".to_string());
+        let claims = serde_json::json!({
+            "iss": ISS_GOOGLE,
+            "aud": "kanari-test-client",
+            "sub": "1234",
+            "exp": 2000000000u64,
+            "nonce": nonce,
+        });
+        let key = jsonwebtoken::EncodingKey::from_rsa_der(&der);
+        let jwt = jsonwebtoken::encode(&header, &claims, &key).unwrap();
+        let jwks: JwksDocument = serde_json::from_str(&format!(
+            "{{\"keys\":[{{\"kty\":\"RSA\",\"kid\":\"bench-1\",\"alg\":\"RS256\",\"n\":\"{n_b64}\",\"e\":\"{e_b64}\"}}]}}"
+        ))
+        .unwrap();
+        assert!(
+            verify_jwt_with_jwks(
+                &jwt,
+                &jwks,
+                ISS_GOOGLE,
+                "kanari-test-client",
+                Some(&nonce),
+                1_700_000_000
+            )
+            .is_ok()
+        );
+        // Sanity: address derivation agrees (proves fixture coherence).
+        let _addr = derive_zklogin_address_v2(ISS_GOOGLE, "kanari-test-client", "1234", &[9u8; 32])
+            .unwrap();
+        bench("zklogin_jwt_verify", 200, || {
+            verify_jwt_with_jwks(
+                black_box(&jwt),
+                black_box(&jwks),
+                black_box(ISS_GOOGLE),
+                black_box("kanari-test-client"),
+                Some(black_box(&nonce)),
+                black_box(1_700_000_000),
+            )
+            .unwrap()
+        });
+    }
+
+    // --- Groth16 binding-circuit verify (setup once, time verify only) ---
+    {
+        use ark_std::rand::SeedableRng;
+        use kanari_crypto::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
+        use kanari_crypto::signatures::zklogin_circuit::{
+            proof_to_bytes, prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
+            vk_to_bytes,
+        };
+        use kanari_crypto::signatures::zklogin_proof::verify_groth16_proof;
+
+        let iss = b"https://accounts.google.com";
+        let aud = b"kanari-test-client";
+        let salt = [9u8; 32];
+        let eph_pub = [42u8; 32];
+        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(0xB10C5EED);
+        let addr_hex = derive_zklogin_address_v2(
+            "https://accounts.google.com",
+            "kanari-test-client",
+            "1234",
+            &salt,
+        )
+        .unwrap();
+        let address: [u8; 32] = hex::decode(&addr_hex[2..]).unwrap().try_into().unwrap();
+        let nonce_hex = compute_nonce(&eph_pub, 1000, &[7u8; 32]);
+        let nonce: [u8; 32] = hex::decode(&nonce_hex).unwrap().try_into().unwrap();
+        let (pk, vk) = setup_binding_circuit(iss, aud, &mut rng).unwrap();
+        let proof = prove_binding(
+            &pk, iss, aud, salt, b"1234", [7u8; 32], eph_pub, 1000, address, nonce, &mut rng,
+        )
+        .unwrap();
+        let vk_bytes = vk_to_bytes(&vk).unwrap();
+        let inputs = public_inputs_to_be_bytes(&address, &nonce);
+        let proof_bytes = proof_to_bytes(&proof).unwrap();
+        assert!(verify_groth16_proof(&vk_bytes, &inputs, &proof_bytes).unwrap());
+        bench("groth16_verify_binding", 20, || {
+            verify_groth16_proof(
+                black_box(&vk_bytes),
+                black_box(&inputs),
+                black_box(&proof_bytes),
+            )
+            .unwrap()
+        });
+    }
 }

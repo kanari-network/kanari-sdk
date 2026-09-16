@@ -17,7 +17,11 @@ bip39.workspace = true
 k256 = { workspace = true, features = ["ecdsa", "std"] }
 p256 = { workspace = true, features = ["ecdsa", "std"] }
 ed25519-dalek = { workspace = true, features = ["rand_core", "batch"] }
-secp256k1 = { workspace = true, features = ["recovery", "rand", "global-context"] }
+secp256k1 = { workspace = true, features = [
+    "recovery",
+    "rand",
+    "global-context",
+] }
 rsa = { workspace = true, features = ["hazmat", "sha2"] }
 sha2.workspace = true
 sha3.workspace = true
@@ -27,9 +31,9 @@ hmac.workspace = true
 rayon.workspace = true
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
-ml-dsa = { workspace = true, optional = true } # Pure Rust FIPS 204 ML-DSA provider
+ml-dsa = { workspace = true, optional = true }  # Pure Rust FIPS 204 ML-DSA provider
 slh-dsa = { workspace = true, optional = true } # Pure Rust FIPS 205 SLH-DSA provider
-falcon = { workspace = true, optional = true } # Pure Rust FIPS 206 FN-DSA/Falcon provider
+falcon = { workspace = true, optional = true }  # Pure Rust FIPS 206 FN-DSA/Falcon provider
 
 # Make blake3 optional and enabled via the blake3 feature
 blake3 = { workspace = true, optional = true }
@@ -57,8 +61,8 @@ ark-serialize.workspace = true
 ark-relations.workspace = true
 ark-snark.workspace = true
 ark-std.workspace = true
-ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
-ark-r1cs-std = "0.6.0"
+ark-crypto-primitives.workspace = true
+ark-r1cs-std.workspace = true
 
 # Memory security
 zeroize.workspace = true
@@ -90,4 +94,4 @@ default = ["blake3", "pqc"]
 pqc = ["ml-dsa", "falcon", "slh-dsa"]
 experimental-slh-dsa = ["slh-dsa"]
 experimental-falcon = ["falcon"]
-hybrid = ["pqc"] # Hybrid classical + PQC schemes
+hybrid = ["pqc"]                      # Hybrid classical + PQC schemes

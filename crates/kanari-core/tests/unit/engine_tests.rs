@@ -927,6 +927,186 @@ fn restarted_engine_preserves_replay_protection_and_multi_checkpoint_progress() 
     restarted.state_read().validate_smt_consistency().unwrap();
 }
 
+/// zkLogin sender end-to-end through mempool admission (`into_verified`):
+/// a JWT bundle for `ZkLogin:0x...` is accepted, executes, and replays
+/// (pending duplicate + post-commit) are rejected exactly like legacy txs.
+/// A bundle bound to a DIFFERENT sender is rejected at admission.
+#[test]
+fn zklogin_sender_submits_executes_and_rejects_replay() {
+    use kanari_crypto::signatures::zk_authenticator::{
+        JwtAuth, ZkAuthKind, ZkLoginAuthenticator, encode_zklogin_tx_signature,
+    };
+    use kanari_crypto::signatures::zklogin::{
+        EphemeralKeypair, ISS_GOOGLE, JwksDocument, compute_nonce, derive_zklogin_address_v2,
+    };
+
+    // Deterministic RSA-2048 (xorshift): same key, same JWT, every run.
+    struct Xor(u64);
+    impl rsa::rand_core::RngCore for Xor {
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.0 | 1;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            let mut i = 0;
+            while i < dest.len() {
+                let b = self.next_u64().to_le_bytes();
+                let n = core::cmp::min(8, dest.len() - i);
+                dest[i..i + n].copy_from_slice(&b[..n]);
+                i += n;
+            }
+        }
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rsa::rand_core::Error> {
+            self.fill_bytes(dest);
+            Ok(())
+        }
+    }
+    impl rsa::rand_core::CryptoRng for Xor {}
+
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use rsa::pkcs1::EncodeRsaPrivateKey as _;
+    use rsa::traits::PublicKeyParts as _;
+    let mut rng = Xor(0xBEEF);
+    let rsa_sk = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let rsa_pk = rsa::RsaPublicKey::from(&rsa_sk);
+    let n_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.n().to_bytes_be());
+    let e_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.e().to_bytes_be());
+    let der = rsa_sk.to_pkcs1_der().unwrap().as_bytes().to_vec();
+
+    // Fixed session: ephemeral secret [42u8;32], epoch 1000, rand [7u8;32].
+    let kp = EphemeralKeypair::from_secret([42u8; 32]).unwrap();
+    let eph_pub = kp.public_bytes();
+    let nonce = compute_nonce(&eph_pub, 1000, &[7u8; 32]);
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some("engine-1".to_string());
+    let claims = serde_json::json!({
+        "iss": ISS_GOOGLE,
+        "aud": "kanari-test-client",
+        "sub": "1234",
+        "exp": 2000000000u64,
+        "nonce": nonce,
+    });
+    let jwt = jsonwebtoken::encode(
+        &header,
+        &claims,
+        &jsonwebtoken::EncodingKey::from_rsa_der(&der),
+    )
+    .unwrap();
+    let jwks: JwksDocument = serde_json::from_str(&format!(
+        "{{\"keys\":[{{\"kty\":\"RSA\",\"kid\":\"engine-1\",\"alg\":\"RS256\",\"n\":\"{n_b64}\",\"e\":\"{e_b64}\"}}]}}"
+    ))
+    .unwrap();
+    let salt = [9u8; 32];
+    let address =
+        derive_zklogin_address_v2(ISS_GOOGLE, "kanari-test-client", "1234", &salt).unwrap();
+    let tagged_sender = format!("ZkLogin:{address}");
+
+    // Engine + funding for the RAW zkLogin address.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path().to_str().unwrap();
+    let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+    if engine.persistent_store.is_none() {
+        return;
+    }
+    configure_single_authority_consensus(&mut engine);
+    fund_sender_with_coin(&engine, &address, "0xaaaa", 3_000_000);
+    fund_sender_with_coin(&engine, &address, "0x1001", 1_000_000);
+
+    // Transfer tx from the zkLogin sender, authenticated by bundle.
+    let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+        tagged_sender.clone(),
+        native_coin_object_ref("0xaaaa", 3_000_000),
+        "0xbeef00000000000000000000000000000000000000000000000000000000".to_string(),
+        1,
+        1,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref("0x1001", 1_000_000)];
+    }
+    let tx_hash = tx.hash();
+    let auth = ZkLoginAuthenticator {
+        ephemeral_pubkey: eph_pub,
+        ephemeral_sig: kp.sign(&tx_hash).as_slice().try_into().unwrap(),
+        max_epoch: 1000,
+        kind: ZkAuthKind::Jwt(JwtAuth {
+            jwt,
+            jwks,
+            iss: ISS_GOOGLE.to_string(),
+            aud: "kanari-test-client".to_string(),
+            randomness: [7u8; 32],
+            salt,
+        }),
+    };
+    let mut signed_tx = SignedTransaction::new(tx);
+    signed_tx.signature = encode_zklogin_tx_signature(&auth).unwrap();
+
+    // Accepted, then duplicate rejected while pending.
+    engine
+        .submit_transactions_batch(vec![signed_tx.clone()])
+        .unwrap();
+    let dup_err = engine
+        .submit_transactions_batch(vec![signed_tx.clone()])
+        .unwrap_err();
+    assert!(
+        dup_err.to_string().contains("already in pending pool"),
+        "unexpected: {dup_err:#}"
+    );
+
+    // Committed, then replay rejected as executed.
+    drive_consensus_to_height(&engine, 1);
+    assert!(engine.try_is_transaction_committed(&tx_hash).unwrap());
+    let replay_err = engine
+        .submit_transactions_batch(vec![signed_tx])
+        .unwrap_err();
+    assert!(
+        replay_err.to_string().contains("already executed"),
+        "unexpected: {replay_err:#}"
+    );
+
+    // Same bundle, different sender: binding enforced at admission.
+    let mut evil = Transaction::new_transfer_with_object_ref_and_gas(
+        "ZkLogin:0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        native_coin_object_ref("0xaaaa", 3_000_000),
+        "0xbeef00000000000000000000000000000000000000000000000000000000".to_string(),
+        1,
+        2,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut evil
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref("0x1001", 1_000_000)];
+    }
+    // Fresh bundle is unnecessary: reuse is fine, sender mismatch is fatal.
+    let mut evil_signed = SignedTransaction::new(evil);
+    evil_signed.signature = encode_zklogin_tx_signature(&auth).unwrap();
+    let bind_err = engine
+        .submit_transactions_batch(vec![evil_signed])
+        .unwrap_err();
+    assert!(
+        bind_err
+            .to_string()
+            .contains("Invalid transaction signature"),
+        "unexpected: {bind_err:#}"
+    );
+}
+
 #[test]
 fn checkpoint_commit_persists_metadata_and_transactions_before_restart() {
     let temp_dir = tempfile::tempdir().unwrap();

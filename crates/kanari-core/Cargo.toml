@@ -41,3 +41,8 @@ minibytes = { path = "../mysticeti/crates/minibytes", default-features = false }
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
+# zkLogin admission test fixtures (deterministic RSA mint + base64url)
+rsa = { workspace = true, features = ["hazmat", "sha2"] }
+jsonwebtoken = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }

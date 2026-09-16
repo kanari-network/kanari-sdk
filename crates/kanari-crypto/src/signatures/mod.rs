@@ -118,6 +118,11 @@ pub fn sign_message(
         CurveType::SphincsPlusSha256Robust => sign_message_sphincs(private_key_hex, message),
         CurveType::Falcon512 => sign_message_falcon512(private_key_hex, message),
         CurveType::Falcon1024 => sign_message_falcon1024(private_key_hex, message),
+        // No private key exists for session identities: sign with the
+        // session's ephemeral key (`EphemeralKeypair`), never here.
+        CurveType::ZkLogin => Err(SignatureError::InvalidPrivateKey(
+            "ZkLogin has no signing key (use a login session)".to_string(),
+        )),
     }
 }
 
@@ -174,6 +179,14 @@ pub fn verify_signature_with_curve(
         }
         CurveType::Falcon512 => verify_signature_falcon512(address_hex, message, signature),
         CurveType::Falcon1024 => verify_signature_falcon1024(address_hex, message, signature),
+        // zkLogin senders (`ZkLogin:0x...`): `signature` is a JSON
+        // `ZkLoginTxSignature` bundle, verified against `message` (the tx
+        // hash) with the current wall-clock time. See `zk_authenticator`.
+        CurveType::ZkLogin => crate::signatures::zk_authenticator::verify_zklogin_tx_signature(
+            address_hex,
+            message,
+            signature,
+        ),
     }
 }
 
@@ -279,5 +292,10 @@ pub fn verify_signature_with_keypair(
                 .unwrap_or(&keypair.public_key);
             verify_signature_falcon1024(pqc_pub, message, signature)
         }
+        // A KeyPair must never claim this curve (no key material exists);
+        // fail closed rather than mis-verifying.
+        CurveType::ZkLogin => Err(SignatureError::InvalidPublicKey(
+            "ZkLogin has no KeyPair form (use a login session)".to_string(),
+        )),
     }
 }

@@ -24,8 +24,30 @@ use crate::signatures::zklogin::{
     EphemeralKeypair, JwksDocument, compute_nonce, derive_zklogin_address_v2, verify_jwt_with_jwks,
 };
 
+/// Hex serde for fixed byte arrays (serde only implements arrays to 32).
+/// Lengths are enforced on decode: wrong size fails closed, never pads.
+mod hex_fixed {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<const N: usize, S: Serializer>(
+        bytes: &[u8; N],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        hex::encode(bytes).serialize(s)
+    }
+
+    pub fn deserialize<'de, const N: usize, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<[u8; N], D::Error> {
+        let s = String::deserialize(d)?;
+        let v = hex::decode(s.trim_start_matches("0x")).map_err(serde::de::Error::custom)?;
+        v.try_into()
+            .map_err(|_| serde::de::Error::custom(format!("expected {N} bytes")))
+    }
+}
+
 /// Linkable authenticator: full JWT travels with the transaction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JwtAuth {
     /// Compact JWT.
     pub jwt: String,
@@ -36,13 +58,15 @@ pub struct JwtAuth {
     /// Expected audience (the OAuth client ID).
     pub aud: String,
     /// Nonce randomness from the login session.
+    #[serde(with = "hex_fixed")]
     pub randomness: [u8; 32],
     /// Address salt from the login session.
+    #[serde(with = "hex_fixed")]
     pub salt: [u8; 32],
 }
 
 /// Private authenticator: Groth16 proof only (plus ephemeral signature).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProofAuth {
     /// Serialized verifying key (caller pins its hash out-of-band).
     pub vk: Vec<u8>,
@@ -55,18 +79,20 @@ pub struct ProofAuth {
 }
 
 /// One of the two authentication modes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ZkAuthKind {
     Jwt(JwtAuth),
     Proof(ProofAuth),
 }
 
 /// Full transaction authenticator for a zkLogin sender.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ZkLoginAuthenticator {
     /// Ephemeral session public key (32 bytes).
+    #[serde(with = "hex_fixed")]
     pub ephemeral_pubkey: [u8; 32],
     /// Ed25519 signature over the transaction hash (64 bytes).
+    #[serde(with = "hex_fixed")]
     pub ephemeral_sig: [u8; 64],
     /// Validity bound from the login nonce.
     pub max_epoch: u64,
@@ -162,6 +188,61 @@ fn address_from_inputs(inputs: &[u8]) -> Result<String, SignatureError> {
 fn addresses_equal(a: &str, b: &str) -> bool {
     a.trim_start_matches("0x")
         .eq_ignore_ascii_case(b.trim_start_matches("0x"))
+}
+
+/// Wire encoding of a transaction signature for `ZkLogin:` senders.
+///
+/// JSON object with a version tag so future bundle formats fail closed on
+/// old verifiers instead of mis-parsing:
+/// `{"v":1,"auth":{...ZkLoginAuthenticator...}}`.
+/// Sizes stay small (JWT mode ~2KB, proof mode ~5KB with VK) and under the
+/// 64KiB signature cap enforced by `validate_signature_bytes`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ZkLoginTxSignature {
+    /// Bundle format version. Only `1` is accepted.
+    pub v: u32,
+    /// The authenticator itself.
+    pub auth: ZkLoginAuthenticator,
+}
+
+pub fn encode_zklogin_tx_signature(auth: &ZkLoginAuthenticator) -> Result<Vec<u8>, SignatureError> {
+    serde_json::to_vec(&ZkLoginTxSignature {
+        v: 1,
+        auth: auth.clone(),
+    })
+    .map_err(|e| SignatureError::InvalidFormat(format!("cannot encode zkLogin bundle: {e}")))
+}
+
+/// Verify a `ZkLogin:` sender's transaction signature.
+///
+/// This is the function the mempool admission path reaches through
+/// `verify_signature_with_curve(..., CurveType::ZkLogin)`: `message` is the
+/// transaction hash, `signature` the JSON bundle above. Returns `Ok(true)`
+/// only when the ephemeral signature checks out, the mode payload verifies,
+/// AND the recovered address matches `address_hex`.
+pub fn verify_zklogin_tx_signature(
+    address_hex: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<bool, SignatureError> {
+    let bundle: ZkLoginTxSignature = serde_json::from_slice(signature).map_err(|_| {
+        SignatureError::InvalidFormat("zkLogin bundle is not valid JSON".to_string())
+    })?;
+    if bundle.v != 1 {
+        return Err(SignatureError::InvalidFormat(format!(
+            "unsupported zkLogin bundle version {}",
+            bundle.v
+        )));
+    }
+    // Wall-clock here matches the CLI/JWT world (Google `exp`). A future
+    // consensus rule may additionally pin `max_epoch` to chain time; until
+    // then the JWT `exp` check inside is the timeliness bound for JWT mode.
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|_| SignatureError::VerificationFailed)?;
+    let verified = verify_zklogin_authenticator(message, &bundle.auth, now_secs)?;
+    Ok(addresses_equal(&verified.address, address_hex))
 }
 
 #[cfg(test)]
@@ -378,5 +459,64 @@ mod tests {
         bad[0] = 1; // top byte of first input nonzero => not a byte
         assert!(address_from_inputs(&bad).is_err());
         assert!(address_from_inputs(&[0u8; 10]).is_err());
+    }
+
+    /// End-to-end through the mempool admission function
+    /// (`SignedTransaction::verify_signature` -> tagged dispatch): a JWT
+    /// bundle for `ZkLogin:0x...` verifies, and every tamper fails closed.
+    #[test]
+    fn tagged_dispatch_accepts_and_rejects() {
+        use crate::signatures::verify_signature;
+
+        let (eph_pub, _) = fixture_ephemeral();
+        let tx_hash = b"kanari-tx-hash-fixture-000000000002";
+        let kp = EphemeralKeypair::from_secret([42u8; 32]).unwrap();
+        let sig: [u8; 64] = kp.sign(tx_hash).try_into().unwrap();
+        let auth = ZkLoginAuthenticator {
+            ephemeral_pubkey: eph_pub,
+            ephemeral_sig: sig,
+            max_epoch: 1000,
+            kind: ZkAuthKind::Jwt(fixture_jwt_auth()),
+        };
+        let bundle = encode_zklogin_tx_signature(&auth).unwrap();
+        let verified = verify_zklogin_authenticator(tx_hash, &auth, 1_700_000_000).unwrap();
+        let tagged = format!("ZkLogin:{}", verified.address);
+
+        // The exact path the mempool takes (tagged dispatch).
+        assert!(verify_signature(&tagged, tx_hash, &bundle).unwrap());
+
+        // Wrong sender address must fail (binding enforced). Well-formed
+        // but non-matching verifies return Ok(false), like other curves.
+        assert!(
+            !verify_signature(
+                "ZkLogin:0x0000000000000000000000000000000000000000000000000000000000000000",
+                tx_hash,
+                &bundle
+            )
+            .unwrap()
+        );
+        // Corrupt JSON must fail, not default-accept.
+        assert!(verify_signature(&tagged, tx_hash, b"{nope").is_err());
+        // Future bundle version must fail closed.
+        let mut v2 = serde_json::from_slice::<serde_json::Value>(&bundle).unwrap();
+        v2["v"] = serde_json::json!(2);
+        assert!(
+            verify_signature(
+                &tagged,
+                tx_hash,
+                serde_json::to_vec(&v2).unwrap().as_slice()
+            )
+            .is_err()
+        );
+        // Untagged address never routes here.
+        assert!(verify_signature(&verified.address, tx_hash, &bundle).is_err());
+    }
+
+    #[test]
+    fn zklogin_has_no_signing_path() {
+        use crate::keys::CurveType;
+        use crate::signatures::sign_message;
+        assert!(sign_message("00", b"m", CurveType::ZkLogin).is_err());
+        assert!(crate::keys::generate_keypair(CurveType::ZkLogin).is_err());
     }
 }

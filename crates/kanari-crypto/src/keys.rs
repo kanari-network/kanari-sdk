@@ -123,6 +123,13 @@ pub enum CurveType {
 
     /// K256 + Dilithium3 hybrid (Bitcoin/Ethereum compatible + quantum-safe)
     K256Dilithium3,
+
+    /// zkLogin session identity (Google OIDC + ephemeral key). This is NOT
+    /// a signing curve: there is no private key material to generate, and
+    /// `sign_message` always rejects it. It exists so tagged addresses
+    /// (`ZkLogin:0x...`) route to bundle verification in
+    /// `verify_signature_with_curve`.
+    ZkLogin,
 }
 
 impl fmt::Display for CurveType {
@@ -139,6 +146,7 @@ impl fmt::Display for CurveType {
             CurveType::Falcon1024 => write!(f, "Falcon1024"),
             CurveType::Ed25519Dilithium3 => write!(f, "Ed25519Dilithium3"),
             CurveType::K256Dilithium3 => write!(f, "K256Dilithium3"),
+            CurveType::ZkLogin => write!(f, "ZkLogin"),
         }
     }
 }
@@ -159,6 +167,7 @@ impl std::str::FromStr for CurveType {
             "Falcon1024" | "FnDsa1024" | "FN-DSA-1024" => Ok(CurveType::Falcon1024),
             "Ed25519Dilithium3" => Ok(CurveType::Ed25519Dilithium3),
             "K256Dilithium3" => Ok(CurveType::K256Dilithium3),
+            "ZkLogin" => Ok(CurveType::ZkLogin),
             _ => Err(KeyError::InvalidPublicKey),
         }
     }
@@ -201,6 +210,9 @@ impl CurveType {
             CurveType::Falcon1024 => 5,
             CurveType::Ed25519Dilithium3 => 5,
             CurveType::K256Dilithium3 => 5,
+            // Session identity, not a hardness level; rank with the top tier
+            // so policy gates never silently downgrade it.
+            CurveType::ZkLogin => 5,
         }
     }
 }
@@ -325,6 +337,10 @@ pub fn generate_keypair(curve_type: CurveType) -> Result<KeyPair, KeyError> {
         CurveType::Falcon1024 => pqc::generate_falcon1024_keypair(),
         CurveType::Ed25519Dilithium3 => hybrid::generate_hybrid_ed25519_dilithium3_keypair(),
         CurveType::K256Dilithium3 => hybrid::generate_hybrid_k256_dilithium3_keypair(),
+        // No key material exists for session identities: log in to create one.
+        CurveType::ZkLogin => Err(KeyError::GenerationFailed(
+            "ZkLogin has no keypair to generate (OIDC session identity)".to_string(),
+        )),
     }
 }
 
@@ -385,6 +401,9 @@ pub fn keypair_from_seed(seed: &[u8], curve_type: CurveType) -> Result<KeyPair, 
         }
         CurveType::Ed25519Dilithium3 => hybrid::hybrid_ed25519_dilithium3_from_seed(seed),
         CurveType::K256Dilithium3 => hybrid::hybrid_k256_dilithium3_from_seed(seed),
+        CurveType::ZkLogin => Err(KeyError::GenerationFailed(
+            "ZkLogin has no keypair to derive (OIDC session identity)".to_string(),
+        )),
     }
 }
 
@@ -418,6 +437,7 @@ pub fn keypair_from_private_key(
         CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3 => {
             hybrid::keypair_from_hybrid_private_key(private_key, raw_private_key, curve_type)
         }
+        CurveType::ZkLogin => Err(KeyError::InvalidPrivateKey),
     }
 }
 

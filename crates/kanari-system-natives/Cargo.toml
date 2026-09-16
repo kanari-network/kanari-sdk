@@ -35,9 +35,11 @@ ethnum = { workspace = true }
 primitive-types = { workspace = true }
 
 [dev-dependencies]
+ark-std = { workspace = true }
 ed25519-dalek = { workspace = true }
 k256 = { workspace = true }
 p256 = { workspace = true }
 rand = { workspace = true }
 rsa = { workspace = true, features = ["hazmat", "sha2"] }
 secp256k1 = { workspace = true }
+jsonwebtoken = { workspace = true }

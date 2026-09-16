@@ -336,7 +336,7 @@ pub fn generate_randomness() -> Result<[u8; 32], SignatureError> {
 
 /// A single RSA JWK (`kty == "RSA"`) from a provider JWKS document.
 /// Field names match RFC 7517 (`n`, `e` base64url, `kid`, `alg`).
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RsaJwk {
     /// Key ID — must match the JWT header `kid`.
     #[serde(default)]
@@ -353,7 +353,7 @@ pub struct RsaJwk {
 }
 
 /// Provider JWKS document (`{"keys": [...]}`).
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JwksDocument {
     #[serde(default)]
     pub keys: Vec<RsaJwk>,
