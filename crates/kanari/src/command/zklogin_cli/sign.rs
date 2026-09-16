@@ -79,10 +79,8 @@ mod tests {
 
     #[test]
     fn session_save_load_delete_roundtrip_isolated() {
-        // Isolated home so parallel tests never touch real sessions.
+        // Explicit dir: no env manipulation, race-free under parallel tests.
         let dir = std::env::temp_dir().join(format!("kanari-zklogin-test-{}", std::process::id()));
-        // `set_var` is unsafe in edition 2024 (process-global env).
-        unsafe { std::env::set_var("KANARI_HOME", &dir) };
         let session = session::ZkLoginSession {
             version: session::SESSION_VERSION,
             provider: "google".to_string(),
@@ -99,17 +97,16 @@ mod tests {
             obtained_at_unix: 1,
             id_token_expires_at_unix: None,
         };
-        let path = session::save_session(&session).unwrap();
+        let path = session::save_session_in(&dir, &session).unwrap();
         assert!(path.exists());
-        let back = session::load_session("0xdeadbeef").unwrap();
+        let back = session::load_session_in(&dir, "0xdeadbeef").unwrap();
         assert_eq!(back.sub, "u1");
         assert_eq!(
-            session::latest_session().unwrap().unwrap().address,
+            session::latest_session_in(&dir).unwrap().unwrap().address,
             "0xdeadbeef"
         );
-        assert!(session::delete_session("0xdeadbeef").unwrap());
-        assert!(!session::delete_session("0xdeadbeef").unwrap());
+        assert!(session::delete_session_in(&dir, "0xdeadbeef").unwrap());
+        assert!(!session::delete_session_in(&dir, "0xdeadbeef").unwrap());
         std::fs::remove_dir_all(&dir).ok();
-        unsafe { std::env::remove_var("KANARI_HOME") };
     }
 }

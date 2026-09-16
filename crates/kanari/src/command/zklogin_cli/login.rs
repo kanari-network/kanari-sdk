@@ -5,7 +5,8 @@
 //!
 //! Flow (no client secret needed for Desktop clients; Web clients are asked
 //! for it only if Google rejects the PKCE exchange):
-//! 1. Generate ephemeral Ed25519 key + `randomness` + `salt`.
+//! 1. Generate ephemeral Ed25519 key + `randomness` (salt comes later:
+//!    it is per-account state, see step 7).
 //! 2. `nonce = compute_nonce(ephemeral_pubkey, max_epoch, randomness)`.
 //! 3. Open the Google login URL (loopback redirect + PKCE S256).
 //! 4. Catch the authorization `code` on `127.0.0.1:<port>` (or paste it).
@@ -18,7 +19,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use clap::Parser;
 use kanari_crypto::signatures::zklogin::{
     EphemeralKeypair, ISS_GOOGLE, JwksDocument, compute_nonce, derive_zklogin_address_v2,
-    generate_randomness, generate_salt, verify_jwt_with_jwks,
+    generate_randomness, verify_jwt_with_jwks,
 };
 use sha2::{Digest, Sha256};
 
@@ -81,10 +82,12 @@ impl Login {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
 
-        // --- 1-2. Ephemeral key, randomness, salt, nonce ---
+        // --- 1-2. Ephemeral key + randomness + nonce ---
+        // NOTE: no salt here on purpose. The salt is per-account state
+        // loaded AFTER the JWT tells us the `sub` (see below) — fresh salt
+        // every login would derive a different address each time.
         let ephemeral = EphemeralKeypair::generate().context("cannot generate ephemeral key")?;
         let randomness = generate_randomness().context("cannot sample randomness")?;
-        let salt = generate_salt().context("cannot sample salt")?;
         let pubkey = ephemeral.public_bytes();
         let nonce = compute_nonce(&pubkey, self.max_epoch, &randomness);
 
@@ -168,6 +171,12 @@ impl Login {
                 .map_err(|e| anyhow::anyhow!("JWT verification failed: {e:?}"))?;
 
         // --- 7. Address + session (canonical v2 scheme, matches chain) ---
+        // Stable salt per (iss, aud, sub): same account -> same address.
+        let (salt, salt_is_new) =
+            session::load_or_create_salt(&claims.iss, &client_id, &claims.sub)?;
+        if !salt_is_new {
+            eprintln!("Reused existing salt: address matches your previous logins.");
+        }
         let address = derive_zklogin_address_v2(&claims.iss, &client_id, &claims.sub, &salt)
             .map_err(|e| anyhow::anyhow!("address derivation failed: {e:?}"))?;
         let session = ZkLoginSession {
@@ -197,10 +206,12 @@ impl Login {
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "unknown".to_string())
         );
-        eprintln!(
-            "\nBACK UP THIS SALT (it re-derives your address): {}",
-            session.salt_hex
-        );
+        if salt_is_new {
+            eprintln!(
+                "\nBACK UP THIS SALT (it re-derives your address): {}",
+                session.salt_hex
+            );
+        }
         eprintln!(
             "WARNING: the session file holds the ephemeral secret (usable until max_epoch {}). \
              Keep it owner-only; `kanari zklogin logout` deletes it.",
@@ -451,7 +462,10 @@ const MAX_HTTP_BYTES: u64 = 256 * 1024;
 
 fn read_capped(resp: reqwest::blocking::Response) -> Result<Vec<u8>> {
     if let Some(len) = resp.content_length() {
-        anyhow::ensure!(len <= MAX_HTTP_BYTES, "HTTP response too large ({len} bytes)");
+        anyhow::ensure!(
+            len <= MAX_HTTP_BYTES,
+            "HTTP response too large ({len} bytes)"
+        );
     }
     let mut buf = Vec::new();
     use std::io::Read;
