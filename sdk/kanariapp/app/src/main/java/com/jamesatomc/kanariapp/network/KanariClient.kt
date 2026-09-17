@@ -183,12 +183,26 @@ class KanariClient(private val environment: KanariEnvironment) {
         return response.result
     }
 
-    suspend fun transfer(
-        wallet: KanariWallet,
+    private data class NativePrepared(
+        val normalized: ObjectTransferData,
+        val hash: ByteArray,
+    )
+
+    private data class TokenPrepared(
+        val normalized: CallFunctionData,
+        val hash: ByteArray,
+    )
+
+    /**
+     * Build + normalize + BCS-encode + hash a native transfer (no signing).
+     * Shared by key-pair wallets (Ed25519/etc.) and zkLogin (JWT bundle).
+     */
+    private suspend fun prepareNativeTransfer(
+        sender: String,
         recipient: String,
-        amount: ULong
-    ): TransactionResult? {
-        val prepared = buildNativeTransfer(wallet.taggedAddress, recipient, amount)
+        amount: ULong,
+    ): NativePrepared {
+        val prepared = buildNativeTransfer(sender, recipient, amount)
             ?: throw Exception("Failed to build transaction: RPC returned no data")
 
         val coinRef = prepared.coinObjectRef
@@ -228,46 +242,27 @@ class KanariClient(private val environment: KanariEnvironment) {
         // Hash with Blake3 (same as kanari_crypto::hash_data_blake3 / Transaction::hash)
         val hash = KanariCrypto.blake3Hash(txBytes)
 
-        // Sign the hash with the wallet's curve
-        val signature = wallet.sign(hash)
-
-        // Local verify is best-effort only - swallow CALL_ERROR to avoid masking real RPC error.
-        // Previous implementation passed taggedAddress as raw hex which caused `Unexpected CALL_ERROR`.
-        try {
-            val isLocalValid = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
-            Log.d("KanariClient", "Local signature verification: $isLocalValid")
-            // Don't throw on false - let server be the source of truth; just log.
-            if (!isLocalValid) {
-                Log.w(
-                    "KanariClient",
-                    "Local signature verification returned false - proceeding anyway, server will validate"
-                )
-            }
-        } catch (e: Exception) {
-            Log.w("KanariClient", "Local signature verification threw (ignored): ${e.message}")
-            // Do not throw - this was the source of `Unexpected CALL_ERROR` in UI.
-        }
-
-        // Finalize request with signature (RPC expects List<Int> 0-255)
-        val finalPrepared = prepared.copy(
-            signature = signature.map { it.toInt() and 0xFF },
+        val normalized = prepared.copy(
             // Ensure we send the normalized IDs that were signed
             coinObjectId = normalizedCoinObjectId,
             recipient = normalizedRecipient,
             gasPayment = normalizedGasPayment,
             nonce = nonce
         )
-
-        return submitObjectTransfer(finalPrepared)
+        return NativePrepared(normalized, hash)
     }
 
-    suspend fun transferToken(
-        wallet: KanariWallet,
+    /**
+     * Build + normalize + BCS-encode + hash a token transfer (no signing).
+     * Shared by key-pair wallets and zkLogin.
+     */
+    private suspend fun prepareTokenTransfer(
+        sender: String,
         recipient: String,
         tokenType: String,
-        amount: ULong
-    ): TransactionResult? {
-        val prepared = buildTokenTransfer(wallet.taggedAddress, recipient, tokenType, amount)
+        amount: ULong,
+    ): TokenPrepared {
+        val prepared = buildTokenTransfer(sender, recipient, tokenType, amount)
             ?: throw Exception("Failed to build token transfer: RPC returned no data")
 
         val nonce = prepared.nonce ?: throw Exception("Prepared token transfer missing nonce")
@@ -302,23 +297,102 @@ class KanariClient(private val environment: KanariEnvironment) {
         )
 
         val hash = KanariCrypto.blake3Hash(txBytes)
-        val signature = wallet.sign(hash)
+
+        val normalized = prepared.copy(
+            // Normalize object inputs/gas payment that were signed
+            objectInputs = if (normalizedObjectInputs.isEmpty()) null else normalizedObjectInputs,
+            gasPayment = normalizedGasPayment,
+            nonce = nonce
+        )
+        return TokenPrepared(normalized, hash)
+    }
+
+    suspend fun transfer(
+        wallet: KanariWallet,
+        recipient: String,
+        amount: ULong
+    ): TransactionResult? {
+        val p = prepareNativeTransfer(wallet.taggedAddress, recipient, amount)
+
+        // Sign the hash with the wallet's curve
+        val signature = wallet.sign(p.hash)
+
+        // Local verify is best-effort only - swallow CALL_ERROR to avoid masking real RPC error.
+        // Previous implementation passed taggedAddress as raw hex which caused `Unexpected CALL_ERROR`.
+        try {
+            val isLocalValid = KanariCrypto.verifySignature(wallet.taggedAddress, p.hash, signature, wallet.curveType)
+            Log.d("KanariClient", "Local signature verification: $isLocalValid")
+            // Don't throw on false - let server be the source of truth; just log.
+            if (!isLocalValid) {
+                Log.w(
+                    "KanariClient",
+                    "Local signature verification returned false - proceeding anyway, server will validate"
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("KanariClient", "Local signature verification threw (ignored): ${e.message}")
+            // Do not throw - this was the source of `Unexpected CALL_ERROR` in UI.
+        }
+
+        return submitObjectTransfer(
+            p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
+        )
+    }
+
+    suspend fun transferToken(
+        wallet: KanariWallet,
+        recipient: String,
+        tokenType: String,
+        amount: ULong
+    ): TransactionResult? {
+        val p = prepareTokenTransfer(wallet.taggedAddress, recipient, tokenType, amount)
+
+        val signature = wallet.sign(p.hash)
 
         try {
-            val ok = KanariCrypto.verifySignature(wallet.taggedAddress, hash, signature, wallet.curveType)
+            val ok = KanariCrypto.verifySignature(wallet.taggedAddress, p.hash, signature, wallet.curveType)
             Log.d("KanariClient", "Token transfer local verify: $ok")
         } catch (e: Exception) {
             Log.w("KanariClient", "Token local verify ignored: ${e.message}")
         }
 
-        val finalPrepared = prepared.copy(
-            // Normalize object inputs/gas payment that were signed
-            objectInputs = if (normalizedObjectInputs.isEmpty()) null else normalizedObjectInputs,
-            gasPayment = normalizedGasPayment,
-            nonce = nonce,
-            signature = signature.map { it.toInt() and 0xFF }
+        return submitCallFunction(p.normalized.copy(signature = signature.map { it.toInt() and 0xFF }))
+    }
+
+    /**
+     * zkLogin native transfer. The sender is the raw derived address as
+     * `ZkLogin:<address>` and the transaction hash is signed with the
+     * session's ephemeral Ed25519 key; the resulting JWT bundle becomes the
+     * opaque `signature` the chain re-verifies. Throws
+     * [ZkLoginTxSigner.SessionExpiredException] when the Google id_token is
+     * too old — the caller should route the user back through sign-in.
+     */
+    suspend fun transferZkLogin(
+        session: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.Session,
+        recipient: String,
+        amount: ULong,
+    ): TransactionResult? {
+        val p = prepareNativeTransfer("ZkLogin:${session.address}", recipient, amount)
+        val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
+            .sign(session, p.hash, System.currentTimeMillis() / 1000)
+        Log.d("KanariClient", "zkLogin bundle bytes: ${signature.size}")
+        return submitObjectTransfer(
+            p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
         )
-        return submitCallFunction(finalPrepared)
+    }
+
+    suspend fun transferTokenZkLogin(
+        session: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.Session,
+        recipient: String,
+        tokenType: String,
+        amount: ULong,
+    ): TransactionResult? {
+        val p = prepareTokenTransfer("ZkLogin:${session.address}", recipient, tokenType, amount)
+        val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
+            .sign(session, p.hash, System.currentTimeMillis() / 1000)
+        return submitCallFunction(
+            p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
+        )
     }
 
     // ==================== BCS Manual Encoding (matches Rust bcs::to_bytes) ====================

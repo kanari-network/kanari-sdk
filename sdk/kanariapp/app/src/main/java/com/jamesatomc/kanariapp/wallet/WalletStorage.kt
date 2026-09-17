@@ -108,6 +108,11 @@ class WalletStorage(private val context: Context) {
         context.dataStore.data.map { it.contains(KEY_PIN_VERIFIER) }.first()
     }
 
+    /** True when any wallet holds PIN-encrypted secrets (private key / mnemonic). */
+    suspend fun hasSecrets(): Boolean = withContext(Dispatchers.IO) {
+        loadWallets().any { it.privateKeyEncrypted != null || it.mnemonicEncrypted != null }
+    }
+
     suspend fun savePin(pin: String) = withContext(Dispatchers.Default) {
         require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
         val salt = ByteArray(16).apply { SecureRandom().nextBytes(this) }

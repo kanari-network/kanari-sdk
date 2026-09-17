@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
+    viewModel: com.jamesatomc.kanariapp.wallet.WalletViewModel,
     onLoginSuccess: () -> Unit,
     onNavigateToRegister: () -> Unit,
     onNavigateToWalletGen: () -> Unit
@@ -147,6 +148,9 @@ fun LoginScreen(
                                     context = context,
                                 )
                             zkAddress = result.session.address
+                            // Register the zkLogin wallet so it appears in the
+                            // dashboard and can send (signed via the session).
+                            viewModel.addZkLoginWallet(result.session)
                             onLoginSuccess()
                         } catch (e: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
                             // User dismissed the sheet: not an error, stay put.

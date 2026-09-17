@@ -445,6 +445,7 @@ fun WalletDetailFullScreen(
     var keyVisible by remember { mutableStateOf(false) }
     var seedVisible by remember { mutableStateOf(false) }
     val hasSeed = wallet.mnemonicEncrypted != null
+    val hasPrivateKey = wallet.privateKeyEncrypted != null
     val curveInfo = remember(wallet.curveType) { getCurveInfo(wallet.curveType) }
     val canUseBiometric = rememberBiometricAvailable(viewModel)
 
@@ -480,7 +481,7 @@ fun WalletDetailFullScreen(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
         )
     }, containerColor = MaterialTheme.colorScheme.background) { padding ->
-        if (!isVerified) {
+        if (!isVerified && hasPrivateKey) {
             PinVerificationContent(
                 title = "Enter PIN",
                 subtitle = "Enter 6-digit PIN to reveal secrets",
@@ -570,21 +571,30 @@ fun WalletDetailFullScreen(
                 }
                 Spacer(Modifier.height(8.dp)) // Extra spacing
                 DetailSectionCard {
-                    SecretRevealCard(
-                        title = "Private Key",
-                        secret = revealedKey,
-                        isVisible = keyVisible,
-                        onToggleVisibility = { keyVisible = !keyVisible },
-                        onCopy = {
-                            copyToClipboard(
-                                ctx,
-                                revealedKey!!,
-                                label = "Private Key",
-                                toast = "Private key copied"
-                            )
-                        }
-                    )
-                    SecurityWarningCard("Never share your private key")
+                    if (!hasPrivateKey) {
+                        Text(
+                            "Session wallet — no private key exists. " +
+                                    "Transfers are authorized automatically with your Google zkLogin session.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        SecretRevealCard(
+                            title = "Private Key",
+                            secret = revealedKey,
+                            isVisible = keyVisible,
+                            onToggleVisibility = { keyVisible = !keyVisible },
+                            onCopy = {
+                                copyToClipboard(
+                                    ctx,
+                                    revealedKey!!,
+                                    label = "Private Key",
+                                    toast = "Private key copied"
+                                )
+                            }
+                        )
+                        SecurityWarningCard("Never share your private key")
+                    }
                 }
                 DetailSectionCard {
                     if (!hasSeed) {

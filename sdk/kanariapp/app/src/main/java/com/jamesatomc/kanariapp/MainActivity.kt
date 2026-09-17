@@ -65,6 +65,7 @@ fun MainNavigation(viewModel: WalletViewModel) {
             popExitTransition = { slideOutHorizontally(tween(200)) { it / 3 } + fadeOut(tween(200)) }
         ) {
             LoginScreen(
+                viewModel = viewModel,
                 onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(Screen.Welcome.route) { inclusive = true }

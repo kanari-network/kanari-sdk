@@ -7,6 +7,8 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -46,7 +48,7 @@ object ZkLoginAuth {
     // `serverClientId`, while the OS authorizes the caller against the
     // sibling Android-type client (package + SHA-1) in the SAME project.
     const val DEFAULT_CLIENT_ID =
-        "1041694414791-80081nb9n03qg2qji1br763f80v2slhm.apps.googleusercontent.com"
+        "1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com"
 
     @Serializable
     data class Session(
@@ -58,9 +60,15 @@ object ZkLoginAuth {
         val address: String,
         val saltHex: String,
         val ephemeralPubkeyHex: String,
+        // 32-byte ephemeral Ed25519 SECRET. Needed only to sign transaction
+        // hashes; never leaves this session file (app-private storage).
+        val ephemeralSecretHex: String = "",
         val maxEpoch: Long,
         val randomnessHex: String,
         val idToken: String,
+        // Provider JWKS at login time, embedded in every zkLogin bundle so
+        // the chain can verify the JWT without dialing out.
+        val jwksJson: String = "",
         val obtainedAtSecs: Long,
         val idTokenExpSecs: Long?,
     )
@@ -100,17 +108,45 @@ object ZkLoginAuth {
         // Nonce bound inside Rust (fail-closed); no separate check here.
         val claims =
             ffi.zkLoginVerifyJwt(idToken, jwksJson, ZkLoginCrypto.ISS_GOOGLE, clientId, nonce, nowSecs)
-        val address = ffi.zkLoginDeriveAddress(claims.iss, clientId, claims.sub, salt)
+        // Reuse the same address-salt for this Google account so the wallet
+        // does NOT change on every sign-in. First login picks a random salt
+        // and persists it keyed by iss|aud|sub; later logins reuse it.
+        // Hard-pinned for the primary account so "ล้างข้อมูล" still recovers 0x3825...
+        val knownSalts = mapOf(
+            "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572" to "afa5e8ab5dace2560ff81e7356cd099da6491f65b6ee7093580ce4f2185e23f5"
+        )
+        val saltKey = "${claims.iss}|$clientId|${claims.sub}"
+        val saltMap = loadSaltMap(context)
+        var saltHex = knownSalts[saltKey] ?: saltMap[saltKey] ?: findSaltHexForSub(context, claims.iss, clientId, claims.sub)
+        val finalSalt: ByteArray
+        val finalSaltHex: String
+        if (saltHex != null) {
+            finalSalt = ZkLoginCrypto.unhex(saltHex)
+            finalSaltHex = saltHex
+            // ensure pinned value is persisted so next launch finds it without code
+            if (knownSalts.containsKey(saltKey) && saltMap[saltKey] != saltHex) {
+                saltMap[saltKey] = saltHex
+                saveSaltMap(context, saltMap)
+            }
+        } else {
+            finalSalt = salt
+            finalSaltHex = ZkLoginCrypto.hex(salt)
+            saltMap[saltKey] = finalSaltHex
+            saveSaltMap(context, saltMap)
+        }
+        val address = ffi.zkLoginDeriveAddress(claims.iss, clientId, claims.sub, finalSalt)
         val session = Session(
             iss = claims.iss,
             aud = clientId,
             sub = claims.sub,
             address = address,
-            saltHex = ZkLoginCrypto.hex(salt),
+            saltHex = finalSaltHex,
             ephemeralPubkeyHex = ZkLoginCrypto.hex(ephemeralPub),
+            ephemeralSecretHex = ZkLoginCrypto.hex(prep.ephemeralSecret),
             maxEpoch = maxEpoch,
             randomnessHex = ZkLoginCrypto.hex(randomness),
             idToken = idToken,
+            jwksJson = jwksJson,
             obtainedAtSecs = nowSecs,
             idTokenExpSecs = claims.exp,
         )
@@ -192,11 +228,11 @@ object ZkLoginAuth {
         return pkg to sha1
     }
 
-    fun fetchJwks(): String = httpGet(GOOGLE_JWKS_URL)
+    suspend fun fetchJwks(): String = httpGet(GOOGLE_JWKS_URL)
 
-    private fun httpGet(url: String): String {
+    private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
         val conn = URL(url).openConnection() as HttpURLConnection
-        return try {
+        try {
             conn.connectTimeout = 15000
             conn.readTimeout = 15000
             conn.requestMethod = "GET"
@@ -229,5 +265,57 @@ object ZkLoginAuth {
         val file = sessionFile(context, address)
         if (!file.exists()) throw AuthException("no session for $address")
         return json.decodeFromString(Session.serializer(), file.readText())
+    }
+
+    // --- stable address-salt (so wallet does not rotate) ---
+
+    private fun saltsFile(context: Context): File = File(sessionDir(context), "_salts.json")
+
+    private fun loadSaltMap(context: Context): MutableMap<String, String> {
+        val f = saltsFile(context)
+        if (!f.exists()) return mutableMapOf()
+        return try {
+            val m = json.decodeFromString<Map<String, String>>(f.readText()).toMutableMap()
+            // one-time migration: 0x1611... was derived with wrong salt after aud change
+            // force it to the CLI's salt so 0x3825... is recovered for this account
+            val fixKey = "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572"
+            val correct = "afa5e8ab5dace2560ff81e7356cd099da6491f65b6ee7093580ce4f2185e23f5"
+            if (m[fixKey] == "69c7ab0fd7be975d40dd1c65968df2c54c06e3fbd1f03cb10483b8cb0fa06b3d") {
+                m[fixKey] = correct
+                try { saveSaltMap(context, m) } catch (_: Exception) {}
+            }
+            m
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
+    }
+
+    private fun saveSaltMap(context: Context, map: Map<String, String>) {
+        saltsFile(context).writeText(json.encodeToString(map))
+    }
+
+    private fun findSaltHexForSub(context: Context, iss: String, aud: String, sub: String): String? {
+        val dir = sessionDir(context)
+        val files = dir.listFiles() ?: return null
+        for (f in files) {
+            if (f.name == "_salts.json" || !f.name.endsWith(".json")) continue
+            try {
+                val s = json.decodeFromString(Session.serializer(), f.readText())
+                if (s.iss == iss && s.aud == aud && s.sub == sub && s.saltHex.isNotBlank()) {
+                    return s.saltHex
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    /** Force the salt for an account so app and CLI derive the same address. */
+    fun setSaltForAccount(context: Context, iss: String, aud: String, sub: String, saltHex: String) {
+        require(saltHex.matches(Regex("[0-9a-fA-F]{64}"))) { "salt must be 64 hex chars (32 bytes)" }
+        val key = "$iss|$aud|$sub"
+        val map = loadSaltMap(context)
+        map[key] = saltHex.lowercase()
+        saveSaltMap(context, map)
     }
 }
