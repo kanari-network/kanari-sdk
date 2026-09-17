@@ -694,6 +694,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_verify_signature_api(
     ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_build_bundle(
+    ): Int
     external fun uniffi_kanari_kotlin_checksum_func_zklogin_derive_address(
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_zklogin_prepare_nonce(
@@ -739,6 +741,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_verify_signature_api(`address`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,`curveName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_build_bundle(`jwt`: RustBuffer.ByValue,`jwksJson`: RustBuffer.ByValue,`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,`randomness`: RustBuffer.ByValue,`ephemeralPubkey`: RustBuffer.ByValue,`ephemeralSig`: RustBuffer.ByValue,`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_zklogin_derive_address(`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`sub`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_zklogin_prepare_nonce(`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -899,6 +903,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_kanari_kotlin_checksum_func_verify_signature_api() and 0xFFFF) != 18576) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_build_bundle() and 0xFFFF) != 56463) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_derive_address() and 0xFFFF) != 7306) {
@@ -1654,6 +1661,25 @@ public object FfiConverterSequenceTypeKeyPairData: FfiConverterRustBuffer<List<K
         FfiConverterSequenceUByte.lower(`message`),
         FfiConverterSequenceUByte.lower(`signature`),
         FfiConverterString.lower(`curveName`),_status)
+}
+    )
+    }
+    
+ fun `zkloginBuildBundle`(`jwt`: kotlin.String, `jwksJson`: kotlin.String, `iss`: kotlin.String, `aud`: kotlin.String, `salt`: List<kotlin.UByte>, `randomness`: List<kotlin.UByte>, `ephemeralPubkey`: List<kotlin.UByte>, `ephemeralSig`: List<kotlin.UByte>, `maxEpoch`: kotlin.ULong): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_build_bundle(
+    
+        
+        FfiConverterString.lower(`jwt`),
+        FfiConverterString.lower(`jwksJson`),
+        FfiConverterString.lower(`iss`),
+        FfiConverterString.lower(`aud`),
+        FfiConverterSequenceUByte.lower(`salt`),
+        FfiConverterSequenceUByte.lower(`randomness`),
+        FfiConverterSequenceUByte.lower(`ephemeralPubkey`),
+        FfiConverterSequenceUByte.lower(`ephemeralSig`),
+        FfiConverterULong.lower(`maxEpoch`),_status)
 }
     )
     }

@@ -134,10 +134,8 @@ object ZkLoginTxSigner {
         val sig = KanariCrypto.zkLoginSignEphemeral(secret, txHash)
         val sigOk = KanariCrypto.zkLoginVerifyEphemeral(pub, txHash, sig)
         if (!sigOk) throw IllegalStateException("ephemeral signature failed local check")
-        val sigHex = ZkLoginCrypto.hex(sig)
-        val bundle = bundleJson(session, sigHex)
 
-        // Mirror node-side verify_zklogin_authenticator fail-closed.
+        // Mirror node-side verify_zklogin_authenticator fail-closed before emitting.
         val nonce = expectedNonce(session)
         val claims = KanariCrypto.zkLoginVerifyJwt(
             session.idToken, session.jwksJson, session.iss, session.aud, nonce, nowSecs,
@@ -148,6 +146,17 @@ object ZkLoginTxSigner {
         require(derived.equals(session.address, ignoreCase = true)) {
             "zkLogin address mismatch: derived $derived != session ${session.address}"
         }
-        return bundle.toByteArray(Charsets.UTF_8)
+        // Rust owns the bundle JSON (no Kotlin manual serde) — `lib.rs:275`
+        return KanariCrypto.zkLoginBuildBundle(
+            jwt = session.idToken,
+            jwksJson = session.jwksJson,
+            iss = session.iss,
+            aud = session.aud,
+            salt = ZkLoginCrypto.unhex(session.saltHex),
+            randomness = ZkLoginCrypto.unhex(session.randomnessHex),
+            ephemeralPubkey = pub,
+            ephemeralSig = sig,
+            maxEpoch = session.maxEpoch,
+        )
     }
 }

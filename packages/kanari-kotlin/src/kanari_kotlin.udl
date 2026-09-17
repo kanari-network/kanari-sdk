@@ -26,6 +26,7 @@ namespace kanari_kotlin {
   string zklogin_derive_address(string iss, string aud, string sub, sequence<u8> salt);
   sequence<u8> zklogin_sign_ephemeral(sequence<u8> secret, sequence<u8> message);
   boolean zklogin_verify_ephemeral(sequence<u8> pubkey, sequence<u8> message, sequence<u8> signature);
+  sequence<u8> zklogin_build_bundle(string jwt, string jwks_json, string iss, string aud, sequence<u8> salt, sequence<u8> randomness, sequence<u8> ephemeral_pubkey, sequence<u8> ephemeral_sig, u64 max_epoch);
 };
 
 dictionary ZkLoginNonceData {

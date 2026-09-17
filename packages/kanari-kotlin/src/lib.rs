@@ -272,6 +272,55 @@ pub fn zklogin_derive_address(
         .map_err(|e| format!("address derivation failed: {e:?}"))
 }
 
+/// Build the opaque `ZkLogin:` transaction signature bundle (v1 JSON).
+/// Returns the exact bytes `encode_zklogin_tx_signature` produces so Kotlin
+/// just does `sign(hash)` + this call — no manual JSON.
+#[uniffi::export]
+pub fn zklogin_build_bundle(
+    jwt: String,
+    jwks_json: String,
+    iss: String,
+    aud: String,
+    salt: Vec<u8>,
+    randomness: Vec<u8>,
+    ephemeral_pubkey: Vec<u8>,
+    ephemeral_sig: Vec<u8>,
+    max_epoch: u64,
+) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zk_authenticator::{
+        JwtAuth, ZkAuthKind, ZkLoginAuthenticator, encode_zklogin_tx_signature,
+    };
+    use kanari_crypto::signatures::zklogin::JwksDocument;
+    let jwks: JwksDocument =
+        serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
+    let salt_arr: [u8; 32] = salt
+        .try_into()
+        .map_err(|_| "salt must be 32 bytes".to_string())?;
+    let rand_arr: [u8; 32] = randomness
+        .try_into()
+        .map_err(|_| "randomness must be 32 bytes".to_string())?;
+    let pub_arr: [u8; 32] = ephemeral_pubkey
+        .try_into()
+        .map_err(|_| "ephemeral pubkey must be 32 bytes".to_string())?;
+    let sig_arr: [u8; 64] = ephemeral_sig
+        .try_into()
+        .map_err(|_| "ephemeral sig must be 64 bytes".to_string())?;
+    let auth = ZkLoginAuthenticator {
+        ephemeral_pubkey: pub_arr,
+        ephemeral_sig: sig_arr,
+        max_epoch,
+        kind: ZkAuthKind::Jwt(JwtAuth {
+            jwt,
+            jwks,
+            iss,
+            aud,
+            randomness: rand_arr,
+            salt: salt_arr,
+        }),
+    };
+    encode_zklogin_tx_signature(&auth).map_err(|e| format!("bundle encode failed: {e:?}"))
+}
+
 /// Sign bytes with an ephemeral secret (32 raw bytes from prepare).
 #[uniffi::export]
 pub fn zklogin_sign_ephemeral(secret: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, String> {

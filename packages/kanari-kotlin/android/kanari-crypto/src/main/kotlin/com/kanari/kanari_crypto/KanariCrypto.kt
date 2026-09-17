@@ -167,6 +167,30 @@ object KanariCrypto {
         )
     }
 
+    /** Build the opaque zkLogin bundle bytes (Rust owns JSON, Kotlin just passes fields). */
+    suspend fun zkLoginBuildBundle(
+        jwt: String,
+        jwksJson: String,
+        iss: String,
+        aud: String,
+        salt: ByteArray,
+        randomness: ByteArray,
+        ephemeralPubkey: ByteArray,
+        ephemeralSig: ByteArray,
+        maxEpoch: Long,
+    ): ByteArray = calculateWithLargeStack {
+        require(salt.size == 32) { "salt must be 32 bytes" }
+        require(randomness.size == 32) { "randomness must be 32 bytes" }
+        require(ephemeralPubkey.size == 32) { "ephemeral pubkey must be 32 bytes" }
+        require(ephemeralSig.size == 64) { "ephemeral sig must be 64 bytes" }
+        uniffi.kanari_kotlin.zkloginBuildBundle(
+            jwt, jwksJson, iss, aud,
+            salt.toUByteList(), randomness.toUByteList(),
+            ephemeralPubkey.toUByteList(), ephemeralSig.toUByteList(),
+            maxEpoch.toULong()
+        ).toByteArray()
+    }
+
     /**
      * Executes crypto operations on a new thread with a larger stack size.
      * Required for Post-Quantum (PQ) and Hybrid curves (e.g. Dilithium) 
