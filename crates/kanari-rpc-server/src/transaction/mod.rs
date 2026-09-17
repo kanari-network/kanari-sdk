@@ -30,11 +30,9 @@ use move_binary_format::{
 };
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::TypeTag;
-use rand::{TryRng, rngs::SysRng};
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info};
 
 // Extract function names from module bytecode (returns None on error)
@@ -164,32 +162,16 @@ fn normalize_addr(s: &str) -> String {
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
-fn fresh_nonce(request_id: u64, nonce: Option<u64>) -> anyhow::Result<u64> {
+fn fresh_nonce(_request_id: u64, nonce: Option<u64>) -> anyhow::Result<u64> {
     if let Some(nonce) = nonce {
         anyhow::ensure!(nonce != 0, "nonce must be non-zero");
         return Ok(nonce);
     }
 
+    // Sequential counter — keeps nonces small and monotonically increasing so
+    // the sender_nonce_watermark in the engine never overflows JSON safe range.
     static NONCE_COUNTER: AtomicU64 = AtomicU64::new(1);
-    let counter = NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut random = [0u8; 32];
-    let mut rng = SysRng;
-    rng.try_fill_bytes(&mut random)
-        .map_err(|e| anyhow::anyhow!("OS randomness unavailable for nonce: {}", e))?;
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as u64)
-        .unwrap_or(counter);
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"kanari-rpc-nonce-v1");
-    hasher.update(&random);
-    hasher.update(&request_id.to_le_bytes());
-    hasher.update(&counter.to_le_bytes());
-    hasher.update(&nanos.to_le_bytes());
-    let digest = hasher.finalize();
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&digest.as_bytes()[..8]);
-    Ok(u64::from_le_bytes(bytes).max(1))
+    Ok(NONCE_COUNTER.fetch_add(1, Ordering::Relaxed).max(1))
 }
 
 fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {

@@ -1032,8 +1032,16 @@ impl BlockchainEngine {
 
         // Monotonic per-sender nonce watermark: max committed nonce per sender.
         // Stored alongside the checkpoint so replay admission survives restarts.
+        //
+        // Cap legacy huge watermarks at 0 when re-persisting so they don't
+        // permanently lock senders out.
+        const MAX_WATERMARK: u64 = 1u64 << 53;
         use crate::engine::mempool::NormalizeAddr as _;
-        let mut sender_watermark = Self::load_sender_nonce_watermark(store)?;
+        let mut sender_watermark: std::collections::BTreeMap<String, u64> =
+            Self::load_sender_nonce_watermark(store)?
+                .into_iter()
+                .map(|(k, v)| (k, if v >= MAX_WATERMARK { 0 } else { v }))
+                .collect();
         for tx in checkpoint.transactions.iter() {
             let sender = Self::normalize_addr(tx.transaction.sender_address());
             let nonce = tx.transaction.nonce();
@@ -1739,13 +1747,18 @@ impl BlockchainEngine {
     pub(crate) fn get_expected_nonce(&self, address_hex: &str) -> u64 {
         // Nonce is monotonic per sender: never below the highest committed nonce,
         // and at least one above anything already pending.
+        //
+        // Legacy watermarks may contain huge values from the old random-nonce
+        // code; discard them so they don't overflow JSON safe integer range.
+        const MAX_WATERMARK: u64 = 1u64 << 53;
         let committed = self
             .persistent_store
             .as_ref()
             .and_then(|store| Self::load_sender_nonce_watermark(store).ok())
             .and_then(|watermark| {
                 use crate::engine::mempool::NormalizeAddr as _;
-                watermark.get(&Self::normalize_addr(address_hex)).copied()
+                let v = watermark.get(&Self::normalize_addr(address_hex)).copied().unwrap_or(0);
+                (v < MAX_WATERMARK).then_some(v)
             })
             .unwrap_or(0);
         self.pending_tx_count_for_sender(address_hex)
@@ -2727,6 +2740,14 @@ impl BlockchainEngine {
             "Transaction gas limit {} exceeds protocol maximum {}",
             tx.gas_limit(),
             MAX_TRANSACTION_GAS_LIMIT
+        );
+        // Reject nonces that would overflow JSON safe integer range (2^53).
+        const MAX_NONCE: u64 = (1u64 << 53) - 1;
+        ensure!(
+            tx.nonce() <= MAX_NONCE,
+            "Transaction nonce {} exceeds maximum {}",
+            tx.nonce(),
+            MAX_NONCE,
         );
         KanariAddress::parse_to_account_address(tx.sender_address())
             .context("Invalid transaction sender address")?;

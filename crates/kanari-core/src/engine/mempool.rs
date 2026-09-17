@@ -203,12 +203,19 @@ impl BlockchainEngine {
         // Per-sender committed nonce watermark (persistent nodes). Any tx whose
         // nonce is not strictly greater than the sender's highest committed nonce
         // is a replay of the same or an earlier sequence, regardless of payload.
+        //
+        // Cap at JSON-safe range so legacy huge random nonces don't permanently
+        // lock senders out.
+        const MAX_WATERMARK: u64 = 1u64 << 53;
         let sender_watermark = self
             .persistent_store
             .as_ref()
             .map(|store| super::BlockchainEngine::load_sender_nonce_watermark(store))
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, if v >= MAX_WATERMARK { 0 } else { v }))
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         for (tx_hash, sender, nonce, primary_access, congestion_access, access_keys) in
             &batch_metadata
