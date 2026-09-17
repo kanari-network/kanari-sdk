@@ -1146,7 +1146,7 @@ fn committed_nonce_watermark_rejects_same_or_older_nonce_replay() {
     drive_consensus_to_height(&engine, 1);
     assert!(
         engine
-            .try_is_transaction_committed(&tx1.transaction_hash().to_vec())
+            .try_is_transaction_committed(tx1.transaction_hash())
             .unwrap()
     );
 

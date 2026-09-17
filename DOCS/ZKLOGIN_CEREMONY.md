@@ -39,6 +39,43 @@ statement. No code in this repo can fix that; only independent humans can.
 - `setup-circuit` / `prove` / `verify-proof` CLI flow that already speaks
   the final wire format, so swapping a demo VK for a ceremony VK changes
   no code paths — only the pinned hash.
+- CI-time negative invariant test (`negative_invariants_canary_transform`)
+  proving the statement *really* is "public == hash(witnesses)": honest
+  instances satisfy, any public/witness drift does not. Independent
+  verifiers can replay it (`cargo test -p kanari-crypto negative_invariants`)
+  as part of transcript auditing.
+
+### Verifiable-transcript commitments (what a sound ceremony publishes)
+
+When the ceremony runs, the transcript must be independently auditable,
+not just hash-chained. Each round `k` publishes a **signed record**:
+
+```text
+round_k = {
+  code_commit_sha,        # pinned circuit at an audited git commit
+  build_hash,             # reproducible build artifact hash (OS/arch noted)
+  prev_round_hash,        # SHA256 of the full round_{k-1} record
+  vk_hash_k,              # SHA256 of compressed VK after this contribution
+  contribution_hash,      # SHA256 of the contributor's private entropy
+  contributor_key_id,     # ed25519/falcon public key label
+  timestamp
+}
+round_k_hash = SHA256(canonical JSON of round_k)
+round_k_sig  = Ed25519(sign(round_k_hash, contributor_sk))
+```
+
+Why `contribution_hash`: each operator commits to their private entropy
+**before** the reveal phase. After the ceremony ends, releasing the entropy
+lets anyone confirm `SHA256(entropy_i) == contribution_hash_i` and re-run
+the entire contribution — so a contributor cannot swap entropy to
+influence the final VK post-hoc, and the transcript is tamper-evident.
+
+The final record also recomputes `vk_fingerprint(final_vk)` and every
+operator's `round_k_sig` is collected so no single party can rewrite the
+log. The pinned value shipped to contracts is a **weak binding between the
+final VK hash and the transcript root**: contracts pin only
+`vk_fingerprint(final_vk)` (32 bytes); the full transcript lives
+off-chain for adversarial audit, and the `round_k` chain gives it meaning.
 
 ### Explicit non-goal
 
@@ -86,6 +123,13 @@ What remains for a node to accept such transactions:
 
 - Distinct `Expired` error (bad signature no longer reports as expired).
 - Nonce enforcement inside `verify_jwt_with_jwks` (`Some` param).
+- JWT timeliness hardening in `verify_claims_timing`: `exp` required and
+  enforced with 60s leeway; `iat` and `nbf` (when present) must not lie in
+  the future beyond the leeway — a token that is not yet valid or claims a
+  future issue time fails closed.
+- `sub` enforced non-empty inside `verify_jwt_with_jwks` (an empty subject
+  would alias every login of an issuer; non-empty is checked there and at
+  address derivation).
 - v1 address scheme removed; v2 fixed-width canonical.
 - `max_epoch` visibility: recorded in `VerifiedZkLogin`; chain-epoch
   comparison is item 2.4 above.

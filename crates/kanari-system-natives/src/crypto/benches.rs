@@ -7,6 +7,7 @@
 //! Fixtures are generated fresh per run (keygen + sign in setup, never timed)
 //! and every fixture is asserted valid before timing, so a passing run proves
 //! the numbers measure the real accept-path verification cost.
+#![allow(clippy::print_stdout, clippy::type_complexity)]
 
 use std::hint::black_box;
 use std::time::Instant;

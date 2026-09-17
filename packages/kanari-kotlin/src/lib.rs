@@ -183,7 +183,6 @@ pub fn derive_multiple_addresses_api(
 /// verification against a provider JWKS, and v2 address derivation. The
 /// OAuth browser dance stays in Kotlin; Rust owns the crypto vectors so
 /// both sides can never drift.
-
 /// Verified JWT claims returned to Kotlin.
 #[derive(Serialize, Deserialize, Debug, Clone, uniffi::Record)]
 pub struct ZkLoginClaimsData {

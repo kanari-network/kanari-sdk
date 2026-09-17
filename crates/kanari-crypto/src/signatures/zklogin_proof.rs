@@ -211,9 +211,8 @@ mod tests {
         let last = proof.len() - 1;
         proof[last] ^= 0xFF;
         // Either a decode error or a failed verification — both fail closed.
-        match verify_groth16_proof(&vk, &inputs, &proof) {
-            Ok(valid) => assert!(!valid),
-            Err(_) => {}
+        if let Ok(valid) = verify_groth16_proof(&vk, &inputs, &proof) {
+            assert!(!valid);
         }
     }
 

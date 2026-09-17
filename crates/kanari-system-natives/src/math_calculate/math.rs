@@ -1286,17 +1286,19 @@ mod tests {
         assert_eq!(u64::MAX.sqrt(), 4294967295u64);
         assert_eq!(0u64.sqrt(), 0);
         assert_eq!(1u64.sqrt(), 1);
-        assert!(4294967295u64 * 4294967295u64 <= u64::MAX);
         // (2^32-1)^2 is the largest perfect square representable in u64.
-        assert_eq!((4294967295u64 * 4294967295u64).sqrt(), 4294967295u64);
+        let max_sq = u64::from(u32::MAX) * u64::from(u32::MAX);
+        assert_eq!(max_sq.sqrt(), u64::from(u32::MAX));
     }
 
     #[test]
     fn test_sqrt_u128_floor_roundtrip() {
         let big = u128::MAX.sqrt();
         assert_eq!(big, 18446744073709551615u128);
+        // big * big is the largest representable square: prove it does not
+        // overflow u128 via checked_mul (a wrap here would be a bug in sqrt).
+        assert_eq!(big.checked_mul(big), Some(big * big));
         let sq = big * big;
-        assert!(sq <= u128::MAX);
         // (big + 1)^2 == sq + 2*big + 1 must exceed MAX: avoid overflow by
         // comparing the gap instead of squaring big + 1.
         assert!(u128::MAX - sq < 2 * big + 1);

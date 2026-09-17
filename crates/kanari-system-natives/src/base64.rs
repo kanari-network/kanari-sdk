@@ -174,6 +174,7 @@ mod benches {
 
     #[test]
     #[ignore]
+    #[allow(clippy::print_stdout)]
     fn base64_calibrate() {
         use std::hint::black_box;
         use std::time::Instant;

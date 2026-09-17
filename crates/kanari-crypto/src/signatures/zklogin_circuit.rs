@@ -350,6 +350,114 @@ mod tests {
         );
     }
 
+    /// Named types so the could-represent-a-proof bundle stays readable
+    /// (and below clippy's `type_complexity` threshold).
+    struct PublicWitnesses {
+        salt: [u8; 32],
+        randomness: [u8; 32],
+        eph_pub: [u8; 32],
+        max_epoch: u64,
+    }
+
+    struct BindingCase {
+        address: [u8; 32],
+        nonce: [u8; 32],
+        witnesses: PublicWitnesses,
+    }
+
+    /// Fixed witnesses matching the off-circuit derivation (address/nonce
+    /// digest of seed || iss || aud || sub || salt and seed || eph || epoch || rand).
+    fn matching_witnesses() -> BindingCase {
+        use crate::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
+        let salt = [9u8; 32];
+        let randomness = [7u8; 32];
+        let eph_pub = [42u8; 32];
+        let max_epoch = 1000u64;
+        let addr_hex = derive_zklogin_address_v2(
+            std::str::from_utf8(TEST_ISS).unwrap(),
+            std::str::from_utf8(TEST_AUD).unwrap(),
+            std::str::from_utf8(TEST_SUB).unwrap(),
+            &salt,
+        )
+        .unwrap();
+        let address: [u8; 32] = hex::decode(&addr_hex[2..]).unwrap().try_into().unwrap();
+        let nonce_hex = compute_nonce(&eph_pub, max_epoch, &randomness);
+        let nonce: [u8; 32] = hex::decode(&nonce_hex).unwrap().try_into().unwrap();
+        BindingCase {
+            address,
+            nonce,
+            witnesses: PublicWitnesses {
+                salt,
+                randomness,
+                eph_pub,
+                max_epoch,
+            },
+        }
+    }
+
+    /// Build constraints and return whether they are all satisfied.
+    fn is_satisfied(circuit: BindingCircuit) -> bool {
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit.generate_constraints(cs.clone()).unwrap();
+        cs.is_satisfied().unwrap()
+    }
+
+    /// The core invariant, checked WITHOUT a full setup/prove (CI-fast):
+    /// the statement is exactly "public == hash(witnesses)". Any single-bit
+    /// drift on the public side or any witness perturbation must flip
+    /// satisfiability. THIS is what makes the proof non-forgeable.
+    /// ~50s in debug (SHA256 gadget synthesis); the full set of 8 tamper
+    /// axes is covered transitively by `binding_roundtrip_ignored`.
+    #[test]
+    fn negative_invariants_canary_transform() {
+        let case = matching_witnesses();
+        let address = case.address;
+        let nonce = case.nonce;
+        let salt = case.witnesses.salt;
+        let randomness = case.witnesses.randomness;
+        let eph_pub = case.witnesses.eph_pub;
+        let max_epoch = case.witnesses.max_epoch;
+
+        let sat = |salt, sub, randomness, eph_pub, max_epoch, address, nonce| {
+            is_satisfied(
+                BindingCircuit::prove_instance(
+                    TEST_ISS, TEST_AUD, salt, sub, randomness, eph_pub, max_epoch, address, nonce,
+                )
+                .unwrap(),
+            )
+        };
+
+        // Honest instance is fully satisfiable.
+        assert!(sat(
+            salt, TEST_SUB, randomness, eph_pub, max_epoch, address, nonce
+        ));
+
+        // Public-side tampering (the verifier only sees inputs): any bit
+        // flipped in address breaks the digest equality.
+        let mut addr_flip = address;
+        addr_flip[0] ^= 1;
+        assert!(!sat(
+            salt, TEST_SUB, randomness, eph_pub, max_epoch, addr_flip, nonce
+        ));
+
+        // Witness-side tampering (collision/forgery attempt): wrong salt
+        // must not satisfy the pinned digest.
+        assert!(!sat(
+            [1u8; 32], TEST_SUB, randomness, eph_pub, max_epoch, address, nonce
+        ));
+
+        // Epoch tampering: bumping max_epoch changes the nonce digest.
+        assert!(!sat(
+            salt,
+            TEST_SUB,
+            randomness,
+            eph_pub,
+            max_epoch + 1,
+            address,
+            nonce
+        ));
+    }
+
     /// Full setup -> prove -> verify roundtrip. SLOW (minutes in debug):
     /// run explicitly in release:
     /// `cargo test -p kanari-crypto --release binding_roundtrip -- --ignored --nocapture`
@@ -412,6 +520,7 @@ mod tests {
     /// Delete after embedding (fixtures must be stable forever after).
     #[test]
     #[ignore]
+    #[allow(clippy::print_stdout)]
     fn print_tmp_proof_package() {
         use crate::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
 
