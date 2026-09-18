@@ -307,7 +307,7 @@ fun WalletCard(
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        formatAmount(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9, 2),
+                        formatAmountExact(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -404,7 +404,7 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
             },
             trailingContent = {
                 Text(
-                    formatAmount(token.getEffectiveAmount(), token.decimals),
+                    formatAmountExact(token.getEffectiveAmount(), token.decimals),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -449,24 +449,21 @@ fun WalletDetailFullScreen(
     val curveInfo = remember(wallet.curveType) { getCurveInfo(wallet.curveType) }
     val canUseBiometric = rememberBiometricAvailable(viewModel)
 
-    fun onBiometric() {
-        if (activity == null) return
-        showBiometricPrompt(
-            activity = activity,
-            title = "Reveal Wallet Secrets",
-            subtitle = "Use biometrics to unlock",
-            onSuccess = {
-                scope.launch {
-                    val k = viewModel.revealPrivateKeyWithBiometric(wallet)
-                    if (k != null) {
-                        revealedKey = k
-                        revealedSeed = if (hasSeed) viewModel.revealMnemonicWithBiometric(wallet) else null
-                        isVerified = true
-                    }
+    val onBiometric = rememberBiometricPromptLauncher(
+        activity = activity,
+        title = "Reveal Wallet Secrets",
+        subtitle = "Use biometrics to unlock",
+        onSuccess = {
+            scope.launch {
+                val k = viewModel.revealPrivateKeyWithBiometric(wallet)
+                if (k != null) {
+                    revealedKey = k
+                    revealedSeed = if (hasSeed) viewModel.revealMnemonicWithBiometric(wallet) else null
+                    isVerified = true
                 }
             }
-        )
-    }
+        },
+    )
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Wallet Details") },
@@ -497,7 +494,7 @@ fun WalletDetailFullScreen(
                     }
                 },
                 biometricEnabled = canUseBiometric,
-                onBiometric = ::onBiometric,
+                onBiometric = onBiometric,
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
         } else {

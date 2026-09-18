@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,11 +50,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _isUnlocked = MutableStateFlow(false)
     val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
 
-    private var unlockedPin: String? = null
+    private var _unlockedPin: String? = null
+    val unlockedPin: String? get() = _unlockedPin
 
     private var client = KanariClient(_environment.value)
 
     private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
+    private val walletMutationMutex = Mutex()
 
     private val _themeMode = MutableStateFlow(loadThemeMode())
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
@@ -87,18 +91,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadWallets() {
         viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val records = walletStorage.loadWallets()
-                _wallets.value = records
-                if (records.isNotEmpty() && (_activeWallet.value == null)) {
-                    val savedId = prefs.getString(KEY_ACTIVE_WALLET_ID, null)
-                    _activeWallet.value = records.firstOrNull { it.id == savedId } ?: records.first()
+            walletMutationMutex.withLock {
+                _isLoading.value = true
+                try {
+                    val records = walletStorage.loadWallets()
+                    _wallets.value = records
+                    if (records.isNotEmpty() && (_activeWallet.value == null)) {
+                        val savedId = prefs.getString(KEY_ACTIVE_WALLET_ID, null)
+                        _activeWallet.value = records.firstOrNull { it.id == savedId } ?: records.first()
+                    }
+                } catch (e: Exception) {
+                    _error.value = "Failed to load wallets: ${e.message}"
                 }
-            } catch (e: Exception) {
-                _error.value = "Failed to load wallets: ${e.message}"
+                _isLoading.value = false
             }
-            _isLoading.value = false
         }
     }
 
@@ -150,7 +156,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         val verified = walletStorage.verifyPin(pin) ||
             (!walletStorage.hasPin() && !walletStorage.hasSecrets())
         if (verified) {
-            unlockedPin = pin
+            _unlockedPin = pin
             _isUnlocked.value = true
             // Sync biometric PIN if biometric is enabled (like kanari_pay)
             if (walletStorage.isBiometricEnabled()) {
@@ -181,6 +187,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     suspend fun verifyPin(pin: String): Boolean = walletStorage.verifyPin(pin)
+
+    /** True when the user has set an app PIN (gate sensitive flows behind it). */
+    suspend fun hasPin(): Boolean = try {
+        walletStorage.hasPin()
+    } catch (_: Exception) {
+        false
+    }
 
     suspend fun revealPrivateKey(record: WalletRecord, pin: String): String? {
         val enc = record.privateKeyEncrypted ?: return null
@@ -238,7 +251,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             }
             walletStorage.saveWallets(reEncrypted)
             walletStorage.savePin(newPin)
-            unlockedPin = newPin
+            _unlockedPin = newPin
             if (walletStorage.isBiometricEnabled()) {
                 walletStorage.saveBiometricPin(newPin)
             }
@@ -354,25 +367,34 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
      * runs from the on-device session file) and switches to it.
      */
     suspend fun addZkLoginWallet(session: ZkLoginAuth.Session): WalletRecord {
-        val record = WalletRecord(
-            id = "zklogin-${session.address}",
-            name = "Google zkLogin",
-            address = session.address,
-            curveType = "ZkLogin",
-            privateKeyEncrypted = null,
-            mnemonicEncrypted = null,
-        )
-        val updated = if (_wallets.value.any { it.id == record.id }) {
-            _wallets.value
-        } else {
-            walletStorage.saveWallets(_wallets.value + record)
-            _wallets.value + record
+        return walletMutationMutex.withLock {
+            val record = WalletRecord(
+                id = "zklogin-${session.address}",
+                name = "Google zkLogin",
+                address = session.address,
+                curveType = "ZkLogin",
+                privateKeyEncrypted = null,
+                mnemonicEncrypted = null,
+            )
+            val persisted = try {
+                walletStorage.loadWallets()
+            } catch (e: Exception) {
+                if (_wallets.value.isEmpty()) throw e
+                _wallets.value
+            }
+            val current = (persisted + _wallets.value).distinctBy { it.id }
+            val updated = if (current.any { it.id == record.id }) {
+                current
+            } else {
+                current + record
+            }
+            if (updated != current) walletStorage.saveWallets(updated)
+            _wallets.value = updated
+            _activeWallet.value = record
+            prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
+            refreshBalance()
+            record
         }
-        _wallets.value = updated
-        _activeWallet.value = record
-        prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
-        refreshBalance()
-        return record
     }
 
     private fun mapTransferError(raw: String): String {

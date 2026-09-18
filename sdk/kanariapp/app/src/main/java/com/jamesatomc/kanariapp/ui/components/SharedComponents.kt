@@ -75,6 +75,22 @@ fun formatMist(amount: Long, decimals: Int): Double =
 fun formatAmount(amount: Long, decimals: Int, fractionDigits: Int = 4): String =
     String.format(java.util.Locale.US, "%.${fractionDigits}f", formatMist(amount, decimals))
 
+/**
+ * Exact balance display: full token precision with trailing zeros trimmed
+ * (`10999989`, `10.5`, `0.0000001` — never `0.00` for dust).
+ *
+ * Unlike [formatAmount], this never goes through `Double` (which silently
+ * drops Mist past 2^53) and never truncates small fractions. Pure string
+ * math, JVM-testable.
+ */
+fun formatAmountExact(amount: Long, decimals: Int): String {
+    val scale = decimals.coerceAtLeast(0)
+    return java.math.BigDecimal(amount)
+        .movePointLeft(scale)
+        .stripTrailingZeros()
+        .toPlainString()
+}
+
 fun validateAddress(address: String): String? {
     val trimmed = address.trim()
     if (trimmed.isEmpty()) return "Recipient address required"
@@ -464,9 +480,13 @@ fun rememberBiometricAvailable(viewModel: com.jamesatomc.kanariapp.wallet.Wallet
     LaunchedEffect(Unit) {
         try {
             val enabled = viewModel.isBiometricEnabled()
+            val status = androidx.biometric.BiometricManager.from(context)
+                .canAuthenticate(
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                )
             available = if (!enabled) false
-            else androidx.biometric.BiometricManager.from(context)
-                .canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+            else status == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
         } catch (_: Exception) {
             available = false
         }

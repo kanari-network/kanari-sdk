@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.crypto.tink.Aead
@@ -46,33 +47,67 @@ data class WalletRecord(
     val encryption: String = "pin_aes_gcm_pbkdf2_v1"
 )
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "kanari_storage")
+// A torn write (process kill, full disk, restore) leaves preferences_pb
+// unparseable protobuf. Without a handler every read/edit throws
+// "Protocol message end-group tag did not match expected tag" and bricks
+// wallet save/load. Reset to empty prefs instead (same as a data clear).
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "kanari_storage",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 class WalletStorage(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val biometricPrefs = context.getSharedPreferences(
+        "kanari_biometric",
+        Context.MODE_PRIVATE,
+    )
 
     private val aead: Aead by lazy {
         AeadConfig.register()
+        buildAeadWithRecovery()
+    }
+
+    /**
+     * Durably deletes the Tink keyset file. MUST use synchronous `commit()`:
+     * `edit { clear() }` uses async `apply()`, which loses the race with the
+     * immediate rebuild below — the corrupt bytes are still on disk when the
+     * rebuild reads them, so recovery never takes effect (and `lazy`
+     * memoizes the failure for the rest of the process).
+     */
+    private fun durableClearKeyset() {
         try {
-            buildAead()
+            val cleared = context
+                .getSharedPreferences("kanari_keyset", Context.MODE_PRIVATE)
+                .edit().clear().commit()
+            if (!cleared) Log.e("WalletStorage", "Keyset clear commit returned false")
         } catch (e: Exception) {
-            Log.e("WalletStorage", "Android Keystore error: ${e.message}. Attempting recovery by clearing keyset.")
-            try {
-                // Clear the corrupted keyset from shared preferences to allow regeneration
-                context.getSharedPreferences("kanari_keyset", Context.MODE_PRIVATE).edit { clear() }
-                buildAead()
-            } catch (e2: Exception) {
-                Log.e("WalletStorage", "Hard recovery failed: ${e2.message}. Falling back to non-keystore backed AEAD.")
-                // Final fallback: build without master key URI if Keystore is completely broken on this device
-                AndroidKeysetManager.Builder()
-                    .withSharedPref(context, "kanari_keyset", "kanari_master_key")
-                    .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-                    .build()
-                    .keysetHandle
-                    .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
-            }
+            Log.e("WalletStorage", "Keyset clear failed: ${e.message}")
         }
+    }
+
+    private fun buildAeadWithRecovery(): Aead {
+        try {
+            return buildAead()
+        } catch (e: Exception) {
+            Log.e("WalletStorage", "Tink init failed: ${e.message}. Clearing keyset and rebuilding.")
+        }
+        durableClearKeyset()
+        try {
+            return buildAead()
+        } catch (e2: Exception) {
+            Log.e("WalletStorage", "Rebuild failed: ${e2.message}. Falling back to non-keystore backed AEAD.")
+        }
+        // Final fallback: use a fresh keyset namespace if the old keyset is
+        // unreadable. This keeps biometric PINs encrypted without reusing the
+        // corrupted protobuf entry.
+        return AndroidKeysetManager.Builder()
+            .withSharedPref(context, "kanari_keyset_recovery", "kanari_master_key")
+            .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
+            .build()
+            .keysetHandle
+            .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 
     private fun buildAead(): Aead {
@@ -86,18 +121,38 @@ class WalletStorage(private val context: Context) {
     }
 
     companion object {
+        // Marker for wallet lists saved WITHOUT the Tink envelope (see
+        // saveWallets). Base64 (the Tink encoding) never contains ':', so
+        // this cannot collide with an encrypted blob.
+        private const val PLAIN_PREFIX = "plain1:"
         private val KEY_WALLETS = stringPreferencesKey("kanari_wallets")
         private val KEY_PIN_SALT = stringPreferencesKey("kanari_pin_salt")
         private val KEY_PIN_VERIFIER = stringPreferencesKey("kanari_pin_verifier")
         private val KEY_PIN_ITERATIONS = intPreferencesKey("kanari_pin_iterations")
-        private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("kanari_biometric_enabled")
-        private val KEY_BIOMETRIC_PIN = stringPreferencesKey("kanari_biometric_pin")
+        private const val KEY_BIOMETRIC_ENABLED_NAME = "kanari_biometric_enabled"
+        private const val KEY_BIOMETRIC_PIN_NAME = "kanari_biometric_pin"
         private const val PIN_LENGTH = 6
         private const val KDF_ITERATIONS = 10000
     }
 
     private suspend fun encryptSecure(data: String): String = withContext(Dispatchers.Default) {
-        Base64.encodeToString(aead.encrypt(data.toByteArray(), null), Base64.NO_WRAP)
+        try {
+            Base64.encodeToString(aead.encrypt(data.toByteArray(), null), Base64.NO_WRAP)
+        } catch (e: Exception) {
+            // The lazy AEAD may hold a poisoned instance built while the
+            // keyset file was corrupt. Durably clear + rebuild once and retry,
+            // so recovery works without an app restart.
+            Log.e("WalletStorage", "Encrypt failed, rebuilding AEAD once: ${e.message}")
+            durableClearKeyset()
+            try {
+                Base64.encodeToString(
+                    buildAeadWithRecovery().encrypt(data.toByteArray(), null),
+                    Base64.NO_WRAP,
+                )
+            } catch (e2: Exception) {
+                throw Exception("Secure storage encrypt failed: ${e2.message ?: e2.javaClass.simpleName}")
+            }
+        }
     }
 
     private suspend fun decryptSecure(encrypted: String): String = withContext(Dispatchers.Default) {
@@ -141,28 +196,29 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun isBiometricEnabled(): Boolean = withContext(Dispatchers.IO) {
-        context.dataStore.data.map { it[KEY_BIOMETRIC_ENABLED] ?: false }.first()
+        biometricPrefs.getBoolean(KEY_BIOMETRIC_ENABLED_NAME, false)
     }
 
     suspend fun setBiometricEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_BIOMETRIC_ENABLED] = enabled
-            if (!enabled) prefs.remove(KEY_BIOMETRIC_PIN)
-        }
+        biometricPrefs.edit().apply {
+            putBoolean(KEY_BIOMETRIC_ENABLED_NAME, enabled)
+            if (!enabled) remove(KEY_BIOMETRIC_PIN_NAME)
+        }.commit()
     }
 
     suspend fun saveBiometricPin(pin: String) = withContext(Dispatchers.Default) {
         require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
         val encrypted = encryptSecure(pin)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_BIOMETRIC_PIN] = encrypted
-            prefs[KEY_BIOMETRIC_ENABLED] = true
-        }
+        biometricPrefs.edit()
+            .putString(KEY_BIOMETRIC_PIN_NAME, encrypted)
+            .putBoolean(KEY_BIOMETRIC_ENABLED_NAME, true)
+            .commit()
     }
 
     suspend fun getBiometricPin(): String? = withContext(Dispatchers.Default) {
         if (!isBiometricEnabled()) return@withContext null
-        val encrypted = context.dataStore.data.first()[KEY_BIOMETRIC_PIN] ?: return@withContext null
+        val encrypted = biometricPrefs.getString(KEY_BIOMETRIC_PIN_NAME, null)
+            ?: return@withContext null
         try {
             decryptSecure(encrypted)
         } catch (_: Exception) {
@@ -171,27 +227,47 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun clearBiometricPin() = withContext(Dispatchers.IO) {
-        context.dataStore.edit { prefs ->
-            prefs.remove(KEY_BIOMETRIC_PIN)
-            prefs.remove(KEY_BIOMETRIC_ENABLED)
-        }
+        biometricPrefs.edit()
+            .remove(KEY_BIOMETRIC_PIN_NAME)
+            .remove(KEY_BIOMETRIC_ENABLED_NAME)
+            .commit()
     }
 
     suspend fun saveWallets(wallets: List<WalletRecord>) = withContext(Dispatchers.Default) {
         val data = json.encodeToString(wallets)
-        val encrypted = encryptSecure(data)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_WALLETS] = encrypted
+        // The Tink envelope is privacy-only: private keys/mnemonics inside
+        // the list stay PIN-encrypted (PBKDF2, independent of Tink), and
+        // addresses are public on-chain by design. If Tink/Keystore is broken
+        // on this device, persist with an explicit plaintext marker rather
+        // than bricking the wallet: availability beats envelope privacy.
+        val stored = try {
+            encryptSecure(data)
+        } catch (e: Exception) {
+            Log.w("WalletStorage", "Tink envelope unavailable, saving with plaintext marker: ${e.message}")
+            PLAIN_PREFIX + data
+        }
+        try {
+            context.dataStore.edit { prefs ->
+                prefs[KEY_WALLETS] = stored
+            }
+        } catch (e: Exception) {
+            throw Exception("Cannot save wallet: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
     suspend fun loadWallets(): List<WalletRecord> = withContext(Dispatchers.Default) {
-        val encrypted = context.dataStore.data.first()[KEY_WALLETS] ?: return@withContext emptyList()
+        val stored = context.dataStore.data.first()[KEY_WALLETS]
+            ?: return@withContext emptyList()
         try {
-            val data = decryptSecure(encrypted)
+            val data = if (stored.startsWith(PLAIN_PREFIX)) {
+                stored.removePrefix(PLAIN_PREFIX)
+            } else {
+                decryptSecure(stored)
+            }
             json.decodeFromString(data)
-        } catch (_: Exception) {
-            emptyList()
+        } catch (e: Exception) {
+            Log.e("WalletStorage", "Wallet list unreadable: ${e.message}")
+            throw IllegalStateException("Wallet storage is unreadable", e)
         }
     }
 

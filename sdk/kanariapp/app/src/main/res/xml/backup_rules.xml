@@ -1,13 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wallet app: NEVER back up key material or sessions.
+     - kanari_keyset: Tink keyset without its Android Keystore master key is
+       useless on restore and bricks decryption of the saved wallet list.
+     - datastore/kanari_storage: holds the Tink-encrypted wallet list + PIN
+       verifier that cannot be opened without the key above; a stale restore
+       only produces confusing half-state (or unparseable bytes).
+     - zklogin/: live Google session JWTs must never leave the device.
+     Users re-import wallets from mnemonic on a new device (standard).
+     See https://developer.android.com/guide/topics/data/autobackup
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="kanari_keyset.xml"/>
+    <exclude domain="file" path="datastore/"/>
+    <exclude domain="file" path="zklogin/"/>
 </full-backup-content>

@@ -24,6 +24,7 @@ import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.AuthHeroSection
 import com.jamesatomc.kanariapp.ui.components.ErrorBanner
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
+import com.jamesatomc.kanariapp.ui.components.PinGateDialog
 import com.jamesatomc.kanariapp.ui.components.SuccessBanner
 import kotlinx.coroutines.launch
 
@@ -136,28 +137,52 @@ fun LoginScreen(
             Spacer(Modifier.height(12.dp))
 
             var zkLoading by remember { mutableStateOf(false) }
+            var showPinGate by remember { mutableStateOf(false) }
             // Activity context: Credential Manager needs it for the OS sheet.
             val context = androidx.compose.ui.platform.LocalContext.current
+            // PIN gate: if the user set an app PIN, require it BEFORE the
+            // Google sheet opens. Extracted so both the button and the gate
+            // dialog share one flow.
+            val doGoogleLogin: suspend () -> Unit = {
+                zkLoading = true; error = null; zkAddress = null
+                try {
+                    val result =
+                        com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.login(
+                            context = context,
+                        )
+                    // Register first: only show the success banner when
+                    // the wallet is actually stored (otherwise a stale
+                    // green banner sits next to the red error).
+                    viewModel.addZkLoginWallet(result.session)
+                    zkAddress = result.session.address
+                    onLoginSuccess()
+                } catch (e: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
+                    // User dismissed the sheet: not an error, stay put.
+                } catch (e: Exception) {
+                    error = e.message ?: "Google login failed"
+                } finally {
+                    zkLoading = false
+                }
+            }
+            if (showPinGate) {
+                PinGateDialog(
+                    title = "Enter PIN",
+                    subtitle = "Enter 6-digit PIN to continue with Google sign-in",
+                    onVerifyAsync = { pin -> viewModel.verifyPin(pin) },
+                    onSuccess = {
+                        showPinGate = false
+                        scope.launch { doGoogleLogin() }
+                    },
+                    onDismiss = { showPinGate = false },
+                )
+            }
             OutlinedButton(
                 onClick = {
                     scope.launch {
-                        zkLoading = true; error = null; zkAddress = null
-                        try {
-                            val result =
-                                com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.login(
-                                    context = context,
-                                )
-                            zkAddress = result.session.address
-                            // Register the zkLogin wallet so it appears in the
-                            // dashboard and can send (signed via the session).
-                            viewModel.addZkLoginWallet(result.session)
-                            onLoginSuccess()
-                        } catch (e: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
-                            // User dismissed the sheet: not an error, stay put.
-                        } catch (e: Exception) {
-                            error = e.message ?: "Google login failed"
-                        } finally {
-                            zkLoading = false
+                        if (viewModel.hasPin()) {
+                            showPinGate = true
+                        } else {
+                            doGoogleLogin()
                         }
                     }
                 },

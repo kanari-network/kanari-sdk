@@ -5,7 +5,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -117,7 +117,8 @@ object ZkLoginAuth {
         )
         val saltKey = "${claims.iss}|$clientId|${claims.sub}"
         val saltMap = loadSaltMap(context)
-        var saltHex = knownSalts[saltKey] ?: saltMap[saltKey] ?: findSaltHexForSub(context, claims.iss, clientId, claims.sub)
+        var saltHex =
+            knownSalts[saltKey] ?: saltMap[saltKey] ?: findSaltHexForSub(context, claims.iss, clientId, claims.sub)
         val finalSalt: ByteArray
         val finalSaltHex: String
         if (saltHex != null) {
@@ -162,7 +163,12 @@ object ZkLoginAuth {
         serverClientId: String,
         nonce: String,
     ): String {
-        val option = GetSignInWithGoogleOption.Builder(serverClientId)
+        val option = GetGoogleIdOption.Builder()
+            .setServerClientId(serverClientId)
+            // Always let the user choose the Google account. Reusing the
+            // previously authorized account makes different email attempts
+            // appear to produce the same wallet address.
+            .setFilterByAuthorizedAccounts(false)
             .setNonce(nonce)
             .build()
         val request = GetCredentialRequest.Builder()
@@ -200,8 +206,8 @@ object ZkLoginAuth {
         if (msg.contains("28444")) {
             val (pkg, sha1) = appIdentity(context)
             return "Google console is not set up for this app. Create an " +
-                "Android-type OAuth client with package=$pkg SHA-1=$sha1 " +
-                "in the SAME project as the Web client, then retry. ($msg)"
+                    "Android-type OAuth client with package=$pkg SHA-1=$sha1 " +
+                    "in the SAME project as the Web client, then retry. ($msg)"
         }
         return "credential request failed: $msg"
     }
@@ -209,6 +215,7 @@ object ZkLoginAuth {
     /** Package + SHA-1 of the actually-running app (what Google checks). */
     fun appIdentity(context: Context): Pair<String, String> {
         val pkg = context.packageName
+
         @Suppress("DEPRECATION")
         val sigs = if (android.os.Build.VERSION.SDK_INT >= 28) {
             context.packageManager
@@ -255,16 +262,38 @@ object ZkLoginAuth {
         return File(sessionDir(context), "$safe.json")
     }
 
+    /**
+     * Atomic write (tmp + rename): a kill mid-write must never leave a torn
+     * session file behind, otherwise the next login fails on corrupt JSON.
+     */
+    private fun atomicWriteText(file: File, text: String) {
+        val tmp = File(file.parent, "${file.name}.tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(file)) {
+            // Same-filesystem rename should not fail; fall back to direct
+            // write rather than losing the session.
+            file.writeText(text)
+            try {
+                tmp.delete()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun saveSession(context: Context, session: Session): File {
         val file = sessionFile(context, session.address)
-        file.writeText(json.encodeToString(Session.serializer(), session))
+        atomicWriteText(file, json.encodeToString(Session.serializer(), session))
         return file
     }
 
     fun loadSession(context: Context, address: String): Session {
         val file = sessionFile(context, address)
         if (!file.exists()) throw AuthException("no session for $address")
-        return json.decodeFromString(Session.serializer(), file.readText())
+        try {
+            return json.decodeFromString(Session.serializer(), file.readText())
+        } catch (e: Exception) {
+            throw AuthException("session file is corrupt — sign in with Google again")
+        }
     }
 
     // --- stable address-salt (so wallet does not rotate) ---
@@ -278,11 +307,15 @@ object ZkLoginAuth {
             val m = json.decodeFromString<Map<String, String>>(f.readText()).toMutableMap()
             // one-time migration: 0x1611... was derived with wrong salt after aud change
             // force it to the CLI's salt so 0x3825... is recovered for this account
-            val fixKey = "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572"
+            val fixKey =
+                "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572"
             val correct = "afa5e8ab5dace2560ff81e7356cd099da6491f65b6ee7093580ce4f2185e23f5"
             if (m[fixKey] == "69c7ab0fd7be975d40dd1c65968df2c54c06e3fbd1f03cb10483b8cb0fa06b3d") {
                 m[fixKey] = correct
-                try { saveSaltMap(context, m) } catch (_: Exception) {}
+                try {
+                    saveSaltMap(context, m)
+                } catch (_: Exception) {
+                }
             }
             m
         } catch (_: Exception) {
@@ -291,7 +324,7 @@ object ZkLoginAuth {
     }
 
     private fun saveSaltMap(context: Context, map: Map<String, String>) {
-        saltsFile(context).writeText(json.encodeToString(map))
+        atomicWriteText(saltsFile(context), json.encodeToString(map))
     }
 
     private fun findSaltHexForSub(context: Context, iss: String, aud: String, sub: String): String? {

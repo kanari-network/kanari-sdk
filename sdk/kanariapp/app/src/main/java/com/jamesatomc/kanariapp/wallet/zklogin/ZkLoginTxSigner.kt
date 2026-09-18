@@ -30,10 +30,12 @@ import kotlinx.serialization.json.jsonObject
  * ```
  *
  * Crypto stays in Rust via `KanariCrypto.zkLogin*` (same vectors as the
- * chain); this file only assembles the JSON and does a full fail-closed
- * re-verify of the bundle BEFORE it is sent, mirroring what the RPC node
- * will check. The node re-verifies independently, so a malformed bundle can
- * never execute.
+ * chain), including the final bundle assembly (`zkLoginBuildBundle`); this
+ * file does a full fail-closed re-verify of the session (JWT RS256, nonce
+ * binding, address match) BEFORE anything is sent, mirroring what the RPC
+ * node will check. The node re-verifies independently, so a malformed bundle
+ * can never execute. (`bundleJson` remains only as a JVM-testable record of
+ * the wire shape.)
  */
 object ZkLoginTxSigner {
 

@@ -26,6 +26,7 @@ import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
 import com.jamesatomc.kanariapp.ui.components.formatAmount
+import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,7 +97,7 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
         trailingContent = {
             val gasAmount = tx.effects?.gasUsed ?: tx.gasUsed ?: 0L
             Text(
-                text = "${if (isIncoming) "+" else "-"}${formatAmount(gasAmount, 9, 2)}",
+                text = "${if (isIncoming) "+" else "-"}${formatAmountExact(gasAmount, 9)}",
                 color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
         },
