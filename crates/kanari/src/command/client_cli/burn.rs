@@ -22,9 +22,9 @@ pub struct Burn {
     /// Wallet address to burn from (optional). If omitted, uses selected wallet in config.
     #[arg(short, long)]
     pub from: Option<String>,
-    /// Amount in Kanari to burn
+    /// Amount in Kanari to burn (exact decimal, e.g. "12.5")
     #[arg(short, long)]
-    pub amount: f64,
+    pub amount: String,
     /// Wallet password
     #[arg(short, long)]
     pub password: String,
@@ -76,12 +76,9 @@ impl Burn {
         eprintln!("  From: {}", from_addr);
         eprintln!("  Amount: {} KANARI", self.amount);
 
-        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-        let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
-        ensure!(
-            amount_mist > 0,
-            "--amount is too small; it rounds to 0 Mist"
-        );
+        let amount_mist = kanari_types::gas_coin::GasModule::parse_kanari_to_mist(&self.amount)
+            .with_context(|| format!("Invalid --amount {:?}", self.amount))?;
+        ensure!(amount_mist > 0, "--amount must be greater than 0 Mist");
         eprintln!("  Amount (Mist): {}", amount_mist);
 
         let client = RpcClient::new(&rpc);

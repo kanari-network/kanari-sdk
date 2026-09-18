@@ -175,7 +175,8 @@ fn native_transfer_policy_summary(error: &anyhow::Error) -> Option<String> {
 /// - `dev_address`: optional dev address hex string (if None, uses `Address::DEV_ADDRESS`).
 /// - `dev_password`: optional password string; if None this function will try `KANARI_PASSWORD` env var.
 /// - `to`: optional recipient address; if None this function will use `active_address` from kanari config.
-/// - `amount`: amount in KANARI (not Mist).
+/// - `amount`: decimal KANARI amount (e.g. `"12.5"`). Parsed with exact
+///   integer math — never float, so large amounts keep every Mist.
 /// - `rpc_url`: RPC server URL.
 ///
 /// Returns the `TransactionStatus` returned by the RPC server on success.
@@ -183,7 +184,22 @@ pub async fn request_from_dev(
     dev_address: Option<&str>,
     dev_password: Option<&str>,
     to: Option<&str>,
-    amount: f64,
+    amount: &str,
+    rpc_url: &str,
+) -> anyhow::Result<TransactionStatus> {
+    let amount_mist = kanari_types::gas_coin::GasModule::parse_kanari_to_mist(amount)
+        .map_err(|error| anyhow::anyhow!("Invalid faucet amount: {error}"))?;
+    request_from_dev_mist(dev_address, dev_password, to, amount_mist, rpc_url).await
+}
+
+/// Faucet drip in integer Mist. Splits the drip into two coin objects so the
+/// recipient always holds at least two distinct coins (native transfers
+/// require one transfer coin plus a SEPARATE gas coin).
+pub async fn request_from_dev_mist(
+    dev_address: Option<&str>,
+    dev_password: Option<&str>,
+    to: Option<&str>,
+    amount_mist: u64,
     rpc_url: &str,
 ) -> anyhow::Result<TransactionStatus> {
     let dev_address = dev_address
@@ -226,9 +242,6 @@ pub async fn request_from_dev(
         .await
         .context("Cannot connect to RPC server")?;
 
-    const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-    let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
-
     let signing_curve = wallet
         .validated_signing_curve()
         .context("Faucet wallet private key does not match its stored curve/address")?;
@@ -250,10 +263,10 @@ pub async fn request_from_dev(
     let mut last_status: Option<TransactionStatus> = None;
     for (leg, part) in drip_parts.iter().enumerate() {
         eprintln!(
-            "Faucet drip {}/{}: {:.9} KANARI",
+            "Faucet drip {}/{}: {} KANARI",
             leg + 1,
             drip_parts.len(),
-            *part as f64 / MIST_PER_KANARI
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(*part)
         );
         let prepared = {
             let mut last_build_error = None;
@@ -361,7 +374,10 @@ pub async fn request_from_dev(
         {
             eprintln!("  Gas payment object: {}", gas_object.object_id);
         }
-        eprintln!("  Amount: {:.9} KANARI", *part as f64 / MIST_PER_KANARI);
+        eprintln!(
+            "  Amount: {} KANARI",
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(*part)
+        );
 
         let signed = sign_object_transfer_request(prepared, &wallet)?;
         let status = client

@@ -22,7 +22,8 @@ pub struct Transfer {
     #[arg(short, long)]
     pub to: String,
     #[arg(short, long)]
-    pub amount: f64,
+    /// Amount in Kanari (exact decimal, e.g. "12.5")
+    pub amount: String,
     #[arg(short, long)]
     pub password: String,
     #[clap(long = "rpc")]
@@ -42,8 +43,8 @@ impl Transfer {
         eprintln!("  To: {}", to_addr);
         eprintln!("  Amount: {} KANARI", self.amount);
 
-        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-        let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
+        let amount_mist = kanari_types::gas_coin::GasModule::parse_kanari_to_mist(&self.amount)
+            .with_context(|| format!("Invalid --amount {:?}", self.amount))?;
         eprintln!("  Amount (Mist): {}", amount_mist);
 
         let client = RpcClient::new(&rpc);

@@ -24,8 +24,8 @@ impl Stats {
             .await
             .with_context(|| format!("Failed to connect to RPC server at {}", rpc))?;
 
-        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-        let total_supply_kanari = stats.total_supply as f64 / MIST_PER_KANARI;
+        let total_supply_kanari =
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(stats.total_supply);
 
         eprintln!("Kanari Blockchain Statistics");
         eprintln!("------------------------------");
@@ -34,7 +34,7 @@ impl Stats {
         eprintln!("  Total Transactions: {}", stats.total_transactions);
         eprintln!("  Pending Transactions: {}", stats.pending_transactions);
         eprintln!("  Total Owners: {}", stats.total_owners);
-        eprintln!("  Total Supply: {:.0} KANARI", total_supply_kanari);
+        eprintln!("  Total Supply: {} KANARI", total_supply_kanari);
         eprintln!("----------------------------------------");
 
         Ok(())
