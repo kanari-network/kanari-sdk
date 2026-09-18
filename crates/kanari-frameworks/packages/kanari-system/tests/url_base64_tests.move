@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 #[test_only]
 module kanari_system::url_base64_tests {
     use kanari_system::base64;
@@ -10,12 +9,19 @@ module kanari_system::url_base64_tests {
     #[test]
     fun test_url_lifecycle() {
         let u = url::new_unsafe(ascii::string(b"https://kanari.network"));
-        assert!(url::inner_url(&u) == ascii::string(b"https://kanari.network"), 0);
+        assert!(
+            url::inner_url(&u) == ascii::string(b"https://kanari.network"), 0
+        );
         url::update(&mut u, ascii::string(b"https://x.example"));
-        assert!(url::inner_url(&u) == ascii::string(b"https://x.example"), 1);
+        assert!(
+            url::inner_url(&u) == ascii::string(b"https://x.example"), 1
+        );
 
         let v = url::new_unsafe_from_bytes(b"https://y.example/icon.png");
-        assert!(url::inner_url(&v) == ascii::string(b"https://y.example/icon.png"), 2);
+        assert!(
+            url::inner_url(&v) == ascii::string(b"https://y.example/icon.png"),
+            2
+        );
     }
 
     #[test]
@@ -42,3 +48,4 @@ module kanari_system::url_base64_tests {
         assert!(base64::encode(&ia) != base64::encode(&ib), 6);
     }
 }
+

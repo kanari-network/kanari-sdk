@@ -1,13 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::url {
     use std::ascii::{Self, String};
 
     /// Standard Uniform Resource Locator (URL) string.
     struct Url has store, copy, drop {
         // TODO: validate URL format
-        url: String,
+        url: String
     }
 
     /// Create a `Url`, with no validation
@@ -23,7 +22,7 @@ module kanari_system::url {
     }
 
     /// Get inner URL
-    public fun inner_url(self: &Url): String{
+    public fun inner_url(self: &Url): String {
         self.url
     }
 
@@ -32,3 +31,4 @@ module kanari_system::url {
         self.url = url;
     }
 }
+

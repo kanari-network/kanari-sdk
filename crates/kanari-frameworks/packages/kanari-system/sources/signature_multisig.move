@@ -44,9 +44,17 @@ module kanari_system::signature_multisig {
     const SCHEME_ECDSA_K1: u8 = 1;
     const SCHEME_ECDSA_R1: u8 = 2;
 
-    public fun scheme_ed25519(): u8 { SCHEME_ED25519 }
-    public fun scheme_ecdsa_k1(): u8 { SCHEME_ECDSA_K1 }
-    public fun scheme_ecdsa_r1(): u8 { SCHEME_ECDSA_R1 }
+    public fun scheme_ed25519(): u8 {
+        SCHEME_ED25519
+    }
+
+    public fun scheme_ecdsa_k1(): u8 {
+        SCHEME_ECDSA_K1
+    }
+
+    public fun scheme_ecdsa_r1(): u8 {
+        SCHEME_ECDSA_R1
+    }
 
     /// Count how many `(public_key, signature)` pairs verify for `msg`.
     /// Entries that fail to verify count as zero — the call only aborts on
@@ -54,7 +62,7 @@ module kanari_system::signature_multisig {
     public fun count_valid_ed25519(
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
-        msg: &vector<u8>,
+        msg: &vector<u8>
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -64,7 +72,7 @@ module kanari_system::signature_multisig {
             if (ed25519::verify(
                 vector::borrow(signatures, i),
                 vector::borrow(public_keys, i),
-                msg,
+                msg
             )) {
                 count = count + 1;
             };
@@ -78,7 +86,7 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        hash: u8,
+        hash: u8
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -89,7 +97,7 @@ module kanari_system::signature_multisig {
                 vector::borrow(signatures, i),
                 vector::borrow(public_keys, i),
                 msg,
-                hash,
+                hash
             )) {
                 count = count + 1;
             };
@@ -102,7 +110,7 @@ module kanari_system::signature_multisig {
     public fun count_valid_ecdsa_r1(
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
-        msg: &vector<u8>,
+        msg: &vector<u8>
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -112,7 +120,7 @@ module kanari_system::signature_multisig {
             if (ecdsa_r1::verify(
                 vector::borrow(signatures, i),
                 vector::borrow(public_keys, i),
-                msg,
+                msg
             )) {
                 count = count + 1;
             };
@@ -127,12 +135,12 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        threshold: u64,
+        threshold: u64
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
             count_valid_ed25519(public_keys, signatures, msg) >= threshold,
-            E_THRESHOLD_NOT_MET,
+            E_THRESHOLD_NOT_MET
         );
     }
 
@@ -142,12 +150,12 @@ module kanari_system::signature_multisig {
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
         hash: u8,
-        threshold: u64,
+        threshold: u64
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
             count_valid_ecdsa_k1(public_keys, signatures, msg, hash) >= threshold,
-            E_THRESHOLD_NOT_MET,
+            E_THRESHOLD_NOT_MET
         );
     }
 
@@ -156,12 +164,12 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        threshold: u64,
+        threshold: u64
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
             count_valid_ecdsa_r1(public_keys, signatures, msg) >= threshold,
-            E_THRESHOLD_NOT_MET,
+            E_THRESHOLD_NOT_MET
         );
     }
 
@@ -174,7 +182,7 @@ module kanari_system::signature_multisig {
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
         hash: u8,
-        threshold: u64,
+        threshold: u64
     ) {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -184,28 +192,29 @@ module kanari_system::signature_multisig {
         let (count, i) = (0u64, 0u64);
         while (i < n) {
             let scheme = *vector::borrow(schemes, i);
-            let ok = if (scheme == SCHEME_ED25519) {
-                ed25519::verify(
-                    vector::borrow(signatures, i),
-                    vector::borrow(public_keys, i),
-                    msg,
-                )
-            } else if (scheme == SCHEME_ECDSA_K1) {
-                ecdsa_k1::verify(
-                    vector::borrow(signatures, i),
-                    vector::borrow(public_keys, i),
-                    msg,
-                    hash,
-                )
-            } else if (scheme == SCHEME_ECDSA_R1) {
-                ecdsa_r1::verify(
-                    vector::borrow(signatures, i),
-                    vector::borrow(public_keys, i),
-                    msg,
-                )
-            } else {
-                abort E_INVALID_SCHEME
-            };
+            let ok =
+                if (scheme == SCHEME_ED25519) {
+                    ed25519::verify(
+                        vector::borrow(signatures, i),
+                        vector::borrow(public_keys, i),
+                        msg
+                    )
+                } else if (scheme == SCHEME_ECDSA_K1) {
+                    ecdsa_k1::verify(
+                        vector::borrow(signatures, i),
+                        vector::borrow(public_keys, i),
+                        msg,
+                        hash
+                    )
+                } else if (scheme == SCHEME_ECDSA_R1) {
+                    ecdsa_r1::verify(
+                        vector::borrow(signatures, i),
+                        vector::borrow(public_keys, i),
+                        msg
+                    )
+                } else {
+                    abort E_INVALID_SCHEME
+                };
             if (ok) {
                 count = count + 1;
             };
@@ -215,7 +224,9 @@ module kanari_system::signature_multisig {
     }
 
     fun assert_valid_threshold(threshold: u64, n: u64) {
-        assert!(threshold > 0 && threshold <= n, E_INVALID_THRESHOLD);
+        assert!(
+            threshold > 0 && threshold <= n, E_INVALID_THRESHOLD
+        );
     }
 
     /// Abort `E_DUPLICATE_KEY` if any public key appears twice.
@@ -229,7 +240,7 @@ module kanari_system::signature_multisig {
             while (j < n) {
                 assert!(
                     vector::borrow(public_keys, i) != vector::borrow(public_keys, j),
-                    E_DUPLICATE_KEY,
+                    E_DUPLICATE_KEY
                 );
                 j = j + 1;
             };
@@ -244,9 +255,7 @@ module kanari_system::signature_multisig {
     ///
     /// Layout: `domain || u64 LE(action_id_len) || action_id || u64 LE(nonce)`.
     public fun build_message(
-        domain: &vector<u8>,
-        action_id: &vector<u8>,
-        nonce: u64,
+        domain: &vector<u8>, action_id: &vector<u8>, nonce: u64
     ): vector<u8> {
         let msg = *domain;
         vector::append(&mut msg, bcs::to_bytes(&vector::length(action_id)));
@@ -320,3 +329,4 @@ module kanari_system::signature_multisig {
         assert!(m1 == build_message(&domain, &b"send", 1), 3);
     }
 }
+

@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::bcs {
     use std::option::{Self, Option};
     use std::vector as v;
@@ -56,11 +55,9 @@ module kanari_system::bcs {
     /// Read a `bool` value from bcs-serialized bytes.
     public fun peel_bool(bcs: &mut BCS): bool {
         let value = peel_u8(bcs);
-        if (value == 0) {
-            false
-        } else if (value == 1) {
-            true
-        } else {
+        if (value == 0) { false }
+        else if (value == 1) { true }
+        else {
             abort ENotBool
         }
     }
@@ -127,9 +124,7 @@ module kanari_system::bcs {
             let byte = (v::pop_back(&mut bcs.bytes) as u64);
             len = len + 1;
             total = total | ((byte & 0x7f) << shift);
-            if ((byte & 0x80) == 0) {
-                break
-            };
+            if ((byte & 0x80) == 0) { break };
             shift = shift + 7;
         };
         total
@@ -243,9 +238,15 @@ module kanari_system::bcs {
     }
 
     // === Tests ===
-
     #[test_only]
-    struct Info has drop { a: bool, b: u8, c: u64, d: u128, k: vector<bool>, s: address }
+    struct Info has drop {
+        a: bool,
+        b: u8,
+        c: u64,
+        d: u128,
+        k: vector<bool>,
+        s: address
+    }
 
     #[test]
     #[expected_failure(abort_code = ELenOutOfRange)]
@@ -347,19 +348,28 @@ module kanari_system::bcs {
         };
 
         { // vector length
-            let value = vector[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+            let value = vector[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             let bytes = new(to_bytes(&value));
             assert!(v::length(&value) == peel_vec_length(&mut bytes), 0);
         };
 
         { // vector length (more data)
             let value = vector[
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ];
 
             let bytes = new(to_bytes(&value));
@@ -367,7 +377,14 @@ module kanari_system::bcs {
         };
 
         { // full deserialization test (ordering)
-            let info = Info { a: true, b: 100, c: 9999, d: 112333, k: vector[true, false, true, false], s: @0xAAAAAAAAAAA };
+            let info = Info {
+                a: true,
+                b: 100,
+                c: 9999,
+                d: 112333,
+                k: vector[true, false, true, false],
+                s: @0xAAAAAAAAAAA
+            };
             let bytes = new(to_bytes(&info));
 
             assert!(info.a == peel_bool(&mut bytes), 0);
@@ -389,29 +406,26 @@ module kanari_system::bcs {
         };
 
         { // read vector of bytes directly
-            let value = vector[
-                vector[1,2,3,4,5],
-                vector[1,2,3,4,5],
-                vector[1,2,3,4,5]
-            ];
+            let value = vector[vector[1, 2, 3, 4, 5], vector[1, 2, 3, 4, 5], vector[1, 2,
+            3, 4, 5]];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_vec_u8(&mut bytes), 0);
         };
 
         { // read vector of bytes directly
-            let value = vector[1,2,3,4,5];
+            let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u8(&mut bytes), 0);
         };
 
         { // read vector of bytes directly
-            let value = vector[1,2,3,4,5];
+            let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u64(&mut bytes), 0);
         };
 
         { // read vector of bytes directly
-            let value = vector[1,2,3,4,5];
+            let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u128(&mut bytes), 0);
         };
@@ -429,3 +443,4 @@ module kanari_system::bcs {
         };
     }
 }
+

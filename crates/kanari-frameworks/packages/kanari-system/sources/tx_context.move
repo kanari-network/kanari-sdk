@@ -1,8 +1,6 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::tx_context {
-
     #[test_only]
     use std::vector;
 
@@ -54,7 +52,7 @@ module kanari_system::tx_context {
 
     /// Return the epoch start time as a unix timestamp in milliseconds.
     public fun epoch_timestamp_ms(self: &TxContext): u64 {
-       self.epoch_timestamp_ms
+        self.epoch_timestamp_ms
     }
 
     /// Create an `address` that has not been used. As it is an object address, it will never
@@ -78,9 +76,7 @@ module kanari_system::tx_context {
     /// Hashes `tx_hash || ids_created` to produce a unique object address.
     native public fun derive_id(tx_hash: vector<u8>, ids_created: u64): address;
 
-
     // ==== test-only functions ====
-
     #[test_only]
     /// Create a `TxContext` for testing
     public fun new(
@@ -88,10 +84,16 @@ module kanari_system::tx_context {
         tx_hash: vector<u8>,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64,
+        ids_created: u64
     ): TxContext {
         assert!(vector::length(&tx_hash) == TX_HASH_LENGTH, EBadTxHashLength);
-        TxContext { sender, tx_hash, epoch, epoch_timestamp_ms, ids_created }
+        TxContext {
+            sender,
+            tx_hash,
+            epoch,
+            epoch_timestamp_ms,
+            ids_created
+        }
     }
 
     #[test_only]
@@ -101,9 +103,15 @@ module kanari_system::tx_context {
         hint: u64,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64,
+        ids_created: u64
     ): TxContext {
-        new(addr, dummy_tx_hash_with_hint(hint), epoch, epoch_timestamp_ms, ids_created)
+        new(
+            addr,
+            dummy_tx_hash_with_hint(hint),
+            epoch,
+            epoch_timestamp_ms,
+            ids_created
+        )
     }
 
     #[test_only]
@@ -118,7 +126,9 @@ module kanari_system::tx_context {
     /// These hashes are guaranteed to be unique given a unique `hint: u64`
     fun dummy_tx_hash_with_hint(hint: u64): vector<u8> {
         let tx_hash = std::bcs::to_bytes(&hint);
-        while (vector::length(&tx_hash) < TX_HASH_LENGTH) vector::push_back(&mut tx_hash, 0);
+        while (vector::length(&tx_hash) < TX_HASH_LENGTH) vector::push_back(
+            &mut tx_hash, 0
+        );
         tx_hash
     }
 
@@ -141,7 +151,10 @@ module kanari_system::tx_context {
     }
 
     #[test_only]
-    public fun increment_epoch_timestamp(self: &mut TxContext, delta_ms: u64) {
+    public fun increment_epoch_timestamp(
+        self: &mut TxContext, delta_ms: u64
+    ) {
         self.epoch_timestamp_ms = self.epoch_timestamp_ms + delta_ms
     }
 }
+

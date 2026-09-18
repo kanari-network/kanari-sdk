@@ -4,7 +4,7 @@ module kanari_system::event_tests {
 
     struct TestEvent has copy, drop {
         id: u64,
-        msg: String,
+        msg: String
     }
 
     #[test]
@@ -13,3 +13,4 @@ module kanari_system::event_tests {
         event::emit(ev);
     }
 }
+

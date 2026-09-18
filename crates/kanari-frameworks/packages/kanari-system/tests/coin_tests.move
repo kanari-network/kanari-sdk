@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 #[test_only]
 module kanari_system::coin_tests {
     use kanari_system::coin::{Self, Coin, TreasuryCap, CoinMetadata};
@@ -19,7 +18,7 @@ module kanari_system::coin_tests {
             b"Test Coin",
             b"coin tests",
             option::none(),
-            ctx,
+            ctx
         )
     }
 
@@ -73,9 +72,9 @@ module kanari_system::coin_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 3)]
+    #[expected_failure(location = kanari_system::coin, abort_code = 1)]
     fun test_destroy_zero_nonzero_fails() {
-        // EZERO_AMOUNT in coin module.
+        // EInvalidArg in coin module.
         let ctx = tx_context::dummy();
         let (cap, meta) = setup(&mut ctx);
         let c = coin::mint(&mut cap, 100, &mut ctx);
@@ -122,7 +121,7 @@ module kanari_system::coin_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 3)]
+    #[expected_failure(location = kanari_system::coin, abort_code = 3)]
     fun test_mint_zero_fails() {
         // EZERO_AMOUNT in coin module.
         let ctx = tx_context::dummy();
@@ -132,3 +131,4 @@ module kanari_system::coin_tests {
         cleanup(cap, meta);
     }
 }
+

@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 #[test_only]
 module kanari_system::clock_tests {
     use kanari_system::clock;
@@ -19,7 +18,7 @@ module kanari_system::clock_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 1)]
+    #[expected_failure(location = kanari_system::clock, abort_code = 1)]
     fun test_set_backwards_fails() {
         let ctx = tx_context::dummy();
         let c = clock::create_for_testing(&mut ctx);
@@ -42,7 +41,7 @@ module kanari_system::clock_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 0)]
+    #[expected_failure(location = kanari_system::clock, abort_code = 0)]
     fun test_prologue_rejects_non_system_sender() {
         // E_NOT_SYSTEM_ADDRESS in clock module.
         let user = tx_context::new_from_hint(@0x1, 1, 0, 0, 0);
@@ -53,7 +52,7 @@ module kanari_system::clock_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 1)]
+    #[expected_failure(location = kanari_system::clock, abort_code = 1)]
     fun test_prologue_rejects_time_travel() {
         // E_TIMESTAMP_NOT_MONOTONIC in clock module.
         let sys = tx_context::new_from_hint(@0x0, 1, 0, 0, 0);
@@ -72,9 +71,10 @@ module kanari_system::clock_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 0)]
+    #[expected_failure(location = kanari_system::clock, abort_code = 0)]
     fun test_create_rejects_non_system_sender() {
         let user = tx_context::new_from_hint(@0x1, 1, 0, 0, 0);
         clock::create(&mut user);
     }
 }
+

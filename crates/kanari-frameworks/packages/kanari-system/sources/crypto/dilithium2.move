@@ -6,10 +6,17 @@ module kanari_system::dilithium2 {
     const PUBLIC_KEY_LENGTH: u64 = 1312;
     const SIGNATURE_LENGTH: u64 = 2420;
 
-    public fun public_key_length(): u64 { PUBLIC_KEY_LENGTH }
-    public fun signature_length(): u64 { SIGNATURE_LENGTH }
+    public fun public_key_length(): u64 {
+        PUBLIC_KEY_LENGTH
+    }
 
-    native public fun verify(signature: &vector<u8>, public_key: &vector<u8>, message: &vector<u8>): bool;
+    public fun signature_length(): u64 {
+        SIGNATURE_LENGTH
+    }
+
+    native public fun verify(
+        signature: &vector<u8>, public_key: &vector<u8>, message: &vector<u8>
+    ): bool;
 
     #[test]
     fun test_sizes() {
@@ -29,6 +36,10 @@ module kanari_system::dilithium2 {
 
     #[test]
     fun test_rejects_truncated_signature() {
-        assert!(!verify(&x"000102", &x"00", &x"6b616e617269"), 0);
+        assert!(
+            !verify(&x"000102", &x"00", &x"6b616e617269"),
+            0
+        );
     }
 }
+

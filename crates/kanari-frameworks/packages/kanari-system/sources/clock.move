@@ -27,7 +27,7 @@ module kanari_system::clock {
     /// Singleton shared object that exposes time to Move calls.
     struct Clock has key, store {
         id: UID,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     /// The `clock`'s current timestamp as a running total of
@@ -51,10 +51,7 @@ module kanari_system::clock {
     public fun create(ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
 
-        let clock = Clock {
-            id: object::new(ctx),
-            timestamp_ms: 0,
-        };
+        let clock = Clock { id: object::new(ctx), timestamp_ms: 0 };
 
         object::save_object(&clock);
 
@@ -66,7 +63,9 @@ module kanari_system::clock {
     /// System call: the validator calls this at every block boundary with the
     /// block timestamp. Only a transaction sent from `@0x0` may call it, and
     /// time must never move backwards.
-    public fun consensus_commit_prologue(clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext) {
+    public fun consensus_commit_prologue(
+        clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext
+    ) {
         // Requires that the call be made only through the System Validator.
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
         // Ensure that the new timestamp is greater than or equal to the current one
@@ -78,13 +77,9 @@ module kanari_system::clock {
     // =================================================================
     // Functions for Testing
     // =================================================================
-
     #[test_only]
     public fun create_for_testing(ctx: &mut TxContext): Clock {
-        Clock {
-            id: object::new(ctx),
-            timestamp_ms: 0,
-        }
+        Clock { id: object::new(ctx), timestamp_ms: 0 }
     }
 
     #[test_only]
@@ -104,3 +99,4 @@ module kanari_system::clock {
         object::delete(id);
     }
 }
+

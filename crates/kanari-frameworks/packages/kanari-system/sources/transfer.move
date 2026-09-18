@@ -17,7 +17,7 @@ module kanari_system::transfer {
     struct Transfer has copy, drop {
         from: address,
         to: address,
-        amount: u64,
+        amount: u64
     }
 
     // ObjectStore: Global registry for transferred objects
@@ -26,7 +26,7 @@ module kanari_system::transfer {
     struct ObjectStore<T: key + store> has key {
         id: UID,
         inner: T,
-        owner: address,
+        owner: address
     }
 
     /// Create a transfer record with full validation
@@ -59,7 +59,9 @@ module kanari_system::transfer {
 
         while (i < len) {
             let transfer = vector::borrow(transfers, i);
-            assert!(transfer.amount <= math::max_u64_value() - total, ERR_OVERFLOW);
+            assert!(
+                transfer.amount <= math::max_u64_value() - total, ERR_OVERFLOW
+            );
             total = total + transfer.amount;
             i = i + 1;
         };
@@ -109,10 +111,19 @@ module kanari_system::transfer {
     #[test]
     fun test_total_amount() {
         let transfers = vector::empty<Transfer>();
-        vector::push_back(&mut transfers, create_transfer(@0x1, @0x2, 100));
-        vector::push_back(&mut transfers, create_transfer(@0x2, @0x3, 200));
-        vector::push_back(&mut transfers, create_transfer(@0x3, @0x4, 300));
-        
+        vector::push_back(
+            &mut transfers,
+            create_transfer(@0x1, @0x2, 100)
+        );
+        vector::push_back(
+            &mut transfers,
+            create_transfer(@0x2, @0x3, 200)
+        );
+        vector::push_back(
+            &mut transfers,
+            create_transfer(@0x3, @0x4, 300)
+        );
+
         assert!(total_amount(&transfers) == 600, 0);
     }
 
@@ -120,7 +131,10 @@ module kanari_system::transfer {
     #[expected_failure(abort_code = ERR_OVERFLOW)]
     fun test_total_amount_overflow() {
         let transfers = vector::empty<Transfer>();
-        vector::push_back(&mut transfers, create_transfer(@0x1, @0x2, 18446744073709551615));
+        vector::push_back(
+            &mut transfers,
+            create_transfer(@0x1, @0x2, 18446744073709551615)
+        );
         vector::push_back(&mut transfers, create_transfer(@0x2, @0x3, 1));
         total_amount(&transfers);
     }
@@ -137,3 +151,4 @@ module kanari_system::transfer {
         create_transfer(@0x1, @0x1, 100);
     }
 }
+

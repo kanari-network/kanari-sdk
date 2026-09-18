@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 #[test_only]
 module kanari_system::table_bag_tests {
     use kanari_system::bag;
@@ -33,7 +32,7 @@ module kanari_system::table_bag_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 1)]
+    #[expected_failure(location = kanari_system::table, abort_code = 1)]
     fun test_table_destroy_nonempty_fails() {
         // ETableNotEmpty.
         let ctx = tx_context::dummy();
@@ -67,7 +66,7 @@ module kanari_system::table_bag_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 1)]
+    #[expected_failure(location = kanari_system::bag, abort_code = 1)]
     fun test_bag_destroy_nonempty_fails() {
         // EBagNotEmpty.
         let ctx = tx_context::dummy();
@@ -76,3 +75,4 @@ module kanari_system::table_bag_tests {
         bag::destroy_empty(b);
     }
 }
+

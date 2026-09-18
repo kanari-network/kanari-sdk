@@ -1,19 +1,27 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// End-to-end fixtures for `kanari_system::zklogin` (deterministic):
-/// - ephemeral key from secret `[42u8; 32]`, message "kanari ephemeral fixture"
-/// - JWT minted RS256 with kid `kanari-fixture-1`, nonce bound to the
-///   ephemeral key above (pub, max_epoch 1000, randomness `[7u8; 32]`)
-/// - Binding-circuit (salt `[9u8; 32]`, google/test-client/1234) Groth16
-///   proof, seed `0xB10C5EED`; address/nonce are the v2 scheme vectors
+// End-to-end fixtures for `kanari_system::zklogin` (deterministic):
+// - ephemeral key from secret `[42u8; 32]`, message "kanari ephemeral fixture"
+// - JWT minted RS256 with kid `kanari-fixture-1`, nonce bound to the
+//   ephemeral key above (pub, max_epoch 1000, randomness `[7u8; 32]`)
+// - Binding-circuit (salt `[9u8; 32]`, google/test-client/1234) Groth16
+//   proof, seed `0xB10C5EED`; address/nonce are the v2 scheme vectors
 #[test_only]
 module kanari_system::zklogin_tests {
     use kanari_system::zklogin;
 
-    fun iss(): vector<u8> { b"https://accounts.google.com" }
-    fun aud(): vector<u8> { b"kanari-test-client" }
-    fun sub(): vector<u8> { b"1234" }
+    fun iss(): vector<u8> {
+        b"https://accounts.google.com"
+    }
+
+    fun aud(): vector<u8> {
+        b"kanari-test-client"
+    }
+
+    fun sub(): vector<u8> {
+        b"1234"
+    }
     const NOW: u64 = 1700000000;
 
     fun eph_pub(): vector<u8> {
@@ -52,28 +60,30 @@ module kanari_system::zklogin_tests {
         x"000000000000000000000000000000000000000000000000000000000000003b00000000000000000000000000000000000000000000000000000000000000c2000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000a2000000000000000000000000000000000000000000000000000000000000003d00000000000000000000000000000000000000000000000000000000000000dd0000000000000000000000000000000000000000000000000000000000000021000000000000000000000000000000000000000000000000000000000000007700000000000000000000000000000000000000000000000000000000000000cb000000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000057000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000520000000000000000000000000000000000000000000000000000000000000027000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000180000000000000000000000000000000000000000000000000000000000000027000000000000000000000000000000000000000000000000000000000000004500000000000000000000000000000000000000000000000000000000000000a5000000000000000000000000000000000000000000000000000000000000007600000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000090000000000000000000000000000000000000000000000000000000000000009500000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000005a0000000000000000000000000000000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000009700000000000000000000000000000000000000000000000000000000000000110000000000000000000000000000000000000000000000000000000000000081000000000000000000000000000000000000000000000000000000000000008f000000000000000000000000000000000000000000000000000000000000005700000000000000000000000000000000000000000000000000000000000000b300000000000000000000000000000000000000000000000000000000000000b8000000000000000000000000000000000000000000000000000000000000002900000000000000000000000000000000000000000000000000000000000000ee000000000000000000000000000000000000000000000000000000000000006800000000000000000000000000000000000000000000000000000000000000690000000000000000000000000000000000000000000000000000000000000028000000000000000000000000000000000000000000000000000000000000000b00000000000000000000000000000000000000000000000000000000000000ba000000000000000000000000000000000000000000000000000000000000005d00000000000000000000000000000000000000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000000c400000000000000000000000000000000000000000000000000000000000000f800000000000000000000000000000000000000000000000000000000000000b900000000000000000000000000000000000000000000000000000000000000170000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000008c00000000000000000000000000000000000000000000000000000000000000f9000000000000000000000000000000000000000000000000000000000000005b000000000000000000000000000000000000000000000000000000000000001700000000000000000000000000000000000000000000000000000000000000ab000000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000e600000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000ce0000000000000000000000000000000000000000000000000000000000000036000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000cb00000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000086"
     }
 
-    fun proof(): vector<u8> {
+    fun proof (): vector<u8> {
         x"fcff916270b5d94355b44ef1e4ec38894018b36d12333b62526f7ec2b32e5b0972f3df97e593fafb2d775bbee8b575c1ac7ee4e9c2249e6499aec09dc6f0d20f953e4518ca9fb3f94f8052addcc6b528e6e0ef2d93062734660b8498c0144e2788bd5d751e2f563a30599fbe3875c43d5d018795fc2dc142ef6ffdf411851b99"
     }
 
     // =================================================================
     // JWT path (Phase 3b)
     // =================================================================
-
     #[test]
     fun test_verify_jwt_accepts_fixture() {
-        assert!(zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), NOW), 0);
+        assert!(
+            zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), NOW),
+            0
+        );
     }
 
     #[test]
-    #[expected_failure(abort_code = 1)]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 1)]
     fun test_verify_jwt_wrong_aud_aborts() {
         // Bad signature/audience => E_INVALID_JWT(1); expiry alone => 5.
         zklogin::verify(&jwt(), &jwks(), &iss(), &b"someone-else", NOW);
     }
 
     #[test]
-    #[expected_failure(abort_code = 5)]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 5)]
     fun test_verify_jwt_expired_aborts() {
         // Fixture exp is 2000000000; far-future `now` trips E_EXPIRED only.
         zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), 2000000100);
@@ -81,30 +91,41 @@ module kanari_system::zklogin_tests {
 
     #[test]
     fun test_check_nonce_accepts_fixture() {
-        assert!(zklogin::check_nonce(&jwt(), &eph_pub(), 1000, &randomness()), 0);
+        assert!(
+            zklogin::check_nonce(&jwt(), &eph_pub(), 1000, &randomness()),
+            0
+        );
         // Wrong epoch changes the binding.
-        assert!(!zklogin::check_nonce(&jwt(), &eph_pub(), 999, &randomness()), 1);
+        assert!(
+            !zklogin::check_nonce(&jwt(), &eph_pub(), 999, &randomness()),
+            1
+        );
     }
 
     #[test]
     fun test_derive_address_matches_rust() {
         // v2 fixed-width scheme vector (see zklogin_circuit tests).
         let addr = zklogin::derive_address(&iss(), &aud(), &sub(), &salt());
-        assert!(addr == x"3bc27fa23ddd2177cb1914572052272ce060182745a576019095c05a70971181", 0);
+        assert!(
+            addr == x"3bc27fa23ddd2177cb1914572052272ce060182745a576019095c05a70971181",
+            0
+        );
     }
 
     // =================================================================
     // Ephemeral path (pop-order regression test)
     // =================================================================
-
     #[test]
     fun test_verify_ephemeral_accepts_fixture() {
         // Declared order is (sig, pk, msg) — matching native pop order.
-        assert!(zklogin::verify_ephemeral(&eph_sig(), &eph_pub(), &eph_msg()), 0);
+        assert!(
+            zklogin::verify_ephemeral(&eph_sig(), &eph_pub(), &eph_msg()),
+            0
+        );
     }
 
     #[test]
-    #[expected_failure(abort_code = 3)]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 3)]
     fun test_verify_ephemeral_swapped_order_aborts() {
         // The old, misleading order (pk, msg, sig) puts a 24-byte message
         // where the 32-byte pubkey goes: the Move length guard aborts
@@ -125,39 +146,47 @@ module kanari_system::zklogin_tests {
                 1000,
                 &randomness(),
                 &eph_msg(),
-                &eph_sig(),
+                &eph_sig()
             ),
-            0,
+            0
         );
     }
 
     // =================================================================
     // Groth16 path (Phase 3c)
     // =================================================================
-
     #[test]
     fun test_verify_proof_accepts_fixture() {
-        assert!(zklogin::verify_proof(&vk(), &proof_inputs(), &proof()), 0);
+        assert!(
+            zklogin::verify_proof(&vk(), &proof_inputs(), &proof ()),
+            0
+        );
         // Same proof, last input byte flipped: well-formed but false.
         let bad = proof_inputs();
         let n = std::vector::length(&bad);
         *std::vector::borrow_mut(&mut bad, n - 1) = 0x87;
-        assert!(!zklogin::verify_proof(&vk(), &bad, &proof()), 1);
+        assert!(
+            !zklogin::verify_proof(&vk(), &bad, &proof ()),
+            1
+        );
     }
 
     #[test]
     fun test_verify_pinned_proof_accepts_ceremony_hash() {
         // Pinned VK hash from the deterministic fixture setup.
         let pin = x"cb610265cb3354f24a0b9fc25d7ebb3b769bd70c28a614a2824f99ef3d1cfccd";
-        assert!(zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof()), 0);
+        assert!(
+            zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof ()),
+            0
+        );
     }
 
     #[test]
-    #[expected_failure(abort_code = 7)]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 7)]
     fun test_verify_pinned_proof_wrong_pin_aborts() {
         // Right proof, wrong trust root: must abort, never verify.
         let pin = x"0000000000000000000000000000000000000000000000000000000000000000";
-        zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof());
+        zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof ());
     }
 
     #[test]
@@ -166,12 +195,13 @@ module kanari_system::zklogin_tests {
             zklogin::verify_private_session(
                 &vk(),
                 &proof_inputs(),
-                &proof(),
+                &proof (),
                 &eph_pub(),
                 &eph_msg(),
-                &eph_sig(),
+                &eph_sig()
             ),
-            0,
+            0
         );
     }
 }
+

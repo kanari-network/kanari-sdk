@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::collection {
     use std::string::{String, utf8};
     use kanari_system::tx_context::{TxContext};
@@ -16,25 +15,25 @@ module kanari_system::collection {
         id: UID,
         name: String,
         description: String,
-        banner_url: Url,   
-        website_url: Url,   
+        banner_url: Url,
+        website_url: Url,
         creator: address,
-        max_supply: u64,
+        max_supply: u64
     }
-    
+
     /// A capability resource that governs minting within a Collection.
     struct NftCap has key, store, drop {
         id: UID,
         remaining: u64,
         issued_counter: u64,
-        collection_id: address,
+        collection_id: address
     }
 
     /// Event emitted when a collection is created (for off-chain indexing)
     struct CollectionCreated has copy, drop {
         collection_id: address,
         creator: address,
-        max_supply: u64,
+        max_supply: u64
     }
 
     const E_NO_SUPPLY: u64 = 1;
@@ -48,11 +47,11 @@ module kanari_system::collection {
         description: vector<u8>,
         banner_url: vector<u8>,
         website_url: vector<u8>,
-        max_supply: u64,
+        max_supply: u64
     ): (Collection, NftCap) {
         let id = object::new(ctx);
         let sender = tx_context::sender(ctx);
-        
+
         let collection_addr = object::uid_address(&id);
 
         let coll = Collection {
@@ -62,24 +61,26 @@ module kanari_system::collection {
             banner_url: kanari_system::url::new_unsafe_from_bytes(banner_url),
             website_url: kanari_system::url::new_unsafe_from_bytes(website_url),
             creator: sender,
-            max_supply,
+            max_supply
         };
 
         let cap = NftCap {
             id: object::new(ctx),
             remaining: max_supply,
             issued_counter: 0,
-            collection_id: collection_addr, // ใช้ address ที่ดึงมา
+            collection_id: collection_addr // ใช้ address ที่ดึงมา
         };
 
-        event::emit(CollectionCreated { 
-            collection_id: collection_addr, 
-            creator: sender, 
-            max_supply 
-        });
+        event::emit(
+            CollectionCreated {
+                collection_id: collection_addr,
+                creator: sender,
+                max_supply
+            }
+        );
 
-        (coll, cap) 
-    }  
+        (coll, cap)
+    }
 
     /// Returns the address (UID) of a `Collection`.
     public fun collection_id(_c: &Collection): address {
@@ -106,7 +107,7 @@ module kanari_system::collection {
         c: &mut Collection,
         banner_url: vector<u8>,
         website_url: vector<u8>,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         assert!(tx_context::sender(ctx) == c.creator, E_NOT_COLLECTION_CREATOR);
         c.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
@@ -140,11 +141,15 @@ module kanari_system::collection {
 
     /// Get the creator of a collection.
     /// Transfer helpers using `transfer::public_transfer`.
-    public fun transfer_collection(c: Collection, recipient: address, _ctx: &mut TxContext) {
+    public fun transfer_collection(
+        c: Collection, recipient: address, _ctx: &mut TxContext
+    ) {
         transfer::public_transfer(c, recipient)
     }
 
-    public fun transfer_cap(cap: NftCap, recipient: address, _ctx: &mut TxContext) {
+    public fun transfer_cap(
+        cap: NftCap, recipient: address, _ctx: &mut TxContext
+    ) {
         transfer::public_transfer(cap, recipient)
     }
 
@@ -153,14 +158,15 @@ module kanari_system::collection {
         let ctx = tx_context::dummy();
 
         // create collection with small supply
-        let (coll, cap) = create_collection(
-            &mut ctx, 
-            b"Test Name",      // name
-            b"Test Desc",      // description
-            b"https://banner", // banner_url (ใหม่)
-            b"https://web",    // website_url (ใหม่)
-            2                  // max_supply
-        );
+        let (coll, cap) =
+            create_collection(
+                &mut ctx,
+                b"Test Name", // name
+                b"Test Desc", // description
+                b"https://banner", // banner_url (ใหม่)
+                b"https://web", // website_url (ใหม่)
+                2 // max_supply
+            );
 
         // initial checks
         assert!(remaining(&cap) == 2, 0);
@@ -184,3 +190,4 @@ module kanari_system::collection {
     // in the framework's higher-level test suites. Keep this package focused
     // on the Collection API surface.
 }
+

@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::event {
     /// Emit a custom Move event, sending the data offchain.
     ///
@@ -11,3 +10,4 @@ module kanari_system::event {
     /// phantom parameters, eg `emit(MyEvent<phantom T>)`.
     public native fun emit<T: copy + drop>(event: T);
 }
+

@@ -33,15 +33,33 @@ module kanari_system::math {
     const MAX_U32: u32 = 4294967295;
     const MAX_U64: u64 = 18446744073709551615;
     const MAX_U128: u128 = 340282366920938463463374607431768211455;
-    const MAX_U256: u256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935;
+    const MAX_U256: u256 =
+        115792089237316195423570985008687907853269984665640564039457584007913129639935;
 
     /// Width limits, exposed so contracts can clamp / validate without hardcoding.
-    public fun max_u8_value(): u8 { MAX_U8 }
-    public fun max_u16_value(): u16 { MAX_U16 }
-    public fun max_u32_value(): u32 { MAX_U32 }
-    public fun max_u64_value(): u64 { MAX_U64 }
-    public fun max_u128_value(): u128 { MAX_U128 }
-    public fun max_u256_value(): u256 { MAX_U256 }
+    public fun max_u8_value(): u8 {
+        MAX_U8
+    }
+
+    public fun max_u16_value(): u16 {
+        MAX_U16
+    }
+
+    public fun max_u32_value(): u32 {
+        MAX_U32
+    }
+
+    public fun max_u64_value(): u64 {
+        MAX_U64
+    }
+
+    public fun max_u128_value(): u128 {
+        MAX_U128
+    }
+
+    public fun max_u256_value(): u256 {
+        MAX_U256
+    }
 
     /// Basis points scale: 10_000 bps = 100%.
     const BPS_SCALE: u128 = 10000;
@@ -87,7 +105,9 @@ module kanari_system::math {
     public native fun mul_div_u128(x: u128, y: u128, z: u128): u128;
 
     /// (x * y) / z with explicit rounding: false = floor, true = ceil.
-    public native fun mul_div_round_u128(x: u128, y: u128, z: u128, round_up: bool): u128;
+    public native fun mul_div_round_u128(
+        x: u128, y: u128, z: u128, round_up: bool
+    ): u128;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
     public native fun try_mul_div_u128(x: u128, y: u128, z: u128): (bool, u128);
@@ -100,7 +120,9 @@ module kanari_system::math {
     public native fun mul_div_u256(x: u256, y: u256, z: u256): u256;
 
     /// (x * y) / z with explicit rounding: false = floor, true = ceil.
-    public native fun mul_div_round_u256(x: u256, y: u256, z: u256, round_up: bool): u256;
+    public native fun mul_div_round_u256(
+        x: u256, y: u256, z: u256, round_up: bool
+    ): u256;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
     public native fun try_mul_div_u256(x: u256, y: u256, z: u256): (bool, u256);
@@ -109,8 +131,11 @@ module kanari_system::math {
     public native fun mul_add_u256(x: u256, y: u256, z: u256): u256;
 
     public native fun min_u128(x: u128, y: u128): u128;
+
     public native fun max_u128(x: u128, y: u128): u128;
+
     public native fun min_u256(x: u256, y: u256): u256;
+
     public native fun max_u256(x: u256, y: u256): u256;
 
     /// Overflow-safe average, floor: (a & b) + ((a ^ b) >> 1).
@@ -144,17 +169,19 @@ module kanari_system::math {
     // =================================================================
     // u8 helpers (pure Move over u64/u128 natives)
     // =================================================================
-
     public fun min_u8(x: u8, y: u8): u8 {
-        if (x < y) { x } else { y }
+        if (x < y) { x }
+        else { y }
     }
 
     public fun max_u8(x: u8, y: u8): u8 {
-        if (x > y) { x } else { y }
+        if (x > y) { x }
+        else { y }
     }
 
     public fun diff_u8(x: u8, y: u8): u8 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     /// Overflow-safe average, floor. Result always fits u8.
@@ -164,7 +191,9 @@ module kanari_system::math {
 
     public fun clamp_u8(x: u8, lo: u8, hi: u8): u8 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo } else if (x > hi) { hi } else { x }
+        if (x < lo) { lo }
+        else if (x > hi) { hi }
+        else { x }
     }
 
     public fun bound_u8(x: u8, lo: u8, hi: u8): u8 {
@@ -195,12 +224,19 @@ module kanari_system::math {
 
     public fun try_pow_u8(base: u8, exponent: u8): (bool, u8) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
-        if (!ok || r > (MAX_U8 as u64)) { (false, 0) } else { (true, (r as u8)) }
+        if (!ok || r > (MAX_U8 as u64)) {
+            (false, 0)
+        } else {
+            (true, (r as u8))
+        }
     }
 
     public fun ceil_div_u8(x: u8, y: u8): u8 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
+        if (x == 0) { 0 }
+        else {
+            ((x - 1) / y) + 1
+        }
     }
 
     public fun mul_div_u8(x: u8, y: u8, z: u8): u8 {
@@ -217,7 +253,11 @@ module kanari_system::math {
 
     public fun try_mul_div_u8(x: u8, y: u8, z: u8): (bool, u8) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
-        if (!ok || r > (MAX_U8 as u128)) { (false, 0) } else { (true, (r as u8)) }
+        if (!ok || r > (MAX_U8 as u128)) {
+            (false, 0)
+        } else {
+            (true, (r as u8))
+        }
     }
 
     public fun mul_add_u8(x: u8, y: u8, z: u8): u8 {
@@ -260,17 +300,19 @@ module kanari_system::math {
     // =================================================================
     // u16 helpers (pure Move over u64/u128 natives)
     // =================================================================
-
     public fun min_u16(x: u16, y: u16): u16 {
-        if (x < y) { x } else { y }
+        if (x < y) { x }
+        else { y }
     }
 
     public fun max_u16(x: u16, y: u16): u16 {
-        if (x > y) { x } else { y }
+        if (x > y) { x }
+        else { y }
     }
 
     public fun diff_u16(x: u16, y: u16): u16 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     public fun average_u16(a: u16, b: u16): u16 {
@@ -279,7 +321,9 @@ module kanari_system::math {
 
     public fun clamp_u16(x: u16, lo: u16, hi: u16): u16 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo } else if (x > hi) { hi } else { x }
+        if (x < lo) { lo }
+        else if (x > hi) { hi }
+        else { x }
     }
 
     public fun bound_u16(x: u16, lo: u16, hi: u16): u16 {
@@ -310,12 +354,19 @@ module kanari_system::math {
 
     public fun try_pow_u16(base: u16, exponent: u8): (bool, u16) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
-        if (!ok || r > (MAX_U16 as u64)) { (false, 0) } else { (true, (r as u16)) }
+        if (!ok || r > (MAX_U16 as u64)) {
+            (false, 0)
+        } else {
+            (true, (r as u16))
+        }
     }
 
     public fun ceil_div_u16(x: u16, y: u16): u16 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
+        if (x == 0) { 0 }
+        else {
+            ((x - 1) / y) + 1
+        }
     }
 
     public fun mul_div_u16(x: u16, y: u16, z: u16): u16 {
@@ -332,7 +383,11 @@ module kanari_system::math {
 
     public fun try_mul_div_u16(x: u16, y: u16, z: u16): (bool, u16) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
-        if (!ok || r > (MAX_U16 as u128)) { (false, 0) } else { (true, (r as u16)) }
+        if (!ok || r > (MAX_U16 as u128)) {
+            (false, 0)
+        } else {
+            (true, (r as u16))
+        }
     }
 
     public fun mul_add_u16(x: u16, y: u16, z: u16): u16 {
@@ -372,17 +427,19 @@ module kanari_system::math {
     // =================================================================
     // u32 helpers (pure Move over u64/u128 natives)
     // =================================================================
-
     public fun min_u32(x: u32, y: u32): u32 {
-        if (x < y) { x } else { y }
+        if (x < y) { x }
+        else { y }
     }
 
     public fun max_u32(x: u32, y: u32): u32 {
-        if (x > y) { x } else { y }
+        if (x > y) { x }
+        else { y }
     }
 
     public fun diff_u32(x: u32, y: u32): u32 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     public fun average_u32(a: u32, b: u32): u32 {
@@ -391,7 +448,9 @@ module kanari_system::math {
 
     public fun clamp_u32(x: u32, lo: u32, hi: u32): u32 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo } else if (x > hi) { hi } else { x }
+        if (x < lo) { lo }
+        else if (x > hi) { hi }
+        else { x }
     }
 
     public fun bound_u32(x: u32, lo: u32, hi: u32): u32 {
@@ -422,12 +481,19 @@ module kanari_system::math {
 
     public fun try_pow_u32(base: u32, exponent: u8): (bool, u32) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
-        if (!ok || r > (MAX_U32 as u64)) { (false, 0) } else { (true, (r as u32)) }
+        if (!ok || r > (MAX_U32 as u64)) {
+            (false, 0)
+        } else {
+            (true, (r as u32))
+        }
     }
 
     public fun ceil_div_u32(x: u32, y: u32): u32 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 } else { ((x - 1) / y) + 1 }
+        if (x == 0) { 0 }
+        else {
+            ((x - 1) / y) + 1
+        }
     }
 
     public fun mul_div_u32(x: u32, y: u32, z: u32): u32 {
@@ -444,7 +510,11 @@ module kanari_system::math {
 
     public fun try_mul_div_u32(x: u32, y: u32, z: u32): (bool, u32) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
-        if (!ok || r > (MAX_U32 as u128)) { (false, 0) } else { (true, (r as u32)) }
+        if (!ok || r > (MAX_U32 as u128)) {
+            (false, 0)
+        } else {
+            (true, (r as u32))
+        }
     }
 
     public fun mul_add_u32(x: u32, y: u32, z: u32): u32 {
@@ -484,26 +554,30 @@ module kanari_system::math {
     // =================================================================
     // u64 / u128 basics
     // =================================================================
-
     public fun min_u64(x: u64, y: u64): u64 {
-        if (x < y) { x } else { y }
+        if (x < y) { x }
+        else { y }
     }
 
     public fun max_u64(x: u64, y: u64): u64 {
-        if (x > y) { x } else { y }
+        if (x > y) { x }
+        else { y }
     }
 
     /// Absolute difference. Useful for slippage / tolerance checks.
     public fun diff_u64(x: u64, y: u64): u64 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     public fun diff_u128(x: u128, y: u128): u128 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     public fun diff_u256(x: u256, y: u256): u256 {
-        if (x > y) { x - y } else { y - x }
+        if (x > y) { x - y }
+        else { y - x }
     }
 
     /// Clamp with a readable abort code for inverted bounds (same as native).
@@ -552,8 +626,13 @@ module kanari_system::math {
     // =================================================================
 
     /// Legacy names kept for backwards compatibility.
-    public fun divide_and_round_up(x: u64, y: u64): u64 { ceil_div_u64(x, y) }
-    public fun divide_and_round_up_u128(x: u128, y: u128): u128 { ceil_div_u128(x, y) }
+    public fun divide_and_round_up(x: u64, y: u64): u64 {
+        ceil_div_u64(x, y)
+    }
+
+    public fun divide_and_round_up_u128(x: u128, y: u128): u128 {
+        ceil_div_u128(x, y)
+    }
 
     // =================================================================
     // mul_div / mul_add with explicit overflow checks
@@ -607,7 +686,11 @@ module kanari_system::math {
     /// Non-aborting u64 variant: (false, 0) on div-by-zero or u64 overflow.
     public fun try_mul_div_u64(x: u64, y: u64, z: u64): (bool, u64) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
-        if (!ok || r > (MAX_U64 as u128)) { (false, 0) } else { (true, (r as u64)) }
+        if (!ok || r > (MAX_U64 as u128)) {
+            (false, 0)
+        } else {
+            (true, (r as u64))
+        }
     }
 
     // =================================================================
@@ -757,13 +840,17 @@ module kanari_system::math {
 
     /// Constant-product quote: amount_out = amount_in * reserve_out / (reserve_in + amount_in).
     /// Floor rounding (favors pool). Aborts on zero reserves.
-    public fun quote_amount_out(amount_in: u128, reserve_in: u128, reserve_out: u128): u128 {
+    public fun quote_amount_out(
+        amount_in: u128, reserve_in: u128, reserve_out: u128
+    ): u128 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u128(amount_in, reserve_out, reserve_in + amount_in)
     }
 
     /// Same quote for u256 reserves (deep-liquidity pools).
-    public fun quote_amount_out_u256(amount_in: u256, reserve_in: u256, reserve_out: u256): u256 {
+    public fun quote_amount_out_u256(
+        amount_in: u256, reserve_in: u256, reserve_out: u256
+    ): u256 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u256(amount_in, reserve_out, reserve_in + amount_in)
     }
@@ -774,7 +861,9 @@ module kanari_system::math {
         mul_div_u128(amount, price_num, price_den)
     }
 
-    public fun apply_price_u256(amount: u256, price_num: u256, price_den: u256): u256 {
+    public fun apply_price_u256(
+        amount: u256, price_num: u256, price_den: u256
+    ): u256 {
         mul_div_u256(amount, price_num, price_den)
     }
 
@@ -808,116 +897,266 @@ module kanari_system::math {
 
     // --- u8 ---
     public fun checked_add_u8(x: u8, y: u8): Option<u8> {
-        if (x > MAX_U8 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U8 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u8(x: u8, y: u8): Option<u8> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u8(x: u8, y: u8): Option<u8> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U8 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U8 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u8(x: u8, y: u8): Option<u8> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u8(base: u8, exponent: u8): Option<u8> {
         let (ok, v) = try_pow_u8(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // --- u16 ---
     public fun checked_add_u16(x: u16, y: u16): Option<u16> {
-        if (x > MAX_U16 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U16 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u16(x: u16, y: u16): Option<u16> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u16(x: u16, y: u16): Option<u16> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U16 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U16 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u16(x: u16, y: u16): Option<u16> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u16(base: u16, exponent: u8): Option<u16> {
         let (ok, v) = try_pow_u16(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // --- u32 ---
     public fun checked_add_u32(x: u32, y: u32): Option<u32> {
-        if (x > MAX_U32 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U32 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u32(x: u32, y: u32): Option<u32> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u32(x: u32, y: u32): Option<u32> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U32 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U32 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u32(x: u32, y: u32): Option<u32> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u32(base: u32, exponent: u8): Option<u32> {
         let (ok, v) = try_pow_u32(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // --- u64 ---
     public fun checked_add_u64(x: u64, y: u64): Option<u64> {
-        if (x > MAX_U64 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U64 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u64(x: u64, y: u64): Option<u64> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u64(x: u64, y: u64): Option<u64> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U64 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U64 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u64(x: u64, y: u64): Option<u64> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u64(base: u64, exponent: u8): Option<u64> {
         let (ok, v) = try_pow_u64(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // --- u128 ---
     public fun checked_add_u128(x: u128, y: u128): Option<u128> {
-        if (x > MAX_U128 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U128 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u128(x: u128, y: u128): Option<u128> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u128(x: u128, y: u128): Option<u128> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U128 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U128 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u128(x: u128, y: u128): Option<u128> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u128(base: u128, exponent: u32): Option<u128> {
         let (ok, v) = try_pow_u128(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // --- u256 ---
     public fun checked_add_u256(x: u256, y: u256): Option<u256> {
-        if (x > MAX_U256 - y) { option::none() } else { option::some(x + y) }
+        if (x > MAX_U256 - y) {
+            option::none()
+        } else {
+            option::some(x + y)
+        }
     }
+
     public fun checked_sub_u256(x: u256, y: u256): Option<u256> {
-        if (y > x) { option::none() } else { option::some(x - y) }
+        if (y > x) {
+            option::none()
+        } else {
+            option::some(x - y)
+        }
     }
+
     public fun checked_mul_u256(x: u256, y: u256): Option<u256> {
-        if (x == 0 || y == 0) { option::some(0) }
-        else if (x > MAX_U256 / y) { option::none() } else { option::some(x * y) }
+        if (x == 0 || y == 0) {
+            option::some(0)
+        } else if (x > MAX_U256 / y) {
+            option::none()
+        } else {
+            option::some(x * y)
+        }
     }
+
     public fun checked_div_u256(x: u256, y: u256): Option<u256> {
-        if (y == 0) { option::none() } else { option::some(x / y) }
+        if (y == 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
+
     public fun checked_pow_u256(base: u256, exponent: u32): Option<u256> {
         let (ok, v) = try_pow_u256(base, exponent);
-        if (ok) { option::some(v) } else { option::none() }
+        if (ok) {
+            option::some(v)
+        } else {
+            option::none()
+        }
     }
 
     // =================================================================
@@ -926,300 +1165,639 @@ module kanari_system::math {
 
     // --- u8 ---
     public fun saturating_add_u8(x: u8, y: u8): u8 {
-        if (x > MAX_U8 - y) { MAX_U8 } else { x + y }
+        if (x > MAX_U8 - y) { MAX_U8 }
+        else { x + y }
     }
+
     public fun saturating_sub_u8(x: u8, y: u8): u8 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u8(x: u8, y: u8): u8 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U8 / y) { MAX_U8 } else { x * y }
+        else if (x > MAX_U8 / y) { MAX_U8 }
+        else { x * y }
     }
+
     public fun saturating_pow_u8(base: u8, exponent: u8): u8 {
         let (ok, v) = try_pow_u8(base, exponent);
-        if (ok) { v } else { MAX_U8 }
+        if (ok) { v }
+        else { MAX_U8 }
     }
+
     public fun saturating_mul_div_u8(x: u8, y: u8, z: u8): u8 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u8(x, y, z);
-        if (ok) { v } else { MAX_U8 }
+        if (ok) { v }
+        else { MAX_U8 }
     }
 
     // --- u16 ---
     public fun saturating_add_u16(x: u16, y: u16): u16 {
-        if (x > MAX_U16 - y) { MAX_U16 } else { x + y }
+        if (x > MAX_U16 - y) { MAX_U16 }
+        else { x + y }
     }
+
     public fun saturating_sub_u16(x: u16, y: u16): u16 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u16(x: u16, y: u16): u16 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U16 / y) { MAX_U16 } else { x * y }
+        else if (x > MAX_U16 / y) { MAX_U16 }
+        else { x * y }
     }
+
     public fun saturating_pow_u16(base: u16, exponent: u8): u16 {
         let (ok, v) = try_pow_u16(base, exponent);
-        if (ok) { v } else { MAX_U16 }
+        if (ok) { v }
+        else { MAX_U16 }
     }
+
     public fun saturating_mul_div_u16(x: u16, y: u16, z: u16): u16 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u16(x, y, z);
-        if (ok) { v } else { MAX_U16 }
+        if (ok) { v }
+        else { MAX_U16 }
     }
 
     // --- u32 ---
     public fun saturating_add_u32(x: u32, y: u32): u32 {
-        if (x > MAX_U32 - y) { MAX_U32 } else { x + y }
+        if (x > MAX_U32 - y) { MAX_U32 }
+        else { x + y }
     }
+
     public fun saturating_sub_u32(x: u32, y: u32): u32 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u32(x: u32, y: u32): u32 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U32 / y) { MAX_U32 } else { x * y }
+        else if (x > MAX_U32 / y) { MAX_U32 }
+        else { x * y }
     }
+
     public fun saturating_pow_u32(base: u32, exponent: u8): u32 {
         let (ok, v) = try_pow_u32(base, exponent);
-        if (ok) { v } else { MAX_U32 }
+        if (ok) { v }
+        else { MAX_U32 }
     }
+
     public fun saturating_mul_div_u32(x: u32, y: u32, z: u32): u32 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u32(x, y, z);
-        if (ok) { v } else { MAX_U32 }
+        if (ok) { v }
+        else { MAX_U32 }
     }
 
     // --- u64 ---
     public fun saturating_add_u64(x: u64, y: u64): u64 {
-        if (x > MAX_U64 - y) { MAX_U64 } else { x + y }
+        if (x > MAX_U64 - y) { MAX_U64 }
+        else { x + y }
     }
+
     public fun saturating_sub_u64(x: u64, y: u64): u64 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u64(x: u64, y: u64): u64 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U64 / y) { MAX_U64 } else { x * y }
+        else if (x > MAX_U64 / y) { MAX_U64 }
+        else { x * y }
     }
+
     public fun saturating_pow_u64(base: u64, exponent: u8): u64 {
         let (ok, v) = try_pow_u64(base, exponent);
-        if (ok) { v } else { MAX_U64 }
+        if (ok) { v }
+        else { MAX_U64 }
     }
+
     public fun saturating_mul_div_u64(x: u64, y: u64, z: u64): u64 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u64(x, y, z);
-        if (ok) { v } else { MAX_U64 }
+        if (ok) { v }
+        else { MAX_U64 }
     }
 
     // --- u128 ---
     public fun saturating_add_u128(x: u128, y: u128): u128 {
-        if (x > MAX_U128 - y) { MAX_U128 } else { x + y }
+        if (x > MAX_U128 - y) {
+            MAX_U128
+        } else { x + y }
     }
+
     public fun saturating_sub_u128(x: u128, y: u128): u128 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u128(x: u128, y: u128): u128 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U128 / y) { MAX_U128 } else { x * y }
+        else if (x > MAX_U128 / y) {
+            MAX_U128
+        } else { x * y }
     }
+
     public fun saturating_pow_u128(base: u128, exponent: u32): u128 {
         let (ok, v) = try_pow_u128(base, exponent);
-        if (ok) { v } else { MAX_U128 }
+        if (ok) { v }
+        else {
+            MAX_U128
+        }
     }
+
     public fun saturating_mul_div_u128(x: u128, y: u128, z: u128): u128 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u128(x, y, z);
-        if (ok) { v } else { MAX_U128 }
+        if (ok) { v }
+        else {
+            MAX_U128
+        }
     }
 
     // --- u256 ---
     public fun saturating_add_u256(x: u256, y: u256): u256 {
-        if (x > MAX_U256 - y) { MAX_U256 } else { x + y }
+        if (x > MAX_U256 - y) {
+            MAX_U256
+        } else { x + y }
     }
+
     public fun saturating_sub_u256(x: u256, y: u256): u256 {
-        if (y > x) { 0 } else { x - y }
+        if (y > x) { 0 }
+        else { x - y }
     }
+
     public fun saturating_mul_u256(x: u256, y: u256): u256 {
         if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U256 / y) { MAX_U256 } else { x * y }
+        else if (x > MAX_U256 / y) {
+            MAX_U256
+        } else { x * y }
     }
+
     public fun saturating_pow_u256(base: u256, exponent: u32): u256 {
         let (ok, v) = try_pow_u256(base, exponent);
-        if (ok) { v } else { MAX_U256 }
+        if (ok) { v }
+        else {
+            MAX_U256
+        }
     }
+
     public fun saturating_mul_div_u256(x: u256, y: u256, z: u256): u256 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u256(x, y, z);
-        if (ok) { v } else { MAX_U256 }
+        if (ok) { v }
+        else {
+            MAX_U256
+        }
     }
 
     // =================================================================
     // Shifts: checked + lossless (None when not exactly reversible)
     // =================================================================
-
     public fun checked_shl_u8(x: u8, shift: u8): Option<u8> {
-        if (shift >= 8) { option::none() } else { option::some(x << shift) }
+        if (shift >= 8) {
+            option::none()
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u8(x: u8, shift: u8): Option<u8> {
-        if (shift >= 8) { option::none() } else { option::some(x >> shift) }
+        if (shift >= 8) {
+            option::none()
+        } else {
+            option::some(x >> shift)
+        }
     }
+
     public fun lossless_shl_u8(x: u8, shift: u8): Option<u8> {
-        if (shift >= 8) { option::none() }
-        else { let r = x << shift; if ((r >> shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 8) {
+            option::none()
+        } else {
+            let r = x << shift;
+            if ((r >> shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_shr_u8(x: u8, shift: u8): Option<u8> {
-        if (shift >= 8) { option::none() }
-        else { let r = x >> shift; if ((r << shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 8) {
+            option::none()
+        } else {
+            let r = x >> shift;
+            if ((r << shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_div_u8(x: u8, y: u8): Option<u8> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u8(x: u8): u8 { x ^ MAX_U8 }
+
+    public fun bitwise_not_u8(x: u8): u8 {
+        x ^ MAX_U8
+    }
 
     public fun checked_shl_u16(x: u16, shift: u8): Option<u16> {
-        if (shift >= 16) { option::none() } else { option::some(x << shift) }
+        if (shift >= 16) {
+            option::none()
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u16(x: u16, shift: u8): Option<u16> {
-        if (shift >= 16) { option::none() } else { option::some(x >> shift) }
+        if (shift >= 16) {
+            option::none()
+        } else {
+            option::some(x >> shift)
+        }
     }
+
     public fun lossless_shl_u16(x: u16, shift: u8): Option<u16> {
-        if (shift >= 16) { option::none() }
-        else { let r = x << shift; if ((r >> shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 16) {
+            option::none()
+        } else {
+            let r = x << shift;
+            if ((r >> shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_shr_u16(x: u16, shift: u8): Option<u16> {
-        if (shift >= 16) { option::none() }
-        else { let r = x >> shift; if ((r << shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 16) {
+            option::none()
+        } else {
+            let r = x >> shift;
+            if ((r << shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_div_u16(x: u16, y: u16): Option<u16> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u16(x: u16): u16 { x ^ MAX_U16 }
+
+    public fun bitwise_not_u16(x: u16): u16 {
+        x ^ MAX_U16
+    }
 
     public fun checked_shl_u32(x: u32, shift: u8): Option<u32> {
-        if (shift >= 32) { option::none() } else { option::some(x << shift) }
+        if (shift >= 32) {
+            option::none()
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u32(x: u32, shift: u8): Option<u32> {
-        if (shift >= 32) { option::none() } else { option::some(x >> shift) }
+        if (shift >= 32) {
+            option::none()
+        } else {
+            option::some(x >> shift)
+        }
     }
+
     public fun lossless_shl_u32(x: u32, shift: u8): Option<u32> {
-        if (shift >= 32) { option::none() }
-        else { let r = x << shift; if ((r >> shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 32) {
+            option::none()
+        } else {
+            let r = x << shift;
+            if ((r >> shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_shr_u32(x: u32, shift: u8): Option<u32> {
-        if (shift >= 32) { option::none() }
-        else { let r = x >> shift; if ((r << shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 32) {
+            option::none()
+        } else {
+            let r = x >> shift;
+            if ((r << shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_div_u32(x: u32, y: u32): Option<u32> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u32(x: u32): u32 { x ^ MAX_U32 }
+
+    public fun bitwise_not_u32(x: u32): u32 {
+        x ^ MAX_U32
+    }
 
     public fun checked_shl_u64(x: u64, shift: u8): Option<u64> {
-        if (shift >= 64) { option::none() } else { option::some(x << shift) }
+        if (shift >= 64) {
+            option::none()
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u64(x: u64, shift: u8): Option<u64> {
-        if (shift >= 64) { option::none() } else { option::some(x >> shift) }
+        if (shift >= 64) {
+            option::none()
+        } else {
+            option::some(x >> shift)
+        }
     }
+
     public fun lossless_shl_u64(x: u64, shift: u8): Option<u64> {
-        if (shift >= 64) { option::none() }
-        else { let r = x << shift; if ((r >> shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 64) {
+            option::none()
+        } else {
+            let r = x << shift;
+            if ((r >> shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_shr_u64(x: u64, shift: u8): Option<u64> {
-        if (shift >= 64) { option::none() }
-        else { let r = x >> shift; if ((r << shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 64) {
+            option::none()
+        } else {
+            let r = x >> shift;
+            if ((r << shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_div_u64(x: u64, y: u64): Option<u64> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u64(x: u64): u64 { x ^ MAX_U64 }
+
+    public fun bitwise_not_u64(x: u64): u64 {
+        x ^ MAX_U64
+    }
 
     public fun checked_shl_u128(x: u128, shift: u8): Option<u128> {
-        if (shift >= 128) { option::none() } else { option::some(x << shift) }
+        if (shift >= 128) {
+            option::none()
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u128(x: u128, shift: u8): Option<u128> {
-        if (shift >= 128) { option::none() } else { option::some(x >> shift) }
+        if (shift >= 128) {
+            option::none()
+        } else {
+            option::some(x >> shift)
+        }
     }
+
     public fun lossless_shl_u128(x: u128, shift: u8): Option<u128> {
-        if (shift >= 128) { option::none() }
-        else { let r = x << shift; if ((r >> shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 128) {
+            option::none()
+        } else {
+            let r = x << shift;
+            if ((r >> shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_shr_u128(x: u128, shift: u8): Option<u128> {
-        if (shift >= 128) { option::none() }
-        else { let r = x >> shift; if ((r << shift) != x) { option::none() } else { option::some(r) } }
+        if (shift >= 128) {
+            option::none()
+        } else {
+            let r = x >> shift;
+            if ((r << shift) != x) {
+                option::none()
+            } else {
+                option::some(r)
+            }
+        }
     }
+
     public fun lossless_div_u128(x: u128, y: u128): Option<u128> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u128(x: u128): u128 { x ^ MAX_U128 }
+
+    public fun bitwise_not_u128(x: u128): u128 {
+        x ^ MAX_U128
+    }
 
     public fun checked_shl_u256(x: u256, shift: u8): Option<u256> {
         if (shift >= 255) {
             // shift == 255 is representable in u8; >= 256 is not. Guard the edge explicitly.
-            if (shift == 255) { option::some(x << shift) } else { option::none() }
-        } else { option::some(x << shift) }
+            if (shift == 255) {
+                option::some(x << shift)
+            } else {
+                option::none()
+            }
+        } else {
+            option::some(x << shift)
+        }
     }
+
     public fun checked_shr_u256(x: u256, shift: u8): Option<u256> {
         // u8 max is 255 < 256, so every u8 shift is in range.
         option::some(x >> shift)
     }
+
     public fun lossless_shl_u256(x: u256, shift: u8): Option<u256> {
         // Same range note as checked_shl_u256: only 255 needs care, and it is valid.
         let r = x << shift;
-        if ((r >> shift) != x) { option::none() } else { option::some(r) }
+        if ((r >> shift) != x) {
+            option::none()
+        } else {
+            option::some(r)
+        }
     }
+
     public fun lossless_shr_u256(x: u256, shift: u8): Option<u256> {
         let r = x >> shift;
-        if ((r << shift) != x) { option::none() } else { option::some(r) }
+        if ((r << shift) != x) {
+            option::none()
+        } else {
+            option::some(r)
+        }
     }
+
     public fun lossless_div_u256(x: u256, y: u256): Option<u256> {
-        if (y == 0 || x % y != 0) { option::none() } else { option::some(x / y) }
+        if (y == 0 || x % y != 0) {
+            option::none()
+        } else {
+            option::some(x / y)
+        }
     }
-    public fun bitwise_not_u256(x: u256): u256 { x ^ MAX_U256 }
+
+    public fun bitwise_not_u256(x: u256): u256 {
+        x ^ MAX_U256
+    }
 
     // =================================================================
     // Narrowing conversions (Option style). None = does not fit.
     // =================================================================
-
     public fun try_as_u8_from_u16(x: u16): Option<u8> {
-        if (x > (MAX_U8 as u16)) { option::none() } else { option::some((x as u8)) }
+        if (x > (MAX_U8 as u16)) {
+            option::none()
+        } else {
+            option::some((x as u8))
+        }
     }
+
     public fun try_as_u8_from_u32(x: u32): Option<u8> {
-        if (x > (MAX_U8 as u32)) { option::none() } else { option::some((x as u8)) }
+        if (x > (MAX_U8 as u32)) {
+            option::none()
+        } else {
+            option::some((x as u8))
+        }
     }
+
     public fun try_as_u16_from_u32(x: u32): Option<u16> {
-        if (x > (MAX_U16 as u32)) { option::none() } else { option::some((x as u16)) }
+        if (x > (MAX_U16 as u32)) {
+            option::none()
+        } else {
+            option::some((x as u16))
+        }
     }
+
     public fun try_as_u8_from_u64(x: u64): Option<u8> {
-        if (x > (MAX_U8 as u64)) { option::none() } else { option::some((x as u8)) }
+        if (x > (MAX_U8 as u64)) {
+            option::none()
+        } else {
+            option::some((x as u8))
+        }
     }
+
     public fun try_as_u16_from_u64(x: u64): Option<u16> {
-        if (x > (MAX_U16 as u64)) { option::none() } else { option::some((x as u16)) }
+        if (x > (MAX_U16 as u64)) {
+            option::none()
+        } else {
+            option::some((x as u16))
+        }
     }
+
     public fun try_as_u32_from_u64(x: u64): Option<u32> {
-        if (x > (MAX_U32 as u64)) { option::none() } else { option::some((x as u32)) }
+        if (x > (MAX_U32 as u64)) {
+            option::none()
+        } else {
+            option::some((x as u32))
+        }
     }
+
     public fun try_as_u8_from_u128(x: u128): Option<u8> {
-        if (x > (MAX_U8 as u128)) { option::none() } else { option::some((x as u8)) }
+        if (x > (MAX_U8 as u128)) {
+            option::none()
+        } else {
+            option::some((x as u8))
+        }
     }
+
     public fun try_as_u16_from_u128(x: u128): Option<u16> {
-        if (x > (MAX_U16 as u128)) { option::none() } else { option::some((x as u16)) }
+        if (x > (MAX_U16 as u128)) {
+            option::none()
+        } else {
+            option::some((x as u16))
+        }
     }
+
     public fun try_as_u32_from_u128(x: u128): Option<u32> {
-        if (x > (MAX_U32 as u128)) { option::none() } else { option::some((x as u32)) }
+        if (x > (MAX_U32 as u128)) {
+            option::none()
+        } else {
+            option::some((x as u32))
+        }
     }
+
     public fun try_as_u64_from_u128(x: u128): Option<u64> {
-        if (x > (MAX_U64 as u128)) { option::none() } else { option::some((x as u64)) }
+        if (x > (MAX_U64 as u128)) {
+            option::none()
+        } else {
+            option::some((x as u64))
+        }
     }
+
     public fun try_as_u8_from_u256(x: u256): Option<u8> {
-        if (x > (MAX_U8 as u256)) { option::none() } else { option::some((x as u8)) }
+        if (x > (MAX_U8 as u256)) {
+            option::none()
+        } else {
+            option::some((x as u8))
+        }
     }
+
     public fun try_as_u16_from_u256(x: u256): Option<u16> {
-        if (x > (MAX_U16 as u256)) { option::none() } else { option::some((x as u16)) }
+        if (x > (MAX_U16 as u256)) {
+            option::none()
+        } else {
+            option::some((x as u16))
+        }
     }
+
     public fun try_as_u32_from_u256(x: u256): Option<u32> {
-        if (x > (MAX_U32 as u256)) { option::none() } else { option::some((x as u32)) }
+        if (x > (MAX_U32 as u256)) {
+            option::none()
+        } else {
+            option::some((x as u32))
+        }
     }
+
     public fun try_as_u64_from_u256(x: u256): Option<u64> {
-        if (x > (MAX_U64 as u256)) { option::none() } else { option::some((x as u64)) }
+        if (x > (MAX_U64 as u256)) {
+            option::none()
+        } else {
+            option::some((x as u64))
+        }
     }
+
     public fun try_as_u128_from_u256(x: u256): Option<u128> {
-        if (x > (MAX_U128 as u256)) { option::none() } else { option::some((x as u128)) }
+        if (x > (MAX_U128 as u256)) {
+            option::none()
+        } else {
+            option::some((x as u128))
+        }
     }
 }
+

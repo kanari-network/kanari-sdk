@@ -17,18 +17,23 @@ module kanari_system::zklogin {
     #[allow(unused_const)]
     /// JWT malformed or failed to parse.
     const E_INVALID_JWT: u64 = 1;
+
     #[allow(unused_const)]
     /// JWK document malformed or `kid` unknown.
     const E_INVALID_JWK: u64 = 2;
+
     #[allow(unused_const)]
     /// Ephemeral signature invalid (length checks in Move, crypto in native).
     const E_INVALID_EPHEMERAL_SIG: u64 = 3;
+
     #[allow(unused_const)]
     /// iss/aud/sub mismatch or address derivation failed.
     const E_CLAIM_MISMATCH: u64 = 4;
+
     #[allow(unused_const)]
     /// JWT expired.
     const E_EXPIRED: u64 = 5;
+
     #[allow(unused_const)]
     /// Groth16 verifying key / proof malformed.
     const E_INVALID_PROOF: u64 = 6;
@@ -39,9 +44,17 @@ module kanari_system::zklogin {
     const EPHEMERAL_SIG_LENGTH: u64 = 64;
     const SALT_LENGTH: u64 = 32;
 
-    public fun ephemeral_pubkey_length(): u64 { EPHEMERAL_PUBKEY_LENGTH }
-    public fun ephemeral_sig_length(): u64 { EPHEMERAL_SIG_LENGTH }
-    public fun salt_length(): u64 { SALT_LENGTH }
+    public fun ephemeral_pubkey_length(): u64 {
+        EPHEMERAL_PUBKEY_LENGTH
+    }
+
+    public fun ephemeral_sig_length(): u64 {
+        EPHEMERAL_SIG_LENGTH
+    }
+
+    public fun salt_length(): u64 {
+        SALT_LENGTH
+    }
 
     /// Verify JWT RS256 against `jwks_json` (`{"keys":[...]}`) and check
     /// `iss`/`aud`/expiry at `now_secs`. Returns true on success.
@@ -51,7 +64,7 @@ module kanari_system::zklogin {
         jwks_json: &vector<u8>,
         iss: &vector<u8>,
         aud: &vector<u8>,
-        now_secs: u64,
+        now_secs: u64
     ): bool {
         assert!(vector::length(jwt) > 0, E_INVALID_JWT);
         native_verify(jwt, jwks_json, iss, aud, now_secs)
@@ -62,7 +75,7 @@ module kanari_system::zklogin {
         jwks_json: &vector<u8>,
         iss: &vector<u8>,
         aud: &vector<u8>,
-        now_secs: u64,
+        now_secs: u64
     ): bool;
 
     /// Ed25519 check for the ephemeral session key (non-aborting).
@@ -71,37 +84,30 @@ module kanari_system::zklogin {
     /// to the signature. Verified by `test_verify_ephemeral_accepts_fixture`
     /// with a real vector (swapped order returns false).
     public fun verify_ephemeral(
-        sig: &vector<u8>,
-        ephemeral_pubkey: &vector<u8>,
-        msg: &vector<u8>,
+        sig: &vector<u8>, ephemeral_pubkey: &vector<u8>, msg: &vector<u8>
     ): bool {
-        assert!(vector::length(ephemeral_pubkey) == EPHEMERAL_PUBKEY_LENGTH, E_INVALID_EPHEMERAL_SIG);
+        assert!(
+            vector::length(ephemeral_pubkey) == EPHEMERAL_PUBKEY_LENGTH,
+            E_INVALID_EPHEMERAL_SIG
+        );
         assert!(vector::length(sig) == EPHEMERAL_SIG_LENGTH, E_INVALID_EPHEMERAL_SIG);
         native_verify_ephemeral(sig, ephemeral_pubkey, msg)
     }
 
     native fun native_verify_ephemeral(
-        sig: &vector<u8>,
-        ephemeral_pubkey: &vector<u8>,
-        msg: &vector<u8>,
+        sig: &vector<u8>, ephemeral_pubkey: &vector<u8>, msg: &vector<u8>
     ): bool;
 
     /// Derive the 32-byte zkLogin address from claims + salt.
     public fun derive_address(
-        iss: &vector<u8>,
-        aud: &vector<u8>,
-        sub: &vector<u8>,
-        salt: &vector<u8>,
+        iss: &vector<u8>, aud: &vector<u8>, sub: &vector<u8>, salt: &vector<u8>
     ): vector<u8> {
         assert!(vector::length(salt) == SALT_LENGTH, E_CLAIM_MISMATCH);
         native_derive_address(iss, aud, sub, salt)
     }
 
     native fun native_derive_address(
-        iss: &vector<u8>,
-        aud: &vector<u8>,
-        sub: &vector<u8>,
-        salt: &vector<u8>,
+        iss: &vector<u8>, aud: &vector<u8>, sub: &vector<u8>, salt: &vector<u8>
     ): vector<u8>;
 
     /// True iff the JWT `nonce` claim equals the ephemeral binding.
@@ -109,9 +115,12 @@ module kanari_system::zklogin {
         jwt: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         max_epoch: u64,
-        randomness: &vector<u8>,
+        randomness: &vector<u8>
     ): bool {
-        assert!(vector::length(ephemeral_pubkey) == EPHEMERAL_PUBKEY_LENGTH, E_INVALID_EPHEMERAL_SIG);
+        assert!(
+            vector::length(ephemeral_pubkey) == EPHEMERAL_PUBKEY_LENGTH,
+            E_INVALID_EPHEMERAL_SIG
+        );
         native_check_nonce(jwt, ephemeral_pubkey, max_epoch, randomness)
     }
 
@@ -119,7 +128,7 @@ module kanari_system::zklogin {
         jwt: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         max_epoch: u64,
-        randomness: &vector<u8>,
+        randomness: &vector<u8>
     ): bool;
 
     /// BN254 Groth16 proof check (Phase 3c, non-aborting).
@@ -130,9 +139,7 @@ module kanari_system::zklogin {
     /// so a circuit that keeps them private gives real unlinkability.
     /// Aborts `E_INVALID_PROOF` on empty/malformed key or proof.
     public fun verify_proof(
-        vk_bytes: &vector<u8>,
-        public_inputs_bytes: &vector<u8>,
-        proof_bytes: &vector<u8>,
+        vk_bytes: &vector<u8>, public_inputs_bytes: &vector<u8>, proof_bytes: &vector<u8>
     ): bool {
         assert!(vector::length(vk_bytes) > 0, E_INVALID_PROOF);
         assert!(vector::length(proof_bytes) > 0, E_INVALID_PROOF);
@@ -140,9 +147,7 @@ module kanari_system::zklogin {
     }
 
     native fun native_verify_proof(
-        vk_bytes: &vector<u8>,
-        public_inputs_bytes: &vector<u8>,
-        proof_bytes: &vector<u8>,
+        vk_bytes: &vector<u8>, public_inputs_bytes: &vector<u8>, proof_bytes: &vector<u8>
     ): bool;
 
     /// Pinned-key proof check: aborts unless `sha2_256(vk_bytes)` equals the
@@ -154,7 +159,7 @@ module kanari_system::zklogin {
         expected_vk_hash: vector<u8>,
         vk_bytes: vector<u8>,
         public_inputs_bytes: &vector<u8>,
-        proof_bytes: &vector<u8>,
+        proof_bytes: &vector<u8>
     ): bool {
         assert!(std::vector::length(&expected_vk_hash) == 32, E_VK_MISMATCH);
         let ok = verify_proof(&vk_bytes, public_inputs_bytes, proof_bytes);
@@ -170,7 +175,7 @@ module kanari_system::zklogin {
         proof_bytes: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         msg: &vector<u8>,
-        ephemeral_sig: &vector<u8>,
+        ephemeral_sig: &vector<u8>
     ): bool {
         verify_proof(vk_bytes, public_inputs_bytes, proof_bytes)
             && verify_ephemeral(ephemeral_sig, ephemeral_pubkey, msg)
@@ -188,7 +193,7 @@ module kanari_system::zklogin {
         max_epoch: u64,
         randomness: &vector<u8>,
         msg: &vector<u8>,
-        ephemeral_sig: &vector<u8>,
+        ephemeral_sig: &vector<u8>
     ): bool {
         verify(jwt, jwks_json, iss, aud, now_secs)
             && check_nonce(jwt, ephemeral_pubkey, max_epoch, randomness)
@@ -224,3 +229,4 @@ module kanari_system::zklogin {
         assert!(salt_length() == 32, 2);
     }
 }
+
