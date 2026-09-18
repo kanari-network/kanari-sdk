@@ -35,7 +35,14 @@ fun WelcomeScreen(
     val context = LocalContext.current
     val walletStorage = remember { WalletStorage(context) }
     var hasWallet by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { hasWallet = walletStorage.loadWallets().isNotEmpty() }
+    LaunchedEffect(Unit) {
+        try {
+            hasWallet = walletStorage.loadWallets().isNotEmpty()
+        } catch (e: Exception) {
+            android.util.Log.e("WelcomeScreen", "Failed to check wallets", e)
+            hasWallet = false
+        }
+    }
 
     val animProgress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {

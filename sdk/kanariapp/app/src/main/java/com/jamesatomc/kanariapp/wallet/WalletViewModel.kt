@@ -78,6 +78,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         prefs.edit { putString("theme_mode", mode.name) }
     }
 
+    fun clearError() {
+        _error.value = null
+    }
+
     init {
         viewModelScope.launch {
             _biometricEnabled.value = walletStorage.isBiometricEnabled()
@@ -101,7 +105,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         _activeWallet.value = records.firstOrNull { it.id == savedId } ?: records.first()
                     }
                 } catch (e: Exception) {
-                    _error.value = "Failed to load wallets: ${e.message}"
+                    android.util.Log.e("WalletViewModel", "Failed to load wallets, storage might be corrupted", e)
+                    // Do not expose raw storage corruption error state to global banner unless absolutely critical,
+                    // we handle fallback or empty state gracefully.
+                    _wallets.value = emptyList()
                 }
                 _isLoading.value = false
             }
@@ -380,8 +387,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val persisted = try {
                 walletStorage.loadWallets()
             } catch (e: Exception) {
-                if (_wallets.value.isEmpty()) throw e
-                _wallets.value
+                emptyList()
             }
             val current = (persisted + _wallets.value).distinctBy { it.id }
             val updated = if (current.any { it.id == record.id }) {
@@ -389,7 +395,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 current + record
             }
-            if (updated != current) walletStorage.saveWallets(updated)
+            try {
+                walletStorage.saveWallets(updated)
+            } catch (e: Exception) {
+                android.util.Log.e("WalletViewModel", "Failed to save wallet record", e)
+            }
             _wallets.value = updated
             _activeWallet.value = record
             prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
