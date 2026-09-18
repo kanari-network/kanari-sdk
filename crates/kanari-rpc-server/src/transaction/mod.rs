@@ -18,12 +18,12 @@ use kanari_rpc_api::{
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
-use kanari_types::effective_gas_price;
 use kanari_types::gas_coin::{GAS_COIN, GasModule};
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
     SignedTransaction, Transaction,
 };
+use kanari_types::{effective_gas_price, gas_price_is_valid};
 use move_binary_format::{
     CompiledModule,
     file_format::{SignatureToken, StructHandleIndex},
@@ -162,7 +162,7 @@ fn normalize_addr(s: &str) -> String {
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
-fn fresh_nonce(_request_id: u64, nonce: Option<u64>) -> anyhow::Result<u64> {
+fn fresh_nonce(nonce: Option<u64>, min_nonce: Option<u64>) -> anyhow::Result<u64> {
     if let Some(nonce) = nonce {
         anyhow::ensure!(nonce != 0, "nonce must be non-zero");
         return Ok(nonce);
@@ -170,8 +170,28 @@ fn fresh_nonce(_request_id: u64, nonce: Option<u64>) -> anyhow::Result<u64> {
 
     // Sequential counter — keeps nonces small and monotonically increasing so
     // the sender_nonce_watermark in the engine never overflows JSON safe range.
+    //
+    // The counter resets to 1 on every process restart while the watermark
+    // persists: without the floor below, a sender with a high committed
+    // watermark would see every fresh build rejected as stale until the
+    // global counter caught up. `min_nonce` (the engine's expected nonce for
+    // this sender) keeps generated nonces above the watermark from the first
+    // build after a restart.
     static NONCE_COUNTER: AtomicU64 = AtomicU64::new(1);
-    Ok(NONCE_COUNTER.fetch_add(1, Ordering::Relaxed).max(1))
+    let floor = min_nonce.unwrap_or(1).max(1);
+    let mut current = NONCE_COUNTER.load(Ordering::Relaxed);
+    loop {
+        let next = current.max(floor);
+        match NONCE_COUNTER.compare_exchange_weak(
+            current,
+            next.saturating_add(1),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Ok(next),
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
@@ -1425,6 +1445,34 @@ async fn execute_or_submit_response(
     }
 }
 
+/// Fail-fast gas validation shared by every build handler: a zero/invalid
+/// gas price or limit can never produce an admissible transaction (the engine
+/// rejects it), so tell the caller immediately instead of building a doomed
+/// request. This also migrates zero-fee-era clients to paid gas with a clear
+/// message. Returns `Some(error_response)` when the request must be rejected.
+fn invalid_build_gas_response(
+    request_id: u64,
+    gas_limit: u64,
+    gas_price: u64,
+) -> Option<RpcResponse> {
+    if gas_limit == 0 {
+        return Some(invalid_params_response(
+            request_id,
+            "gas_limit must be non-zero",
+        ));
+    }
+    if !gas_price_is_valid(gas_price) {
+        return Some(invalid_params_response(
+            request_id,
+            format!(
+                "gas_price {gas_price} is not valid for the active gas model ({}); minimum is 1 Mist",
+                kanari_types::gas::GAS_MODEL,
+            ),
+        ));
+    }
+    None
+}
+
 fn select_build_gas_and_nonce(
     state: &RpcServerState,
     request_id: u64,
@@ -1434,6 +1482,10 @@ fn select_build_gas_and_nonce(
     nonce: Option<u64>,
 ) -> Result<(GasPayment, u64), Box<RpcResponse>> {
     parse_hex_address(request_id, sender, "sender address")?;
+
+    if let Some(response) = invalid_build_gas_response(request_id, gas_limit, gas_price) {
+        return Err(Box::new(response));
+    }
 
     let owner_info = state
         .engine
@@ -1463,7 +1515,7 @@ fn select_build_gas_and_nonce(
             id: request_id,
         })
     })?;
-    let nonce = fresh_nonce(request_id, nonce)
+    let nonce = fresh_nonce(nonce, owner_info.nonce)
         .map_err(|error| Box::new(internal_error_response(request_id, error.to_string())))?;
 
     Ok((gas_payment, nonce))
@@ -1568,6 +1620,14 @@ pub async fn handle_build_native_transfer(
     if let Err(response) = parse_hex_address(request.id, &build_data.recipient, "recipient") {
         return *response;
     }
+    if build_data.amount == 0 {
+        return invalid_params_response(request.id, "amount must be non-zero");
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
+    }
 
     let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
         return internal_error_response(request.id, "Owner not found");
@@ -1603,7 +1663,7 @@ pub async fn handle_build_native_transfer(
             };
         }
     };
-    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
         Ok(nonce) => nonce,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
@@ -1640,6 +1700,11 @@ pub async fn handle_build_native_coin_consolidation(
 
     if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
         return *response;
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
     }
 
     let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
@@ -1689,7 +1754,7 @@ pub async fn handle_build_native_coin_consolidation(
             };
         }
     };
-    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
         Ok(nonce) => nonce,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
@@ -1737,6 +1802,11 @@ pub async fn handle_build_call_function(
     }
     if let Err(response) = parse_hex_address(request.id, &build_data.package, "package address") {
         return *response;
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
     }
 
     let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
@@ -1810,7 +1880,7 @@ pub async fn handle_build_call_function(
             };
         }
     };
-    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
         Ok(nonce) => nonce,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
@@ -1856,6 +1926,14 @@ pub async fn handle_build_token_transfer(
         Ok(address) => address,
         Err(response) => return *response,
     };
+    if build_data.amount == 0 {
+        return invalid_params_response(request.id, "amount must be non-zero");
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
+    }
 
     let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
         return internal_error_response(request.id, "Owner not found");
@@ -1924,7 +2002,7 @@ pub async fn handle_build_token_transfer(
             "Invalid token type format. Expected address::module::struct",
         );
     }
-    let nonce = match fresh_nonce(request.id, build_data.nonce) {
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
         Ok(nonce) => nonce,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };

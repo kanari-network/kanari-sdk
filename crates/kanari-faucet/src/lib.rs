@@ -238,90 +238,107 @@ pub async fn request_from_dev(
     let gas_limit = 100_000;
     let gas_price = 1_000;
 
-    let prepared = {
-        let mut last_build_error = None;
-        let mut built_transfer = None;
+    // Split the drip into two coin objects so the recipient always holds at
+    // least two distinct coins: native transfers require one transfer coin
+    // plus a SEPARATE gas coin, and a single-coin wallet can never send.
+    let drip_parts: Vec<u64> = if amount_mist >= 2 {
+        let half = amount_mist / 2;
+        vec![half, amount_mist - half]
+    } else {
+        vec![amount_mist]
+    };
+    let mut last_status: Option<TransactionStatus> = None;
+    for (leg, part) in drip_parts.iter().enumerate() {
+        eprintln!(
+            "Faucet drip {}/{}: {:.9} KANARI",
+            leg + 1,
+            drip_parts.len(),
+            *part as f64 / MIST_PER_KANARI
+        );
+        let prepared = {
+            let mut last_build_error = None;
+            let mut built_transfer = None;
 
-        for step in 0..8 {
-            match client
-                .build_native_transfer(BuildNativeTransferRequest {
+            for step in 0..8 {
+                match client
+                    .build_native_transfer(BuildNativeTransferRequest {
+                        sender: sender_for_tx.clone(),
+                        recipient: recipient.clone(),
+                        amount: *part,
+                        gas_limit,
+                        gas_price,
+                        excluded_object_ids: Vec::new(),
+                        nonce: None,
+                        execute_immediate: Some(false),
+                    })
+                    .await
+                {
+                    Ok(prepared) => {
+                        built_transfer = Some(prepared);
+                        break;
+                    }
+                    Err(error) => {
+                        if !should_attempt_native_consolidation(&error) {
+                            let policy_suffix = native_transfer_policy_summary(&error)
+                                .map(|summary| format!(" Policy: {}.", summary))
+                                .unwrap_or_default();
+                            return Err(anyhow::anyhow!(
+                                "Failed to build faucet transfer for sender {}: {:#}{}",
+                                dev_address,
+                                error,
+                                policy_suffix
+                            ));
+                        }
+                        last_build_error = Some(error);
+                    }
+                }
+
+                let consolidate_request = BuildNativeCoinConsolidationRequest {
                     sender: sender_for_tx.clone(),
-                    recipient: recipient.clone(),
-                    amount: amount_mist,
+                    required_amount: *part,
                     gas_limit,
                     gas_price,
-                    excluded_object_ids: Vec::new(),
                     nonce: None,
                     execute_immediate: Some(false),
-                })
-                .await
-            {
-                Ok(prepared) => {
-                    built_transfer = Some(prepared);
-                    break;
-                }
-                Err(error) => {
-                    if !should_attempt_native_consolidation(&error) {
-                        let policy_suffix = native_transfer_policy_summary(&error)
+                };
+                let join_request = match client
+                    .build_native_coin_consolidation(consolidate_request)
+                    .await
+                {
+                    Ok(request) => request,
+                    Err(join_error) => {
+                        let build_error = last_build_error
+                            .take()
+                            .context("missing previous native transfer build failure")?;
+                        let policy_suffix = native_transfer_policy_summary(&build_error)
                             .map(|summary| format!(" Policy: {}.", summary))
                             .unwrap_or_default();
                         return Err(anyhow::anyhow!(
-                            "Failed to build faucet transfer for sender {}: {:#}{}",
+                            "Failed to build faucet transfer for sender {}. API reported a native-transfer coin-layout issue and no safe consolidation step is available: {:#}; consolidation error: {:#}{}",
                             dev_address,
-                            error,
+                            build_error,
+                            join_error,
                             policy_suffix
                         ));
                     }
-                    last_build_error = Some(error);
-                }
+                };
+
+                eprintln!(
+                    "  Consolidation step {}/8: joining native coin objects via API...",
+                    step + 1
+                );
+                let status = sign_and_call_function(&client, &wallet, join_request).await?;
+                eprintln!("    Join tx hash: {}", status.hash);
+                let _ = wait_for_transaction_commit(
+                    &client,
+                    &status.hash,
+                    Duration::from_secs(20),
+                    Duration::from_millis(400),
+                )
+                .await?;
             }
 
-            let consolidate_request = BuildNativeCoinConsolidationRequest {
-                sender: sender_for_tx.clone(),
-                required_amount: amount_mist,
-                gas_limit,
-                gas_price,
-                nonce: None,
-                execute_immediate: Some(false),
-            };
-            let join_request = match client
-                .build_native_coin_consolidation(consolidate_request)
-                .await
-            {
-                Ok(request) => request,
-                Err(join_error) => {
-                    let build_error = last_build_error
-                        .take()
-                        .context("missing previous native transfer build failure")?;
-                    let policy_suffix = native_transfer_policy_summary(&build_error)
-                        .map(|summary| format!(" Policy: {}.", summary))
-                        .unwrap_or_default();
-                    return Err(anyhow::anyhow!(
-                        "Failed to build faucet transfer for sender {}. API reported a native-transfer coin-layout issue and no safe consolidation step is available: {:#}; consolidation error: {:#}{}",
-                        dev_address,
-                        build_error,
-                        join_error,
-                        policy_suffix
-                    ));
-                }
-            };
-
-            eprintln!(
-                "  Consolidation step {}/8: joining native coin objects via API...",
-                step + 1
-            );
-            let status = sign_and_call_function(&client, &wallet, join_request).await?;
-            eprintln!("    Join tx hash: {}", status.hash);
-            let _ = wait_for_transaction_commit(
-                &client,
-                &status.hash,
-                Duration::from_secs(20),
-                Duration::from_millis(400),
-            )
-            .await?;
-        }
-
-        built_transfer.ok_or_else(|| {
+            built_transfer.ok_or_else(|| {
             let message = if let Some(error) = last_build_error {
                 format!(
                     "Failed to build faucet transfer after API-driven coin-shape preparation attempts: {:#}",
@@ -333,30 +350,48 @@ pub async fn request_from_dev(
             };
             anyhow::anyhow!(message)
         })?
-    };
+        };
 
-    eprintln!("Submitting faucet transaction...");
-    eprintln!("  From: {}", dev_address);
-    eprintln!("  To: {}", recipient);
-    eprintln!("  Coin Object: {}", prepared.coin_object_id);
-    if let Some(gas_payment) = &prepared.gas_payment
-        && let Some(gas_object) = gas_payment.payment_objects.first()
-    {
-        eprintln!("  Gas payment object: {}", gas_object.object_id);
+        eprintln!("Submitting faucet transaction...");
+        eprintln!("  From: {}", dev_address);
+        eprintln!("  To: {}", recipient);
+        eprintln!("  Coin Object: {}", prepared.coin_object_id);
+        if let Some(gas_payment) = &prepared.gas_payment
+            && let Some(gas_object) = gas_payment.payment_objects.first()
+        {
+            eprintln!("  Gas payment object: {}", gas_object.object_id);
+        }
+        eprintln!("  Amount: {:.9} KANARI", *part as f64 / MIST_PER_KANARI);
+
+        let signed = sign_object_transfer_request(prepared, &wallet)?;
+        let status = client
+            .submit_object_transfer(signed)
+            .await
+            .context("Failed to submit faucet transaction to RPC")?;
+
+        eprintln!("  Transaction hash: {}", status.hash);
+        eprintln!("  Status: {}", status.status);
+        // Wait for commit before building the next drip: both drips draw
+        // from the same faucet wallet, and building on pre-commit state
+        // would select the same coins twice (version conflict on execution).
+        if leg + 1 < drip_parts.len()
+            && let Err(error) = wait_for_transaction_commit(
+                &client,
+                &status.hash,
+                Duration::from_secs(30),
+                Duration::from_millis(400),
+            )
+            .await
+        {
+            eprintln!(
+                "  Warning: drip {}/{} commit wait failed (continuing): {:#}",
+                leg + 1,
+                drip_parts.len(),
+                error
+            );
+        }
+        last_status = Some(status);
     }
-    eprintln!(
-        "  Amount: {:.9} KANARI",
-        amount_mist as f64 / MIST_PER_KANARI
-    );
 
-    let signed = sign_object_transfer_request(prepared, &wallet)?;
-    let status = client
-        .submit_object_transfer(signed)
-        .await
-        .context("Failed to submit faucet transaction to RPC")?;
-
-    eprintln!("  Transaction hash: {}", status.hash);
-    eprintln!("  Status: {}", status.status);
-
-    Ok(status)
+    last_status.context("Faucet drip produced no transactions")
 }

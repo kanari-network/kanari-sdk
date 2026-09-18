@@ -314,6 +314,118 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     assert_eq!(recipient_after, 3_000_000);
 }
 
+#[test]
+fn native_transfer_round_trip_full_balance_keeps_coin_object() {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    configure_single_authority_consensus(&mut engine);
+    let alice = generate_keypair(CurveType::Ed25519).unwrap();
+    let bob = generate_keypair(CurveType::Ed25519).unwrap();
+    let coin_id = "0xaaaa";
+    let alice_gas = "0x1001";
+    let bob_gas = "0x1002";
+    fund_sender_with_coin(&engine, &alice.address, coin_id, 3_000_000);
+    fund_sender_with_coin(&engine, &alice.address, alice_gas, 1_000_000);
+    fund_sender_with_coin(&engine, &bob.address, bob_gas, 1_000_000);
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|error| error.into_inner())
+        .commit()
+        .unwrap();
+
+    let owned_ids = |engine: &BlockchainEngine, owner: &str| -> Vec<String> {
+        engine
+            .get_owner_info(owner)
+            .and_then(|info| info.owned_objects)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|obj| obj.id)
+            .collect()
+    };
+    let submit_full_transfer = |engine: &BlockchainEngine,
+                                sender: &kanari_crypto::keys::KeyPair,
+                                coin_id: &str,
+                                gas_id: &str,
+                                recipient: &str,
+                                nonce: u64|
+     -> Vec<u8> {
+        let (coin_ref, gas_ref, amount) = {
+            let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+            let coin = state
+                .get_object(coin_id)
+                .unwrap()
+                .expect("transfer coin must exist");
+            let gas = state
+                .get_object(gas_id)
+                .unwrap()
+                .expect("gas coin must exist");
+            (
+                coin.object_ref(coin_id),
+                gas.object_ref(gas_id),
+                transaction_coin_balance(&coin.data),
+            )
+        };
+        let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+            sender.tagged_address(),
+            coin_ref,
+            recipient.to_string(),
+            amount,
+            nonce,
+            100_000,
+            1,
+        );
+        if let Transaction::ExecuteFunction {
+            gas_payment: Some(gas_payment),
+            ..
+        } = &mut tx
+        {
+            gas_payment.payment_objects = vec![gas_ref];
+        }
+        let mut signed = SignedTransaction::new(tx);
+        signed.sign(&sender.private_key, sender.curve_type).unwrap();
+        let hash = signed.transaction_hash().to_vec();
+        engine.submit_transactions_batch(vec![signed]).unwrap();
+        drive_consensus_until_mempool_empty(engine);
+        hash
+    };
+
+    // Leg 1: Alice -> Bob (full balance).
+    let leg1_hash = submit_full_transfer(&engine, &alice, coin_id, alice_gas, &bob.address, 1);
+    assert!(engine.try_is_transaction_committed(&leg1_hash).unwrap());
+    {
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let coin = state
+            .get_object(coin_id)
+            .unwrap()
+            .expect("coin object must survive leg 1");
+        assert_eq!(
+            coin.owner,
+            AccountAddress::from_hex_literal(&bob.address).unwrap()
+        );
+        assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
+    }
+    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
+    assert!(owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+
+    // Leg 2: Bob -> Alice (full balance, back).
+    let leg2_hash = submit_full_transfer(&engine, &bob, coin_id, bob_gas, &alice.address, 1);
+    assert!(engine.try_is_transaction_committed(&leg2_hash).unwrap());
+    {
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let coin = state
+            .get_object(coin_id)
+            .unwrap()
+            .expect("coin object must survive leg 2");
+        assert_eq!(
+            coin.owner,
+            AccountAddress::from_hex_literal(&alice.address).unwrap()
+        );
+        assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
+    }
+    assert!(owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
+    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+}
+
 // Pre-existing failures under gas model v2 (zero-fee): these tests expect gas
 // to be deducted from the coin balance, but the zero-fee model meters gas
 // (gas_used > 0) without charging the balance. Re-enable once the tests are
@@ -470,6 +582,132 @@ fn backend_native_transfer_rejects_gas_overlap_before_execution() {
     );
 }
 
+#[test]
+fn admission_rejects_client_faults_fail_closed() {
+    // No matter what a buggy or malicious client submits, admission must
+    // reject malformed transactions before they reach the mempool.
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+
+    // Zero-amount backend transfer.
+    let zero_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address.clone(),
+        0,
+        1,
+        100_000,
+        1,
+    );
+    let error = BlockchainEngine::validate_transaction_admission_shape(&zero_tx).unwrap_err();
+    assert!(
+        error.to_string().contains("non-zero"),
+        "zero-amount transfer must be rejected: {error:#}"
+    );
+
+    // Nonce above JSON safe integer range.
+    let mut big_nonce_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address.clone(),
+        1,
+        1,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction { nonce, .. } = &mut big_nonce_tx {
+        *nonce = (1u64 << 53) + 1;
+    }
+    let error = BlockchainEngine::validate_transaction_admission_shape(&big_nonce_tx).unwrap_err();
+    assert!(
+        error.to_string().contains("exceeds maximum"),
+        "oversized nonce must be rejected: {error:#}"
+    );
+
+    // Sane transaction passes.
+    let good_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address,
+        1,
+        1,
+        100_000,
+        1,
+    );
+    BlockchainEngine::validate_transaction_admission_shape(&good_tx).unwrap();
+}
+
+#[test]
+fn version_conflict_failures_do_not_charge_gas() {
+    // Losers of a concurrent-send race must fail free: their refs went stale
+    // through no fault of their own. Genuine faults still pay gas.
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+    engine
+        .state
+        .write()
+        .unwrap_or_else(|error| error.into_inner())
+        .commit()
+        .unwrap();
+    let tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address,
+        1,
+        1,
+        100_000,
+        1,
+    );
+    for message in [
+        "Object version mismatch for 0xaaaa: expected 1, found 2",
+        "Object digest mismatch for 0xaaaa",
+        "Execution failed: Gas payment version mismatch for 0xbbbb: expected 1, found 2",
+        "Execution failed: Gas payment digest mismatch for 0xbbbb",
+    ] {
+        let changeset = engine
+            .failed_changeset_for_error(&tx, &engine.state, message.to_string())
+            .unwrap();
+        assert!(!changeset.success);
+        let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
+        let sender_delta = changeset
+            .owner_deltas
+            .get(&sender_addr)
+            .map(|delta| delta.balance_delta)
+            .unwrap_or(0);
+        assert_eq!(sender_delta, 0, "race failures must not charge the sender");
+        assert!(
+            changeset
+                .native_gas_credits
+                .values()
+                .all(|&credit| credit == 0),
+            "race failures must not credit gas"
+        );
+        assert!(
+            changeset
+                .error_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("retry with fresh object refs"),
+            "race failures must tell the client to retry"
+        );
+    }
+    let changeset = engine
+        .failed_changeset_for_error(&tx, &engine.state, "boom".to_string())
+        .unwrap();
+    let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
+    let sender_delta = changeset
+        .owner_deltas
+        .get(&sender_addr)
+        .map(|delta| delta.balance_delta)
+        .unwrap_or(0);
+    assert!(
+        sender_delta < 0,
+        "genuine failures still charge the sender gas"
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
@@ -595,6 +833,133 @@ proptest! {
         let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
         prop_assert_eq!(state.resolve_owner_native_balance(recipient_addr).unwrap(), transfer_amount);
         prop_assert_eq!(state.total_supply, initial_supply - burn_amount);
+        state.validate_supply_invariants().unwrap();
+    }
+
+    #[test]
+    fn native_transfer_multihop_conserves_objects_and_supply(
+        hop_amounts in prop::collection::vec(1u64..200_000u64, 1..8),
+    ) {
+        // Coins ping-pong between three parties. After every hop:
+        // - every indexed object must exist with a matching owner (no orphans),
+        // - object balances + DAO ledger must equal the funded total (no loss),
+        // - total supply must be unchanged and supply invariants must hold.
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let parties = ["0xA11CE", "0xB0B00", "0xC01A"];
+        let addrs: Vec<AccountAddress> = parties
+            .iter()
+            .map(|a| AccountAddress::from_hex_literal(a).unwrap())
+            .collect();
+        let coin_id = |tag: u64| format!("0x{tag:064x}");
+        fund_sender_with_coin(&engine, parties[0], &coin_id(0xAA01), 10_000_000);
+        for (i, party) in parties.iter().enumerate() {
+            fund_sender_with_coin(&engine, party, &coin_id(0xCAFE0000 + i as u64 * 2), 5_000_000);
+            fund_sender_with_coin(
+                &engine,
+                party,
+                &coin_id(0xCAFE0000 + i as u64 * 2 + 1),
+                5_000_000,
+            );
+        }
+        // Genesis pre-funds DEV, so the baseline is read dynamically. The 40M
+        // below is only this test's own deterministic funding.
+        let funded_total = 40_000_000u64;
+        let dao = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS).unwrap();
+        let initial_total = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .total_supply;
+
+        for (hop, requested) in hop_amounts.iter().enumerate() {
+            let sender = addrs[hop % 3];
+            let recipient = parties[(hop + 1) % 3];
+            let tx = {
+                let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+                let mut coins: Vec<(String, u64)> = state
+                    .get_owned_objects(&sender)
+                    .unwrap()
+                    .into_iter()
+                    .map(|id| {
+                        let obj = state.get_object(&id).unwrap().unwrap_or_else(|| {
+                            panic!("indexed object {id} of {sender} must exist")
+                        });
+                        assert_eq!(obj.owner, sender, "index owner must match stored owner");
+                        (id, transaction_coin_balance(&obj.data))
+                    })
+                    .collect();
+                prop_assert!(coins.len() >= 2, "sender must keep >= 2 coins");
+                coins.sort_by_key(|(_, balance)| *balance);
+                // Smallest coin pays gas; largest coin is split. Distinct by construction.
+                let gas_id = coins[0].0.clone();
+                let (transfer_id, transfer_balance) = coins.last().cloned().unwrap();
+                prop_assert!(transfer_balance > 0, "transfer coin must be funded");
+                let coin_ref = state
+                    .get_object(&transfer_id)
+                    .unwrap()
+                    .unwrap()
+                    .object_ref(&transfer_id);
+                let gas_ref = state
+                    .get_object(&gas_id)
+                    .unwrap()
+                    .unwrap()
+                    .object_ref(&gas_id);
+                let amount = (*requested).min(transfer_balance);
+                let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+                    format!("Ed25519:{}", sender.to_hex_literal()),
+                    coin_ref,
+                    recipient.to_string(),
+                    amount,
+                    hop as u64,
+                    100_000,
+                    1,
+                );
+                if let Transaction::ExecuteFunction {
+                    gas_payment: Some(gas_payment),
+                    ..
+                } = &mut tx
+                {
+                    gas_payment.payment_objects = vec![gas_ref];
+                }
+                tx
+            };
+            let changeset = engine
+                .execute_transaction_with_runtime_internal(
+                    &tx,
+                    &engine.runtime_pool[0],
+                    &engine.state,
+                    false,
+                    Some(1000 + hop as u64),
+                    false,
+                )
+                .unwrap();
+            prop_assert!(changeset.success, "hop {hop} must succeed: {:?}", changeset.error_message);
+            {
+                let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+                state.apply_changeset(&changeset).unwrap();
+                state.validate_supply_invariants().unwrap();
+            }
+        }
+
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let mut object_sum = 0u64;
+        for addr in &addrs {
+            for id in state.get_owned_objects(addr).unwrap() {
+                let obj = state
+                    .get_object(&id)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("indexed object {id} must exist"));
+                assert_eq!(obj.owner, *addr, "index owner must match stored owner");
+                object_sum += transaction_coin_balance(&obj.data);
+            }
+        }
+        let dao_balance = state.resolve_owner_native_balance(dao).unwrap_or(0);
+        prop_assert_eq!(
+            object_sum + dao_balance,
+            funded_total,
+            "every funded mist must be accounted for in objects or DAO ledger"
+        );
+        prop_assert_eq!(state.total_supply, initial_total, "supply must be unchanged");
         state.validate_supply_invariants().unwrap();
     }
 }
@@ -2222,7 +2587,7 @@ fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
     fund_sender_with_coin(&engine, &owned_sender.address, "0xa001", 1_000_000);
     let owned_tx = signed_native_burn_with_gas_object(&owned_sender, "0xa001", 1_000_000, 1);
     let mut shared_transaction =
-        Transaction::new_burn_with_gas(shared_sender.tagged_address(), 0, 2, 100_000, 1);
+        Transaction::new_burn_with_gas(shared_sender.tagged_address(), 1, 2, 100_000, 1);
     if let Transaction::ExecuteFunction { object_inputs, .. } = &mut shared_transaction {
         object_inputs.push(ObjectInput {
             object_ref: ObjectRef::new("0xshared", Some(1), Some(format!("0x{}", "11".repeat(32)))),

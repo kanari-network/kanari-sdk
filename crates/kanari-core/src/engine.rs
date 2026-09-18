@@ -601,6 +601,7 @@ impl BlockchainEngine {
         gas_cost: u64,
         changeset: &mut ChangeSet,
     ) -> Result<()> {
+        ensure!(amount > 0, "Native burn amount must be non-zero");
         let gas_payment = tx
             .gas_payment()
             .context("Native burn requires prepared gas payment")?;
@@ -711,6 +712,7 @@ impl BlockchainEngine {
         gas_cost: u64,
         changeset: &mut ChangeSet,
     ) -> Result<()> {
+        ensure!(amount > 0, "Native transfer amount must be non-zero");
         let gas_payment = tx
             .gas_payment()
             .context("Native transfer requires prepared gas payment")?;
@@ -1757,7 +1759,10 @@ impl BlockchainEngine {
             .and_then(|store| Self::load_sender_nonce_watermark(store).ok())
             .and_then(|watermark| {
                 use crate::engine::mempool::NormalizeAddr as _;
-                let v = watermark.get(&Self::normalize_addr(address_hex)).copied().unwrap_or(0);
+                let v = watermark
+                    .get(&Self::normalize_addr(address_hex))
+                    .copied()
+                    .unwrap_or(0);
                 (v < MAX_WATERMARK).then_some(v)
             })
             .unwrap_or(0);
@@ -2650,7 +2655,29 @@ impl BlockchainEngine {
             let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
             state.resolve_owner_native_balance(sender_addr).unwrap_or(0)
         };
-        let gas_cost = requested_cost.min(balance);
+        // Version/digest races are concurrency artifacts, not sender faults:
+        // another transaction mutated a referenced object between submit and
+        // execution. Failing these free (no gas charge) lets bulk/concurrent
+        // senders retry with fresh refs instead of burning gas on every loser.
+        const RACE_MARKERS: [&str; 4] = [
+            "Object version mismatch for",
+            "Object digest mismatch for",
+            "Gas payment version mismatch for",
+            "Gas payment digest mismatch for",
+        ];
+        let is_race = RACE_MARKERS
+            .iter()
+            .any(|marker| error_message.contains(marker));
+        let (gas_cost, error_message) = if is_race {
+            (
+                0,
+                format!(
+                    "{error_message} (object changed concurrently; retry with fresh object refs)"
+                ),
+            )
+        } else {
+            (requested_cost.min(balance), error_message)
+        };
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
         changeset.mark_failed(error_message);
@@ -2749,6 +2776,16 @@ impl BlockchainEngine {
             tx.nonce(),
             MAX_NONCE,
         );
+        // Backend fast-path transfers/burns must move a non-zero amount,
+        // mirroring the Move coin module's EZERO_AMOUNT rule. Zero-amount
+        // requests are client bugs, never valid state transitions.
+        if let Some(native_call) = tx.native_call() {
+            let amount = match native_call {
+                kanari_types::transaction::NativeCall::Transfer { amount, .. }
+                | kanari_types::transaction::NativeCall::Burn { amount } => amount,
+            };
+            ensure!(amount > 0, "Native transfer/burn amount must be non-zero");
+        }
         KanariAddress::parse_to_account_address(tx.sender_address())
             .context("Invalid transaction sender address")?;
 
@@ -2784,7 +2821,9 @@ impl BlockchainEngine {
         ensure!(tx.gas_limit() > 0, "Transaction gas limit must be non-zero");
         ensure!(
             gas_price_is_valid(tx.gas_price()),
-            "Transaction gas price is not valid for the active gas model"
+            "Transaction gas price {} is not valid for the active gas model ({}); minimum is 1 Mist",
+            tx.gas_price(),
+            kanari_types::gas::GAS_MODEL,
         );
         Ok(())
     }
