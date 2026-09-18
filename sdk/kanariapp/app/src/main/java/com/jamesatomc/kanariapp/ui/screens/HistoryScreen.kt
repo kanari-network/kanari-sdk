@@ -25,7 +25,6 @@ import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
-import com.jamesatomc.kanariapp.ui.components.formatAmount
 import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 

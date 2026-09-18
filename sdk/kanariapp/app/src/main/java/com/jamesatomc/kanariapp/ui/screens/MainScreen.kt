@@ -227,7 +227,12 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "${token.symbol} (Balance: ${formatAmountExact(token.getEffectiveAmount(), token.decimals)})"
+                                "${token.symbol} (Balance: ${
+                                    formatAmountExact(
+                                        token.getEffectiveAmount(),
+                                        token.decimals
+                                    )
+                                })"
                             )
                         },
                         onClick = {

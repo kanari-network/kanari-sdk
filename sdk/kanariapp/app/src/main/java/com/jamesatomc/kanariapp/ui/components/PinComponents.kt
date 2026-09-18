@@ -21,10 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -248,7 +246,7 @@ private fun PinEntryPanel(
     onPinComplete: suspend (String) -> Unit,
     biometricEnabled: Boolean = false,
     onBiometric: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
     headerSpacing: Dp = 32.dp,
 ) {
     val scope = rememberCoroutineScope()
@@ -297,7 +295,7 @@ private fun PinVerificationBody(
     onSuccess: (String) -> Unit,
     biometricEnabled: Boolean = false,
     onBiometric: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
 ) {
     val pin = rememberPinState()
     PinEntryPanel(
@@ -361,7 +359,6 @@ fun ChangePinFullScreenContent(
     var currentPin by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val title = when (step) {
         0 -> "Current PIN"; 1 -> "New PIN"; else -> "Confirm New PIN"
     }

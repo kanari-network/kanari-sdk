@@ -200,19 +200,19 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun setBiometricEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-        biometricPrefs.edit().apply {
+        biometricPrefs.edit(commit = true) {
             putBoolean(KEY_BIOMETRIC_ENABLED_NAME, enabled)
             if (!enabled) remove(KEY_BIOMETRIC_PIN_NAME)
-        }.commit()
+        }
     }
 
     suspend fun saveBiometricPin(pin: String) = withContext(Dispatchers.Default) {
         require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
         val encrypted = encryptSecure(pin)
-        biometricPrefs.edit()
-            .putString(KEY_BIOMETRIC_PIN_NAME, encrypted)
-            .putBoolean(KEY_BIOMETRIC_ENABLED_NAME, true)
-            .commit()
+        biometricPrefs.edit(commit = true) {
+            putString(KEY_BIOMETRIC_PIN_NAME, encrypted)
+                .putBoolean(KEY_BIOMETRIC_ENABLED_NAME, true)
+        }
     }
 
     suspend fun getBiometricPin(): String? = withContext(Dispatchers.Default) {
@@ -227,10 +227,10 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun clearBiometricPin() = withContext(Dispatchers.IO) {
-        biometricPrefs.edit()
-            .remove(KEY_BIOMETRIC_PIN_NAME)
-            .remove(KEY_BIOMETRIC_ENABLED_NAME)
-            .commit()
+        biometricPrefs.edit(commit = true) {
+            remove(KEY_BIOMETRIC_PIN_NAME)
+                .remove(KEY_BIOMETRIC_ENABLED_NAME)
+        }
     }
 
     suspend fun saveWallets(wallets: List<WalletRecord>) = withContext(Dispatchers.Default) {

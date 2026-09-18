@@ -26,11 +26,10 @@ fun rememberBiometricPromptLauncher(
     val latestFailed by rememberUpdatedState(onFailed)
 
     return {
-        val currentActivity = activity
-        if (currentActivity != null && !promptShowing) {
+        if (activity != null && !promptShowing) {
             promptShowing = true
             val started = showBiometricPrompt(
-                activity = currentActivity,
+                activity = activity,
                 title = title,
                 subtitle = subtitle,
                 onSuccess = {

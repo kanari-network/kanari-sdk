@@ -483,7 +483,7 @@ fun rememberBiometricAvailable(viewModel: com.jamesatomc.kanariapp.wallet.Wallet
             val status = androidx.biometric.BiometricManager.from(context)
                 .canAuthenticate(
                     androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
                 )
             available = if (!enabled) false
             else status == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS

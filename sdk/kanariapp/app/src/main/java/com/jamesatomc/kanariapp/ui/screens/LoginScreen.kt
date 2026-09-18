@@ -156,7 +156,7 @@ fun LoginScreen(
                     viewModel.addZkLoginWallet(result.session)
                     zkAddress = result.session.address
                     onLoginSuccess()
-                } catch (e: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
+                } catch (_: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.CancelledException) {
                     // User dismissed the sheet: not an error, stay put.
                 } catch (e: Exception) {
                     error = e.message ?: "Google login failed"

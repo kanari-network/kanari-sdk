@@ -154,7 +154,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         // PIN unlocks if no key-based wallet exists. Real key wallets always
         // require the exact PIN.
         val verified = walletStorage.verifyPin(pin) ||
-            (!walletStorage.hasPin() && !walletStorage.hasSecrets())
+                (!walletStorage.hasPin() && !walletStorage.hasSecrets())
         if (verified) {
             _unlockedPin = pin
             _isUnlocked.value = true
@@ -309,8 +309,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     // No private key: sign with the on-device Google session.
                     val session = try {
                         ZkLoginAuth.loadSession(getApplication(), record.address)
-                    } catch (e: Exception) {
-                        _error.value = "No Google session for this wallet — sign in with Google from the Login screen first."
+                    } catch (_: Exception) {
+                        _error.value =
+                            "No Google session for this wallet — sign in with Google from the Login screen first."
                         return false
                     }
                     if (isKanari) client.transferZkLogin(session, recipient, amount)
@@ -350,10 +351,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _error.value = mapTransferError(msg)
                 false
             }
-        } catch (e: ZkLoginTxSigner.SessionExpiredException) {
+        } catch (_: ZkLoginTxSigner.SessionExpiredException) {
             _error.value = "Google session expired — open Login and sign in with Google again, then retry the transfer."
             false
-        } catch (e: ZkLoginTxSigner.SessionIncompleteException) {
+        } catch (_: ZkLoginTxSigner.SessionIncompleteException) {
             _error.value = "Google session file is from an old app version — sign in with Google again."
             false
         } catch (e: Exception) {

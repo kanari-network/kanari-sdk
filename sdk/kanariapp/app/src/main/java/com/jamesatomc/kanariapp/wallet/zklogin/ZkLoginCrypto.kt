@@ -106,9 +106,9 @@ object ZkLoginCrypto {
         require(ephemeralPubkey.size == 32) { "pubkey must be 32 bytes" }
         require(randomness.size == 32) { "randomness must be 32 bytes" }
         val preimage = "zkLogin-nonce".toByteArray(Charsets.US_ASCII) +
-            ephemeralPubkey +
-            maxEpoch.toLeBytes() +
-            randomness
+                ephemeralPubkey +
+                maxEpoch.toLeBytes() +
+                randomness
         return hex(sha256(preimage))
     }
 
@@ -122,10 +122,10 @@ object ZkLoginCrypto {
         require(subB.size <= MAX_SUB_BYTES) { "sub too long" }
         require(salt.size == 32) { "salt must be 32 bytes" }
         val preimage = "zkLogin-v2".toByteArray(Charsets.US_ASCII) +
-            issB.padTo(MAX_ISS_BYTES) +
-            audB.padTo(MAX_AUD_BYTES) +
-            subB.padTo(MAX_SUB_BYTES) +
-            salt
+                issB.padTo(MAX_ISS_BYTES) +
+                audB.padTo(MAX_AUD_BYTES) +
+                subB.padTo(MAX_SUB_BYTES) +
+                salt
         return "0x" + hex(sha256(preimage))
     }
 

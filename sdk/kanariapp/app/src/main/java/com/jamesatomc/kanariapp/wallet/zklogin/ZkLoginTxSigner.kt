@@ -90,7 +90,7 @@ object ZkLoginTxSigner {
     fun bundleJson(session: ZkLoginAuth.Session, ephemeralSigHex: String): String {
         val jwks = try {
             Json.parseToJsonElement(session.jwksJson.ifBlank { "{\"keys\":[]}" }).jsonObject
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             throw SessionIncompleteException()
         }
         val envelope = BundleEnvelope(

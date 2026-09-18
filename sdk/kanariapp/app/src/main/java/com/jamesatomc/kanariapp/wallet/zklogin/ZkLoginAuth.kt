@@ -1,5 +1,6 @@
 package com.jamesatomc.kanariapp.wallet.zklogin
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -36,7 +37,7 @@ import java.net.URL
  * 4. Address derivation (Rust) + private session file.
  *
  * Requires an **Android-type** OAuth client ID (package + SHA-1 bound) as
- * the [serverClientId]: that is the **Web** client ID of the same project.
+ * the "serverClientId": that is the **Web** client ID of the same project.
  * Google mints the JWT with `aud = serverClientId`.
  */
 object ZkLoginAuth {
@@ -77,7 +78,7 @@ object ZkLoginAuth {
 
     class AuthException(message: String) : Exception(message)
 
-    /** User dismissed the Google sheet. Callers map this to "cancelled", not an error. */
+    /** User dismissed the Google sheet. Callers map this to "canceled", not an error. */
     class CancelledException : Exception("sign-in cancelled")
 
     data class LoginResult(val session: Session, val sessionFile: File)
@@ -86,7 +87,7 @@ object ZkLoginAuth {
      * Full login via the OS Google sheet. Must be called from a coroutine
      * (suspends on the credential request + network + crypto).
      *
-     * The [nonce] binding the ephemeral key travels inside the Google
+     * The "nonce" binding the ephemeral key travels inside the Google
      * request and comes back as the JWT `nonce` claim; Rust re-checks it
      * fail-closed, so a token minted for another session can never pass.
      */
@@ -117,7 +118,7 @@ object ZkLoginAuth {
         )
         val saltKey = "${claims.iss}|$clientId|${claims.sub}"
         val saltMap = loadSaltMap(context)
-        var saltHex =
+        val saltHex =
             knownSalts[saltKey] ?: saltMap[saltKey] ?: findSaltHexForSub(context, claims.iss, clientId, claims.sub)
         val finalSalt: ByteArray
         val finalSaltHex: String
@@ -158,6 +159,7 @@ object ZkLoginAuth {
      * OS Google sheet -> `id_token` with our [nonce] embedded.
      * Throws [CancelledException] on user dismiss, [AuthException] otherwise.
      */
+    @SuppressLint("CredManMutableContext")
     private suspend fun requestGoogleIdToken(
         context: Context,
         serverClientId: String,
@@ -167,7 +169,7 @@ object ZkLoginAuth {
             .setServerClientId(serverClientId)
             // Always let the user choose the Google account. Reusing the
             // previously authorized account makes different email attempts
-            // appear to produce the same wallet address.
+            // to appear to produce the same wallet address.
             .setFilterByAuthorizedAccounts(false)
             .setNonce(nonce)
             .build()
@@ -235,8 +237,6 @@ object ZkLoginAuth {
         return pkg to sha1
     }
 
-    suspend fun fetchJwks(): String = httpGet(GOOGLE_JWKS_URL)
-
     private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
@@ -291,7 +291,7 @@ object ZkLoginAuth {
         if (!file.exists()) throw AuthException("no session for $address")
         try {
             return json.decodeFromString(Session.serializer(), file.readText())
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             throw AuthException("session file is corrupt — sign in with Google again")
         }
     }
@@ -341,14 +341,5 @@ object ZkLoginAuth {
             }
         }
         return null
-    }
-
-    /** Force the salt for an account so app and CLI derive the same address. */
-    fun setSaltForAccount(context: Context, iss: String, aud: String, sub: String, saltHex: String) {
-        require(saltHex.matches(Regex("[0-9a-fA-F]{64}"))) { "salt must be 64 hex chars (32 bytes)" }
-        val key = "$iss|$aud|$sub"
-        val map = loadSaltMap(context)
-        map[key] = saltHex.lowercase()
-        saveSaltMap(context, map)
     }
 }
