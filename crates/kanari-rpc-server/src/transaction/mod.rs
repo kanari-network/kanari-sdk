@@ -1667,6 +1667,23 @@ pub async fn handle_build_native_transfer(
         Ok(nonce) => nonce,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
+    let mut canonical_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        build_data.sender.clone(),
+        coin_object_ref.clone(),
+        build_data.recipient.clone(),
+        build_data.amount,
+        nonce,
+        build_data.gas_limit,
+        build_data.gas_price,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: canonical_gas_payment,
+        ..
+    } = &mut canonical_tx
+    {
+        *canonical_gas_payment = Some(gas_payment.clone());
+    }
+
     respond_with_serialize(
         request.id,
         ObjectTransferData {
@@ -1680,6 +1697,7 @@ pub async fn handle_build_native_transfer(
             nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
+            transaction_hash: Some(canonical_tx.hash()),
             execute_immediate: build_data.execute_immediate,
         },
     )

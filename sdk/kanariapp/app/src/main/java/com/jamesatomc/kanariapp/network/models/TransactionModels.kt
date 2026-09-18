@@ -214,6 +214,7 @@ data class ObjectTransferData(
     @Serializable(with = LenientULongSerializer::class) var nonce: ULong? = null,
     @SerialName("gas_payment") val gasPayment: GasPayment? = null,
     var signature: List<Int>? = null,
+    @SerialName("transaction_hash") val transactionHash: List<Int>? = null,
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
 )
 

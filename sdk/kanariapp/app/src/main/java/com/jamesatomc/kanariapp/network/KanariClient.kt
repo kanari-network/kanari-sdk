@@ -239,8 +239,12 @@ class KanariClient(private val environment: KanariEnvironment) {
             nonce = nonce
         )
 
-        // Hash with Blake3 (same as kanari_crypto::hash_data_blake3 / Transaction::hash)
-        val hash = KanariCrypto.blake3Hash(txBytes)
+        // Prefer the server's canonical hash: it is computed from the exact
+        // Transaction that submitObjectTransfer reconstructs. Keep the local
+        // encoder as a compatibility fallback for older nodes.
+        val hash = prepared.transactionHash?.map { (it and 0xFF).toByte() }?.toByteArray()
+            ?.takeIf { it.size == 32 }
+            ?: KanariCrypto.blake3Hash(txBytes)
 
         val normalized = prepared.copy(
             // Ensure we send the normalized IDs that were signed

@@ -622,6 +622,9 @@ pub struct ObjectTransferData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
+    /// Canonical BCS transaction hash returned by the build endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_hash: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
