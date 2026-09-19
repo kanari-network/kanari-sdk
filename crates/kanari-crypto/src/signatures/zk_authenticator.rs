@@ -248,7 +248,7 @@ pub fn verify_zklogin_tx_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signatures::zklogin::{ISS_GOOGLE, decode_jwt_claims, derive_address_from_claims};
+    use crate::signatures::zklogin::{ISS_GOOGLE, decode_jwt_claims, derive_zklogin_address_v2};
 
     const TEST_AUD: &str = "kanari-test-client";
 
@@ -359,12 +359,9 @@ mod tests {
         };
         let verified = verify_zklogin_authenticator(tx_hash, &auth, 1_700_000_000).unwrap();
         // Cross-check against the direct derivation (no drift).
-        let expected = derive_address_from_claims(
-            &decode_jwt_claims(&mint_local_jwt()).unwrap(),
-            TEST_AUD,
-            &[9u8; 32],
-        )
-        .unwrap();
+        let claims = decode_jwt_claims(&mint_local_jwt()).unwrap();
+        let expected =
+            derive_zklogin_address_v2(&claims.iss, TEST_AUD, &claims.sub, &[9u8; 32]).unwrap();
         assert_eq!(verified.address, expected);
         assert_eq!(verified.max_epoch, 1000);
     }

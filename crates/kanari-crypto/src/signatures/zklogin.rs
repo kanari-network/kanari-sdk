@@ -26,12 +26,10 @@ use serde::Deserialize;
 
 use crate::SignatureError;
 
-/// OIDC issuer identifiers we accept. Matches Sui's supported providers.
+/// The OIDC issuer we accept. Only Google is supported end to end (CLI
+/// rejects other providers, the app mints Google JWTs) — no other issuer
+/// constants exist on purpose, so nothing can target an unconfigured one.
 pub const ISS_GOOGLE: &str = "https://accounts.google.com";
-pub const ISS_APPLE: &str = "https://appleid.apple.com";
-pub const ISS_FACEBOOK: &str = "https://www.facebook.com";
-pub const ISS_TWITCH: &str = "https://id.twitch.tv/oauth2";
-pub const ISS_KAKAO: &str = "https://kauth.kakao.com";
 
 /// Minimal JWT payload claims needed for zkLogin.
 #[derive(Debug, Clone, Deserialize)]
@@ -163,23 +161,6 @@ fn pad_zero(data: &[u8], width: usize) -> Vec<u8> {
     let mut out = vec![0u8; width];
     out[..data.len()].copy_from_slice(data);
     out
-}
-
-/// Convenience: derive from decoded claims + expected audience + salt.
-/// Uses the canonical v2 scheme.
-pub fn derive_address_from_claims(
-    claims: &JwtClaims,
-    expected_aud: &str,
-    salt: &[u8],
-) -> Result<String, SignatureError> {
-    if !claims.aud.contains(expected_aud) {
-        return Err(SignatureError::InvalidPublicKey(format!(
-            "JWT aud {:?} does not contain expected {}",
-            claims.aud.as_vec(),
-            expected_aud
-        )));
-    }
-    derive_zklogin_address_v2(&claims.iss, expected_aud, &claims.sub, salt)
 }
 
 /// Check `exp`/`iat`/`nbf` against `now_unix_secs` with a clock-skew leeway.
@@ -321,21 +302,6 @@ pub fn compute_nonce(ephemeral_pubkey: &[u8], max_epoch: u64, randomness: &[u8])
     h.update(max_epoch.to_le_bytes());
     h.update(randomness);
     hex::encode(h.finalize())
-}
-
-/// Verify that a JWT's `nonce` claim matches the expected binding.
-/// Fails closed on missing nonce (Sui requires it in the proof circuit).
-pub fn verify_nonce_binding(
-    claims: &JwtClaims,
-    ephemeral_pubkey: &[u8],
-    max_epoch: u64,
-    randomness: &[u8],
-) -> Result<(), SignatureError> {
-    let expected = compute_nonce(ephemeral_pubkey, max_epoch, randomness);
-    match &claims.nonce {
-        Some(n) if *n == expected => Ok(()),
-        _ => Err(SignatureError::VerificationFailed),
-    }
 }
 
 /// Random 32-byte `randomness` for nonce binding (single-use per login).
@@ -582,12 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_aud() {
-        let claims = decode_jwt_claims(&test_jwt()).unwrap();
-        assert!(derive_address_from_claims(&claims, "other-client", &[0u8; 32]).is_err());
-    }
-
-    #[test]
     fn checks_expiry() {
         let claims = decode_jwt_claims(&test_jwt()).unwrap();
         assert!(verify_claims_timing(&claims, 1_000_000).is_ok());
@@ -630,19 +590,79 @@ mod tests {
         assert!(EphemeralKeypair::verify(&kp.public_bytes(), b"other", &sig).is_err());
     }
 
+    fn jwks_fixture(n: String, e: String) -> JwksDocument {
+        JwksDocument {
+            keys: vec![RsaJwk {
+                kid: Some("test-key-1".to_string()),
+                kty: "RSA".to_string(),
+                alg: Some("RS256".to_string()),
+                n,
+                e,
+            }],
+        }
+    }
+
     #[test]
-    fn nonce_binding_matches() {
+    fn nonce_claim_is_enforced_on_the_standard_path() {
+        // Nonce binding is enforced inside `verify_jwt_with_jwks` (the same
+        // call login, the app, and the chain all use) — no separate helper.
+        let (n, e, der) = rsa_test_key();
+        let jwks = jwks_fixture(n, e);
         let kp = EphemeralKeypair::from_secret([3u8; 32]).unwrap();
         let randomness = [5u8; 32];
-        let nonce = compute_nonce(&kp.public_bytes(), 42, &randomness);
-        let mut claims = decode_jwt_claims(&test_jwt()).unwrap();
-        claims.nonce = Some(nonce);
-        assert!(verify_nonce_binding(&claims, &kp.public_bytes(), 42, &randomness).is_ok());
+        let good_nonce = compute_nonce(&kp.public_bytes(), 42, &randomness);
+        let mint = |nonce_json: &str| {
+            sign_test_jwt(
+                &der,
+                "test-key-1",
+                &format!(
+                    r#"{{"iss":"https://accounts.google.com","aud":"client123","sub":"user456","exp":9999999999,"nonce":{nonce_json}}}"#,
+                ),
+            )
+        };
+        // Matching nonce passes.
+        let jwt = mint(&format!(r#""{good_nonce}""#));
+        assert!(
+            verify_jwt_with_jwks(
+                &jwt,
+                &jwks,
+                ISS_GOOGLE,
+                "client123",
+                Some(&good_nonce),
+                1_000_000
+            )
+            .is_ok()
+        );
         // Wrong epoch => different nonce => fail.
-        assert!(verify_nonce_binding(&claims, &kp.public_bytes(), 43, &randomness).is_err());
-        // Missing nonce fails closed.
-        let bare = decode_jwt_claims(&test_jwt()).unwrap();
-        assert!(verify_nonce_binding(&bare, &kp.public_bytes(), 42, &randomness).is_err());
+        let bad_nonce = compute_nonce(&kp.public_bytes(), 43, &randomness);
+        assert!(
+            verify_jwt_with_jwks(
+                &jwt,
+                &jwks,
+                ISS_GOOGLE,
+                "client123",
+                Some(&bad_nonce),
+                1_000_000
+            )
+            .is_err()
+        );
+        // Missing nonce fails closed when one is expected...
+        let bare = mint("null");
+        assert!(
+            verify_jwt_with_jwks(
+                &bare,
+                &jwks,
+                ISS_GOOGLE,
+                "client123",
+                Some(&good_nonce),
+                1_000_000
+            )
+            .is_err()
+        );
+        // ...and passes when the caller does not bind one.
+        assert!(
+            verify_jwt_with_jwks(&bare, &jwks, ISS_GOOGLE, "client123", None, 1_000_000).is_ok()
+        );
     }
 
     fn rsa_test_key() -> (String, String, Vec<u8>) {
@@ -794,17 +814,21 @@ mod tests {
 
     #[test]
     fn full_client_flow() {
-        // iss/aud/sub from JWT + fresh salt => address; ephemeral + nonce bound.
+        // iss/aud/sub from JWT + standard salt => address; ephemeral nonce
+        // binding re-derives exactly (checked via `compute_nonce`).
         let claims = decode_jwt_claims(&test_jwt()).unwrap();
-        let salt = [11u8; 32];
-        let addr = derive_address_from_claims(&claims, "client123", &salt).unwrap();
+        let salt = deterministic_salt(&claims.iss, "client123", &claims.sub).unwrap();
+        let addr = derive_zklogin_address_v2(&claims.iss, "client123", &claims.sub, &salt).unwrap();
         assert!(addr.starts_with("0x"));
         let kp = EphemeralKeypair::from_secret([13u8; 32]).unwrap();
         let randomness = [17u8; 32];
         let nonce = compute_nonce(&kp.public_bytes(), 100, &randomness);
         let mut with_nonce = claims.clone();
         with_nonce.nonce = Some(nonce);
-        assert!(verify_nonce_binding(&with_nonce, &kp.public_bytes(), 100, &randomness).is_ok());
+        assert_eq!(
+            compute_nonce(&kp.public_bytes(), 100, &randomness),
+            with_nonce.nonce.clone().unwrap()
+        );
         assert!(verify_claims_timing(&with_nonce, 1_000_000).is_ok());
     }
 }

@@ -515,44 +515,4 @@ mod tests {
         );
         assert_eq!(vk_fingerprint(&vk).unwrap().len(), 32);
     }
-
-    /// TEMPORARY: print deterministic proof package for Move tests.
-    /// Delete after embedding (fixtures must be stable forever after).
-    #[test]
-    #[ignore]
-    #[allow(clippy::print_stdout)]
-    fn print_tmp_proof_package() {
-        use crate::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
-
-        let mut rng = test_rng();
-        let salt = [9u8; 32];
-        let randomness = [7u8; 32];
-        let eph_pub = [42u8; 32];
-        let max_epoch = 1000u64;
-        let addr_hex = derive_zklogin_address_v2(
-            "https://accounts.google.com",
-            "kanari-test-client",
-            "1234",
-            &salt,
-        )
-        .unwrap();
-        println!("ADDR2={addr_hex}");
-        let address: [u8; 32] = hex::decode(&addr_hex[2..]).unwrap().try_into().unwrap();
-        let nonce_hex = compute_nonce(&eph_pub, max_epoch, &randomness);
-        println!("NONCE2={nonce_hex}");
-        let nonce: [u8; 32] = hex::decode(&nonce_hex).unwrap().try_into().unwrap();
-        let (pk, vk) = setup_binding_circuit(TEST_ISS, TEST_AUD, &mut rng).unwrap();
-        let proof = prove_binding(
-            &pk, TEST_ISS, TEST_AUD, salt, TEST_SUB, randomness, eph_pub, max_epoch, address,
-            nonce, &mut rng,
-        )
-        .unwrap();
-        println!("VKHASH={}", hex::encode(vk_fingerprint(&vk).unwrap()));
-        println!("VK={}", hex::encode(vk_to_bytes(&vk).unwrap()));
-        println!(
-            "INPUTS={}",
-            hex::encode(public_inputs_to_be_bytes(&address, &nonce))
-        );
-        println!("PROOF={}", hex::encode(proof_to_bytes(&proof).unwrap()));
-    }
 }
