@@ -136,7 +136,7 @@ fun KeyGenerationScreen(
                                     existing.add(record)
                                     walletStorage.saveWallets(existing)
                                     if (!walletStorage.hasPin()) walletStorage.savePin(pin)
-                                    viewModel?.loadWallets()
+                                    viewModel?.unlock(pin)
                                     snackState.showSnackbar("Wallet saved successfully!")
                                     showSaveDialog = false
                                     onBack()
@@ -259,10 +259,10 @@ fun KeyGenerationScreen(
                                     currentCurve,
                                     addressCount
                                 ) else {
-                                val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
-                                val pair =
-                                    KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
-                                listOf(pair)
+                                    val path = derivationPath.ifEmpty { "m/44'/0'/0'/0/0" }
+                                    val pair =
+                                        KanariCrypto.deriveKeypairFromPath(words, path, currentCurve)
+                                    listOf(pair)
                                 }
                                 words to pairs
                             } else {

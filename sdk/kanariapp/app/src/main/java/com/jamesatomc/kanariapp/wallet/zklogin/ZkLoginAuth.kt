@@ -2,6 +2,8 @@ package com.jamesatomc.kanariapp.wallet.zklogin
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
@@ -92,6 +94,7 @@ object ZkLoginAuth {
      * request and comes back as the JWT `nonce` claim; Rust re-checks it
      * fail-closed, so a token minted for another session can never pass.
      */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun login(
         context: Context,
         clientId: String = DEFAULT_CLIENT_ID,
@@ -202,7 +205,7 @@ object ZkLoginAuth {
         val pkg = context.packageName
 
         @Suppress("DEPRECATION")
-        val sigs = if (android.os.Build.VERSION.SDK_INT >= 28) {
+        val sigs = if (Build.VERSION.SDK_INT >= 28) {
             context.packageManager
                 .getPackageInfo(pkg, android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES)
                 .signingInfo?.apkContentsSigners
@@ -223,6 +226,7 @@ object ZkLoginAuth {
     /** Max JWKS payload we buffer (Google answers in KiBs; same cap as the CLI). */
     internal const val MAX_HTTP_BYTES: Int = 256 * 1024
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
         httpGetCapped(url, MAX_HTTP_BYTES)
     }
@@ -232,6 +236,7 @@ object ZkLoginAuth {
      * the app — the streaming cap below is the real guard, checked on
      * every chunk, not just the header.
      */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     internal fun httpGetCapped(url: String, maxBytes: Int): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {

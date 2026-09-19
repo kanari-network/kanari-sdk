@@ -26,7 +26,7 @@ tink = "1.23.0"
 jna = "5.19.1"
 credentials = "1.7.0-alpha03"
 credentialsPlayServices = "1.7.0-alpha03"
-googleId = "1.2.0"
+googleId = "1.2.1"
 
 [libraries]
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }

@@ -78,10 +78,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         prefs.edit { putString("theme_mode", mode.name) }
     }
 
-    fun clearError() {
-        _error.value = null
-    }
-
     init {
         viewModelScope.launch {
             _biometricEnabled.value = walletStorage.isBiometricEnabled()
@@ -105,9 +101,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         _activeWallet.value = records.firstOrNull { it.id == savedId } ?: records.first()
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("WalletViewModel", "Failed to load wallets, storage might be corrupted", e)
-                    // Do not expose raw storage corruption error state to global banner unless absolutely critical,
-                    // we handle fallback or empty state gracefully.
+                    android.util.Log.e("WalletViewModel", "CRITICAL: Failed to load wallets", e)
+                    // Inform the UI about the corruption/error
+                    _error.value = "Wallet storage is unreadable. You may need to re-import your wallets."
                     _wallets.value = emptyList()
                 }
                 _isLoading.value = false
@@ -386,7 +382,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             )
             val persisted = try {
                 walletStorage.loadWallets()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 emptyList()
             }
             val current = (persisted + _wallets.value).distinctBy { it.id }

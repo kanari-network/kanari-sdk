@@ -1,11 +1,9 @@
 package com.jamesatomc.kanariapp.wallet.zklogin
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.SecureRandom
 import java.security.Signature
 import java.security.spec.RSAPublicKeySpec
 
@@ -29,12 +27,6 @@ object ZkLoginCrypto {
 
     fun sha256(data: ByteArray): ByteArray =
         MessageDigest.getInstance("SHA-256").digest(data)
-
-    fun randomBytes(n: Int): ByteArray {
-        val out = ByteArray(n)
-        SecureRandom().nextBytes(out)
-        return out
-    }
 
     // --- base64url (manual: no API-26 java.util.Base64, no android.util in unit tests) ---
 
