@@ -94,7 +94,6 @@ object ZkLoginAuth {
      * request and comes back as the JWT `nonce` claim; Rust re-checks it
      * fail-closed, so a token minted for another session can never pass.
      */
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun login(
         context: Context,
         clientId: String = DEFAULT_CLIENT_ID,
@@ -226,7 +225,6 @@ object ZkLoginAuth {
     /** Max JWKS payload we buffer (Google answers in KiBs; same cap as the CLI). */
     internal const val MAX_HTTP_BYTES: Int = 256 * 1024
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
         httpGetCapped(url, MAX_HTTP_BYTES)
     }
@@ -236,7 +234,6 @@ object ZkLoginAuth {
      * the app — the streaming cap below is the real guard, checked on
      * every chunk, not just the header.
      */
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     internal fun httpGetCapped(url: String, maxBytes: Int): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
@@ -269,7 +266,7 @@ object ZkLoginAuth {
                 // errors (or half-bodies) to login logic — fail closed.
                 throw AuthException("GET $url failed: ${e.message}")
             }
-            return out.toString(Charsets.UTF_8)
+            return out.toString("UTF-8")
         } finally {
             conn.disconnect()
         }
