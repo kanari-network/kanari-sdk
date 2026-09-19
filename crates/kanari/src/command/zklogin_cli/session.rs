@@ -136,53 +136,18 @@ pub(crate) fn delete_session_in(dir: &std::path::Path, address: &str) -> Result<
     Ok(true)
 }
 
-/// Stable salt vault: one 32-byte salt per (iss, aud, sub).
+/// Standard address-salt: one 32-byte value per (iss, aud, sub), derived
+/// purely from [`kanari_crypto::signatures::zklogin::deterministic_salt`].
 ///
-/// The address derives from the salt, so a fresh random salt every login
-/// would give a NEW address every time. Persisting the salt per account
-/// keeps the address stable: same Google account -> same address, forever.
-/// Filename = SHA256 over length-prefixed parts (no PII in the path).
-/// Same 0600 treatment as sessions. Returns `(salt, is_new)`.
-pub fn load_or_create_salt(iss: &str, aud: &str, sub: &str) -> Result<([u8; 32], bool)> {
-    load_or_create_salt_in(&session_dir()?, iss, aud, sub)
-}
-
-pub(crate) fn load_or_create_salt_in(
-    base: &std::path::Path,
-    iss: &str,
-    aud: &str,
-    sub: &str,
-) -> Result<([u8; 32], bool)> {
-    use sha2::{Digest, Sha256};
-
-    let dir = base.join("salts");
-    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
-    let mut h = Sha256::new();
-    h.update(b"kanari-salt-lookup-v1");
-    for part in [iss.as_bytes(), aud.as_bytes(), sub.as_bytes()] {
-        h.update((part.len() as u64).to_be_bytes());
-        h.update(part);
-    }
-    let path = dir.join(hex::encode(h.finalize()));
-    if path.exists() {
-        let hex_str = std::fs::read_to_string(&path).context("cannot read salt file")?;
-        let bytes = hex::decode(hex_str.trim())
-            .context("salt file is corrupt")?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("salt file is corrupt"))?;
-        return Ok((bytes, false));
-    }
-    let salt = kanari_crypto::signatures::zklogin::generate_salt()
-        .map_err(|e| anyhow::anyhow!("cannot sample salt: {e:?}"))?;
-    std::fs::write(&path, hex::encode(salt))
-        .with_context(|| format!("cannot write {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .context("cannot restrict salt permissions")?;
-    }
-    Ok((salt, true))
+/// This is THE standard salt — the exact same value the Android app derives
+/// via FFI — so CLI and app always agree on the address for the same Google
+/// account, on any machine, with nothing stored: no vault files, no random
+/// salts, no backups. Stale `salts/` entries left by older versions are
+/// intentionally never read. (The address derives from the salt, so any
+/// per-device randomness here would mint a NEW address every reinstall.)
+pub fn standard_salt(iss: &str, aud: &str, sub: &str) -> Result<[u8; 32]> {
+    kanari_crypto::signatures::zklogin::deterministic_salt(iss, aud, sub)
+        .map_err(|e| anyhow::anyhow!("cannot derive standard salt: {e:?}"))
 }
 
 #[cfg(test)]
@@ -234,22 +199,24 @@ mod tests {
     }
 
     #[test]
-    fn salt_vault_is_stable_per_account() {
-        // Explicit dir: no env manipulation, race-free under parallel tests.
-        let dir =
-            std::env::temp_dir().join(format!("kanari-zklogin-salttest-{}", std::process::id()));
-        let (s1, is_new1) = load_or_create_salt_in(&dir, "https://a.example", "cid", "u1").unwrap();
-        assert!(is_new1);
-        assert_eq!(s1.len(), 32);
-        // Same account -> same salt (address stays put across logins).
-        let (s2, is_new2) = load_or_create_salt_in(&dir, "https://a.example", "cid", "u1").unwrap();
-        assert!(!is_new2);
+    fn standard_salt_matches_shared_vector() {
+        // No filesystem involved: the standard salt is pure derivation,
+        // identical to what the Android app gets from kanari-crypto FFI.
+        // Same fixture as `deterministic_salt_is_stable_and_shared_vector`.
+        let s1 =
+            standard_salt("https://accounts.google.com", "kanari-test-client", "1234").unwrap();
+        assert_eq!(
+            hex::encode(s1),
+            "82364ea8d3563ad90cd8876b4242a2d44be88114b1b4ca114b39ca7027617fe0"
+        );
+        // Same account -> same salt, every call, every machine.
+        let s2 =
+            standard_salt("https://accounts.google.com", "kanari-test-client", "1234").unwrap();
         assert_eq!(s1, s2);
         // Different sub -> different salt. Different aud -> different salt.
-        let (s3, _) = load_or_create_salt_in(&dir, "https://a.example", "cid", "u2").unwrap();
+        let s3 = standard_salt("https://accounts.google.com", "kanari-test-client", "u2").unwrap();
         assert_ne!(s1, s3);
-        let (s4, _) = load_or_create_salt_in(&dir, "https://a.example", "other", "u1").unwrap();
+        let s4 = standard_salt("https://accounts.google.com", "other", "1234").unwrap();
         assert_ne!(s1, s4);
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

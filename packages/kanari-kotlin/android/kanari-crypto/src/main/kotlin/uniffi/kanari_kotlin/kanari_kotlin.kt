@@ -698,6 +698,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_zklogin_derive_address(
     ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_deterministic_salt(
+    ): Int
     external fun uniffi_kanari_kotlin_checksum_func_zklogin_prepare_nonce(
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_zklogin_sign_ephemeral(
@@ -744,6 +746,8 @@ internal object UniffiLib {
     external fun uniffi_kanari_kotlin_fn_func_zklogin_build_bundle(`jwt`: RustBuffer.ByValue,`jwksJson`: RustBuffer.ByValue,`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,`randomness`: RustBuffer.ByValue,`ephemeralPubkey`: RustBuffer.ByValue,`ephemeralSig`: RustBuffer.ByValue,`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_zklogin_derive_address(`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`sub`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_deterministic_salt(`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`sub`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_zklogin_prepare_nonce(`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -909,6 +913,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_derive_address() and 0xFFFF) != 7306) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_deterministic_salt() and 0xFFFF) != 29401) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_prepare_nonce() and 0xFFFF) != 38387) {
@@ -1337,8 +1344,6 @@ data class ZkLoginNonceData (
     , 
     var `randomness`: List<kotlin.UByte>
     , 
-    var `salt`: List<kotlin.UByte>
-    , 
     var `maxEpoch`: kotlin.ULong
     , 
     var `nonce`: kotlin.String
@@ -1361,7 +1366,6 @@ public object FfiConverterTypeZkLoginNonceData: FfiConverterRustBuffer<ZkLoginNo
             FfiConverterSequenceUByte.read(buf),
             FfiConverterSequenceUByte.read(buf),
             FfiConverterSequenceUByte.read(buf),
-            FfiConverterSequenceUByte.read(buf),
             FfiConverterULong.read(buf),
             FfiConverterString.read(buf),
         )
@@ -1371,7 +1375,6 @@ public object FfiConverterTypeZkLoginNonceData: FfiConverterRustBuffer<ZkLoginNo
             FfiConverterSequenceUByte.allocationSize(value.`ephemeralPubkey`) +
             FfiConverterSequenceUByte.allocationSize(value.`ephemeralSecret`) +
             FfiConverterSequenceUByte.allocationSize(value.`randomness`) +
-            FfiConverterSequenceUByte.allocationSize(value.`salt`) +
             FfiConverterULong.allocationSize(value.`maxEpoch`) +
             FfiConverterString.allocationSize(value.`nonce`)
     )
@@ -1380,7 +1383,6 @@ public object FfiConverterTypeZkLoginNonceData: FfiConverterRustBuffer<ZkLoginNo
             FfiConverterSequenceUByte.write(value.`ephemeralPubkey`, buf)
             FfiConverterSequenceUByte.write(value.`ephemeralSecret`, buf)
             FfiConverterSequenceUByte.write(value.`randomness`, buf)
-            FfiConverterSequenceUByte.write(value.`salt`, buf)
             FfiConverterULong.write(value.`maxEpoch`, buf)
             FfiConverterString.write(value.`nonce`, buf)
     }
@@ -1694,6 +1696,19 @@ public object FfiConverterSequenceTypeKeyPairData: FfiConverterRustBuffer<List<K
         FfiConverterString.lower(`aud`),
         FfiConverterString.lower(`sub`),
         FfiConverterSequenceUByte.lower(`salt`),_status)
+}
+    )
+    }
+    
+ fun `zkloginDeterministicSalt`(`iss`: kotlin.String, `aud`: kotlin.String, `sub`: kotlin.String): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_deterministic_salt(
+    
+        
+        FfiConverterString.lower(`iss`),
+        FfiConverterString.lower(`aud`),
+        FfiConverterString.lower(`sub`),_status)
 }
     )
     }

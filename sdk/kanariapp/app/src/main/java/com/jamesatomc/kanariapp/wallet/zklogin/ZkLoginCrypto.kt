@@ -14,15 +14,16 @@ import java.security.spec.RSAPublicKeySpec
  *
  * Mirrors `kanari-crypto/src/signatures/zklogin.rs` exactly:
  * - nonce = hex(SHA256("zkLogin-nonce" || pubkey || max_epoch_le64 || randomness))
- * - address v2 = 0x + hex(SHA256("zkLogin-v2" || iss[64] || aud[96] || sub[64] || salt[32]))
- *   zero-padded; caps enforced, never silently truncated.
+ *
+ * NOTE: there is deliberately NO address-derivation helper here. The only
+ * accepted address-salt is the kanari-crypto standard (`deterministic_salt`,
+ * via `KanariCrypto.zkLoginDeterministicSalt` + `zkLoginDeriveAddress` FFI);
+ * a Kotlin helper taking an arbitrary salt would reopen the door to
+ * non-standard addresses, so it was removed.
  */
 object ZkLoginCrypto {
 
     const val ISS_GOOGLE = "https://accounts.google.com"
-    const val MAX_ISS_BYTES = 64
-    const val MAX_AUD_BYTES = 96
-    const val MAX_SUB_BYTES = 64
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -112,32 +113,10 @@ object ZkLoginCrypto {
         return hex(sha256(preimage))
     }
 
-    fun deriveAddressV2(iss: String, aud: String, sub: String, salt: ByteArray): String {
-        val issB = iss.toByteArray(Charsets.UTF_8)
-        val audB = aud.toByteArray(Charsets.UTF_8)
-        val subB = sub.toByteArray(Charsets.UTF_8)
-        require(issB.isNotEmpty() && audB.isNotEmpty() && subB.isNotEmpty()) { "iss/aud/sub empty" }
-        require(issB.size <= MAX_ISS_BYTES) { "iss too long" }
-        require(audB.size <= MAX_AUD_BYTES) { "aud too long" }
-        require(subB.size <= MAX_SUB_BYTES) { "sub too long" }
-        require(salt.size == 32) { "salt must be 32 bytes" }
-        val preimage = "zkLogin-v2".toByteArray(Charsets.US_ASCII) +
-                issB.padTo(MAX_ISS_BYTES) +
-                audB.padTo(MAX_AUD_BYTES) +
-                subB.padTo(MAX_SUB_BYTES) +
-                salt
-        return "0x" + hex(sha256(preimage))
-    }
-
     private fun Long.toLeBytes(): ByteArray {
         val out = ByteArray(8)
         for (i in 0 until 8) out[i] = ((this shr (8 * i)) and 0xFF).toByte()
         return out
-    }
-
-    private fun ByteArray.padTo(width: Int): ByteArray {
-        require(size <= width)
-        return if (size == width) this else this + ByteArray(width - size)
     }
 
     // --- JWT ---

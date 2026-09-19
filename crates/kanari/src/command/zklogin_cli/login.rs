@@ -5,8 +5,8 @@
 //!
 //! Flow (no client secret needed for Desktop clients; Web clients are asked
 //! for it only if Google rejects the PKCE exchange):
-//! 1. Generate ephemeral Ed25519 key + `randomness` (salt comes later:
-//!    it is per-account state, see step 7).
+//! 1. Generate ephemeral Ed25519 key + `randomness` (the address-salt is
+//!    the kanari-crypto standard, derived in step 7 — nothing is stored).
 //! 2. `nonce = compute_nonce(ephemeral_pubkey, max_epoch, randomness)`.
 //! 3. Open the Google login URL (loopback redirect + PKCE S256).
 //! 4. Catch the authorization `code` on `127.0.0.1:<port>` (or paste it).
@@ -83,9 +83,9 @@ impl Login {
             .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
 
         // --- 1-2. Ephemeral key + randomness + nonce ---
-        // NOTE: no salt here on purpose. The salt is per-account state
-        // loaded AFTER the JWT tells us the `sub` (see below) — fresh salt
-        // every login would derive a different address each time.
+        // NOTE: no salt here on purpose. The standard salt derives AFTER
+        // the JWT tells us the `sub` (see step 7) — purely from
+        // (iss, aud, sub) via kanari-crypto, so it is identical every login.
         let ephemeral = EphemeralKeypair::generate().context("cannot generate ephemeral key")?;
         let randomness = generate_randomness().context("cannot sample randomness")?;
         let pubkey = ephemeral.public_bytes();
@@ -176,12 +176,25 @@ impl Login {
                 .map_err(|e| anyhow::anyhow!("JWT verification failed: {e:?}"))?;
 
         // --- 7. Address + session (canonical v2 scheme, matches chain) ---
-        // Stable salt per (iss, aud, sub): same account -> same address.
-        let (salt, salt_is_new) =
-            session::load_or_create_salt(&claims.iss, &client_id, &claims.sub)?;
-        if !salt_is_new {
-            eprintln!("Reused existing salt: address matches your previous logins.");
+        // Standard salt from kanari-crypto: same account -> same address
+        // here AND on the Android app, on any machine, with nothing stored.
+        // Purge the stale `salts/` vault from older versions (never read
+        // anymore) so no non-standard salt lingers on disk. Best-effort.
+        if let Ok(dir) = session::session_dir() {
+            let vault = dir.join("salts");
+            if vault.exists() {
+                match std::fs::remove_dir_all(&vault) {
+                    Ok(()) => eprintln!(
+                        "Removed stale salt vault (only the kanari-crypto standard is used)."
+                    ),
+                    Err(e) => eprintln!(
+                        "Note: cannot remove stale salt vault {}: {e:#}",
+                        vault.display()
+                    ),
+                }
+            }
         }
+        let salt = session::standard_salt(&claims.iss, &client_id, &claims.sub)?;
         let address = derive_zklogin_address_v2(&claims.iss, &client_id, &claims.sub, &salt)
             .map_err(|e| anyhow::anyhow!("address derivation failed: {e:?}"))?;
         let session = ZkLoginSession {
@@ -211,12 +224,12 @@ impl Login {
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "unknown".to_string())
         );
-        if salt_is_new {
-            eprintln!(
-                "\nBACK UP THIS SALT (it re-derives your address): {}",
-                session.salt_hex
-            );
-        }
+        // The standard salt re-derives from the account itself (kanari-crypto),
+        // so it needs no backup and is identical on the Android app.
+        eprintln!(
+            "Salt (kanari-crypto standard, shared with the app): {}",
+            session.salt_hex
+        );
         eprintln!(
             "WARNING: the session file holds the ephemeral secret (usable until max_epoch {}). \
              Keep it owner-only; `kanari zklogin logout` deletes it.",

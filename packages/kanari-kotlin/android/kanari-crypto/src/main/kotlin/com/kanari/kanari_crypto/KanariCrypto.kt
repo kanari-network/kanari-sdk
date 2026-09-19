@@ -116,7 +116,7 @@ object KanariCrypto {
     // so Kotlin and the chain can never drift. The OAuth browser dance
     // stays in the app layer; these functions own prepare/verify/derive.
 
-    /** Fresh ephemeral key + randomness + salt bound into an OIDC nonce. */
+    /** Fresh ephemeral key + randomness bound into an OIDC nonce (no salt). */
     suspend fun zkLoginPrepareNonce(maxEpoch: Long): ZkLoginNonceModel =
         calculateWithLargeStack {
             uniffi.kanari_kotlin.zkloginPrepareNonce(maxEpoch.toULong()).toModel()
@@ -134,6 +134,19 @@ object KanariCrypto {
         uniffi.kanari_kotlin.zkloginVerifyJwt(
             jwt, jwksJson, expectedIss, expectedAud, expectedNonce, nowSecs.toULong()
         ).toModel()
+    }
+
+    /**
+     * Canonical zkLogin address-salt (THE primary salt, from kanari-crypto):
+     * deterministic per (iss, aud, sub), so the same Google account always
+     * derives the same address — CLI, app, reinstalls, new devices.
+     */
+    suspend fun zkLoginDeterministicSalt(
+        iss: String,
+        aud: String,
+        sub: String,
+    ): ByteArray = calculateWithLargeStack {
+        uniffi.kanari_kotlin.zkloginDeterministicSalt(iss, aud, sub).toByteArray()
     }
 
     /** Derive the canonical v2 zkLogin address (matches chain + CLI). */
@@ -224,7 +237,6 @@ private fun ZkLoginNonceData.toModel(): ZkLoginNonceModel =
         ephemeralPubkey = ephemeralPubkey.map { it.toByte() }.toByteArray(),
         ephemeralSecret = ephemeralSecret.map { it.toByte() }.toByteArray(),
         randomness = randomness.map { it.toByte() }.toByteArray(),
-        salt = salt.map { it.toByte() }.toByteArray(),
         maxEpoch = maxEpoch.toLong(),
         nonce = nonce,
     )

@@ -338,19 +338,61 @@ pub fn verify_nonce_binding(
     }
 }
 
-/// Random 32-byte salt (user secret for address derivation).
-pub fn generate_salt() -> Result<[u8; 32], SignatureError> {
+/// Random 32-byte `randomness` for nonce binding (single-use per login).
+///
+/// NOTE: there is deliberately no random-salt generator here. The
+/// address-salt is always [`deterministic_salt`]; a random salt per login
+/// would rotate the wallet address every time (and strand funds on
+/// reinstall), so nothing in the repo may mint one.
+pub fn generate_randomness() -> Result<[u8; 32], SignatureError> {
     use rand::{TryRng, rngs::SysRng};
-    let mut salt = [0u8; 32];
+    let mut randomness = [0u8; 32];
     SysRng
-        .try_fill_bytes(&mut salt)
+        .try_fill_bytes(&mut randomness)
         .map_err(|_| SignatureError::InvalidPrivateKey("OS randomness failed".to_string()))?;
-    Ok(salt)
+    Ok(randomness)
 }
 
-/// Random 32-byte `randomness` for nonce binding (single-use per login).
-pub fn generate_randomness() -> Result<[u8; 32], SignatureError> {
-    generate_salt()
+/// Canonical zkLogin address-salt (THE primary salt, shared by the CLI
+/// `kanari zklogin` and the Android app via FFI) so the same Google
+/// account always derives the same address on every device and across
+/// reinstalls / cleared app data:
+///
+/// `salt = SHA256("kanari-zklogin-salt-v1" || len(iss) || iss || len(aud) || aud || len(sub) || sub)`
+/// with `u64` big-endian length prefixes (same framing as the salt-vault key).
+///
+/// Stability beats unlinkability here on purpose: a random per-device salt
+/// silently derives a NEW address whenever local storage is lost, stranding
+/// funds. A deterministic salt is computable by anyone who knows
+/// `(iss, aud, sub)`, so it does not hide the link between the Google
+/// identity and the on-chain address — same trade-off as Sui's
+/// deterministic salt services. Both the CLI (`kanari zklogin`) and the
+/// Android app (via FFI) use this function unconditionally, with nothing
+/// stored anywhere, so the same account always maps to the same address.
+///
+/// Field caps mirror [`derive_zklogin_address_v2`]: oversized inputs are
+/// rejected, never silently truncated.
+pub fn deterministic_salt(iss: &str, aud: &str, sub: &str) -> Result<[u8; 32], SignatureError> {
+    use sha2::{Digest, Sha256};
+
+    let (iss_b, aud_b, sub_b) = (iss.as_bytes(), aud.as_bytes(), sub.as_bytes());
+    if iss_b.is_empty() || aud_b.is_empty() || sub_b.is_empty() {
+        return Err(SignatureError::InvalidFormat(
+            "zkLogin iss/aud/sub must all be non-empty".to_string(),
+        ));
+    }
+    if iss_b.len() > MAX_ISS_BYTES || aud_b.len() > MAX_AUD_BYTES || sub_b.len() > MAX_SUB_BYTES {
+        return Err(SignatureError::InvalidFormat(format!(
+            "zkLogin field too long (iss<={MAX_ISS_BYTES}, aud<={MAX_AUD_BYTES}, sub<={MAX_SUB_BYTES})"
+        )));
+    }
+    let mut h = Sha256::new();
+    h.update(b"kanari-zklogin-salt-v1");
+    for part in [iss_b, aud_b, sub_b] {
+        h.update((part.len() as u64).to_be_bytes());
+        h.update(part);
+    }
+    Ok(h.finalize().into())
 }
 
 // ---------------------------------------------------------------------------
@@ -488,6 +530,47 @@ mod tests {
         // Different sub => different address.
         let c = derive_zklogin_address_v2(ISS_GOOGLE, "client123", "other", &salt).unwrap();
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn deterministic_salt_is_stable_and_shared_vector() {
+        // Shared vector with the Android suite and the FFI tests: CLI and
+        // app must emit this exact primary salt so both derive the address.
+        let salt = deterministic_salt("https://accounts.google.com", "kanari-test-client", "1234")
+            .unwrap();
+        assert_eq!(
+            hex::encode(salt),
+            "82364ea8d3563ad90cd8876b4242a2d44be88114b1b4ca114b39ca7027617fe0"
+        );
+        // Same account -> same salt, forever (reinstall-safe).
+        let again = deterministic_salt("https://accounts.google.com", "kanari-test-client", "1234")
+            .unwrap();
+        assert_eq!(salt, again);
+        // Any field change -> different salt (hence different address).
+        for (iss, aud, sub) in [
+            ("https://other.example", "kanari-test-client", "1234"),
+            ("https://accounts.google.com", "other-client", "1234"),
+            ("https://accounts.google.com", "kanari-test-client", "5678"),
+        ] {
+            assert_ne!(salt, deterministic_salt(iss, aud, sub).unwrap());
+        }
+        // Feeds the address derivation end to end.
+        let addr = derive_zklogin_address_v2(
+            "https://accounts.google.com",
+            "kanari-test-client",
+            "1234",
+            &salt,
+        )
+        .unwrap();
+        assert!(addr.starts_with("0x") && addr.len() == 66);
+    }
+
+    #[test]
+    fn deterministic_salt_rejects_bad_inputs() {
+        assert!(deterministic_salt("", "a", "b").is_err());
+        assert!(deterministic_salt("i", "", "b").is_err());
+        assert!(deterministic_salt("i", "a", "").is_err());
+        assert!(deterministic_salt("i", &"y".repeat(97), "b").is_err());
     }
 
     #[test]

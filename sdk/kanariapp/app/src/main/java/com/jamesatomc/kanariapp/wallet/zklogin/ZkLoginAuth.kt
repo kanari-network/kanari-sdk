@@ -31,7 +31,8 @@ import java.net.URL
  * chain, so app and node can never drift. This file owns only the
  * Android glue: credential request, JWKS fetch, session files.
  *
- * 1. Ephemeral key + randomness + salt + nonce (Rust FFI).
+ * 1. Ephemeral key + randomness + nonce (Rust FFI; the address-salt is
+ *    the kanari-crypto standard, derived after the JWT is known).
  * 2. Credential Manager Google Sign-In with our nonce (OS bottom sheet).
  * 3. Google JWKS fetch + JWT verify + nonce binding (fail-closed, Rust).
  * 4. Address derivation (Rust) + private session file.
@@ -96,11 +97,13 @@ object ZkLoginAuth {
         clientId: String = DEFAULT_CLIENT_ID,
         maxEpoch: Long = 1000,
     ): LoginResult {
+        // Drop stale non-standard salt storage from older versions: the
+        // standard salt needs nothing stored, so this file must not exist.
+        purgeLegacySaltFiles(context)
         val ffi = com.kanari.kanari_crypto.KanariCrypto
         val prep = ffi.zkLoginPrepareNonce(maxEpoch)
         val ephemeralPub = prep.ephemeralPubkey
         val randomness = prep.randomness
-        val salt = prep.salt
         val nonce = prep.nonce
 
         val idToken = requestGoogleIdToken(context, clientId, nonce)
@@ -109,33 +112,13 @@ object ZkLoginAuth {
         // Nonce bound inside Rust (fail-closed); no separate check here.
         val claims =
             ffi.zkLoginVerifyJwt(idToken, jwksJson, ZkLoginCrypto.ISS_GOOGLE, clientId, nonce, nowSecs)
-        // Reuse the same address-salt for this Google account so the wallet
-        // does NOT change on every sign-in. First login picks a random salt
-        // and persists it keyed by iss|aud|sub; later logins reuse it.
-        // Hard-pinned for the primary account so "ล้างข้อมูล" still recovers 0x3825...
-        val knownSalts = mapOf(
-            "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572" to "afa5e8ab5dace2560ff81e7356cd099da6491f65b6ee7093580ce4f2185e23f5"
-        )
-        val saltKey = "${claims.iss}|$clientId|${claims.sub}"
-        val saltMap = loadSaltMap(context)
-        val saltHex =
-            knownSalts[saltKey] ?: saltMap[saltKey] ?: findSaltHexForSub(context, claims.iss, clientId, claims.sub)
-        val finalSalt: ByteArray
-        val finalSaltHex: String
-        if (saltHex != null) {
-            finalSalt = ZkLoginCrypto.unhex(saltHex)
-            finalSaltHex = saltHex
-            // ensure pinned value is persisted so next launch finds it without code
-            if (knownSalts.containsKey(saltKey) && saltMap[saltKey] != saltHex) {
-                saltMap[saltKey] = saltHex
-                saveSaltMap(context, saltMap)
-            }
-        } else {
-            finalSalt = salt
-            finalSaltHex = ZkLoginCrypto.hex(salt)
-            saltMap[saltKey] = finalSaltHex
-            saveSaltMap(context, saltMap)
-        }
+        // Address-salt: ONLY the kanari-crypto standard, deterministic per
+        // (iss, aud, sub) — identical to `kanari zklogin` on desktop, stable
+        // across reinstalls and devices. Nothing is stored on device (any
+        // legacy `_salts.json` was purged above), so there is nothing to
+        // lose and the wallet address can never rotate.
+        val finalSalt = ffi.zkLoginDeterministicSalt(claims.iss, clientId, claims.sub)
+        val finalSaltHex = ZkLoginCrypto.hex(finalSalt)
         val address = ffi.zkLoginDeriveAddress(claims.iss, clientId, claims.sub, finalSalt)
         val session = Session(
             iss = claims.iss,
@@ -296,50 +279,25 @@ object ZkLoginAuth {
         }
     }
 
-    // --- stable address-salt (so wallet does not rotate) ---
-
-    private fun saltsFile(context: Context): File = File(sessionDir(context), "_salts.json")
-
-    private fun loadSaltMap(context: Context): MutableMap<String, String> {
-        val f = saltsFile(context)
-        if (!f.exists()) return mutableMapOf()
-        return try {
-            val m = json.decodeFromString<Map<String, String>>(f.readText()).toMutableMap()
-            // one-time migration: 0x1611... was derived with wrong salt after aud change
-            // force it to the CLI's salt so 0x3825... is recovered for this account
-            val fixKey =
-                "https://accounts.google.com|1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com|102842105901901743572"
-            val correct = "afa5e8ab5dace2560ff81e7356cd099da6491f65b6ee7093580ce4f2185e23f5"
-            if (m[fixKey] == "69c7ab0fd7be975d40dd1c65968df2c54c06e3fbd1f03cb10483b8cb0fa06b3d") {
-                m[fixKey] = correct
-                try {
-                    saveSaltMap(context, m)
-                } catch (_: Exception) {
+    // NOTE: no salt is persisted on device. The address-salt is always the
+    // kanari-crypto standard (see `login`). Session files hold only the
+    // ephemeral key, the JWT, and the (re-derivable) saltHex the tx bundle
+    // needs — never a non-standard salt.
+    //
+    // One-time cleanup: `_salts.json` (+ tmp leftovers) from older versions
+    // is never read anymore, so delete it outright — no non-standard salt
+    // may linger on disk. Best-effort: must never fail a login.
+    private fun purgeLegacySaltFiles(context: Context) {
+        try {
+            sessionDir(context).listFiles()
+                ?.filter { it.name == "_salts.json" || it.name.startsWith("_salts.json.") }
+                ?.forEach {
+                    try {
+                        it.delete()
+                    } catch (_: Exception) {
+                    }
                 }
-            }
-            m
         } catch (_: Exception) {
-            mutableMapOf()
         }
-    }
-
-    private fun saveSaltMap(context: Context, map: Map<String, String>) {
-        atomicWriteText(saltsFile(context), json.encodeToString(map))
-    }
-
-    private fun findSaltHexForSub(context: Context, iss: String, aud: String, sub: String): String? {
-        val dir = sessionDir(context)
-        val files = dir.listFiles() ?: return null
-        for (f in files) {
-            if (f.name == "_salts.json" || !f.name.endsWith(".json")) continue
-            try {
-                val s = json.decodeFromString(Session.serializer(), f.readText())
-                if (s.iss == iss && s.aud == aud && s.sub == sub && s.saltHex.isNotBlank()) {
-                    return s.saltHex
-                }
-            } catch (_: Exception) {
-            }
-        }
-        return null
     }
 }

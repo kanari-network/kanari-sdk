@@ -37,12 +37,15 @@ data class CurveInfoModel(
     val securityLevel: Int,
 )
 
-/** Fresh login material from `zklogin_prepare_nonce` (Rust-owned crypto). */
+/**
+ * Fresh login material from `zklogin_prepare_nonce` (Rust-owned crypto).
+ * No salt here: the address-salt is the kanari-crypto standard
+ * (`zkLoginDeterministicSalt`), derived after the JWT is known.
+ */
 data class ZkLoginNonceModel(
     val ephemeralPubkey: ByteArray,
     val ephemeralSecret: ByteArray,
     val randomness: ByteArray,
-    val salt: ByteArray,
     val maxEpoch: Long,
     val nonce: String,
 ) {
@@ -52,7 +55,6 @@ data class ZkLoginNonceModel(
         return ephemeralPubkey.contentEquals(other.ephemeralPubkey) &&
             ephemeralSecret.contentEquals(other.ephemeralSecret) &&
             randomness.contentEquals(other.randomness) &&
-            salt.contentEquals(other.salt) &&
             maxEpoch == other.maxEpoch &&
             nonce == other.nonce
     }
@@ -61,7 +63,6 @@ data class ZkLoginNonceModel(
         var result = ephemeralPubkey.contentHashCode()
         result = 31 * result + ephemeralSecret.contentHashCode()
         result = 31 * result + randomness.contentHashCode()
-        result = 31 * result + salt.contentHashCode()
         result = 31 * result + maxEpoch.hashCode()
         result = 31 * result + nonce.hashCode()
         return result

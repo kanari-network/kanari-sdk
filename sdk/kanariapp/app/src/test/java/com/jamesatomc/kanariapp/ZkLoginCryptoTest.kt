@@ -12,7 +12,6 @@ class ZkLoginCryptoTest {
     // Cross-language vectors from kanari-crypto (must never drift).
     private val ephPub = ZkLoginCrypto.unhex("197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61")
     private val rand32 = ZkLoginCrypto.unhex("0707070707070707070707070707070707070707070707070707070707070707")
-    private val salt = ZkLoginCrypto.unhex("0909090909090909090909090909090909090909090909090909090909090909")
 
     @Test
     fun nonce_matches_rust_vector() {
@@ -22,22 +21,10 @@ class ZkLoginCryptoTest {
         )
     }
 
-    @Test
-    fun address_v2_matches_rust_vector() {
-        assertEquals(
-            "0x3bc27fa23ddd2177cb1914572052272ce060182745a576019095c05a70971181",
-            ZkLoginCrypto.deriveAddressV2("https://accounts.google.com", "kanari-test-client", "1234", salt)
-        )
-    }
-
-    @Test
-    fun address_v2_rejects_oversize() {
-        try {
-            ZkLoginCrypto.deriveAddressV2("https://accounts.google.com", "x".repeat(97), "b", salt)
-            fail("expected oversize aud to fail")
-        } catch (_: IllegalArgumentException) {
-        }
-    }
+    // NOTE: no address-derivation tests here on purpose. The only accepted
+    // salt is the kanari-crypto standard (FFI `zkLoginDeterministicSalt`),
+    // covered by the Rust/FFI vector tests; a JVM helper taking an arbitrary
+    // salt would allow non-standard addresses, so it does not exist.
 
     @Test
     fun pkce_matches_rfc7636_vector() {
