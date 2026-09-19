@@ -134,6 +134,8 @@ object ZkLoginCrypto {
         val aud: kotlinx.serialization.json.JsonElement? = null,
         val sub: String = "",
         val exp: Long? = null,
+        val iat: Long? = null,
+        val nbf: Long? = null,
         val nonce: String? = null,
     ) {
         fun audContains(expected: String): Boolean {
@@ -183,7 +185,8 @@ object ZkLoginCrypto {
     /**
      * Full RS256 verification against a JWKS document. Fail-closed, in order:
      * alg == RS256, kid selects a key, signature verifies, iss/aud match,
-     * exp fresh (60s leeway). Returns verified claims.
+     * exp fresh (60s leeway), iat/nbf not in the future beyond the leeway
+     * (mirrors `verify_claims_timing` in kanari-crypto). Returns claims.
      */
     fun verifyJwt(jwt: String, jwksJson: String, expectedIss: String, expectedAud: String, nowSecs: Long): JwtClaims {
         val parts = jwt.split(".")
@@ -232,6 +235,12 @@ object ZkLoginCrypto {
         if (!claims.audContains(expectedAud)) throw JwtError("aud mismatch")
         val exp = claims.exp ?: throw JwtError("JWT has no exp")
         if (nowSecs > exp + 60) throw JwtError("JWT expired")
+        // A token issued (or not yet valid) too far in the future is a
+        // clock-integrity violation: fail closed, same leeway as Rust.
+        val iat = claims.iat
+        if (iat != null && iat > nowSecs + 60) throw JwtError("JWT issued in the future")
+        val nbf = claims.nbf
+        if (nbf != null && nowSecs + 60 < nbf) throw JwtError("JWT not yet valid")
         return claims
     }
 }

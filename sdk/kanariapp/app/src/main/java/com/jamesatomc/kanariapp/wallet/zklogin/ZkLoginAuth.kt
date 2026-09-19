@@ -220,7 +220,19 @@ object ZkLoginAuth {
         return pkg to sha1
     }
 
+    /** Max JWKS payload we buffer (Google answers in KiBs; same cap as the CLI). */
+    internal const val MAX_HTTP_BYTES: Int = 256 * 1024
+
     private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
+        httpGetCapped(url, MAX_HTTP_BYTES)
+    }
+
+    /**
+     * Capped GET: a lying Content-Length (or chunked flood) must not OOM
+     * the app — the streaming cap below is the real guard, checked on
+     * every chunk, not just the header.
+     */
+    internal fun httpGetCapped(url: String, maxBytes: Int): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 15000
@@ -228,7 +240,31 @@ object ZkLoginAuth {
             conn.requestMethod = "GET"
             val code = conn.responseCode
             if (code !in 200..299) throw AuthException("GET $url failed: HTTP $code")
-            conn.inputStream.bufferedReader().readText()
+            val declared = conn.getHeaderField("Content-Length")?.toLongOrNull()
+            if (declared != null && declared > maxBytes) {
+                throw AuthException("GET $url failed: response too large ($declared bytes)")
+            }
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var total = 0
+            try {
+                while (true) {
+                    val n = conn.inputStream.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > maxBytes) {
+                        throw AuthException("GET $url failed: response too large (>${maxBytes} bytes)")
+                    }
+                    out.write(buf, 0, n)
+                }
+            } catch (e: AuthException) {
+                throw e
+            } catch (e: java.io.IOException) {
+                // Truncated stream, reset, timeout: never leak raw transport
+                // errors (or half-bodies) to login logic — fail closed.
+                throw AuthException("GET $url failed: ${e.message}")
+            }
+            return out.toString(Charsets.UTF_8)
         } finally {
             conn.disconnect()
         }

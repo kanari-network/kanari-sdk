@@ -295,3 +295,58 @@ fn prop_fuzz_pqc_mnemonic_derivation() {
         }
     });
 }
+
+/// Fuzz the zkLogin bundle verifier: arbitrary bytes must never panic.
+/// Attackers control `signature` bytes on the mempool path, so serde/ark
+/// fallibility here is consensus-critical.
+#[test]
+fn prop_fuzz_zklogin_bundle_never_panics() {
+    use kanari_crypto::signatures::zk_authenticator::verify_zklogin_tx_signature;
+    proptest!(crypto_fuzz_config(), |(addr: Vec<u8>, msg: Vec<u8>, sig: Vec<u8>)| {
+        prop_assume!(addr.len() <= 256 && msg.len() <= 1024 && sig.len() <= 70_000);
+        let addr_str = String::from_utf8_lossy(&addr);
+        // Ok or Err — never a panic.
+        let _ = verify_zklogin_tx_signature(&addr_str, &msg, &sig);
+    });
+}
+
+/// Fuzz zkLogin claims parsing + standard derivation: no panics, and the
+/// determinism/format invariants hold whenever they return Ok.
+#[test]
+fn prop_fuzz_zklogin_claims_and_address() {
+    use kanari_crypto::signatures::zklogin::{
+        decode_jwt_claims, derive_zklogin_address_v2, deterministic_salt,
+    };
+    proptest!(crypto_fuzz_config(), |(jwt: String, iss: String, aud: String, sub: String)| {
+        prop_assume!(jwt.len() <= 4096 && iss.len() <= 128 && aud.len() <= 160 && sub.len() <= 128);
+        // Decode: Ok or Err, never panic.
+        let _ = decode_jwt_claims(&jwt);
+        // Standard salt: 32 bytes and stable whenever it succeeds.
+        if let Ok(salt) = deterministic_salt(&iss, &aud, &sub) {
+            prop_assert_eq!(salt.len(), 32);
+            prop_assert_eq!(salt, deterministic_salt(&iss, &aud, &sub).unwrap());
+        }
+        // Address: 0x + 64 hex and stable whenever it succeeds.
+        if let Ok(addr) = derive_zklogin_address_v2(&iss, &aud, &sub, &[1u8; 32]) {
+            prop_assert!(addr.starts_with("0x") && addr.len() == 66);
+            prop_assert_eq!(
+                addr,
+                derive_zklogin_address_v2(&iss, &aud, &sub, &[1u8; 32]).unwrap()
+            );
+        }
+    });
+}
+
+/// Fuzz Groth16 public-input decoding: structural invariant only —
+/// Ok with exactly n/32 elements, Err only for ragged/oversize input.
+#[test]
+fn prop_fuzz_groth16_inputs_decode() {
+    use kanari_crypto::signatures::groth16::public_inputs_from_be_bytes;
+    proptest!(crypto_fuzz_config(), |(bytes: Vec<u8>)| {
+        prop_assume!(bytes.len() <= 65 * 32);
+        match public_inputs_from_be_bytes(&bytes) {
+            Ok(v) => prop_assert_eq!(v.len(), bytes.len() / 32),
+            Err(_) => prop_assert!(bytes.len() % 32 != 0 || bytes.len() / 32 > 64),
+        }
+    });
+}

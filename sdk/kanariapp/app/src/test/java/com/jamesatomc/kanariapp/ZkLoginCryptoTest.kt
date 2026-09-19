@@ -96,4 +96,54 @@ class ZkLoginCryptoTest {
             assertTrue(e.message!!.contains("signature"))
         }
     }
+
+    @Test
+    fun jwt_rejects_future_iat_and_nbf() {
+        val kp = rsaKey()
+        val pub = kp.public as RSAPublicKey
+        val jwks = jwksJson(pub, "k1")
+        // iat 61s in the future: clock-integrity violation.
+        val futureIat =
+            """{"iss":"https://accounts.google.com","aud":"cid","sub":"u1","exp":2000000000,"iat":1700000061}"""
+        try {
+            ZkLoginCrypto.verifyJwt(
+                mintJwt(kp.private, "k1", futureIat),
+                jwks,
+                "https://accounts.google.com",
+                "cid",
+                1_700_000_000L
+            )
+            fail("expected future iat to fail")
+        } catch (e: ZkLoginCrypto.JwtError) {
+            assertTrue(e.message!!.contains("future"))
+        }
+        // iat within leeway passes.
+        val okIat =
+            """{"iss":"https://accounts.google.com","aud":"cid","sub":"u1","exp":2000000000,"iat":1700000060}"""
+        assertEquals(
+            "u1",
+            ZkLoginCrypto.verifyJwt(
+                mintJwt(kp.private, "k1", okIat),
+                jwks,
+                "https://accounts.google.com",
+                "cid",
+                1_700_000_000L
+            ).sub
+        )
+        // nbf in the future beyond leeway: not yet valid.
+        val futureNbf =
+            """{"iss":"https://accounts.google.com","aud":"cid","sub":"u1","exp":2000000000,"nbf":1700000061}"""
+        try {
+            ZkLoginCrypto.verifyJwt(
+                mintJwt(kp.private, "k1", futureNbf),
+                jwks,
+                "https://accounts.google.com",
+                "cid",
+                1_700_000_000L
+            )
+            fail("expected future nbf to fail")
+        } catch (e: ZkLoginCrypto.JwtError) {
+            assertTrue(e.message!!.contains("not yet valid"))
+        }
+    }
 }

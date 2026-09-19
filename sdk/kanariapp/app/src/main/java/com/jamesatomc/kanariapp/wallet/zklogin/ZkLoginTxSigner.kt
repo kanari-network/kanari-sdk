@@ -132,33 +132,40 @@ object ZkLoginTxSigner {
     ): ByteArray {
         ensureFresh(session, nowSecs)
         val secret = ZkLoginCrypto.unhex(session.ephemeralSecretHex)
-        val pub = ZkLoginCrypto.unhex(session.ephemeralPubkeyHex)
-        val sig = KanariCrypto.zkLoginSignEphemeral(secret, txHash)
-        val sigOk = KanariCrypto.zkLoginVerifyEphemeral(pub, txHash, sig)
-        if (!sigOk) throw IllegalStateException("ephemeral signature failed local check")
+        try {
+            val pub = ZkLoginCrypto.unhex(session.ephemeralPubkeyHex)
+            val sig = KanariCrypto.zkLoginSignEphemeral(secret, txHash)
+            val sigOk = KanariCrypto.zkLoginVerifyEphemeral(pub, txHash, sig)
+            if (!sigOk) throw IllegalStateException("ephemeral signature failed local check")
 
-        // Mirror node-side verify_zklogin_authenticator fail-closed before emitting.
-        val nonce = expectedNonce(session)
-        val claims = KanariCrypto.zkLoginVerifyJwt(
-            session.idToken, session.jwksJson, session.iss, session.aud, nonce, nowSecs,
-        )
-        val derived = KanariCrypto.zkLoginDeriveAddress(
-            claims.iss, session.aud, claims.sub, ZkLoginCrypto.unhex(session.saltHex),
-        )
-        require(derived.equals(session.address, ignoreCase = true)) {
-            "zkLogin address mismatch: derived $derived != session ${session.address}"
+            // Mirror node-side verify_zklogin_authenticator fail-closed before emitting.
+            val nonce = expectedNonce(session)
+            val claims = KanariCrypto.zkLoginVerifyJwt(
+                session.idToken, session.jwksJson, session.iss, session.aud, nonce, nowSecs,
+            )
+            val derived = KanariCrypto.zkLoginDeriveAddress(
+                claims.iss, session.aud, claims.sub, ZkLoginCrypto.unhex(session.saltHex),
+            )
+            require(derived.equals(session.address, ignoreCase = true)) {
+                "zkLogin address mismatch: derived $derived != session ${session.address}"
+            }
+            // Rust owns the bundle JSON (no Kotlin manual serde) — `lib.rs:275`
+            return KanariCrypto.zkLoginBuildBundle(
+                jwt = session.idToken,
+                jwksJson = session.jwksJson,
+                iss = session.iss,
+                aud = session.aud,
+                salt = ZkLoginCrypto.unhex(session.saltHex),
+                randomness = ZkLoginCrypto.unhex(session.randomnessHex),
+                ephemeralPubkey = pub,
+                ephemeralSig = sig,
+                maxEpoch = session.maxEpoch,
+            )
+        } finally {
+            // Best-effort: wipe the transient secret copy (the session file
+            // keeps its own hex for future signing; GC may retain copies —
+            // this only shrinks the window, like the Rust Zeroizing half).
+            secret.fill(0)
         }
-        // Rust owns the bundle JSON (no Kotlin manual serde) — `lib.rs:275`
-        return KanariCrypto.zkLoginBuildBundle(
-            jwt = session.idToken,
-            jwksJson = session.jwksJson,
-            iss = session.iss,
-            aud = session.aud,
-            salt = ZkLoginCrypto.unhex(session.saltHex),
-            randomness = ZkLoginCrypto.unhex(session.randomnessHex),
-            ephemeralPubkey = pub,
-            ephemeralSig = sig,
-            maxEpoch = session.maxEpoch,
-        )
     }
 }

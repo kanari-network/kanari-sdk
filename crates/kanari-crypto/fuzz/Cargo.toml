@@ -59,6 +59,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "zklogin-bundle"
+path = "fuzz_targets/zklogin_bundle.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 opt-level = 3
 debug = false
