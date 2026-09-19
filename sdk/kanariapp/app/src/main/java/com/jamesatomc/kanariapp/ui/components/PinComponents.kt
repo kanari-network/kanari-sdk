@@ -438,7 +438,7 @@ fun PinGateDialog(
     title: String,
     subtitle: String,
     onVerifyAsync: suspend (String) -> Boolean,
-    onSuccess: () -> Unit,
+    onSuccess: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(
@@ -468,9 +468,70 @@ fun PinGateDialog(
                     title = "",
                     subtitle = subtitle,
                     onVerifyAsync = onVerifyAsync,
-                    onSuccess = { onSuccess() },
+                    onSuccess = { onSuccess(it) },
                     modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 24.dp),
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreatePinDialog(
+    onPinCreated: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val pin = rememberPinState()
+    var step by remember { mutableIntStateOf(0) }
+    var firstPin by remember { mutableStateOf("") }
+
+    val title = if (step == 0) "Create PIN" else "Confirm PIN"
+    val subtitle = if (step == 0) "Set a 6-digit PIN to secure your wallet" else "Re-enter PIN to confirm"
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Setup PIN") },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                if (step == 1) {
+                                    step = 0; pin.reset()
+                                } else onDismiss()
+                            }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        }
+                    )
+                }
+            ) { padding ->
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    PinEntryPanel(
+                        pin = pin,
+                        title = title,
+                        subtitle = subtitle,
+                        onPinComplete = { enteredPin ->
+                            if (step == 0) {
+                                firstPin = enteredPin
+                                pin.reset()
+                                step = 1
+                            } else {
+                                if (enteredPin == firstPin) {
+                                    onPinCreated(enteredPin)
+                                } else {
+                                    pin.fail("PINs do not match")
+                                }
+                            }
+                        }
+                    )
+                }
             }
         }
     }

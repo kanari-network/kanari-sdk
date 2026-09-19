@@ -27,6 +27,7 @@ import com.jamesatomc.kanariapp.ui.components.ErrorBanner
 import com.jamesatomc.kanariapp.ui.components.IsometricNetworkOrbit
 import com.jamesatomc.kanariapp.ui.components.IsometricWalletIllustration
 import com.jamesatomc.kanariapp.ui.components.PinGateDialog
+import com.jamesatomc.kanariapp.ui.components.CreatePinDialog
 import com.jamesatomc.kanariapp.wallet.WalletStorage
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth
@@ -46,6 +47,7 @@ fun WelcomeScreen(
 
     var zkLoading by remember { mutableStateOf(value = false) }
     var showPinGate by remember { mutableStateOf(false) }
+    var showCreatePin by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -62,12 +64,18 @@ fun WelcomeScreen(
         animProgress.animateTo(1f, tween(900, easing = EaseOutCubic))
     }
 
-    val doGoogleLogin: suspend () -> Unit = {
+    val doGoogleLogin: suspend (String?) -> Unit = { pin ->
         zkLoading = true
         error = null
         try {
             val result = ZkLoginAuth.login(context = context)
+            if (pin != null && !walletStorage.hasPin()) {
+                walletStorage.savePin(pin)
+            }
             viewModel.addZkLoginWallet(result.session)
+            if (pin != null) {
+                viewModel.unlock(pin)
+            }
             onLoginSuccess()
         } catch (_: ZkLoginAuth.CancelledException) {
             // User dismissed
@@ -83,11 +91,21 @@ fun WelcomeScreen(
             title = "Enter PIN",
             subtitle = "Enter 6-digit PIN to continue with Google sign-in",
             onVerifyAsync = { pin -> viewModel.verifyPin(pin) },
-            onSuccess = {
+            onSuccess = { pin ->
                 showPinGate = false
-                scope.launch { doGoogleLogin() }
+                scope.launch { doGoogleLogin(pin) }
             },
             onDismiss = { showPinGate = false }
+        )
+    }
+
+    if (showCreatePin) {
+        CreatePinDialog(
+            onPinCreated = { pin ->
+                showCreatePin = false
+                scope.launch { doGoogleLogin(pin) }
+            },
+            onDismiss = { showCreatePin = false }
         )
     }
 
@@ -217,7 +235,7 @@ fun WelcomeScreen(
                                 if (viewModel.hasPin()) {
                                     showPinGate = true
                                 } else {
-                                    doGoogleLogin()
+                                    showCreatePin = true
                                 }
                             }
                         },
