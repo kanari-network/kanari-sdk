@@ -11,12 +11,9 @@
 //!   reach the chain when the circuit keeps them private.
 
 use kanari_crypto::cryptos::verify_ed25519_native;
+use kanari_crypto::signatures::groth16::{MAX_PROOF_BYTES, MAX_VK_BYTES, verify_groth16_proof};
 use kanari_crypto::signatures::zklogin::{
-    JwksDocument, compute_nonce, decode_jwt_claims, derive_zklogin_address_v2,
-    verify_claims_timing, verify_jwt_with_jwks,
-};
-use kanari_crypto::signatures::zklogin_proof::{
-    MAX_PROOF_BYTES, MAX_VK_BYTES, verify_groth16_proof,
+    JwksDocument, compute_nonce, decode_jwt_claims, derive_zklogin_address_v2, verify_jwt_with_jwks,
 };
 
 use move_core_types::gas_algebra::InternalGas;
@@ -198,7 +195,6 @@ fn make_check_nonce_native(gas_cost: InternalGas) -> NativeFunction {
             let expected = compute_nonce(&pk_bytes, epoch, &rand_bytes);
             let ok = claims.nonce.as_deref() == Some(expected.as_str());
             // exp is checked by `verify`, not here — nonce binding only.
-            let _ = verify_claims_timing;
             Ok(NR::ok(context.gas_used(), smallvec![Value::bool(ok)]))
         },
     )

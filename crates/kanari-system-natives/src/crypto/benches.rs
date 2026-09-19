@@ -366,12 +366,13 @@ fn crypto_calibrate() {
     // --- Groth16 binding-circuit verify (setup once, time verify only) ---
     {
         use ark_std::rand::SeedableRng;
+        use kanari_crypto::signatures::groth16::{
+            proof_to_bytes, verify_groth16_proof, vk_to_bytes,
+        };
         use kanari_crypto::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
         use kanari_crypto::signatures::zklogin_circuit::{
-            proof_to_bytes, prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
-            vk_to_bytes,
+            prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
         };
-        use kanari_crypto::signatures::zklogin_proof::verify_groth16_proof;
 
         let iss = b"https://accounts.google.com";
         let aud = b"kanari-test-client";

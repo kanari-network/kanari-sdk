@@ -36,6 +36,9 @@ statement. No code in this repo can fix that; only independent humans can.
   value-dependent branching between setup and prove).
 - `vk_fingerprint()` — the canonical 32-byte pin format.
 - `verify_pinned_proof()` (Move) — rejects any VK except the pinned hash.
+- `groth16::verify_pinned_proof()` (Rust) — same guarantee off-chain;
+  `admit_zklogin_tx` requires the pin for proof mode, and
+  `kanari zklogin verify-proof` refuses to run without `--pin`.
 - `setup-circuit` / `prove` / `verify-proof` CLI flow that already speaks
   the final wire format, so swapping a demo VK for a ceremony VK changes
   no code paths — only the pinned hash.
@@ -105,19 +108,35 @@ What remains for a node to accept such transactions:
 
 1. **Client**: build `ZkLogin:` senders with bundle signatures
    (`encode_zklogin_tx_signature` exists; no CLI transfer path yet).
-2. **Ingestion**: route the bundle through verification (already the
-   default path once submitted — no engine change needed for the check
-   itself, since mempool calls `into_verified`).
-3. **Replay**: identical bundles are already dropped by tx-hash dedup
-   (`mempool.rs`); per-sender nonce discipline beyond that is unchanged
-   from legacy txs (documented gap, same as today).
-4. **Epoch binding**: `max_epoch` is enforced against wall-clock JWT `exp`
-   for JWT mode; proof mode additionally needs the engine to compare
-   `max_epoch` with chain epoch at admission (new check, consensus review
-   required).
+2. **Ingestion**: call `admit_zklogin_tx` (NOT the raw pieces) with the
+   chain epoch and a `ReplayCache`. It enforces, in order: bundle v1,
+   `max_epoch >= current_epoch` (both modes — the ONLY timeliness bound
+   proof mode has), replay TTL, mode verification (proof mode REQUIRES
+   `AdmitOptions.vk_pin`; demo toxic-waste setups cannot pass), and
+   sender match. Covered by the `admit_*` tests.
+3. **Replay**: `admit_zklogin_tx` + `ReplayCache` bounds rapid resubmission
+   in-memory; tx-hash dedup (`mempool.rs`) drops identical resubmits.
+   What the engine MUST still add: persist the replay log across restarts
+   (a restart wipes the cache) and reject re-execution at the execution
+   layer (object versions / sender nonce). Until then, keep TTL sized to
+   the bundle lifetime (JWT `exp` window; epoch-length x span for proofs).
+4. **Epoch binding (Move side)**: DONE. `verify_session` takes
+   `ctx: &TxContext` and aborts `E_EXPIRED` when
+   `max_epoch < tx_context::epoch(ctx)`; `verify_private_session`
+   requires the ceremony VK hash and routes through `verify_pinned_proof`
+   (unpinned acceptance no longer exists at this layer). Covered by
+   `test_verify_session_rejects_expired_epoch` and
+   `test_verify_private_session_wrong_pin_aborts` (260/260 framework
+   tests green).
 5. **DoS pricing**: pairing/RSA verification at admission is heavier than
    ed25519; mempool caps apply, but production gas pricing for the zk
-   path needs calibration (see gas notes in `zklogin_proof.rs`).
+   path needs calibration (see gas notes in `signatures/groth16.rs`).
+6. **Ceremony pin everywhere**: `kanari zklogin verify-proof` now REQUIRES
+   `--pin` (unpinned verification refused); Rust has
+   `groth16::verify_pinned_proof`; Move has `verify_pinned_proof`.
+   The remaining step is the ceremony itself (§1): until a ceremony VK
+   exists and is the ONLY pinned value in configs/contracts, proof mode
+   must stay disabled on mainnet.
 
 ## 3. Done elsewhere (for the record)
 
@@ -131,7 +150,12 @@ What remains for a node to accept such transactions:
   would alias every login of an issuer; non-empty is checked there and at
   address derivation).
 - v1 address scheme removed; v2 fixed-width canonical.
-- `max_epoch` visibility: recorded in `VerifiedZkLogin`; chain-epoch
-  comparison is item 2.4 above.
+- `max_epoch` enforcement: `check_max_epoch` + `admit_zklogin_tx` enforce
+  it in Rust (both modes); Move-side comparison (`tx_context::epoch`)
+  is item 2.4 above.
+- Pin-required verification: `groth16::verify_pinned_proof` (Rust),
+  `--pin` required in `kanari zklogin verify-proof`, `verify_pinned_proof`
+  (Move). Unpinned proof acceptance remains only in explicitly-marked
+  offline/demo paths.
 - Session encryption at rest: 0600 files + logout (password-sealed
   sessions tracked as future work, not a vulnerability today).

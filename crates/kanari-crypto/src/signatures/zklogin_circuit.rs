@@ -28,7 +28,12 @@
 //! - The proving/verify keys below come from a local random setup
 //!   (`setup_binding_circuit`). Anyone holding the trapdoor can forge
 //!   proofs, so production MUST replace it with an MPC ceremony and pin
-//!   that VK hash on-chain (see `verify_pinned_proof` + `vk_fingerprint`).
+//!   that VK hash on-chain (see `kanari_system::zklogin::verify_pinned_proof`
+//!   + `crate::signatures::groth16::vk_fingerprint`).
+//!
+//! Generic Groth16 plumbing (caps, verification, key/proof serialization)
+//! lives in [`crate::signatures::groth16`]; this module holds ONLY the
+//! session-binding statement and its setup/prove entry points.
 //! - Epoch timeliness (`max_epoch` vs chain time) is NOT constrained here;
 //!   integrators enforce it alongside the JWT `exp` check.
 //! - Full Sui-style JWT-in-circuit proving (RSA+Base64+JSON in R1CS) is
@@ -44,7 +49,6 @@ use ark_r1cs_std::eq::EqGadget;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::uint8::UInt8;
 use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_snark::SNARK;
 
 use crate::SignatureError;
@@ -275,50 +279,6 @@ pub fn prove_binding(
     Groth16::<Bn254>::prove(pk, circuit, rng).map_err(|_| SignatureError::VerificationFailed)
 }
 
-/// SHA256 of compressed VK bytes — the value contracts pin.
-pub fn vk_fingerprint(vk: &VerifyingKey<Bn254>) -> Result<[u8; 32], SignatureError> {
-    use sha2::{Digest, Sha256};
-    let mut bytes = Vec::new();
-    vk.serialize_compressed(&mut bytes)
-        .map_err(|_| SignatureError::InvalidFormat("vk does not serialize".to_string()))?;
-    Ok(Sha256::digest(&bytes).into())
-}
-
-/// Canonical (de)serialization helpers for CLI proof packages.
-pub fn vk_to_bytes(vk: &VerifyingKey<Bn254>) -> Result<Vec<u8>, SignatureError> {
-    let mut bytes = Vec::new();
-    vk.serialize_compressed(&mut bytes)
-        .map_err(|_| SignatureError::InvalidFormat("vk does not serialize".to_string()))?;
-    Ok(bytes)
-}
-
-pub fn proof_to_bytes(proof: &Proof<Bn254>) -> Result<Vec<u8>, SignatureError> {
-    let mut bytes = Vec::new();
-    proof
-        .serialize_compressed(&mut bytes)
-        .map_err(|_| SignatureError::InvalidFormat("proof does not serialize".to_string()))?;
-    Ok(bytes)
-}
-
-pub fn vk_from_bytes(bytes: &[u8]) -> Result<VerifyingKey<Bn254>, SignatureError> {
-    VerifyingKey::<Bn254>::deserialize_compressed(&mut &bytes[..])
-        .map_err(|e| SignatureError::InvalidFormat(format!("bad vk bytes: {e}")))
-}
-
-/// Canonical (de)serialization for proving keys (CLI proof packages).
-/// Proving keys are large (tens of MB); callers stream them to files.
-pub fn proving_key_to_bytes(pk: &ProvingKey<Bn254>) -> Result<Vec<u8>, SignatureError> {
-    let mut bytes = Vec::new();
-    pk.serialize_compressed(&mut bytes)
-        .map_err(|_| SignatureError::InvalidFormat("pk does not serialize".to_string()))?;
-    Ok(bytes)
-}
-
-pub fn proving_key_from_bytes(bytes: &[u8]) -> Result<ProvingKey<Bn254>, SignatureError> {
-    ProvingKey::<Bn254>::deserialize_compressed(&mut &bytes[..])
-        .map_err(|e| SignatureError::InvalidFormat(format!("bad pk bytes: {e}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +424,9 @@ mod tests {
     #[test]
     #[ignore]
     fn binding_roundtrip_ignored() {
+        use crate::signatures::groth16::{
+            proof_to_bytes, verify_groth16_proof, vk_fingerprint, vk_to_bytes,
+        };
         use crate::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
 
         let mut rng = test_rng();
@@ -491,7 +454,7 @@ mod tests {
         .unwrap();
         let inputs = public_inputs_to_be_bytes(&address, &nonce);
         assert!(
-            crate::signatures::zklogin_proof::verify_groth16_proof(
+            verify_groth16_proof(
                 &vk_to_bytes(&vk).unwrap(),
                 &inputs,
                 &proof_to_bytes(&proof).unwrap(),
@@ -506,7 +469,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            !crate::signatures::zklogin_proof::verify_groth16_proof(
+            !verify_groth16_proof(
                 &vk_to_bytes(&vk).unwrap(),
                 &inputs,
                 &proof_to_bytes(&bad_proof).unwrap(),

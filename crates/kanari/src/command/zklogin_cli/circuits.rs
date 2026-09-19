@@ -14,10 +14,12 @@
 use anyhow::{Context, Result};
 use ark_std::rand::SeedableRng as _;
 use clap::Parser;
+use kanari_crypto::signatures::groth16::{
+    proof_to_bytes, proving_key_from_bytes, proving_key_to_bytes, vk_fingerprint, vk_to_bytes,
+};
 use kanari_crypto::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
 use kanari_crypto::signatures::zklogin_circuit::{
-    proof_to_bytes, prove_binding, proving_key_from_bytes, proving_key_to_bytes,
-    public_inputs_to_be_bytes, setup_binding_circuit, vk_fingerprint, vk_to_bytes,
+    prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -178,7 +180,7 @@ impl Prove {
         let mut package = package;
         let vk_sidecar = format!("{}.vk", self.pk.trim_end_matches(".pk"));
         if let Ok(vk_bytes) = std::fs::read(&vk_sidecar)
-            && let Ok(vk) = kanari_crypto::signatures::zklogin_circuit::vk_from_bytes(&vk_bytes)
+            && let Ok(vk) = kanari_crypto::signatures::groth16::vk_from_bytes(&vk_bytes)
             && let Ok(fp) = vk_fingerprint(&vk)
         {
             package.vk_hash_hex = hex::encode(fp);
@@ -202,33 +204,34 @@ pub struct VerifyProof {
     /// Proof package from `prove`.
     #[arg(long)]
     pub package: String,
+    /// REQUIRED ceremony VK hash (64 hex chars): the package VK must
+    /// fingerprint to this. Unpinned verification is refused — a proof
+    /// against any other VK (including toxic-waste demo setups) is
+    /// meaningless here.
+    #[arg(long)]
+    pub pin: String,
 }
 
 impl VerifyProof {
     pub fn execute(&self) -> Result<()> {
-        use kanari_crypto::signatures::zklogin_circuit::vk_from_bytes;
-        use kanari_crypto::signatures::zklogin_proof::verify_groth16_proof;
+        use kanari_crypto::signatures::groth16::verify_pinned_proof;
 
         let json = std::fs::read_to_string(&self.package)
             .with_context(|| format!("cannot read {}", self.package))?;
         let package: ProofPackage =
             serde_json::from_str(&json).context("proof package is corrupt")?;
         anyhow::ensure!(package.version == 1, "unsupported package version");
+        let pin: [u8; 32] = hex::decode(self.pin.trim().trim_start_matches("0x"))
+            .context("pin is not valid hex")?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("pin must be exactly 32 bytes (64 hex chars)"))?;
         let vk = hex::decode(&package.vk_hex).context("package vk not hex")?;
         let inputs = hex::decode(&package.inputs_hex).context("package inputs not hex")?;
         let proof = hex::decode(&package.proof_hex).context("package proof not hex")?;
-        // Pin check first: a proof against any other VK is meaningless here.
-        if !package.vk_hash_hex.is_empty() {
-            let expected = hex::decode(&package.vk_hash_hex).context("pin not hex")?;
-            let actual = {
-                use sha2::{Digest, Sha256};
-                Sha256::digest(&vk).to_vec()
-            };
-            anyhow::ensure!(actual == expected, "VK does not match the pinned hash");
-        }
-        let _ = vk_from_bytes(&vk).map_err(|e| anyhow::anyhow!("bad VK: {e:?}"))?;
-        let valid = verify_groth16_proof(&vk, &inputs, &proof)
-            .map_err(|e| anyhow::anyhow!("malformed proof inputs: {e:?}"))?;
+        // Pinned verification only: pin mismatch or malformed VK fails
+        // closed inside the helper (no pairing work on untrusted keys).
+        let valid = verify_pinned_proof(&pin, &vk, &inputs, &proof)
+            .map_err(|e| anyhow::anyhow!("proof rejected: {e:?}"))?;
         eprintln!("circuit: {}", package.circuit);
         eprintln!("address: {}", package.address);
         eprintln!("valid:   {valid}");

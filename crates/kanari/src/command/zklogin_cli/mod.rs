@@ -33,7 +33,7 @@ pub enum ZkLoginCommand {
     SetupCircuit(circuits::SetupCircuit),
     /// Prove session binding (salt/sub + randomness) with a setup PK
     Prove(circuits::Prove),
-    /// Verify a proof package offline (pin check + Groth16 verify)
+    /// Verify a proof package offline (REQUIRED ceremony pin + Groth16 verify)
     VerifyProof(circuits::VerifyProof),
 }
 

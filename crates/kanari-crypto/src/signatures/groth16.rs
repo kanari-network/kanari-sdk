@@ -1,21 +1,16 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Groth16 verifier over BN254 for zkLogin Phase 3c.
+//! Generic Groth16 plumbing over BN254 — circuit-agnostic.
 //!
-//! This module provides the *generic* proof-verification half of full-ZK
-//! privacy: a chain-side verifier that checks a Groth16 proof against a
-//! caller-supplied verifying key (VK) and public inputs, without ever seeing
-//! the private witnesses (`sub`, `salt`, JWT internals).
-//!
-//! Privacy model:
-//! - Phase 3b (`kanari_system::zklogin::verify`) sends `sub`/`salt` (or the
-//!   JWT itself) to the chain — simple, but linkable.
-//! - Phase 3c (`kanari_system::zklogin::verify_proof`) sends only
-//!   `(vk_bytes, public_inputs, proof_bytes)` plus the ephemeral signature.
-//!   If the circuit is built so `sub`/`salt` are *private witnesses* and only
-//!   the derived address / ephemeral binding are public inputs, the chain
-//!   learns nothing linkable beyond the address itself.
+//! Everything here works for ANY circuit: caps, public-input decoding,
+//! proof verification, canonical (de)serialization of keys/proofs, and the
+//! VK fingerprint contracts pin. zkLogin-specific pieces (the session-
+//! binding statement, its setup/prove entry points, its 64-byte-input wire
+//! format) live in [`crate::signatures::zklogin_circuit`]; the transaction
+//! authenticator that calls this verifier lives in
+//! [`crate::signatures::zk_authenticator`]; the chain entry point lives in
+//! `kanari_system_natives::crypto::zklogin`.
 //!
 //! Wire format (all `vector<u8>` on the Move side):
 //! - `vk_bytes`: `ark_serialize::CanonicalSerialize::serialize_compressed`
@@ -28,21 +23,14 @@
 //!   elements (`Fr::from_be_bytes_mod_order`), at most
 //!   [`MAX_PUBLIC_INPUTS`] inputs. Empty = zero public inputs.
 //!
-//! What this is NOT (yet): the Sui zkLogin circuit itself (RSA + SHA +
-//! Base64 + JSON inside the constraint system, plus a trusted setup and a
-//! Poseidon address scheme). That circuit is month-scale work and lives
-//! outside this module. What this module *does* unblock today: any app can
-//! deploy its own circuit (e.g. "I know the salt for address X", membership,
-//! age checks) and verify it on-chain with real zero-knowledge privacy.
-//!
 //! Gas note: a BN254 pairing check is ~2–4 ms (an order of magnitude above
 //! an RSA-2048 verify), so the native charges `zklogin_proof_verify`
 //! (production 28_000) rather than reusing the RSA-class fee.
 
 use ark_bn254::{Bn254, Fr};
 use ark_ff::PrimeField;
-use ark_groth16::{Groth16, Proof, VerifyingKey};
-use ark_serialize::CanonicalDeserialize;
+use ark_groth16::{Groth16, Proof, ProvingKey, VerifyingKey};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_snark::SNARK;
 
 use crate::SignatureError;
@@ -108,6 +96,72 @@ pub fn verify_groth16_proof(
     Groth16::<Bn254>::verify(&vk, &inputs, &proof).map_err(|_| SignatureError::VerificationFailed)
 }
 
+/// Verify a proof ONLY against a pinned ceremony VK hash.
+///
+/// `vk_pin` is the 32-byte [`vk_fingerprint`] of the MPC-ceremony VK the
+/// deployment trusts. Proofs against any other VK — including locally
+/// generated toxic-waste setups — fail closed BEFORE any pairing work, so
+/// a demo setup can never pass as canonical. Prefer this over bare
+/// [`verify_groth16_proof`] everywhere; bare verification is reserved for
+/// callers that pin the VK themselves (e.g. the Move `verify_pinned_proof`
+/// wrapper, which checks the hash first).
+pub fn verify_pinned_proof(
+    vk_pin: &[u8; 32],
+    vk_bytes: &[u8],
+    public_inputs_bytes: &[u8],
+    proof_bytes: &[u8],
+) -> Result<bool, SignatureError> {
+    let vk = vk_from_bytes(vk_bytes)?;
+    if &vk_fingerprint(&vk)? != vk_pin {
+        return Err(SignatureError::VerificationFailed);
+    }
+    verify_groth16_proof(vk_bytes, public_inputs_bytes, proof_bytes)
+}
+
+/// SHA256 of compressed VK bytes — the value contracts pin.
+pub fn vk_fingerprint(vk: &VerifyingKey<Bn254>) -> Result<[u8; 32], SignatureError> {
+    use sha2::{Digest, Sha256};
+    let mut bytes = Vec::new();
+    vk.serialize_compressed(&mut bytes)
+        .map_err(|_| SignatureError::InvalidFormat("vk does not serialize".to_string()))?;
+    Ok(Sha256::digest(&bytes).into())
+}
+
+/// Canonical (de)serialization helpers for keys and proofs.
+pub fn vk_to_bytes(vk: &VerifyingKey<Bn254>) -> Result<Vec<u8>, SignatureError> {
+    let mut bytes = Vec::new();
+    vk.serialize_compressed(&mut bytes)
+        .map_err(|_| SignatureError::InvalidFormat("vk does not serialize".to_string()))?;
+    Ok(bytes)
+}
+
+pub fn vk_from_bytes(bytes: &[u8]) -> Result<VerifyingKey<Bn254>, SignatureError> {
+    VerifyingKey::<Bn254>::deserialize_compressed(&mut &bytes[..])
+        .map_err(|e| SignatureError::InvalidFormat(format!("bad vk bytes: {e}")))
+}
+
+pub fn proof_to_bytes(proof: &Proof<Bn254>) -> Result<Vec<u8>, SignatureError> {
+    let mut bytes = Vec::new();
+    proof
+        .serialize_compressed(&mut bytes)
+        .map_err(|_| SignatureError::InvalidFormat("proof does not serialize".to_string()))?;
+    Ok(bytes)
+}
+
+/// Canonical (de)serialization for proving keys.
+/// Proving keys are large (tens of MB); callers stream them to files.
+pub fn proving_key_to_bytes(pk: &ProvingKey<Bn254>) -> Result<Vec<u8>, SignatureError> {
+    let mut bytes = Vec::new();
+    pk.serialize_compressed(&mut bytes)
+        .map_err(|_| SignatureError::InvalidFormat("pk does not serialize".to_string()))?;
+    Ok(bytes)
+}
+
+pub fn proving_key_from_bytes(bytes: &[u8]) -> Result<ProvingKey<Bn254>, SignatureError> {
+    ProvingKey::<Bn254>::deserialize_compressed(&mut &bytes[..])
+        .map_err(|e| SignatureError::InvalidFormat(format!("bad pk bytes: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,7 +170,7 @@ mod tests {
         gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
         lc,
     };
-    use ark_serialize::CanonicalSerialize;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     use ark_std::rand::SeedableRng;
 
     /// Deterministic RNG for tests: ark's `test_rng` returns a versioned
@@ -137,8 +191,8 @@ mod tests {
     }
 
     /// Trivial demo circuit: private `a * b == public c`.
-    /// Proves the plumbing (setup/prove/verify + wire format) without the
-    /// Sui RSA circuit. App circuits reuse the same verifier.
+    /// Proves the plumbing (setup/prove/verify + wire format) without any
+    /// application circuit. App circuits reuse the same verifier.
     #[derive(Clone, Copy)]
     struct MulCircuit {
         a: Option<Fr>,
@@ -214,6 +268,19 @@ mod tests {
         if let Ok(valid) = verify_groth16_proof(&vk, &inputs, &proof) {
             assert!(!valid);
         }
+    }
+
+    #[test]
+    fn pinned_proof_accepts_pin_and_rejects_everything_else() {
+        let (vk_bytes, inputs, proof) = setup_mul_circuit();
+        let vk = VerifyingKey::<Bn254>::deserialize_compressed(&mut &vk_bytes[..]).unwrap();
+        let pin = vk_fingerprint(&vk).unwrap();
+        // Ceremony pin + honest proof verifies.
+        assert!(verify_pinned_proof(&pin, &vk_bytes, &inputs, &proof).unwrap());
+        // Right proof, wrong trust root: fail closed, no pairing work leaks.
+        assert!(verify_pinned_proof(&[0u8; 32], &vk_bytes, &inputs, &proof).is_err());
+        // Malformed VK fails closed (InvalidFormat, not a silent false).
+        assert!(verify_pinned_proof(&pin, &[7u8; 64], &inputs, &proof).is_err());
     }
 
     #[test]

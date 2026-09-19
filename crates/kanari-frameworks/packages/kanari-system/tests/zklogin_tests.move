@@ -9,6 +9,7 @@
 //   proof, seed `0xB10C5EED`; address/nonce are the v2 scheme vectors
 #[test_only]
 module kanari_system::zklogin_tests {
+    use kanari_system::tx_context;
     use kanari_system::zklogin;
 
     fun iss(): vector<u8> {
@@ -135,6 +136,7 @@ module kanari_system::zklogin_tests {
 
     #[test]
     fun test_verify_session_full_combo() {
+        let ctx = tx_context::dummy(); // epoch 0 <= max_epoch 1000
         assert!(
             zklogin::verify_session(
                 &jwt(),
@@ -146,9 +148,32 @@ module kanari_system::zklogin_tests {
                 1000,
                 &randomness(),
                 &eph_msg(),
-                &eph_sig()
+                &eph_sig(),
+                &ctx
             ),
             0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 5)]
+    // E_EXPIRED
+    fun test_verify_session_rejects_expired_epoch() {
+        // Chain epoch 1001 is past max_epoch 1000: session over, even
+        // though the JWT itself is still within `exp`.
+        let ctx = tx_context::new_from_hint(@0x0, 0, 1001, 0, 0);
+        zklogin::verify_session(
+            &jwt(),
+            &jwks(),
+            &iss(),
+            &aud(),
+            NOW,
+            &eph_pub(),
+            1000,
+            &randomness(),
+            &eph_msg(),
+            &eph_sig(),
+            &ctx
         );
     }
 
@@ -191,9 +216,12 @@ module kanari_system::zklogin_tests {
 
     #[test]
     fun test_verify_private_session_combo() {
+        // Same ceremony pin as test_verify_pinned_proof_accepts_ceremony_hash.
+        let pin = x"cb610265cb3354f24a0b9fc25d7ebb3b769bd70c28a614a2824f99ef3d1cfccd";
         assert!(
             zklogin::verify_private_session(
-                &vk(),
+                pin,
+                vk(),
                 &proof_inputs(),
                 &proof (),
                 &eph_pub(),
@@ -201,6 +229,23 @@ module kanari_system::zklogin_tests {
                 &eph_sig()
             ),
             0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 7)]
+    // E_VK_MISMATCH
+    fun test_verify_private_session_wrong_pin_aborts() {
+        // Right proof, wrong trust root: must abort, never verify.
+        let pin = x"0000000000000000000000000000000000000000000000000000000000000000";
+        zklogin::verify_private_session(
+            pin,
+            vk(),
+            &proof_inputs(),
+            &proof (),
+            &eph_pub(),
+            &eph_msg(),
+            &eph_sig()
         );
     }
 }

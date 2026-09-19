@@ -5,13 +5,17 @@
 /// Groth16 path).
 ///
 /// - `verify` / `verify_session`: ephemeral Ed25519 signature + JWT RS256
-///   against a JWK + claim binding (iss/aud/exp/nonce). `sub` and `salt`
-///   are visible inputs — simple Google-login UX, but linkable.
-/// - `verify_proof` / `verify_private_session`: BN254 Groth16 proof against
-///   a caller-supplied verifying key + public inputs. When the circuit keeps
-///   `sub`/`salt` private, the chain learns nothing linkable beyond the
-///   public inputs (e.g. the derived address).
+///   against a JWK + claim binding (iss/aud/exp/nonce) + `max_epoch` vs the
+///   chain epoch. `sub` and `salt` are visible inputs — simple Google-login
+///   UX, but linkable.
+/// - `verify_pinned_proof` / `verify_private_session`: BN254 Groth16 proof
+///   against a PINNED ceremony VK hash + public inputs. Unpinned proof
+///   acceptance does not exist at this layer: any other VK aborts with
+///   `E_VK_MISMATCH`. When the circuit keeps `sub`/`salt` private, the
+///   chain learns nothing linkable beyond the public inputs (e.g. the
+///   derived address).
 module kanari_system::zklogin {
+    use kanari_system::tx_context::{Self, TxContext};
     use std::vector;
 
     #[allow(unused_const)]
@@ -169,20 +173,32 @@ module kanari_system::zklogin {
 
     /// Private session check: Groth16 proof valid AND ephemeral sig valid.
     /// The JWT-private counterpart of `verify_session`.
+    ///
+    /// The VK hash MUST be pinned: proofs against any other VK (including
+    /// toxic-waste demo setups) abort with `E_VK_MISMATCH` before any
+    /// pairing work is trusted. There is no unpinned entry point on
+    /// purpose — use `verify_pinned_proof` + `verify_ephemeral` directly
+    /// only if you re-check the pin yourself.
     public fun verify_private_session(
-        vk_bytes: &vector<u8>,
+        expected_vk_hash: vector<u8>,
+        vk_bytes: vector<u8>,
         public_inputs_bytes: &vector<u8>,
         proof_bytes: &vector<u8>,
         ephemeral_pubkey: &vector<u8>,
         msg: &vector<u8>,
         ephemeral_sig: &vector<u8>
     ): bool {
-        verify_proof(vk_bytes, public_inputs_bytes, proof_bytes)
+        verify_pinned_proof(expected_vk_hash, vk_bytes, public_inputs_bytes, proof_bytes)
             && verify_ephemeral(ephemeral_sig, ephemeral_pubkey, msg)
     }
 
-    /// Full session check: JWT valid AND nonce bound AND ephemeral sig valid.
-    /// One call for login gates.
+    /// Full session check: JWT valid AND session live AND nonce bound AND
+    /// ephemeral sig valid. One call for login gates.
+    ///
+    /// `max_epoch` is enforced against the chain epoch: sessions from an
+    /// older epoch abort with `E_EXPIRED`. This is the on-chain counterpart
+    /// of the Rust `check_max_epoch` used at admission — and the ONLY
+    /// timeliness bound proof-mode sessions have (they carry no JWT `exp`).
     public fun verify_session(
         jwt: &vector<u8>,
         jwks_json: &vector<u8>,
@@ -193,8 +209,10 @@ module kanari_system::zklogin {
         max_epoch: u64,
         randomness: &vector<u8>,
         msg: &vector<u8>,
-        ephemeral_sig: &vector<u8>
+        ephemeral_sig: &vector<u8>,
+        ctx: &TxContext
     ): bool {
+        assert!(max_epoch >= tx_context::epoch(ctx), E_EXPIRED);
         verify(jwt, jwks_json, iss, aud, now_secs)
             && check_nonce(jwt, ephemeral_pubkey, max_epoch, randomness)
             && verify_ephemeral(ephemeral_sig, ephemeral_pubkey, msg)

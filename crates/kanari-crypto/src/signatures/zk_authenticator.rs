@@ -3,11 +3,13 @@
 
 //! Canonical zkLogin transaction authenticator.
 //!
-//! This is the data model + verification entry point the node will call when
-//! it starts accepting zkLogin senders (tracked integration, not yet wired:
-//! ingestion must additionally enforce replay protection and a ceremony VK).
-//! Defining it here — with vectors both sides agree on — lets the CLI
-//! produce and the (future) engine consume the exact same bytes.
+//! Ingestion (mempool/node) entry point: [`admit_zklogin_tx`]. It bundles
+//! every check the raw pieces leave to the caller — bundle version, session
+//! expiry (`max_epoch`), replay guard, mode verification (with a REQUIRED
+//! ceremony-VK pin for proof mode), and sender match — so future wiring
+//! cannot forget one. The lower-level verifiers below stay available for
+//! offline tooling (CLI) and the Move natives, which enforce pinning and
+//! expiry in their own layer (`kanari_system::zklogin`).
 //!
 //! Bundle: ephemeral pubkey (32B) + ephemeral sig (64B, over the tx hash)
 //! + max_epoch (u64) + one of:
@@ -142,25 +144,50 @@ pub fn verify_zklogin_authenticator(
                 max_epoch: auth.max_epoch,
             })
         }
-        ZkAuthKind::Proof(proof) => {
-            let valid = crate::signatures::zklogin_proof::verify_groth16_proof(
-                &proof.vk,
-                &proof.inputs,
-                &proof.proof,
-            )?;
-            if !valid {
-                return Err(SignatureError::VerificationFailed);
-            }
-            let address = address_from_inputs(&proof.inputs)?;
-            if !addresses_equal(&address, &proof.expected_address) {
-                return Err(SignatureError::VerificationFailed);
-            }
-            Ok(VerifiedZkLogin {
-                address,
-                max_epoch: auth.max_epoch,
-            })
-        }
+        ZkAuthKind::Proof(proof) => verify_proof_kind(
+            &auth.ephemeral_pubkey,
+            &auth.ephemeral_sig,
+            tx_hash,
+            auth.max_epoch,
+            proof,
+            None,
+        ),
     }
+}
+
+/// Proof-mode verification shared by the bare verifier above (unpinned —
+/// offline tooling and the Move `verify_proof` native, which pins in its
+/// own layer) and [`admit_zklogin_tx`] (pinned — REQUIRED).
+fn verify_proof_kind(
+    ephemeral_pubkey: &[u8; 32],
+    ephemeral_sig: &[u8; 64],
+    tx_hash: &[u8],
+    max_epoch: u64,
+    proof: &ProofAuth,
+    vk_pin: Option<&[u8; 32]>,
+) -> Result<VerifiedZkLogin, SignatureError> {
+    EphemeralKeypair::verify(ephemeral_pubkey, tx_hash, ephemeral_sig)?;
+    let valid = match vk_pin {
+        Some(pin) => crate::signatures::groth16::verify_pinned_proof(
+            pin,
+            &proof.vk,
+            &proof.inputs,
+            &proof.proof,
+        )?,
+        None => crate::signatures::groth16::verify_groth16_proof(
+            &proof.vk,
+            &proof.inputs,
+            &proof.proof,
+        )?,
+    };
+    if !valid {
+        return Err(SignatureError::VerificationFailed);
+    }
+    let address = address_from_inputs(&proof.inputs)?;
+    if !addresses_equal(&address, &proof.expected_address) {
+        return Err(SignatureError::VerificationFailed);
+    }
+    Ok(VerifiedZkLogin { address, max_epoch })
 }
 
 /// Decode the address (first 32 inputs) from 64x32B public-input bytes.
@@ -243,6 +270,140 @@ pub fn verify_zklogin_tx_signature(
         .map_err(|_| SignatureError::VerificationFailed)?;
     let verified = verify_zklogin_authenticator(message, &bundle.auth, now_secs)?;
     Ok(addresses_equal(&verified.address, address_hex))
+}
+
+/// Fail unless the session is still valid at `current_epoch` (chain time).
+///
+/// JWT mode additionally enforces JWT `exp` during verification; proof mode
+/// has NO `exp`, so this is its ONLY timeliness bound — never skip it.
+/// `max_epoch` comes from the login nonce binding; `current_epoch` is
+/// `tx_context::epoch` (Move) or the validator's epoch clock (mempool).
+pub fn check_max_epoch(max_epoch: u64, current_epoch: u64) -> Result<(), SignatureError> {
+    if max_epoch < current_epoch {
+        return Err(SignatureError::Expired);
+    }
+    Ok(())
+}
+
+/// Replay-guard cache for admitted zkLogin bundles.
+///
+/// Keyed by `SHA256(tx_hash)` with per-entry expiry; [`ReplayCache::check_and_insert`]
+/// reports whether a transaction is fresh. Best-effort in-memory layer for
+/// the admission path: it bounds rapid resubmission, but a restart wipes
+/// it — the execution layer MUST additionally reject re-execution (object
+/// versions / sender nonce), and JWT/proof lifetimes bound the residual
+/// window.
+pub struct ReplayCache {
+    /// Digest -> expiry (unix secs). Swept lazily on insert.
+    seen: std::collections::HashMap<[u8; 32], u64>,
+    ttl_secs: u64,
+}
+
+impl ReplayCache {
+    /// `ttl_secs` should cover the maximum bundle lifetime (the JWT `exp`
+    /// window for JWT mode; for proof mode size it to the deployment's
+    /// epoch length x allowed `max_epoch` span). Zero disables caching
+    /// (every admission is "fresh") — tests only.
+    pub fn new(ttl_secs: u64) -> Self {
+        Self {
+            seen: std::collections::HashMap::new(),
+            ttl_secs,
+        }
+    }
+
+    /// True when fresh (records it); false when the same transaction was
+    /// already admitted inside the TTL window. Expired entries are swept
+    /// on each call so memory stays proportional to the live window.
+    pub fn check_and_insert(&mut self, tx_hash: &[u8], now_secs: u64) -> bool {
+        use sha2::{Digest, Sha256};
+        self.seen.retain(|_, exp| *exp > now_secs);
+        let digest: [u8; 32] = Sha256::digest(tx_hash).into();
+        if self.seen.contains_key(&digest) {
+            return false;
+        }
+        self.seen
+            .insert(digest, now_secs.saturating_add(self.ttl_secs));
+        true
+    }
+
+    /// Live entries (metrics/tests).
+    pub fn len(&self) -> usize {
+        self.seen.len()
+    }
+
+    /// True when no entries are cached.
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
+}
+
+/// Options for [`admit_zklogin_tx`].
+pub struct AdmitOptions {
+    /// Pinned ceremony VK hash. REQUIRED when a Proof-mode bundle arrives;
+    /// `None` + Proof bundle => rejection, so demo toxic-waste setups can
+    /// never pass admission. Unused for JWT mode.
+    pub vk_pin: Option<[u8; 32]>,
+}
+
+/// Fail-closed admission for a `ZkLogin:` sender — THE function ingestion
+/// (mempool/node) must call instead of the raw pieces. Order (cheap,
+/// state-light checks first):
+/// 1. Bundle parses as v1 (else `InvalidFormat`).
+/// 2. `max_epoch >= current_epoch` (else `Expired`) — the ONLY timeliness
+///    bound proof mode has.
+/// 3. Replay: same `tx_hash` admitted inside the cache TTL
+///    => `VerificationFailed`.
+/// 4. Mode verify: JWT (sig/kid/iss/aud/exp/nonce/address) or Proof
+///    (pinned VK REQUIRED + proof + expected address).
+/// 5. Recovered address == `expected_sender` (0x-tolerant,
+///    case-insensitive).
+///
+/// What this does NOT do (engine's job): persist the replay log across
+/// restarts (see [`ReplayCache`]), or compare `address` with anything
+/// beyond the passed sender.
+pub fn admit_zklogin_tx(
+    expected_sender: &str,
+    tx_hash: &[u8],
+    bundle_bytes: &[u8],
+    opts: &AdmitOptions,
+    cache: &mut ReplayCache,
+    now_secs: u64,
+    current_epoch: u64,
+) -> Result<VerifiedZkLogin, SignatureError> {
+    let bundle: ZkLoginTxSignature = serde_json::from_slice(bundle_bytes).map_err(|_| {
+        SignatureError::InvalidFormat("zkLogin bundle is not valid JSON".to_string())
+    })?;
+    if bundle.v != 1 {
+        return Err(SignatureError::InvalidFormat(format!(
+            "unsupported zkLogin bundle version {}",
+            bundle.v
+        )));
+    }
+    check_max_epoch(bundle.auth.max_epoch, current_epoch)?;
+    if !cache.check_and_insert(tx_hash, now_secs) {
+        return Err(SignatureError::VerificationFailed);
+    }
+    let verified = match &bundle.auth.kind {
+        ZkAuthKind::Jwt(_) => verify_zklogin_authenticator(tx_hash, &bundle.auth, now_secs)?,
+        ZkAuthKind::Proof(proof) => {
+            let pin = opts
+                .vk_pin
+                .as_ref()
+                .ok_or(SignatureError::VerificationFailed)?;
+            verify_proof_kind(
+                &bundle.auth.ephemeral_pubkey,
+                &bundle.auth.ephemeral_sig,
+                tx_hash,
+                bundle.auth.max_epoch,
+                proof,
+                Some(pin),
+            )?
+        }
+    };
+    if !addresses_equal(&verified.address, expected_sender) {
+        return Err(SignatureError::VerificationFailed);
+    }
+    Ok(verified)
 }
 
 #[cfg(test)]
@@ -393,10 +554,10 @@ mod tests {
 
     #[test]
     fn proof_authenticator_roundtrip_and_rejects() {
+        use crate::signatures::groth16::{proof_to_bytes, vk_to_bytes};
         use crate::signatures::zklogin::{compute_nonce, derive_zklogin_address_v2};
         use crate::signatures::zklogin_circuit::{
-            proof_to_bytes, prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
-            vk_to_bytes,
+            prove_binding, public_inputs_to_be_bytes, setup_binding_circuit,
         };
         use ark_std::rand::SeedableRng;
 
@@ -507,6 +668,164 @@ mod tests {
         );
         // Untagged address never routes here.
         assert!(verify_signature(&verified.address, tx_hash, &bundle).is_err());
+    }
+
+    fn admit_jwt_case(tx_hash: &[u8]) -> (Vec<u8>, String) {
+        let (eph_pub, _) = fixture_ephemeral();
+        let kp = EphemeralKeypair::from_secret([42u8; 32]).unwrap();
+        let sig: [u8; 64] = kp.sign(tx_hash).try_into().unwrap();
+        let auth = ZkLoginAuthenticator {
+            ephemeral_pubkey: eph_pub,
+            ephemeral_sig: sig,
+            max_epoch: 1000,
+            kind: ZkAuthKind::Jwt(fixture_jwt_auth()),
+        };
+        let verified = verify_zklogin_authenticator(tx_hash, &auth, 1_700_000_000).unwrap();
+        let bundle = encode_zklogin_tx_signature(&auth).unwrap();
+        (bundle, verified.address)
+    }
+
+    /// Proof bundle with a VALID ephemeral sig but garbage VK: reaches the
+    /// pin gate without an expensive real setup.
+    fn admit_proof_nosetup_bundle(tx_hash: &[u8]) -> Vec<u8> {
+        let (eph_pub, _) = fixture_ephemeral();
+        let kp = EphemeralKeypair::from_secret([42u8; 32]).unwrap();
+        let sig: [u8; 64] = kp.sign(tx_hash).try_into().unwrap();
+        let auth = ZkLoginAuthenticator {
+            ephemeral_pubkey: eph_pub,
+            ephemeral_sig: sig,
+            max_epoch: 1000,
+            kind: ZkAuthKind::Proof(ProofAuth {
+                vk: vec![7u8; 64],
+                inputs: vec![0u8; 64 * 32],
+                proof: vec![9u8; 128],
+                expected_address: "0xabc".to_string(),
+            }),
+        };
+        encode_zklogin_tx_signature(&auth).unwrap()
+    }
+
+    #[test]
+    fn admit_accepts_fresh_matching_sender() {
+        let tx = b"kanari-admit-tx-000000000000000001";
+        let (bundle, sender) = admit_jwt_case(tx);
+        let mut cache = ReplayCache::new(3600);
+        let out = admit_zklogin_tx(
+            &sender,
+            tx,
+            &bundle,
+            &AdmitOptions { vk_pin: None },
+            &mut cache,
+            1_700_000_000,
+            1000,
+        )
+        .unwrap();
+        assert_eq!(out.address, sender);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn admit_rejects_replay_and_still_takes_new_tx() {
+        let tx1 = b"kanari-admit-tx-000000000000000002";
+        let tx2 = b"kanari-admit-tx-000000000000000003";
+        let (bundle1, sender1) = admit_jwt_case(tx1);
+        let (bundle2, sender2) = admit_jwt_case(tx2);
+        let mut cache = ReplayCache::new(3600);
+        let opts = AdmitOptions { vk_pin: None };
+        assert!(
+            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_000, 1000)
+                .is_ok()
+        );
+        // Same tx again inside the TTL: replay, even though it is valid.
+        assert!(
+            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_001, 1000)
+                .is_err()
+        );
+        // A different tx still admits.
+        assert!(
+            admit_zklogin_tx(&sender2, tx2, &bundle2, &opts, &mut cache, 1_700_000_001, 1000)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn admit_rejects_expired_epoch_and_wrong_sender() {
+        let tx = b"kanari-admit-tx-000000000000000004";
+        let (bundle, sender) = admit_jwt_case(tx);
+        let mut cache = ReplayCache::new(3600);
+        let opts = AdmitOptions { vk_pin: None };
+        // max_epoch (1000) < current epoch: the ONLY timeliness bound proof
+        // mode has, enforced for both modes here.
+        assert!(matches!(
+            admit_zklogin_tx(&sender, tx, &bundle, &opts, &mut cache, 1_700_000_000, 1001),
+            Err(SignatureError::Expired)
+        ));
+        assert!(check_max_epoch(1000, 1000).is_ok());
+        assert!(check_max_epoch(999, 1000).is_err());
+        // Right bundle, wrong sender never admits.
+        assert!(
+            admit_zklogin_tx(
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+                tx,
+                &bundle,
+                &opts,
+                &mut cache,
+                1_700_000_000,
+                1000,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn admit_proof_mode_requires_pin() {
+        let tx = b"kanari-admit-tx-000000000000000005";
+        let bundle = admit_proof_nosetup_bundle(tx);
+        let mut cache = ReplayCache::new(3600);
+        // No pin: rejected at the gate before any VK bytes are touched.
+        assert!(
+            admit_zklogin_tx(
+                "0xabc",
+                tx,
+                &bundle,
+                &AdmitOptions { vk_pin: None },
+                &mut cache,
+                1_700_000_000,
+                1000,
+            )
+            .is_err()
+        );
+        // Pin present: flow continues into VK parsing, which fails closed
+        // on the garbage VK (InvalidFormat, not a silent false).
+        let tx2 = b"kanari-admit-tx-000000000000000006";
+        let bundle2 = admit_proof_nosetup_bundle(tx2);
+        assert!(matches!(
+            admit_zklogin_tx(
+                "0xabc",
+                tx2,
+                &bundle2,
+                &AdmitOptions {
+                    vk_pin: Some([1u8; 32])
+                },
+                &mut cache,
+                1_700_000_000,
+                1000,
+            ),
+            Err(SignatureError::InvalidFormat(_))
+        ));
+    }
+
+    #[test]
+    fn replay_cache_ttl_sweeps_expired_entries() {
+        let mut cache = ReplayCache::new(10);
+        assert!(cache.check_and_insert(b"tx-a", 100));
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.check_and_insert(b"tx-a", 105));
+        assert!(cache.check_and_insert(b"tx-b", 105));
+        assert_eq!(cache.len(), 2);
+        // tx-a expired at 110: sweep drops it, re-admission succeeds.
+        assert!(cache.check_and_insert(b"tx-a", 111));
+        assert_eq!(cache.len(), 2);
     }
 
     #[test]

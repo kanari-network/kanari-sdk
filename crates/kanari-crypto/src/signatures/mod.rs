@@ -34,6 +34,7 @@ pub mod dilithium5;
 pub mod ed25519;
 pub mod falcon;
 pub(crate) mod falcon_provider;
+pub mod groth16;
 pub mod hybrid;
 pub mod k256;
 pub(crate) mod ml_dsa_provider;
@@ -45,7 +46,6 @@ pub(crate) mod validation;
 pub mod zk_authenticator;
 pub mod zklogin;
 pub mod zklogin_circuit;
-pub mod zklogin_proof;
 
 pub use batch::{BatchVerificationItem, verify_batch_tagged, verify_batch_with_curve};
 pub(crate) use validation::MAX_PUBLIC_KEY_OR_ADDRESS_SIZE;
