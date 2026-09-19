@@ -733,18 +733,42 @@ mod tests {
         let mut cache = ReplayCache::new(3600);
         let opts = AdmitOptions { vk_pin: None };
         assert!(
-            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_000, 1000)
-                .is_ok()
+            admit_zklogin_tx(
+                &sender1,
+                tx1,
+                &bundle1,
+                &opts,
+                &mut cache,
+                1_700_000_000,
+                1000
+            )
+            .is_ok()
         );
         // Same tx again inside the TTL: replay, even though it is valid.
         assert!(
-            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_001, 1000)
-                .is_err()
+            admit_zklogin_tx(
+                &sender1,
+                tx1,
+                &bundle1,
+                &opts,
+                &mut cache,
+                1_700_000_001,
+                1000
+            )
+            .is_err()
         );
         // A different tx still admits.
         assert!(
-            admit_zklogin_tx(&sender2, tx2, &bundle2, &opts, &mut cache, 1_700_000_001, 1000)
-                .is_ok()
+            admit_zklogin_tx(
+                &sender2,
+                tx2,
+                &bundle2,
+                &opts,
+                &mut cache,
+                1_700_000_001,
+                1000
+            )
+            .is_ok()
         );
     }
 
