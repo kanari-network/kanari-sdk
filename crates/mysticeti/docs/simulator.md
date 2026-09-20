@@ -43,7 +43,11 @@ parameter. Suites run sequentially and print a final summary table comparing eve
 See [`crates/simulator/examples/single.yaml`](../crates/simulator/examples/single.yaml) for the
 annotated single-run template and
 [`crates/simulator/examples/suite.yaml`](../crates/simulator/examples/suite.yaml) for a suite that
-sweeps committee size, latency, topology, and protocol variant.
+sweeps committee size, latency, topology, and protocol variant,
+[`crates/simulator/examples/twin.yaml`](../crates/simulator/examples/twin.yaml) for an
+equivocating-leader run, and
+[`crates/simulator/examples/geography.yaml`](../crates/simulator/examples/geography.yaml) for a
+geo-distributed committee.
 
 ## Configuration Reference
 
@@ -53,12 +57,61 @@ All fields are optional and fall back to the defaults shown.
 | ----------------------------------- | ------------------------------------- | ----------- |
 | `name`                              | _(unset)_                             | Optional label shown in logs and the suite summary table. |
 | `committee_size`                    | `10`                                  | Number of replicas. Stake is uniform. |
-| `latency_min_ms` / `latency_max_ms` | `50` / `100`                          | Range for per-message link latency (min inclusive, max exclusive), sampled uniformly for every delivery. |
+| `latency`                           | `uniform` over 50–100 ms              | Link latency model — see below. |
 | `topology`                          | `fullMesh`                            | Network topology — see below. |
 | `duration_secs`                     | `20`                                  | Simulated time for which to run the simulation. |
 | `rng_seed`                          | `0`                                   | Seed for the deterministic RNG. Change this to get different per-run noise while keeping everything else fixed. |
 | `replica_parameters`                | `ReplicaParameters::default()`        | Same tunables as a real replica: DAG round timeout, max block size, consensus protocol, leader count. |
 | `load_generator`                    | `LoadGeneratorConfig::new_for_test()` | Built-in transaction generator (`load` tx/s, `transaction_size`, `initial_delay`). `null` for empty blocks. |
+| `equivocating_leaders`              | `[]`                                  | Authority indices that behave as equivocating leaders — see below. |
+
+## Link Latency
+
+The `latency` field selects how long a message takes on each directed link. Every message is
+delayed by its own latency, independently of the others in flight, up to a window of 1024
+messages per directed link; past that, or when the receiver stops reading, the link stops taking
+new messages and the sender waits. Links are FIFO (a message is never delivered before the
+previous one on its link). Ranges are `start` inclusive and `end` exclusive; `start == end` is a
+constant and `start > end` is rejected.
+
+- **`uniform`:** every link draws uniformly from the same range.
+
+  ```yaml
+  latency:
+    uniform:
+      range_ms: {start: 50, end: 100}
+  ```
+
+- **`geographic`:** replicas are placed in regions and a message takes half the round-trip time
+  between the two regions, plus a small uniform `extra_ms` (processing time and jitter, default
+  0–1 ms). Authority `i` sits in `regions[i % regions.len()]`, which is the round-robin the
+  orchestrator uses when it selects instances. A committee index therefore maps to the same region
+  in the simulator and on the testbed, provided `regions` is in the order of the testbed's
+  `settings.yml` and every region had an instance to give on each lap: the orchestrator silently
+  skips a region that has run out, which shifts every later index. `rtt_ms[from][to]` is looked up
+  per direction; a missing direction falls back to the reverse one and a missing intra-region
+  entry is zero. Every pair of listed regions must resolve, and every listed RTT and `extra_ms`
+  bound must be finite, non-negative and at most one hour, or the run is rejected before it starts.
+
+  ```yaml
+  latency:
+    geographic:
+      regions: [us-east-1, eu-west-2, ap-northeast-1]
+      rtt_ms:
+        us-east-1: {eu-west-2: 75.3, ap-northeast-1: 146.4}
+        eu-west-2: {ap-northeast-1: 212.2}
+      extra_ms: {start: 0, end: 1}
+  ```
+
+  [`examples/geography.yaml`](../crates/simulator/examples/geography.yaml) is a 50-replica,
+  six-region committee calibrated from an RTT matrix measured on the AWS testbed.
+
+The latency model composes with `topology` and `equivocating_leaders`: crashing a region is a
+`partition` whose alive group leaves that region's indices out.
+
+Earlier versions configured the uniform range with top-level `latency_min_ms` / `latency_max_ms`
+keys. They are no longer read (unknown keys are ignored), so a config that still sets them runs
+with the default latency: move them under `latency.uniform.range_ms`.
 
 ## Network Topologies
 
@@ -74,6 +127,36 @@ are established once and held for the duration):
 - **`partition: [[...], [...], ...]`** — the committee is split into the listed groups; replicas
   only connect inside their own group. Lets you construct arbitrary network splits — two equal
   halves exercise "no quorum on either side" conditions.
+
+## Byzantine Faults
+
+The `equivocating_leaders` field turns the listed authorities into equivocating leaders. In
+every round where such an authority holds a leader slot, it sends each peer two blocks for that
+round: its real proposal and a *twin* with the same parents, transactions and timestamp but a
+different digest (the last byte flipped). Odd-indexed peers receive the twin first, even-indexed
+peers the original, so the committee's votes split between the two. Everything else the
+authority does is honest.
+
+The behaviour is a shim on the equivocator's outgoing links, so the replica code is unmodified.
+The twin is also delivered back to the equivocator itself (as if a peer had sent it), so that
+honest blocks referencing the twin stay causally complete for it and it keeps proposing.
+
+What to expect: a slot with two twins cannot gather a fast quorum or a certificate for either,
+so it is never fast- or slow-committed. Under a dual-path protocol (`dag-hydrangea`) each twin
+still gathers a weak quorum of anchor-linked votes and the slot is committed by the weak rung of
+the graded indirect rule, with the digest tie-break choosing the twin. Under a single-path
+protocol (`mysticeti`) the slot is skipped indirectly. In neither case is a direct skip possible,
+since every voter voted for one of the twins. The scenarios in
+`crates/simulator/tests/dag_hydrangea.rs` and `crates/simulator/tests/simulation.rs` assert
+exactly this through the `commit_type` breakdown of `committed_leaders_total`;
+[`examples/twin.yaml`](../crates/simulator/examples/twin.yaml) is a ready-made run of the
+DagHydrangea case whose exported `metrics-*.prom` files show the breakdown per leader.
+
+Two approximations to keep in mind. The leader slots are computed from the protocol's leader
+count and the round-robin `LeaderElector`, which is exact for the pipelined protocols; the
+non-pipelined Cordial Miners variants equivocate in a few extra (non-leader) rounds, which is
+harmless. And equivocating in every round is not offered: the leader rounds are where
+equivocation bears on the commit rule.
 
 ## Outcomes
 

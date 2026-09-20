@@ -3,10 +3,6 @@
 
 //! DagHydrangea simulation tests.
 //!
-//! Path coverage: the `commit_type` metric label cannot tell the fast from the
-//! slow path (both `direct-commit`) nor the two indirect rungs apart (both
-//! `indirect-commit`) — see #199.
-//!
 //! Threshold cheat-sheet for the configurations used below
 //! (n = 3f + 2c + k + 1, p = (c + k) / 2):
 //!
@@ -17,11 +13,13 @@
 //! | (3, 4, 2)  | 20 | 3 | 17        | 7 | 12   | 11   | 13 |
 //! | (0, 9, 1)  | 20 | 5 | 15        | 6 | 11   | 10   | 11 |
 //! | (4, 1, 5)  | 20 | 3 | 17        | 8 | 13   | 10   | 15 |
+//! | (2, 3, 7)  | 20 | 5 | 15        | 8 | 12   | 8    | 15 |
 
 use std::num::NonZeroUsize;
 
 use consensus::protocol::{ConsensusProtocol, Protocol, ProtocolError};
-use dag::metrics::{MetricsSnapshot, SnapshotAggregate};
+use dag::authority::Authority;
+use dag::metrics::{BlockKind, MetricsSnapshot, SnapshotAggregate};
 use replica::config::ReplicaParameters;
 use replica::result::{Outcome, RunResult};
 use simulator::{NetworkTopology, SimulationConfig, SimulationRunner};
@@ -78,12 +76,8 @@ fn happy_path_bft_n4() {
 #[test]
 fn fast_dominant_crash_slack_n4() {
     // n=4, f=0, c=1, k=1 → p=1: fast-dominant configuration (CERT = FAST = 3).
-    // A certificate references >= CERT = FAST votes at the voting round, so any
-    // committed DAG also satisfied the fast trigger. This pins the fast path's
-    // *condition* end to end, not the code branch: a disabled fast rule would
-    // still commit through the slow path here (indistinguishable until #199).
-    // The branch itself is covered by the consensus crate's
-    // `try_direct_decide_fast_commits_at_voting_round` unit test.
+    // A certificate references >= CERT = FAST votes at the voting round, so the
+    // fast rule fires before any certificate can: every direct commit is fast.
     let result = run(SimulationConfig {
         committee_size: 4,
         duration_secs: 30,
@@ -95,8 +89,13 @@ fn fast_dominant_crash_slack_n4() {
     });
     assert_progress(&result, 10);
     assert!(
-        max_over_replicas(&result, MetricsSnapshot::direct_commits) > 0,
-        "fast-dominant configuration must produce direct commits"
+        max_over_replicas(&result, MetricsSnapshot::fast_commits) > 0,
+        "fast-dominant configuration must commit through the fast path"
+    );
+    assert_eq!(
+        max_over_replicas(&result, MetricsSnapshot::slow_commits),
+        0,
+        "the fast path fires before any certificate forms"
     );
 }
 
@@ -151,6 +150,10 @@ fn crash_one_node_n4() {
     });
     assert_progress(&result, 10);
     assert!(
+        max_over_replicas(&result, MetricsSnapshot::fast_commits) > 0,
+        "the live nodes must still reach the fast quorum"
+    );
+    assert!(
         max_over_replicas(&result, MetricsSnapshot::direct_skips) > 0,
         "the crashed node's slots must be directly skipped"
     );
@@ -176,11 +179,54 @@ fn crash_one_node_n20() {
     );
 }
 
+/// Mean proposal-to-commit latency of leader blocks over all replicas, in seconds.
+fn mean_leader_latency(result: &RunResult<SimulationConfig>) -> f64 {
+    let (sum, count) = result
+        .metrics
+        .iter()
+        .filter_map(|metrics| metrics.block_latency_sum_and_count(BlockKind::Leader))
+        .fold((0.0, 0), |(sum, count), (s, c)| (sum + s, count + c));
+    assert!(count > 0, "no committed leader blocks");
+    sum / count as f64
+}
+
+/// A fast quorum above the threshold-clock quorum (4, 1, 5: FAST=17 > Q=15) must not be
+/// slower than one equal to it (2, 3, 7: FAST=Q=15). Without the fast-commit trigger in
+/// `Syncer::add_blocks` the former only commits at the next own proposal, a round late.
+#[test]
+fn fast_quorum_above_clock_quorum_commits_without_waiting_for_a_proposal_n20() {
+    let run_with = |f, c, k| {
+        let result = run(SimulationConfig {
+            committee_size: 20,
+            duration_secs: 30,
+            replica_parameters: ReplicaParameters {
+                consensus: dag_hydrangea(f, c, k, 2),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_progress(&result, 50);
+        assert_eq!(
+            max_over_replicas(&result, MetricsSnapshot::slow_commits),
+            0,
+            "({f}, {c}, {k}) commits every leader through the fast path"
+        );
+        mean_leader_latency(&result)
+    };
+    let above_clock = run_with(4, 1, 5);
+    let at_clock = run_with(2, 3, 7);
+    println!("mean leader latency: (4, 1, 5) {above_clock:.3}s, (2, 3, 7) {at_clock:.3}s");
+    assert!(
+        above_clock <= at_clock * 1.15,
+        "fast quorum above the clock quorum: {above_clock:.3}s, at the clock quorum: {at_clock:.3}s"
+    );
+}
+
 #[test]
 fn slow_path_partition_n20() {
     // n=20, f=0, c=9, k=1: the majority size pins every leader's support at 14.
     // - 14 ∈ [CERT=11, FAST=15): the fast path is unreachable, so every direct
-    //   commit is provably a slow-path (certified) commit;
+    //   commit is a slow-path (certified) commit;
     // - the 6 isolated leaders draw 14 blames < SKIP=15: never directly
     //   skipped, resolved as indirect skips via later anchors;
     // - 14 < SKIP=15 also means no direct skip can occur at all;
@@ -204,8 +250,13 @@ fn slow_path_partition_n20() {
         });
         assert_progress(&result, 10);
         assert!(
-            max_over_replicas(&result, MetricsSnapshot::direct_commits) > 0,
+            max_over_replicas(&result, MetricsSnapshot::slow_commits) > 0,
             "[seed={rng_seed}] the majority must commit through the slow path"
+        );
+        assert_eq!(
+            max_over_replicas(&result, MetricsSnapshot::fast_commits),
+            0,
+            "[seed={rng_seed}] the fast quorum (15) is unreachable with 14 connected nodes"
         );
         assert!(
             max_over_replicas(&result, MetricsSnapshot::indirect_skips) > 0,
@@ -290,4 +341,60 @@ fn infeasible_params_rejected() {
             min_n: 20,
         })
     ));
+}
+
+#[test]
+fn equivocating_leader_n20() {
+    // n=20, f=3, c=4, k=2 with authority 3 equivocating in its leader rounds: the
+    // 9 odd peers see the twin first, the 10 even peers and the leader itself the
+    // original, so no twin reaches FAST=17 votes or CERT=12 certificates. Both
+    // twins gather at least W=7 anchor-linked votes, so every equivocated slot is
+    // decided by the weak-quorum rung with its digest tie-break, never by the fast
+    // path and never by a skip (the equivocator stays live, its slots are never
+    // empty). Observed: 42 equivocated slots, all weak-rung commits, on both seeds.
+    for rng_seed in [0, 7] {
+        let result = run(SimulationConfig {
+            committee_size: 20,
+            equivocating_leaders: vec![3],
+            duration_secs: 40,
+            rng_seed,
+            replica_parameters: ReplicaParameters {
+                consensus: dag_hydrangea(3, 4, 2, 2),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_progress(&result, 15);
+        let equivocator = Authority::from(3usize);
+        for metrics in &result.metrics {
+            assert_eq!(
+                metrics.fast_commits_of(equivocator),
+                0,
+                "[seed={rng_seed}] an equivocated slot can never gather a fast quorum"
+            );
+        }
+        let decided = result
+            .metrics
+            .iter()
+            .map(|metrics| metrics.decided_leaders_of(equivocator))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            decided > 0,
+            "[seed={rng_seed}] equivocated slots must be decided"
+        );
+        assert!(
+            max_over_replicas(&result, MetricsSnapshot::indirect_weak_commits) > 0,
+            "[seed={rng_seed}] equivocated slots are committed by the weak-quorum rung"
+        );
+        assert_eq!(
+            max_over_replicas(&result, MetricsSnapshot::direct_skips),
+            0,
+            "[seed={rng_seed}] the equivocator stays live, so none of its slots is skipped"
+        );
+        assert!(
+            max_over_replicas(&result, MetricsSnapshot::fast_commits) > 0,
+            "[seed={rng_seed}] the other slots keep committing through the fast path"
+        );
+    }
 }

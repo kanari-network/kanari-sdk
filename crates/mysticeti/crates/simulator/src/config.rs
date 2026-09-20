@@ -1,10 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt, ops::Range, time::Duration};
+use std::{fmt, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::latency::LatencyModel;
 use dag::config::ImportExport;
 use replica::config::{LoadGeneratorConfig, ReplicaParameters};
 
@@ -12,17 +13,31 @@ use replica::config::{LoadGeneratorConfig, ReplicaParameters};
 ///
 /// The untagged representation lets one YAML file be either a mapping (single
 /// config, as before) or a top-level sequence of configs (suite).
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Clone)]
 #[serde(untagged)]
 pub enum SimulationMode {
     Suite(Vec<SimulationConfig>),
-    Single(SimulationConfig),
+    Single(Box<SimulationConfig>),
+}
+
+// Not derived: an untagged derive reports every error inside a config as "data did not match
+// any variant", hiding the field at fault.
+impl<'de> Deserialize<'de> for SimulationMode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        let mode = if value.is_sequence() {
+            serde_yaml::from_value(value).map(Self::Suite)
+        } else {
+            serde_yaml::from_value(value).map(|config| Self::Single(Box::new(config)))
+        };
+        mode.map_err(serde::de::Error::custom)
+    }
 }
 
 impl SimulationMode {
     pub fn into_configs(self) -> Vec<SimulationConfig> {
         match self {
-            SimulationMode::Single(config) => vec![config],
+            SimulationMode::Single(config) => vec![*config],
             SimulationMode::Suite(configs) => configs,
         }
     }
@@ -36,11 +51,11 @@ pub struct SimulationConfig {
     pub name: Option<String>,
     #[serde(default = "defaults::committee_size")]
     pub committee_size: usize,
-    #[serde(default = "defaults::latency_min_ms")]
-    pub latency_min_ms: u64,
-    #[serde(default = "defaults::latency_max_ms")]
-    pub latency_max_ms: u64,
-    #[serde(default)]
+    // `singleton_map` writes enum variants as `variant: value` rather than a YAML `!variant`
+    // tag, which the untagged `SimulationMode` cannot read back.
+    #[serde(default, with = "serde_yaml::with::singleton_map")]
+    pub latency: LatencyModel,
+    #[serde(default, with = "serde_yaml::with::singleton_map")]
     pub topology: NetworkTopology,
     #[serde(default = "defaults::duration_secs")]
     pub duration_secs: u64,
@@ -50,6 +65,9 @@ pub struct SimulationConfig {
     pub replica_parameters: ReplicaParameters,
     #[serde(default = "defaults::load_generator")]
     pub load_generator: Option<LoadGeneratorConfig>,
+    /// Authority indices that send twin blocks in their leader rounds (see docs/simulator.md).
+    #[serde(default)]
+    pub equivocating_leaders: Vec<usize>,
 }
 
 impl Default for SimulationConfig {
@@ -57,30 +75,18 @@ impl Default for SimulationConfig {
         Self {
             name: None,
             committee_size: defaults::committee_size(),
-            latency_min_ms: defaults::latency_min_ms(),
-            latency_max_ms: defaults::latency_max_ms(),
+            latency: LatencyModel::default(),
             topology: NetworkTopology::default(),
             duration_secs: defaults::duration_secs(),
             rng_seed: 0,
             replica_parameters: ReplicaParameters::default(),
             load_generator: Some(LoadGeneratorConfig::new_for_test()),
+            equivocating_leaders: Vec::new(),
         }
     }
 }
 
 impl SimulationConfig {
-    pub fn latency_range(&self) -> Range<Duration> {
-        assert!(
-            self.latency_min_ms <= self.latency_max_ms,
-            "latency_min_ms ({}) must not exceed latency_max_ms ({})",
-            self.latency_min_ms,
-            self.latency_max_ms
-        );
-        let min = Duration::from_millis(self.latency_min_ms);
-        let max = Duration::from_millis(self.latency_max_ms);
-        min..max
-    }
-
     pub fn duration(&self) -> Duration {
         Duration::from_secs(self.duration_secs)
     }
@@ -130,12 +136,6 @@ mod defaults {
 
     pub fn committee_size() -> usize {
         10
-    }
-    pub fn latency_min_ms() -> u64 {
-        50
-    }
-    pub fn latency_max_ms() -> u64 {
-        100
     }
     pub fn duration_secs() -> u64 {
         20

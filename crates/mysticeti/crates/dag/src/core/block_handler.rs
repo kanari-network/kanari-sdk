@@ -12,13 +12,13 @@ use tokio::sync::mpsc;
 
 use crate::{
     block::{
-        Block, BlockReference,
+        Block, BlockReference, GENESIS_ROUND,
         transaction::{Transaction, TransactionLocator},
     },
     consensus::{CommittedSubDag, Linearizer},
     context::Ctx,
     data::Data,
-    metrics::Metrics,
+    metrics::{BlockKind, Metrics},
     storage::BlockReader,
 };
 
@@ -128,20 +128,22 @@ impl<C: Ctx> CommitHandler<C> {
                 .observe_inter_block_latency_s(latency.as_secs_f64());
         }
 
-        let time_from_start = C::elapsed(&self.start_time);
-        let benchmark_duration = self.metrics.benchmark_duration_secs();
-        if let Some(delta) = time_from_start.as_secs().checked_sub(benchmark_duration) {
-            self.metrics.inc_benchmark_duration_by(delta);
-        }
-
         let Some(tx_submission_timestamp) = transaction.extract_timestamp() else {
             tracing::warn!("Failed to extract timestamp from transaction");
             return;
         };
         let latency = current_timestamp.saturating_sub(tx_submission_timestamp);
-        let square_latency = latency.as_secs_f64().powf(2.0);
-        self.metrics.observe_latency_s(latency.as_secs_f64());
-        self.metrics.observe_latency_squared_s(square_latency);
+        self.metrics
+            .observe_transaction_latency_s(latency.as_secs_f64());
+    }
+
+    /// Advance `benchmark_duration` to the seconds elapsed since this handler started.
+    fn update_benchmark_duration(&self) {
+        let time_from_start = C::elapsed(&self.start_time);
+        let benchmark_duration = self.metrics.benchmark_duration_secs();
+        if let Some(delta) = time_from_start.as_secs().checked_sub(benchmark_duration) {
+            self.metrics.inc_benchmark_duration_by(delta);
+        }
     }
 
     pub fn handle_commit(
@@ -155,10 +157,23 @@ impl<C: Ctx> CommitHandler<C> {
             .commit_interpreter
             .handle_commit(block_reader, committed_leaders);
         let transaction_time = self.transaction_time.lock();
+        let mut committed_transactions = false;
         for commit in &committed {
             self.committed_leaders.push(commit.anchor);
             for block in &commit.blocks {
+                // Genesis blocks carry a zero timestamp and would poison the sums.
+                if block.round() != GENESIS_ROUND {
+                    let kind = if *block.reference() == commit.anchor {
+                        BlockKind::Leader
+                    } else {
+                        BlockKind::NonLeader
+                    };
+                    let latency = current_timestamp.saturating_sub(block.timestamp());
+                    self.metrics
+                        .observe_block_latency_s(kind, latency.as_secs_f64());
+                }
                 for (locator, transaction) in block.located_transactions() {
+                    committed_transactions = true;
                     self.update_metrics(
                         transaction_time.get(&locator),
                         current_timestamp,
@@ -166,6 +181,11 @@ impl<C: Ctx> CommitHandler<C> {
                     );
                 }
             }
+        }
+        // The benchmark clock only advances while transactions commit; once per batch
+        // is enough at its one-second granularity.
+        if committed_transactions {
+            self.update_benchmark_duration();
         }
         committed
     }
