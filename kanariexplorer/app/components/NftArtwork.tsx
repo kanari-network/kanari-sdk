@@ -14,9 +14,11 @@ const IMAGE_KEYS = [
   "thumbnail",
   "cover_url",
   "coverUrl",
+  "banner_url",
+  "bannerUrl",
 ];
 
-const NESTED_METADATA_KEYS = ["metadata", "display", "content", "fields", "data"];
+const NESTED_METADATA_KEYS = ["parsed", "metadata", "display", "content", "fields", "data"];
 
 function normalizeImageUrl(value: string): string | null {
   const url = value.trim();

@@ -107,7 +107,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         val request = RpcRequest(
             method = "kanari_getAllTransactions",
             params = buildJsonObject {
-                put("account", normalizeAddress(address))
+                put("owner", normalizeAddress(address))
                 put("limit", limit)
             }
         )
