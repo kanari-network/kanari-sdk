@@ -309,6 +309,7 @@ impl MoveRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Create a new runtime with custom native functions and default storage.
     pub(crate) fn new_with_natives(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = if cfg!(miri) {
             MoveVMState::new_in_memory()?
@@ -318,11 +319,13 @@ impl MoveRuntime {
         Self::new_internal(natives, state, None)
     }
 
+    /// Create a new runtime with custom native functions using in-memory storage.
     pub fn new_with_natives_in_memory(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = MoveVMState::new_in_memory()?;
         Self::new_internal(natives, state, None)
     }
 
+    /// Create a new runtime with custom native functions and a shared persistent store.
     pub(crate) fn new_with_natives_and_store(
         natives: Vec<NativeFunctionTable>,
         store: Arc<PersistentStore>,
@@ -380,6 +383,7 @@ impl MoveRuntime {
         })
     }
 
+    /// Create a new runtime with Kanari system natives and default storage.
     pub fn new_with_kanari_natives() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives(natives)?;
@@ -389,6 +393,7 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    /// Create a new runtime with Kanari system natives using in-memory storage.
     pub fn new_with_kanari_natives_in_memory() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_in_memory(natives)?;
@@ -396,6 +401,7 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    /// Create a new runtime with Kanari system natives and a shared persistent store.
     pub fn new_with_kanari_natives_and_store(store: Arc<PersistentStore>) -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_and_store(natives, store)?;
@@ -420,6 +426,7 @@ impl MoveRuntime {
         ]
     }
 
+    /// Spawn a worker runtime that shares the same state and native table.
     pub fn spawn_worker(&self) -> Result<Self> {
         let vm = MoveVM::new(self.all_natives.as_ref().clone()).require("Worker VM init error")?;
 
@@ -435,6 +442,7 @@ impl MoveRuntime {
         })
     }
 
+    /// Spawn an isolated worker with its own VM, resolver, and object cache.
     pub fn spawn_isolated_worker(&self) -> Result<Self> {
         let vm = MoveVM::new(self.all_natives.as_ref().clone())
             .require("Isolated worker VM init error")?;
@@ -497,6 +505,7 @@ impl MoveRuntime {
         self.reload_vm_cache()
     }
 
+    /// Clear the in-memory object cache.
     pub fn clear_object_cache(&self) -> Result<()> {
         self.object_storage
             .clear()
@@ -532,6 +541,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Apply a Move changeset to persistent storage and update the published module index.
     pub(crate) fn apply_move_changeset(
         &self,
         move_cs: move_core_types::effects::ChangeSet,
@@ -623,6 +633,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Upgrade an existing Move module with compatibility checks.
     pub fn upgrade_module(
         &self,
         module_bytes: Vec<u8>,
@@ -640,6 +651,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Publish a new Move module with verification and safety checks.
     pub fn publish_module(
         &self,
         module_bytes: Vec<u8>,
@@ -657,6 +669,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Bootstrap a module allowing overwrite of an existing module during genesis.
     pub fn bootstrap_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -677,6 +690,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Upgrade an existing Move module with explicit context and persistence control.
     pub fn upgrade_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -697,6 +711,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Publish a new Move module with explicit context and persistence control.
     pub fn publish_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -780,6 +795,7 @@ impl MoveRuntime {
         Ok(cs)
     }
 
+    /// Publish a multi-module package with explicit context and persistence control.
     pub fn publish_package_with_context_and_persistence(
         &self,
         modules: Vec<(String, Vec<u8>)>,
@@ -800,6 +816,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Upgrade a multi-module package with compatibility checks.
     pub fn upgrade_package_with_context_and_persistence(
         &self,
         modules: Vec<(String, Vec<u8>)>,
@@ -980,6 +997,7 @@ impl MoveRuntime {
                 )
             })
     }
+    /// Execute a module's init function with explicit context parameters.
     pub(crate) fn execute_init_function_with_context(
         &self,
         module_addr: AccountAddress,
@@ -1014,6 +1032,17 @@ impl MoveRuntime {
             .map(|arg| {
                 // Only perform preprocessing for string-like inputs that are meant to be converted
                 // Skip preprocessing if the arg is already a properly serialized BCS value
+
+                // Skip if the arg has a common BCS-encoded primitive size:
+                // - 1 byte: u8/bool
+                // - 8 bytes: u64 (BCS little-endian)
+                // - 16 bytes: u128
+                // - 32 bytes: AccountAddress (handled below for hex string case)
+                // This prevents misinterpreting binary BCS data as human-readable text.
+                let len = arg.len();
+                if len == 1 || len == 8 || len == 16 {
+                    return arg;
+                }
 
                 // Check if this looks like a potential address string (hex string)
                 if let Ok(s) = std::str::from_utf8(&arg) {
@@ -1193,6 +1222,7 @@ impl MoveRuntime {
             .push((object_id.to_string(), updated_obj));
     }
 
+    /// Persist created objects from a changeset to the object store.
     pub fn persist_created_objects(&self, cs: &ChangeSet) -> Result<()> {
         for (id, created) in &cs.created_objects {
             let stored = StoredObject {
@@ -1210,6 +1240,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Persist deleted objects from a changeset to the object store.
     pub fn persist_deleted_objects(&self, cs: &ChangeSet) -> Result<()> {
         for obj_id in &cs.deleted_objects {
             self.object_storage
@@ -1219,6 +1250,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Preload an object snapshot into the object cache before execution.
     pub fn preload_object_snapshot(
         &self,
         object_id: &str,
@@ -1240,6 +1272,7 @@ impl MoveRuntime {
             .require("Object storage operation failed")
     }
 
+    /// Ensure the system clock object exists, creating it via VM or native path as needed.
     pub fn ensure_system_clock(&self, state: &mut StateManager) -> Result<AccountAddress> {
         if let Some(id) = state.get_system_clock_object_id()? {
             return Ok(id);
@@ -1326,6 +1359,7 @@ impl MoveRuntime {
         Ok(addr)
     }
 
+    /// Build a consensus commit prologue changeset for the native clock object.
     pub fn build_native_clock_consensus_commit_prologue(
         &self,
         state: &StateManager,
@@ -1372,6 +1406,7 @@ impl MoveRuntime {
         Ok(changeset)
     }
 
+    /// Execute a Move entry function with the given arguments and context.
     pub fn execute_entry_function(
         &self,
         module_id: &ModuleId,
@@ -1391,6 +1426,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Execute a Move entry function with full object context and persistence control.
     pub fn execute_entry_function_with_object_context_and_persistence(
         &self,
         module_id: &ModuleId,

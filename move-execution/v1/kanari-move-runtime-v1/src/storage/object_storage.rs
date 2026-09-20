@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Object storage backend with persistent and in-memory implementations.
+
 use crate::common::keys::owned_objects_key;
 use crate::storage::persistent_store::{PersistentStore, PersistentStoreError};
 use anyhow::Result;
@@ -191,6 +193,7 @@ impl ObjectStorage {
         }
     }
 
+    /// Returns a boxed in-memory object store with no persistence.
     pub(crate) fn boxed_inmemory() -> Box<dyn ObjectStore> {
         Box::new(Self::new())
     }
@@ -203,6 +206,7 @@ impl Default for ObjectStorage {
 }
 
 impl ObjectStorage {
+    /// Creates an ObjectStorage backed by the given persistent store, loading existing objects.
     pub(crate) fn new_with_store(store: Arc<PersistentStore>) -> Result<Self> {
         let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
 
@@ -226,6 +230,7 @@ impl ObjectStorage {
         })
     }
 
+    /// Returns a boxed object store backed by the given persistent store, or in-memory under Miri.
     pub(crate) fn boxed_with_store(store: Arc<PersistentStore>) -> Result<Box<dyn ObjectStore>> {
         if cfg!(miri) {
             return Ok(Self::boxed_inmemory());

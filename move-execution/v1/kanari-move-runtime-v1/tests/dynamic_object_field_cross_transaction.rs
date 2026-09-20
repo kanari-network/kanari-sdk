@@ -28,7 +28,7 @@ fn dynamic_object_field_persists_across_runtime_instances() -> Result<()> {
 
     let mut state = StateManager::new(store.clone());
     let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish dynamic_object_field_e2e module")?;
 

@@ -29,7 +29,7 @@ fn module_upgrade_preserves_storage_and_publish_rejects_existing_module() {
         "unexpected error: {publish_err}"
     );
 
-    runtime
+    let _ = runtime
         .upgrade_module(module_bytes.clone(), *module_id.address(), None, None)
         .invariant("upgrade should succeed");
 
@@ -43,7 +43,7 @@ fn module_upgrade_preserves_storage_and_publish_rejects_existing_module() {
     let listed = runtime.list_modules();
     assert!(listed.iter().any(|m| m == &module_id));
 
-    runtime
+    let _ = runtime
         .upgrade_module(module_bytes.clone(), *module_id.address(), None, None)
         .invariant("second upgrade should succeed");
 
@@ -123,7 +123,7 @@ fn compatible_module_upgrade_can_change_constant_value() {
         "constant upgrade should change the persisted module bytes"
     );
 
-    runtime
+    let _ = runtime
         .upgrade_module(upgraded_bytes.clone(), *module_id.address(), None, None)
         .invariant("constant-only compatible upgrade should succeed");
 
@@ -149,7 +149,7 @@ fn compatible_module_upgrade_can_change_metadata() {
         "metadata upgrade should change the persisted module bytes"
     );
 
-    runtime
+    let _ = runtime
         .upgrade_module(upgraded_bytes.clone(), *module_id.address(), None, None)
         .invariant("metadata-only compatible upgrade should succeed");
 
@@ -251,7 +251,7 @@ fn package_upgrade_existing_module_preserves_storage() {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
     let (module_id, module_bytes, _) = first_published_module(&runtime);
 
-    runtime
+    let _ = runtime
         .upgrade_package_with_context_and_persistence(
             vec![(module_id.name().to_string(), module_bytes.clone())],
             *module_id.address(),
@@ -278,7 +278,7 @@ fn package_upgrade_can_change_metadata() {
         "package metadata upgrade should change module bytes"
     );
 
-    runtime
+    let _ = runtime
         .upgrade_package_with_context_and_persistence(
             vec![(module_id.name().to_string(), upgraded_bytes.clone())],
             *module_id.address(),
@@ -296,7 +296,7 @@ fn bootstrap_module_allows_existing_framework_module_idempotently() {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
     let (module_id, module_bytes, _) = first_published_module(&runtime);
 
-    runtime
+    let _ = runtime
         .bootstrap_module_with_context_and_persistence(
             module_bytes.clone(),
             *module_id.address(),

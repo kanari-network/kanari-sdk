@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Type tag and argument parsers for Move entry functions.
+
 // MoveRuntime parsers and helpers
 // This module provides utility functions for parsing Move changesets, resolving dynamic fields, and managing object
 // IDs within the Kanari Move runtime. It includes functionality for extracting balance values from resource bytes, determining if a struct tag represents a balance or treasury resource, and preloading objects for execution. Additionally, it defines a custom dynamic field resolver that interacts with the persistent store and state overlay to retrieve dynamic field values.

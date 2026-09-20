@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Object manipulation operations for the Move runtime.
+
 // MoveRuntime object operations
 // This module provides functions for managing objects within the Kanari Move runtime, including adding transferred objects
 // to a ChangeSet, persisting runtime state, and handling object ownership and versioning. It includes functionality for processing transferred objects, determining their persistence requirements, and updating the ChangeSet accordingly. The module also handles the extraction of treasury and balance information from object data, ensuring that relevant state changes are accurately reflected in the ChangeSet.
@@ -51,9 +53,12 @@ impl super::MoveRuntime {
             } else {
                 format!("0x{}", id.trim())
             };
-            let Some(canonical_id) = canonical_object_id(&normalized_id) else {
-                debug!("Skipping transferred object with invalid object id: {}", id);
-                continue;
+            let canonical_id = match canonical_object_id(&normalized_id) {
+                Some(id) => id,
+                None => {
+                    debug!("Skipping transferred object with invalid object id: {}", id);
+                    continue;
+                }
             };
 
             let existing = self.get_object_for_execution(

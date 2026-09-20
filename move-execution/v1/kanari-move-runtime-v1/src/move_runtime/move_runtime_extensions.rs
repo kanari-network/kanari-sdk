@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Extension traits for the Move runtime.
+
 // Extended functionality for MoveRuntime
 // Includes module verification and advanced session management
 // This module provides additional functionality for the MoveRuntime, including module verification before publishing, checking for module availability in storage, retrieving module bytecode, and listing all published modules. It also includes advanced session management features that allow for more complex transaction execution scenarios.

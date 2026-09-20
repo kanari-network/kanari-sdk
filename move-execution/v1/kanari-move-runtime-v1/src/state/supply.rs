@@ -1,3 +1,5 @@
+//! Token supply tracking and invariant validation.
+
 use super::*;
 
 impl StateManager {
@@ -62,6 +64,7 @@ impl StateManager {
         Ok(totals)
     }
 
+    /// Rebuild the wallet-visible supply index from canonical owner and object data.
     pub(super) fn ensure_wallet_supply_index(&mut self) -> Result<bool> {
         let version = self
             .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
@@ -85,6 +88,7 @@ impl StateManager {
         Ok(true)
     }
 
+    /// Resolve all token balances for an owner from owned objects and ledger state.
     pub fn resolve_owner_token_balances(
         &self,
         owner: AccountAddress,
@@ -108,6 +112,7 @@ impl StateManager {
         Ok(balances)
     }
 
+    /// Resolve the balance of a specific token type for an owner.
     pub fn resolve_owner_token_balance(
         &self,
         owner: AccountAddress,
@@ -121,10 +126,12 @@ impl StateManager {
             .unwrap_or(0))
     }
 
+    /// Resolve the native token balance for an owner.
     pub fn resolve_owner_native_balance(&self, owner: AccountAddress) -> Result<u64> {
         self.resolve_owner_token_balance(owner, GAS_COIN)
     }
 
+    /// Compute token balances for an owner by scanning their owned objects.
     pub fn compute_owned_token_balances(
         &self,
         owner: AccountAddress,
@@ -173,12 +180,14 @@ impl StateManager {
         Ok(aggregated)
     }
 
+    /// Build the database key for a token supply record.
     pub(super) fn supply_key(token_type: &str) -> Vec<u8> {
         let mut key = b"supply:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         key
     }
 
+    /// Load a persisted supply value from the store for the given token type.
     pub(super) fn load_persisted_supply_from_store(
         store: &PersistentStore,
         token_type: &str,
@@ -190,6 +199,7 @@ impl StateManager {
         Ok(store.load::<u64>(&key)?)
     }
 
+    /// Save the native total supply and update the supply record.
     pub(super) fn save_native_total_supply(&mut self, total_supply: u64) -> Result<()> {
         self.total_supply = total_supply;
         self.save_internal(b"total_supply", &total_supply)?;
@@ -214,6 +224,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Get the total issued supply for a token type.
     pub(super) fn issued_supply_for_token(&self, token_type: &str) -> Result<u64> {
         if token_type == GAS_COIN {
             return Ok(self.total_supply);
@@ -233,6 +244,7 @@ impl StateManager {
             .unwrap_or(0))
     }
 
+    /// Compute wallet-visible supply by scanning all owners and objects.
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
@@ -286,6 +298,7 @@ impl StateManager {
         Ok(total)
     }
 
+    /// Sync the native visible supply cache with the canonical index.
     pub(super) fn sync_native_visible_supply_cache(&mut self) -> Result<bool> {
         let indexed_visible = self.indexed_wallet_supply(GAS_COIN)?.min(self.total_supply);
         let current = self
@@ -381,6 +394,7 @@ impl StateManager {
         Ok(true)
     }
 
+    /// Repair the cached native wallet-visible overcount if it exceeds the maximum.
     pub fn repair_cached_native_wallet_overcount(&mut self) -> Result<bool> {
         let cached_visible = self
             .global_token_supplies
@@ -396,12 +410,14 @@ impl StateManager {
         self.repair_legacy_native_wallet_overcount()
     }
 
+    /// Load the object-locked coin records from the store.
     pub(super) fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
         Ok(self
             .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
             .unwrap_or_default())
     }
 
+    /// Save the object-locked coin records to the store.
     pub(super) fn save_object_locked_coin_records(
         &mut self,
         records: &[ObjectLockedCoinRecord],
@@ -421,6 +437,7 @@ impl StateManager {
             })
     }
 
+    /// Get a summary of the total, visible, locked, and untracked supply for a token.
     pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
         let token_type = Self::normalize_token_type(token_type);
         let total_supply = self.issued_supply_for_token(&token_type)?;
@@ -464,6 +481,7 @@ impl StateManager {
         })
     }
 
+    /// Check whether supply invariant violations should fail fast.
     pub fn supply_invariant_fail_fast_enabled() -> bool {
         std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
             .map(|value| {
@@ -484,6 +502,7 @@ impl StateManager {
             })
     }
 
+    /// Log and optionally bail on a supply invariant violation.
     pub(super) fn report_supply_invariant_violation(
         context: &str,
         error: &anyhow::Error,
@@ -518,12 +537,14 @@ impl StateManager {
         let key = metadata_key(prefix, token_type);
         self.load_internal(&key)
     }
+    /// Normalize a token type string to its canonical display form.
     pub(super) fn normalize_token_type(token_type: &str) -> String {
         if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
             return format!("{}", st);
         }
         token_type.to_string()
     }
+    /// Persist CoinMetadata fields for the given token type.
     pub(super) fn persist_coin_metadata(&mut self, token_type: &str, data: &[u8]) -> Result<()> {
         #[derive(Deserialize)]
         struct MoveString {
@@ -572,6 +593,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Adjust the global token supply cache based on an owner's old and new balances.
     pub(super) fn adjust_global_supplies_for_account_delta(
         &mut self,
         old_balances: &BTreeMap<String, BalanceRecord>,
@@ -624,6 +646,7 @@ impl StateManager {
         Ok(changed)
     }
 
+    /// Update the global supply cache after an owner's token balances changed.
     pub(super) fn capture_supply_changed(
         &mut self,
         account: &OwnerState,
@@ -632,6 +655,7 @@ impl StateManager {
         self.adjust_global_supplies_for_account_delta(old_balances, &account.token_balances)
     }
 
+    /// Recompute token balances for an owner from their owned objects and ledger delta.
     pub(super) fn recompute_token_balances_for_owner(
         &mut self,
         owner: AccountAddress,
@@ -707,6 +731,7 @@ impl StateManager {
         self.load_token_metadata_field(b"metadata_icon_url:", token_type)
     }
 
+    /// Validate that all supply invariants hold across persisted and cached state.
     pub fn validate_supply_invariants(&self) -> Result<()> {
         let supply_key = Self::supply_key(GAS_COIN);
         let persisted_native_supply =

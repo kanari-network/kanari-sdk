@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Module and function resolver for the Move VM.
+
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::ObjectStore;
 use anyhow::Result;
