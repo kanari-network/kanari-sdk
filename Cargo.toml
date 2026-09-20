@@ -138,7 +138,7 @@ hmac = { version = "0.13.0" }                                                   
 
 ## Key Derivation & Password Hashing
 argon2 = { version = "0.6.0", default-features = true }                             # Password hashing
-bip39 = { version = "2.2.2", features = ["rand"] }                                  # Mnemonic phrases
+bip39 = { version = "3.0.0", features = ["rand"] }                                  # Mnemonic phrases
 bip32 = "0.5.3"                                                                     # HD wallet derivation
 
 ## Encoding Utilities
