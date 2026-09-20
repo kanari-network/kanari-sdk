@@ -42,7 +42,11 @@ data class TransactionDetails(
     val module: String? = null,
     val function: String? = null,
     @SerialName("module_functions") val moduleFunctions: List<String>? = null,
-    val effects: TransactionEffectsInfo? = null
+    val effects: TransactionEffectsInfo? = null,
+    @Serializable(with = LenientULongSerializer::class) val amount: ULong? = null,
+    @SerialName("token_type") val tokenType: String? = null,
+    val symbol: String? = null,
+    val decimals: Int? = null
 )
 
 @Serializable

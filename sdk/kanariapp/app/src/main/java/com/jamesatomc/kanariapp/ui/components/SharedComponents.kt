@@ -577,28 +577,30 @@ fun <T> LoadingEmptyState(
     emptyText: String = "No items yet",
     content: @Composable () -> Unit
 ) {
-    when {
-        isLoading && items.isEmpty() -> Box(
-            modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) { CircularProgressIndicator() }
+    Box(modifier = modifier) {
+        when {
+            isLoading && items.isEmpty() -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) { CircularProgressIndicator() }
 
-        items.isEmpty() -> Column(
-            modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                emptyIcon,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(emptyText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            items.isEmpty() -> Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    emptyIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(emptyText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+
+            else -> content()
         }
-
-        else -> content()
     }
 }
 

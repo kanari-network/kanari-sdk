@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
@@ -55,7 +56,10 @@ fun HistoryScreen(viewModel: WalletViewModel) {
             emptyText = "No Transactions Yet",
             modifier = Modifier.padding(padding)
         ) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 110.dp) // Space for the floating NavigationBar
+            ) {
                 items(transactions, key = { it.hash }) { tx ->
                     HistoryItem(tx, tx.isIncomingTo(activeWallet?.address), onClick = { selectedTx = tx })
                 }
@@ -79,26 +83,52 @@ private fun TransactionDetails.isIncomingTo(walletAddress: String?): Boolean {
 @Composable
 fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(tx.txType) },
+        headlineContent = { Text(tx.txType, fontWeight = FontWeight.SemiBold) },
         supportingContent = {
             Text(
-                if (isIncoming) "From: ${tx.sender.take(8)}..." else "Sent • ${tx.status}",
-                maxLines = 1
+                if (isIncoming) "From: ${tx.sender.take(12)}..." else "Sent • ${tx.status}",
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall
             )
         },
         leadingContent = {
-            Icon(
-                imageVector = if (isIncoming) Icons.Default.SouthWest else Icons.Default.NorthEast,
-                contentDescription = null,
-                tint = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-            )
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = (if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error).copy(alpha = 0.1f),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isIncoming) Icons.Default.SouthWest else Icons.Default.NorthEast,
+                        contentDescription = null,
+                        tint = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         },
         trailingContent = {
-            val gasAmount = tx.effects?.gasUsed ?: tx.gasUsed ?: 0L
-            Text(
-                text = "${if (isIncoming) "+" else "-"}${formatAmountExact(gasAmount, 9)}",
-                color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
+            val displayAmount = tx.amount ?: (tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
+            val displayDecimals = tx.decimals ?: 9
+            val tokenSymbol = tx.symbol ?: "KANARI"
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "${if (isIncoming) "+" else "-"}${formatAmountExact(displayAmount.toLong(), displayDecimals)}",
+                    color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+                Text(
+                    text = tokenSymbol,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+            }
         },
         modifier = Modifier.clickable(onClick = onClick)
     )
@@ -120,6 +150,12 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             }
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
+        tx.amount?.let { amt ->
+            DetailRowShared(
+                label = "Amount",
+                value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + (tx.symbol ?: "KANARI")
+            )
+        }
         CopyableDetailRow(label = "Hash", value = tx.hash)
         CopyableDetailRow(label = "Sender", value = tx.sender)
         tx.senderAddress?.let { CopyableDetailRow(label = "Sender Address", value = it) }

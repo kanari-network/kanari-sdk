@@ -80,6 +80,7 @@ fun DashboardScreen(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Spacer(Modifier.height(4.dp))
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxWidth().height(210.dp),
