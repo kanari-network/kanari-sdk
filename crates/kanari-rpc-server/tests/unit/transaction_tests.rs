@@ -855,6 +855,12 @@ fn fresh_nonce_honors_client_value_and_watermark_floor() {
     assert_eq!(fresh_nonce(Some(42), Some(5000)).unwrap(), 42);
     assert!(fresh_nonce(Some(0), None).is_err());
 
+    // Without a watermark the engine cannot safely generate a nonce.
+    assert!(
+        fresh_nonce(None, None).is_err(),
+        "must reject nonce generation without watermark"
+    );
+
     // Simulated post-restart state: the global counter starts at 1 but the
     // sender's watermark floor is high. Generated nonces must clear the floor
     // immediately instead of producing thousands of stale rejections, and
@@ -863,6 +869,4 @@ fn fresh_nonce_honors_client_value_and_watermark_floor() {
     assert!(first >= 5000, "floor not honored: {first}");
     let second = fresh_nonce(None, Some(5000)).unwrap();
     assert!(second > first, "nonces must be strictly increasing");
-    let third = fresh_nonce(None, None).unwrap();
-    assert!(third > second, "counter must keep advancing past the floor");
 }

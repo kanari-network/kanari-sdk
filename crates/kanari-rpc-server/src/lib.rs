@@ -220,16 +220,15 @@ impl RpcRateLimiter {
             // the same second, so expired-window pruning alone cannot shrink
             // the map. Evict the oldest source so memory stays hard-bounded
             // regardless of how many distinct addresses arrive.
-            while windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS {
-                let oldest = windows
+            if windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS {
+                let mut oldest: Vec<(IpAddr, Instant)> = windows
                     .iter()
-                    .min_by_key(|(_, window)| window.started_at)
-                    .map(|(addr, _)| *addr);
-                match oldest {
-                    Some(addr) => {
-                        windows.remove(&addr);
-                    }
-                    None => break,
+                    .map(|(addr, w)| (*addr, w.started_at))
+                    .collect();
+                oldest.sort_by_key(|(_, t)| *t);
+                let evict_count = windows.len() - RPC_RATE_LIMITER_MAX_TRACKED_IPS + 1;
+                for (addr, _) in oldest.into_iter().take(evict_count) {
+                    windows.remove(&addr);
                 }
             }
         }
