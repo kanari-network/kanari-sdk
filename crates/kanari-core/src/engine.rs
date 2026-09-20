@@ -61,10 +61,20 @@ pub struct GenesisManifest {
     pub genesis_state_root: String,
 }
 
+/// Checks whether a manifest protocol version is compatible with the local version.
 fn compatible_protocol_version(manifest: &str, local: &str) -> bool {
-    let parse = |version: &str| {
-        let mut parts = version.split('.').map(|part| part.parse::<u64>().ok());
-        Some((parts.next()??, parts.next()??, parts.next()??))
+    let parse = |version: &str| -> Option<(u64, u64, u64)> {
+        let mut parts = version.split('.');
+        let major = parts.next()?.parse::<u64>().ok()?;
+        let minor = parts
+            .next()
+            .and_then(|p| p.parse::<u64>().ok())
+            .unwrap_or(0);
+        let patch = parts
+            .next()
+            .and_then(|p| p.parse::<u64>().ok())
+            .unwrap_or(0);
+        Some((major, minor, patch))
     };
     match (parse(manifest), parse(local)) {
         (
@@ -110,13 +120,16 @@ pub fn decode_hex_exact(label: &str, value: &str, expected_len: usize) -> Result
     Ok(bytes)
 }
 
+/// A single key-value entry in a state snapshot export.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SnapshotEntry {
     pub key: String,
     pub value: String,
 }
 
+/// Serializable state snapshot for import/export across nodes.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[must_use]
 pub struct StateSnapshot {
     pub format_version: u32,
     pub network: String,
@@ -153,6 +166,8 @@ pub use produce_dag_vertex::{
 };
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
+/// Checkpoint data exchanged during sync, including the checkpoint itself
+/// and the DAG vertices needed to reproduce the local commit.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointSyncData {
     pub checkpoint: Checkpoint,
@@ -176,6 +191,7 @@ struct PersistedTransactionLocation {
     state_root: Vec<u8>,
 }
 
+/// Optional metadata attached to a pending transaction at admission time.
 #[derive(Debug, Clone, Default)]
 pub struct PendingTransactionMetadata {
     pub previewed: bool,
@@ -183,7 +199,10 @@ pub struct PendingTransactionMetadata {
     pub preview_effects: Option<TransactionEffects>,
 }
 
+/// A transaction admitted to the mempool, along with its access-key
+/// metadata used for conflict detection and congestion control.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct PendingTransactionRecord {
     pub signed_tx: SignedTransaction,
     pub metadata: PendingTransactionMetadata,
@@ -206,7 +225,11 @@ pub(crate) struct MempoolState {
     pending_congestion_access_counts: AHashMap<String, u64>,
 }
 
-/// Complete blockchain engine with Move VM integration
+/// Complete blockchain engine with Move VM integration.
+///
+/// Manages the blockchain state, transaction mempool, parallel execution,
+/// and consensus integration. Created via [`BlockchainEngine::new_in_memory`]
+/// for testing or [`BlockchainEngine::new_persistent`] for production.
 pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
@@ -322,6 +345,7 @@ impl BlockchainEngine {
         ))
     }
 
+    /// Exports the current blockchain state to a JSON snapshot file.
     pub fn export_state_snapshot(
         &self,
         path: &std::path::Path,
@@ -330,6 +354,7 @@ impl BlockchainEngine {
         self.export_state_snapshot_with_options(path, network, false)
     }
 
+    /// Exports the current blockchain state to a JSON snapshot file with migration options.
     pub fn export_state_snapshot_with_options(
         &self,
         path: &std::path::Path,
@@ -518,6 +543,7 @@ impl BlockchainEngine {
         Ok(snapshot)
     }
 
+    /// Returns the genesis manifest describing the network identity and protocol.
     pub fn genesis_manifest(&self, network: impl Into<String>) -> Result<GenesisManifest> {
         let genesis = self.get_block(0).context("Genesis checkpoint is missing")?;
         Ok(GenesisManifest {
@@ -530,6 +556,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Validates a genesis manifest against the local chain's genesis checkpoint.
     pub fn validate_genesis_manifest(
         &self,
         manifest: &GenesisManifest,
@@ -574,6 +601,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Writes the genesis manifest to a JSON file.
     pub fn write_genesis_manifest(
         &self,
         path: &std::path::Path,
@@ -585,6 +613,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Reads and parses a genesis manifest from a JSON file.
     pub fn read_genesis_manifest(path: &std::path::Path) -> Result<GenesisManifest> {
         read_json_file(path).with_context(|| format!("Invalid genesis manifest {}", path.display()))
     }
@@ -869,10 +898,12 @@ impl BlockchainEngine {
         format!("checkpoint_meta_json_v1/{sequence:020}").into_bytes()
     }
 
+    /// Storage key for the serialized blockchain metadata snapshot.
     pub(crate) fn blockchain_json_key() -> &'static [u8] {
         b"blockchain_json_v1"
     }
 
+    /// Storage key for the pending checkpoint commit marker.
     pub(crate) fn pending_checkpoint_commit_key() -> &'static [u8] {
         b"runtime:pending_checkpoint_commit_v1"
     }
@@ -900,6 +931,7 @@ impl BlockchainEngine {
         b"sender_nonce_watermark_v1"
     }
 
+    /// Loads the per-sender nonce watermark from persistent storage.
     pub(crate) fn load_sender_nonce_watermark(
         store: &PersistentStore,
     ) -> Result<std::collections::BTreeMap<String, u64>> {
@@ -977,6 +1009,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Computes the raw key-value changes needed to persist a checkpoint.
     pub(crate) fn checkpoint_persistence_raw_changes(
         store: &PersistentStore,
         checkpoint: &Checkpoint,
@@ -1272,6 +1305,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Persists the blockchain snapshot to the underlying store.
     pub(crate) fn persist_blockchain_snapshot(&self, chain: &Blockchain) -> Result<()> {
         let Some(store) = &self.persistent_store else {
             return Ok(());
@@ -1292,6 +1326,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Returns a committed transaction and its checkpoint info from history by hash.
     pub fn get_committed_transaction_from_history(
         &self,
         tx_hash: &[u8],
@@ -1336,6 +1371,7 @@ impl BlockchainEngine {
         None
     }
 
+    /// Returns the transaction effects for a committed transaction by hash.
     pub fn get_committed_transaction_effect_from_history(
         &self,
         tx_hash: &[u8],
@@ -1360,6 +1396,7 @@ impl BlockchainEngine {
             .and_then(|(_, _, _, effect)| effect.cloned())
     }
 
+    /// Checks whether a transaction has been committed, returning an error on index failure.
     pub(crate) fn try_is_transaction_committed(&self, tx_hash: &[u8]) -> Result<bool> {
         if self
             .blockchain
@@ -1383,6 +1420,7 @@ impl BlockchainEngine {
             .is_some())
     }
 
+    /// Lists committed transactions from history, applying a predicate filter.
     pub fn list_committed_transactions_from_history<F>(
         &self,
         limit: usize,
@@ -1480,6 +1518,7 @@ impl BlockchainEngine {
         results
     }
 
+    /// Acquires a read lock on the blockchain state.
     pub fn state_read(&self) -> RwLockReadGuard<'_, StateManager> {
         self.state.read().unwrap_or_else(|poisoned| {
             error!("State lock poisoned while reading runtime state; recovering...");
@@ -1487,6 +1526,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Acquires a write lock on the blockchain state.
     pub fn state_write(&self) -> RwLockWriteGuard<'_, StateManager> {
         self.state.write().unwrap_or_else(|poisoned| {
             error!("State lock poisoned while writing runtime state; recovering...");
@@ -1494,6 +1534,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Acquires a read lock on the mempool state.
     pub(crate) fn mempool_read(&self) -> RwLockReadGuard<'_, MempoolState> {
         self.mempool.read().unwrap_or_else(|poisoned| {
             error!("Mempool lock poisoned while reading pending state; recovering...");
@@ -1501,6 +1542,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Acquires a write lock on the mempool state.
     pub(crate) fn mempool_write(&self) -> RwLockWriteGuard<'_, MempoolState> {
         self.mempool.write().unwrap_or_else(|poisoned| {
             error!("Mempool lock poisoned while writing pending state; recovering...");
@@ -1508,6 +1550,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Finds a pending transaction in the mempool by its hash.
     pub fn find_pending_transaction(
         &self,
         transaction_hash: &[u8],
@@ -1519,6 +1562,7 @@ impl BlockchainEngine {
             .cloned()
     }
 
+    /// Filters pending transaction records by a predicate, returning up to `limit` matches.
     pub fn filter_pending_transaction_records<F>(
         &self,
         limit: usize,
@@ -1537,6 +1581,7 @@ impl BlockchainEngine {
             .collect()
     }
 
+    /// Returns a snapshot of all pending signed transactions in the mempool.
     pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
         self.pending_signed_transactions()
     }
@@ -1549,6 +1594,7 @@ impl BlockchainEngine {
             .collect()
     }
 
+    /// Selects a conflict-free subset of transactions for parallel execution.
     pub(crate) fn select_conflict_free_transactions(
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
@@ -1571,6 +1617,25 @@ impl BlockchainEngine {
             selected.push(signed_tx);
         }
 
+        debug_assert!(
+            {
+                let mut check_keys = HashSet::new();
+                let mut ok = true;
+                for tx in &selected {
+                    let mut keys = tx.transaction.get_conflict_keys();
+                    keys.sort();
+                    keys.dedup();
+                    for k in &keys {
+                        if !check_keys.insert(k.clone()) {
+                            ok = false;
+                        }
+                    }
+                }
+                ok
+            },
+            "select_conflict_free_transactions produced duplicate conflict keys"
+        );
+
         selected
     }
 
@@ -1588,6 +1653,7 @@ impl BlockchainEngine {
         1
     }
 
+    /// Derives the congestion access key used to throttle transactions per hot object.
     pub(crate) fn congestion_access_key(tx: &Transaction) -> String {
         if let Some(input) = tx.object_inputs().into_iter().find(|input| input.mutable) {
             return format!("object:{}", input.object_ref.object_id);
@@ -1660,6 +1726,7 @@ impl BlockchainEngine {
             .all(|input| !matches!(input.owner, Some(ObjectOwnerKind::Shared)))
     }
 
+    /// Returns conflict-free owned-fast-path transactions suitable for single-authority checkpoints.
     pub fn pending_owned_fast_path_transactions_snapshot(&self) -> Vec<SignedTransaction> {
         let mut transactions = self
             .pending_signed_transactions()
@@ -1687,6 +1754,7 @@ impl BlockchainEngine {
             .collect()
     }
 
+    /// Returns conflict-free transactions with byte and hot-object caps for DAG production.
     pub fn pending_conflict_free_transactions_snapshot(&self) -> Vec<SignedTransaction> {
         let mut transactions = self.pending_signed_transactions();
         if transactions.is_empty() {
@@ -1742,10 +1810,12 @@ impl BlockchainEngine {
         ready
     }
 
+    /// Returns the current number of pending transactions in the mempool.
     pub fn pending_transaction_len(&self) -> usize {
         self.mempool_read().pending_txs.len()
     }
 
+    /// Computes the expected next nonce for a sender address.
     pub(crate) fn get_expected_nonce(&self, address_hex: &str) -> u64 {
         // Nonce is monotonic per sender: never below the highest committed nonce,
         // and at least one above anything already pending.
@@ -1839,6 +1909,7 @@ impl BlockchainEngine {
         Ok((executed, failed))
     }
 
+    /// Executes transactions in deterministic parallel waves and returns their effects.
     pub(crate) fn execute_tx_waves_deterministic_parallel_with_effects(
         &self,
         transactions: Vec<SignedTransaction>,
@@ -2028,6 +2099,7 @@ impl BlockchainEngine {
         Ok((usize::from(!changesets.is_empty()), changesets.len()))
     }
 
+    /// Executes conflict-free transactions in parallel with supply validation.
     pub(crate) fn execute_conflict_free_transactions_parallel_with_effects(
         &self,
         transactions: Vec<SignedTransaction>,
@@ -2687,6 +2759,7 @@ impl BlockchainEngine {
         Ok(changeset)
     }
 
+    /// Verifies whether a computed state root matches the checkpoint's root.
     pub(crate) fn checkpoint_root_matches(
         &self,
         checkpoint_sequence: u64,
@@ -2840,6 +2913,7 @@ impl BlockchainEngine {
         )
     }
 
+    /// Executes a transaction using the provided runtime, returning the resulting changeset.
     pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
@@ -3374,6 +3448,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Executes transactions and collects their effects for testing.
     #[cfg(test)]
     pub(crate) fn collect_transaction_effects_strict(
         &self,
@@ -3478,6 +3553,7 @@ impl BlockchainEngine {
             .require("Failed to initialize DAG engine")
     }
 
+    /// Produces a checkpoint, using the fast path when only owned objects are involved.
     pub fn produce_checkpoint(&self) -> Result<CheckpointProductionInfo> {
         if self.authorities.len() <= 1 {
             let started_at = std::time::Instant::now();
@@ -3495,6 +3571,7 @@ impl BlockchainEngine {
         dag_engine.produce_vertex()
     }
 
+    /// Produces a checkpoint using the owned-only fast path without DAG consensus.
     pub fn produce_owned_fast_checkpoint(&self) -> Result<CheckpointProductionInfo> {
         let started_at = std::time::Instant::now();
         let transactions = self.pending_owned_fast_path_transactions_snapshot();
@@ -3620,15 +3697,18 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Returns the current DAG production policy for this authority.
     pub fn dag_production_policy(&self) -> Result<DagProductionPolicy> {
         let dag_engine = self.dag_engine_instance()?;
         Ok(dag_engine.production_policy())
     }
 
+    /// Returns the latest DAG vertices produced by this authority.
     pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         self.dag_engine_instance()?.latest_own_vertices(limit)
     }
 
+    /// Returns DAG vertices up to a target round for synchronization.
     pub fn dag_vertices_through_round_for_sync(
         &self,
         target_round: u64,
@@ -3638,12 +3718,14 @@ impl BlockchainEngine {
             .vertices_through_round_for_sync(target_round, limit)
     }
 
+    /// Returns missing parent round numbers for the given vertices during sync.
     pub fn dag_missing_parent_rounds_for_sync(&self, vertices: &[DagVertex]) -> Result<Vec<u64>> {
         Ok(self
             .dag_engine_instance()?
             .missing_parent_rounds_for_sync(vertices))
     }
 
+    /// Returns DAG vertices matching the given checkpoint vertex IDs for sync.
     pub fn dag_vertices_for_checkpoint_sync(
         &self,
         checkpoint_vertices: &[[u8; 32]],
@@ -3653,6 +3735,7 @@ impl BlockchainEngine {
             .checkpoint_vertices_for_sync(checkpoint_vertices, limit)
     }
 
+    /// Adds a vertex received from the network to the DAG engine.
     pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<()> {
         self.dag_engine_instance()?.add_network_vertex(vertex)
     }
@@ -3674,6 +3757,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Configures the authority ID and full validator set for DAG consensus.
     pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
         self.authority_id = normalize_consensus_authority_id(authority_id);
         self.authorities = authorities
@@ -3691,14 +3775,17 @@ impl BlockchainEngine {
         }
     }
 
+    /// Returns this node's consensus authority ID.
     pub fn authority_id(&self) -> &str {
         &self.authority_id
     }
 
+    /// Returns the list of all authority IDs in the network.
     pub fn authorities(&self) -> &[String] {
         &self.authorities
     }
 
+    /// Configures the consensus signing key and authority public keys.
     pub fn set_consensus_signing_key(
         &mut self,
         local_signing_key: ed25519_dalek::SigningKey,
@@ -3746,6 +3833,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    /// Exports consensus metrics in Prometheus text format.
     pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
         let invalid_pending_drop_count = self.invalid_pending_drop_count.load(Ordering::Relaxed);
         let dag_engine_guard = match self.dag_engine.read() {
@@ -3774,6 +3862,7 @@ impl BlockchainEngine {
         ))
     }
 
+    /// Records the count of invalid pending transactions that were dropped.
     pub(crate) fn record_invalid_pending_drop(&self, removed: usize) {
         self.invalid_pending_drop_count
             .fetch_add(removed as u64, Ordering::Relaxed);

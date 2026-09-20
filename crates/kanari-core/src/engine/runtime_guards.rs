@@ -16,6 +16,7 @@ pub(crate) fn strict_guard_required(network: &str, override_value: Option<&str>)
         })
 }
 
+/// Configuration flags controlling production runtime safety guards.
 #[derive(Debug, Clone)]
 pub struct RuntimeGuardConfig {
     pub network: String,
@@ -25,6 +26,7 @@ pub struct RuntimeGuardConfig {
     pub persistent_storage_available: bool,
 }
 
+/// Current health status of the runtime, including supply invariant checks.
 #[derive(Debug, Clone)]
 pub struct RuntimeHealthReport {
     pub guards: RuntimeGuardConfig,
@@ -33,6 +35,7 @@ pub struct RuntimeHealthReport {
 }
 
 impl RuntimeHealthReport {
+    /// Returns a human-readable status string for the runtime health.
     pub fn status(&self) -> &'static str {
         if self.supply_invariants_ok {
             "ok"
@@ -43,10 +46,12 @@ impl RuntimeHealthReport {
 }
 
 impl BlockchainEngine {
+    /// Returns the name of the current network from the environment.
     pub fn network_name() -> String {
         env::var("KANARI_NETWORK").unwrap_or_else(|_| "testnet".to_string())
     }
 
+    /// Returns whether strict persistent storage is required for this network.
     pub fn strict_persistence_required() -> bool {
         strict_guard_required(
             &Self::network_name(),
@@ -56,6 +61,7 @@ impl BlockchainEngine {
         )
     }
 
+    /// Returns whether strict checkpoint root validation is required for this network.
     pub fn strict_checkpoint_roots_required() -> bool {
         strict_guard_required(
             &Self::network_name(),
@@ -63,10 +69,12 @@ impl BlockchainEngine {
         )
     }
 
+    /// Returns whether fail-fast on supply invariant violations is enabled.
     pub fn fail_fast_supply_enabled() -> bool {
         StateManager::supply_invariant_fail_fast_enabled()
     }
 
+    /// Returns the current runtime guard configuration.
     pub fn runtime_guard_config(&self) -> RuntimeGuardConfig {
         RuntimeGuardConfig {
             network: Self::network_name(),
@@ -77,6 +85,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Generates a health report including supply invariant validation.
     pub fn runtime_health_report(&self) -> RuntimeHealthReport {
         let supply_invariant_error = self
             .state
@@ -93,6 +102,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Validates runtime health and returns an error if any guard fails.
     pub fn validate_runtime_health(&self) -> Result<()> {
         let report = self.runtime_health_report();
         if let Some(error) = report.supply_invariant_error {

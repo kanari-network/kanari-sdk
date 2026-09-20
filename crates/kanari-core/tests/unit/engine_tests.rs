@@ -3100,3 +3100,358 @@ fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
             .contains("cannot overlap with a mutable object input")
     );
 }
+
+#[test]
+fn remove_pending_transactions_by_hashes_drains_access_counts_completely() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 10_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1000", 1_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+
+    let tx1 = signed_transfer_with_refs(
+        &sender,
+        &generate_keypair(CurveType::Ed25519).unwrap().address,
+        "0xaaaa",
+        10_000_000,
+        "0x1000",
+        1_000_000,
+        0,
+    );
+    let tx2 = signed_transfer_with_refs(
+        &sender,
+        &generate_keypair(CurveType::Ed25519).unwrap().address,
+        "0xaaaa",
+        10_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+
+    let hash1 = tx1.transaction_hash().to_vec();
+    let hash2 = tx2.transaction_hash().to_vec();
+
+    let primary_key = tx1.transaction.primary_access_key();
+    let access_keys_before: std::collections::HashSet<String> =
+        engine.pending_access_keys_snapshot();
+
+    engine.submit_transactions_batch(vec![tx1, tx2]).unwrap();
+    assert_eq!(engine.pending_transaction_len(), 2);
+    assert!(engine.pending_access_keys_snapshot().contains(&primary_key));
+
+    let removed = engine.remove_pending_transactions_by_hashes(&[hash1, hash2]);
+    assert_eq!(removed.len(), 2);
+    assert_eq!(engine.pending_transaction_len(), 0);
+
+    let access_keys_after: std::collections::HashSet<String> =
+        engine.pending_access_keys_snapshot();
+    for key in &access_keys_before {
+        assert!(
+            !access_keys_after.contains(key),
+            "access count for '{}' should have been fully decremented but was still present",
+            key,
+        );
+    }
+}
+
+#[test]
+fn remove_pending_transactions_by_hashes_partial_removal_preserves_remaining_counts() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 10_000_000);
+    for i in 0..4 {
+        let gas_id = format!("0x{:0>4x}", 0x1000 + i);
+        fund_sender_with_coin(&engine, &sender.address, &gas_id, 1_000_000);
+    }
+
+    let mut txs = Vec::new();
+    for nonce in 0..4u64 {
+        let gas_id = format!("0x{:0>4x}", 0x1000 + nonce);
+        txs.push(signed_transfer_with_refs(
+            &sender,
+            &generate_keypair(CurveType::Ed25519).unwrap().address,
+            "0xaaaa",
+            10_000_000,
+            &gas_id,
+            1_000_000,
+            nonce,
+        ));
+    }
+
+    let primary_key = txs[0].transaction.primary_access_key();
+    let hash0 = txs[0].transaction_hash().to_vec();
+    let hash1 = txs[1].transaction_hash().to_vec();
+
+    engine.submit_transactions_batch(txs).unwrap();
+    assert_eq!(engine.pending_transaction_len(), 4);
+    assert_eq!(engine.pending_tx_count_for_primary_access(&primary_key), 4,);
+
+    let removed = engine.remove_pending_transactions_by_hashes(&[hash0, hash1]);
+    assert_eq!(removed.len(), 2);
+    assert_eq!(engine.pending_transaction_len(), 2);
+    assert_eq!(engine.pending_tx_count_for_primary_access(&primary_key), 2,);
+    assert_eq!(
+        engine.pending_tx_count_for_sender(&sender.tagged_address()),
+        2,
+    );
+}
+
+#[test]
+fn compatible_protocol_version_accepts_equal_versions() {
+    assert!(super::compatible_protocol_version("1.2.3", "1.2.3"));
+}
+
+#[test]
+fn compatible_protocol_version_accepts_local_patch_greater_than_manifest() {
+    assert!(super::compatible_protocol_version("1.2.3", "1.2.5"));
+}
+
+#[test]
+fn compatible_protocol_version_rejects_minor_mismatch() {
+    assert!(!super::compatible_protocol_version("1.2.3", "1.3.0"));
+}
+
+#[test]
+fn compatible_protocol_version_rejects_major_mismatch() {
+    assert!(!super::compatible_protocol_version("1.2.3", "2.0.0"));
+}
+
+#[test]
+fn compatible_protocol_version_rejects_local_patch_lower_than_manifest() {
+    assert!(!super::compatible_protocol_version("1.2.5", "1.2.3"));
+}
+
+#[test]
+fn compatible_protocol_version_handles_two_part_version_strings() {
+    assert!(super::compatible_protocol_version("1.2", "1.2.0"));
+    assert!(super::compatible_protocol_version("1.2", "1.2.3"));
+    assert!(!super::compatible_protocol_version("1.2", "1.3.0"));
+}
+
+#[test]
+fn compatible_protocol_version_handles_single_part_version_strings() {
+    assert!(!super::compatible_protocol_version("1", "2"));
+    assert!(super::compatible_protocol_version("1", "1"));
+}
+
+#[test]
+fn compatible_protocol_version_falls_back_to_exact_match_for_unparseable() {
+    assert!(super::compatible_protocol_version("abc", "abc"));
+    assert!(!super::compatible_protocol_version("abc", "def"));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+
+    #[test]
+    fn compatible_protocol_version_reflexive(major in 0u64..100, minor in 0u64..100, patch in 0u64..100) {
+        let v = format!("{major}.{minor}.{patch}");
+        prop_assert!(super::compatible_protocol_version(&v, &v));
+    }
+
+    #[test]
+    fn compatible_protocol_version_local_higher_patch_always_accepted(
+        manifest_major in 0u64..100,
+        manifest_minor in 0u64..100,
+        manifest_patch in 0u64..50,
+        delta in 1u64..50,
+    ) {
+        let manifest = format!("{manifest_major}.{manifest_minor}.{manifest_patch}");
+        let local = format!("{manifest_major}.{manifest_minor}.{}", manifest_patch + delta);
+        prop_assert!(super::compatible_protocol_version(&manifest, &local));
+    }
+
+    #[test]
+    fn compatible_protocol_version_different_minor_always_rejected(
+        major in 0u64..100,
+        m1 in 0u64..100,
+        m2 in 0u64..100,
+    ) {
+        prop_assume!(m1 != m2);
+        let v1 = format!("{major}.{m1}.0");
+        let v2 = format!("{major}.{m2}.0");
+        prop_assert!(!super::compatible_protocol_version(&v1, &v2));
+    }
+
+    #[test]
+    fn remove_pending_access_counts_unit_decrement(
+        total in 1u64..60,
+    ) {
+        use crate::engine::BlockchainEngine;
+        use kanari_crypto::keys::{CurveType, generate_keypair};
+
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+
+        for i in 0..total {
+            let coin_id = format!("0x{:0>4x}", i as usize + 0x1000);
+            let gas_id = format!("0x{:0>4x}", i as usize + 0x2000);
+            fund_sender_with_coin(&engine, &sender.address, &coin_id, 10_000_000);
+            fund_sender_with_coin(&engine, &sender.address, &gas_id, 1_000_000);
+        }
+
+        let mut txs = Vec::new();
+        for nonce in 0..total {
+            let coin_id = format!("0x{:0>4x}", nonce as usize + 0x1000);
+            let gas_id = format!("0x{:0>4x}", nonce as usize + 0x2000);
+            txs.push(signed_transfer_with_refs(
+                &sender,
+                &generate_keypair(CurveType::Ed25519).unwrap().address,
+                &coin_id,
+                10_000_000,
+                &gas_id,
+                1_000_000,
+                nonce,
+            ));
+        }
+
+        let hashes: Vec<Vec<u8>> = txs.iter().map(|t| t.transaction_hash().to_vec()).collect();
+        engine.submit_transactions_batch(txs).unwrap();
+        prop_assert_eq!(engine.pending_transaction_len(), total as usize);
+
+        let _removed = engine.remove_pending_transactions_by_hashes(&hashes);
+        prop_assert_eq!(engine.pending_transaction_len(), 0);
+        prop_assert!(engine.pending_access_keys_snapshot().is_empty());
+    }
+}
+
+#[test]
+fn submit_empty_batch_returns_empty_hashes() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let hashes = engine.submit_transactions_batch(vec![]).unwrap();
+    assert!(hashes.is_empty());
+    assert_eq!(engine.pending_transaction_len(), 0);
+}
+
+#[test]
+fn remove_pending_transactions_by_hashes_empty_input() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let removed = engine.remove_pending_transactions_by_hashes(&[]);
+    assert!(removed.is_empty());
+}
+
+#[test]
+fn remove_pending_transactions_by_hashes_nonexistent_hash() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let removed = engine.remove_pending_transactions_by_hashes(&[vec![0xff; 32]]);
+    assert!(removed.is_empty());
+    assert_eq!(engine.pending_transaction_len(), 0);
+}
+
+#[test]
+fn pending_access_keys_snapshot_empty_engine() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let keys = engine.pending_access_keys_snapshot();
+    assert!(keys.is_empty());
+}
+
+#[test]
+fn pending_transaction_len_matches_batch_size() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 10_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1000", 1_000_000);
+    fund_sender_with_coin(&engine, &sender.address, "0x1001", 1_000_000);
+
+    let tx1 = signed_transfer_with_refs(
+        &sender,
+        &generate_keypair(CurveType::Ed25519).unwrap().address,
+        "0xaaaa",
+        10_000_000,
+        "0x1000",
+        1_000_000,
+        0,
+    );
+    let tx2 = signed_transfer_with_refs(
+        &sender,
+        &generate_keypair(CurveType::Ed25519).unwrap().address,
+        "0xaaaa",
+        10_000_000,
+        "0x1001",
+        1_000_000,
+        1,
+    );
+
+    engine.submit_transactions_batch(vec![tx1, tx2]).unwrap();
+    assert_eq!(engine.pending_transaction_len(), 2);
+
+    let hashes = engine.pending_transactions_snapshot();
+    assert_eq!(hashes.len(), 2);
+}
+
+#[test]
+fn blockchain_genesis_is_always_retained() {
+    let mut chain = crate::blockchain::Blockchain::new();
+    for seq in 1..=1_500u64 {
+        let cp = crate::consensus::Checkpoint::new(
+            seq,
+            vec![[seq as u8; 32]],
+            Vec::new(),
+            vec![seq as u8; 32],
+            seq,
+            chain.latest_checkpoint().hash().unwrap(),
+        );
+        chain.add_checkpoint_with_validation(cp, false).unwrap();
+    }
+    assert_eq!(chain.dag_checkpoints.front().unwrap().sequence, 0);
+    assert_eq!(chain.dag_checkpoints.len(), 1_000);
+}
+
+#[test]
+fn blockchain_get_checkpoint_returns_none_for_evicted() {
+    let mut chain = crate::blockchain::Blockchain::new();
+    for seq in 1..=1_005u64 {
+        let cp = crate::consensus::Checkpoint::new(
+            seq,
+            vec![[seq as u8; 32]],
+            Vec::new(),
+            vec![seq as u8; 32],
+            seq,
+            chain.latest_checkpoint().hash().unwrap(),
+        );
+        chain.add_checkpoint_with_validation(cp, false).unwrap();
+    }
+    assert!(chain.get_checkpoint(0).is_some());
+    assert!(chain.get_checkpoint(1).is_none());
+    assert!(chain.get_checkpoint(1_005).is_some());
+}
+
+#[test]
+fn blockchain_is_transaction_hash_executed_tracks_duplicates() {
+    let mut chain = crate::blockchain::Blockchain::new();
+    let tx = SignedTransaction::new(Transaction::new_transfer_with_object_ref(
+        "0x1".to_string(),
+        ObjectRef::new("0xaaaa", Some(1), Some("0xtestdigest".to_string())),
+        "0x2".to_string(),
+        1,
+        0,
+    ));
+    let hash = tx.transaction_hash().to_vec();
+    assert!(!chain.is_transaction_hash_executed(&hash));
+
+    let cp = crate::consensus::Checkpoint::new(
+        1,
+        vec![[1u8; 32]],
+        vec![tx],
+        vec![1u8; 32],
+        1,
+        chain.latest_checkpoint().hash().unwrap(),
+    );
+    chain.add_checkpoint_with_validation(cp, false).unwrap();
+    assert!(chain.is_transaction_hash_executed(&hash));
+}
+
+#[test]
+fn blockchain_height_returns_genesis_sequence() {
+    let chain = crate::blockchain::Blockchain::new();
+    assert_eq!(chain.height(), 0);
+    assert_eq!(chain.latest_checkpoint().sequence, 0);
+}
+
+#[test]
+fn select_conflict_free_transactions_empty() {
+    let result = super::BlockchainEngine::select_conflict_free_transactions(vec![]);
+    assert!(result.is_empty());
+}

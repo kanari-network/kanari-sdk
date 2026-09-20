@@ -1,6 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Core blockchain engine for the Kanari network.
+//!
+//! `kanari-core` provides the central [`BlockchainEngine`] that ties together
+//! the Move VM runtime, persistent state management, transaction mempool,
+//! parallel execution, and DAG-based consensus. It also exports the
+//! [`blockchain::Blockchain`] state machine, [`Checkpoint`] consensus types,
+//! and atomic file-I/O utilities.
+
 pub mod blockchain;
 pub mod consensus;
 pub mod engine;

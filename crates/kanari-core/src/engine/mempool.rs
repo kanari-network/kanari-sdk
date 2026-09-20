@@ -31,6 +31,7 @@ impl NormalizeAddr for BlockchainEngine {
 }
 
 impl BlockchainEngine {
+    /// Decrements the pending count for a given key, removing it if it reaches zero.
     pub(crate) fn decrement_pending_count(counts: &mut ahash::AHashMap<String, u64>, key: &str) {
         let should_remove = if let Some(count) = counts.get_mut(key) {
             *count = count.saturating_sub(1);
@@ -43,6 +44,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Returns the estimated memory size of a pending transaction record.
     pub(crate) fn pending_record_size(
         signed_tx: &SignedTransaction,
         metadata: &PendingTransactionMetadata,
@@ -60,6 +62,7 @@ impl BlockchainEngine {
             .context("Pending transaction memory accounting overflow")
     }
 
+    /// Submits a batch of signed transactions with metadata to the mempool.
     pub fn submit_transactions_batch_with_metadata(
         &self,
         signed_txs: Vec<SignedTransaction>,
@@ -68,6 +71,7 @@ impl BlockchainEngine {
         self.submit_transactions_batch_internal(signed_txs, metadata)
     }
 
+    /// Submits a batch of signed transactions to the mempool with default metadata.
     pub fn submit_transactions_batch(
         &self,
         signed_txs: Vec<SignedTransaction>,
@@ -367,6 +371,7 @@ impl BlockchainEngine {
         Ok(accepted_hashes)
     }
 
+    /// Executes a single transaction immediately, returning the transaction hash and changeset.
     pub fn execute_transaction_immediate(
         &self,
         signed_tx: SignedTransaction,
@@ -391,6 +396,7 @@ impl BlockchainEngine {
         Ok((tx_hash, changeset))
     }
 
+    /// Returns the number of pending transactions for a given sender address.
     pub(crate) fn pending_tx_count_for_sender(&self, sender: &str) -> u64 {
         let normalized_sender = Self::normalize_addr(sender);
         self.mempool_read()
@@ -400,6 +406,7 @@ impl BlockchainEngine {
             .unwrap_or(0)
     }
 
+    /// Returns the number of pending transactions targeting a given primary access key.
     #[cfg(test)]
     pub(crate) fn pending_tx_count_for_primary_access(&self, key: &str) -> u64 {
         self.mempool_read()
@@ -409,6 +416,7 @@ impl BlockchainEngine {
             .unwrap_or(0)
     }
 
+    /// Returns the number of pending transactions touching a given congestion access key.
     #[cfg(test)]
     pub(crate) fn pending_tx_count_for_congestion_access(&self, key: &str) -> u64 {
         self.mempool_read()
@@ -418,6 +426,7 @@ impl BlockchainEngine {
             .unwrap_or(0)
     }
 
+    /// Returns a snapshot of all access keys currently referenced by pending transactions.
     pub fn pending_access_keys_snapshot(&self) -> std::collections::HashSet<String> {
         self.mempool_read()
             .pending_access_counts
@@ -426,6 +435,7 @@ impl BlockchainEngine {
             .collect()
     }
 
+    /// Decrements pending sender counts for the given transactions.
     pub(crate) fn remove_pending_sender_counts(
         counts: &mut ahash::AHashMap<String, u64>,
         transactions: &[PendingTransactionRecord],
@@ -439,6 +449,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Decrements pending access counts for the given transactions.
     pub(crate) fn remove_pending_access_counts(
         counts: &mut ahash::AHashMap<String, u64>,
         transactions: &[PendingTransactionRecord],
@@ -448,16 +459,14 @@ impl BlockchainEngine {
         }
 
         for tx in transactions {
-            let mut keys = tx.access_keys.clone();
-            keys.push(tx.primary_access_key.clone());
-            keys.sort();
-            keys.dedup();
-            for key in keys {
-                Self::decrement_pending_count(counts, &key);
+            Self::decrement_pending_count(counts, &tx.primary_access_key);
+            for access_key in &tx.access_keys {
+                Self::decrement_pending_count(counts, access_key);
             }
         }
     }
 
+    /// Decrements pending primary access lane counts for the given transactions.
     pub(crate) fn remove_pending_primary_access_counts(
         counts: &mut ahash::AHashMap<String, u64>,
         transactions: &[PendingTransactionRecord],
@@ -471,6 +480,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Decrements pending congestion access lane counts for the given transactions.
     pub(crate) fn remove_pending_congestion_access_counts(
         counts: &mut ahash::AHashMap<String, u64>,
         transactions: &[PendingTransactionRecord],
@@ -484,6 +494,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Removes pending transactions matching the given hashes and returns them.
     pub fn remove_pending_transactions_by_hashes(
         &self,
         hashes: &[Vec<u8>],

@@ -1,6 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! In-memory blockchain state with bounded checkpoint retention.
+//!
+//! The [`Blockchain`] struct maintains the ordered chain of DAG checkpoints,
+//! a lifetime transaction hash index for replay protection, and a bounded
+//! working set of recent checkpoints (capped at 1000). Older checkpoints
+//! are evicted from the deque but their transaction count is preserved
+//! for monotonicity.
+
 use crate::consensus::Checkpoint;
 use anyhow::Result;
 use kanari_types::error::KanariUnwrapExt;
@@ -33,6 +41,13 @@ mod serde_vecdeque {
     }
 }
 
+/// In-memory blockchain state with bounded checkpoint retention.
+///
+/// Maintains the ordered chain of DAG checkpoints, a lifetime transaction
+/// hash index for replay protection, and a bounded working set of recent
+/// checkpoints (capped at [`MAX_RETAINED_BLOCKS`]). Older checkpoints are
+/// evicted from the deque but their transaction count is preserved in
+/// `total_transaction_count` for monotonicity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
     #[serde(default = "default_dag_checkpoints", with = "serde_vecdeque")]
@@ -54,6 +69,7 @@ fn default_dag_checkpoints() -> VecDeque<Checkpoint> {
 }
 
 impl Blockchain {
+    /// Creates a new blockchain pre-loaded with the genesis checkpoint.
     pub fn new() -> Self {
         Self {
             dag_checkpoints: vec![Checkpoint::genesis()].into(),
@@ -64,16 +80,20 @@ impl Blockchain {
         }
     }
 
+    /// Returns a reference to the most recently committed checkpoint.
     pub fn latest_checkpoint(&self) -> &Checkpoint {
         self.dag_checkpoints
             .back()
             .invariant("blockchain must contain at least the genesis checkpoint")
     }
 
+    /// Returns the sequence number of the latest checkpoint (chain height).
     pub fn height(&self) -> u64 {
         self.latest_checkpoint().sequence
     }
 
+    /// Returns `true` if the given transaction hash has already been executed
+    /// and is present in the replay-protection index.
     pub fn is_transaction_hash_executed(&self, tx_hash: &[u8]) -> bool {
         self.executed_tx_hashes.contains(tx_hash)
     }
@@ -103,6 +123,9 @@ impl Blockchain {
             .sum()
     }
 
+    /// Rebuilds the in-memory transaction hash index from the retained
+    /// checkpoints. Must be called after deserializing a persisted blockchain
+    /// whose index fields were skipped during serde.
     pub fn rebuild_tx_hash_index(&mut self) {
         // `total_transaction_count` is persisted independently from the
         // bounded checkpoint window. Rebuilding the query indexes after a
@@ -135,6 +158,12 @@ impl Blockchain {
         self.total_transaction_count = self.total_transaction_count.max(persisted_total);
     }
 
+    /// Appends a new checkpoint to the chain.
+    ///
+    /// When `validate` is true, enforces consecutive sequencing, correct
+    /// previous-hash linkage, and absence of duplicate or replayed transactions.
+    /// Old checkpoints beyond [`MAX_RETAINED_BLOCKS`] are evicted (genesis is
+    /// always retained).
     pub fn add_checkpoint_with_validation(
         &mut self,
         checkpoint: Checkpoint,
@@ -201,18 +230,28 @@ impl Blockchain {
         }
     }
 
+    /// Looks up a checkpoint by its sequence number.
+    ///
+    /// Returns `None` if the checkpoint has been evicted from the retained
+    /// window or does not exist.
     pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
         self.dag_checkpoints
             .iter()
             .find(|checkpoint| checkpoint.sequence == sequence)
     }
 
+    /// Returns the lifetime transaction count (monotonically increasing).
     pub fn get_transaction_count(&self) -> usize {
         self.total_transaction_count
             .max(self.tx_location_index.len())
             .max(self.retained_transaction_count())
     }
 
+    /// Resolves a transaction hash to its signed transaction, checkpoint
+    /// sequence, state root, and optional effects.
+    ///
+    /// First checks the fast `tx_location_index`, then falls back to a full
+    /// reverse scan of retained checkpoints.
     pub fn get_transaction_location_with_effect(
         &self,
         tx_hash: &[u8],

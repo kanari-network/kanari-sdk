@@ -31,6 +31,7 @@ impl BlockchainEngine {
             .map(|value| value.clamp(16, Self::MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC))
             .unwrap_or(Self::DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC)
     }
+    /// Returns the current SMT (Sparse Merkle Tree) status with optional diagnostics.
     pub fn smt_status(&self, audit: bool) -> Result<SmtStatusResponse> {
         let diagnostics = self.state_read().smt_diagnostics(audit)?;
         let stats = self.try_get_stats()?;
@@ -56,6 +57,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Returns a page of canonical state snapshot entries with optional prefix filtering.
     pub fn canonical_state_snapshot_entries(
         &self,
         limit: Option<usize>,
@@ -80,6 +82,7 @@ impl BlockchainEngine {
         Ok(entries)
     }
 
+    /// Returns a canonical state snapshot response including metadata and entries.
     pub fn canonical_state_snapshot_response(
         &self,
         limit: Option<usize>,
@@ -94,6 +97,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Compares the local canonical state against a remote snapshot and reports differences.
     pub fn compare_canonical_state_snapshot(
         &self,
         req: &CompareCanonicalStateSnapshotRequest,
@@ -140,6 +144,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Attempts to dump the canonical state snapshot as key-value pairs.
     pub fn try_canonical_state_snapshot_dump(
         &self,
         limit: Option<usize>,
@@ -155,11 +160,13 @@ impl BlockchainEngine {
         Ok(entries)
     }
 
+    /// Dumps the canonical state snapshot as key-value pairs, panicking on failure.
     pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
         self.try_canonical_state_snapshot_dump(limit)
             .expect("canonical snapshot dump requires readable, well-formed persistent state")
     }
 
+    /// Attempts to find the first diverging key between two engines' canonical states.
     pub fn try_first_canonical_state_divergence(&self, other: &Self) -> Result<Option<String>> {
         let left = self.state_read().try_canonical_state_snapshot()?;
         let right = other.state_read().try_canonical_state_snapshot()?;
@@ -196,12 +203,14 @@ impl BlockchainEngine {
         Ok(None)
     }
 
+    /// Returns the first diverging key between two engines' canonical states, panicking on failure.
     pub fn first_canonical_state_divergence(&self, other: &Self) -> Option<String> {
         self.try_first_canonical_state_divergence(other).expect(
             "canonical state divergence check requires readable, well-formed persistent state",
         )
     }
 
+    /// Returns the hex-encoded hash of the latest checkpoint.
     pub fn latest_checkpoint_hash_hex(&self) -> String {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain
@@ -211,11 +220,13 @@ impl BlockchainEngine {
             .unwrap_or_default()
     }
 
+    /// Returns the hex-encoded state root of the latest checkpoint.
     pub fn latest_checkpoint_state_root_hex(&self) -> String {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
         hex::encode(&chain.latest_checkpoint().state_root)
     }
 
+    /// Returns blockchain stats, falling back to basic data on failure.
     pub fn get_stats(&self) -> BlockchainStats {
         match self.try_get_stats() {
             Ok(stats) => stats,
@@ -235,6 +246,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Attempts to return full blockchain statistics, propagating any errors.
     pub fn try_get_stats(&self) -> Result<BlockchainStats> {
         let state = self.state_read();
         let chain = match self.blockchain.read() {
@@ -257,6 +269,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Returns owner info for an address, logging and returning None on failure.
     pub fn get_owner_info(&self, owner: &str) -> Option<OwnerInfo> {
         match self.try_get_owner_info(owner) {
             Ok(info) => info,
@@ -267,6 +280,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Attempts to return detailed owner info, propagating any errors.
     pub fn try_get_owner_info(&self, owner: &str) -> Result<Option<OwnerInfo>> {
         let state = self.state_read();
         let Some(acc) = state.try_get_owner_state_by_hex(owner)? else {
@@ -287,10 +301,12 @@ impl BlockchainEngine {
         }))
     }
 
+    /// Returns all objects of a given type.
     pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<ObjectInfo>> {
         self.query_objects(None, None, Some(object_type), None, None)
     }
 
+    /// Converts a CreatedObject into an ObjectInfo for RPC responses.
     pub(crate) fn object_info_from_created_object(id: String, obj: CreatedObject) -> ObjectInfo {
         let digest = obj.digest();
         ObjectInfo {
@@ -304,6 +320,7 @@ impl BlockchainEngine {
         }
     }
 
+    /// Queries objects by owner, type, and version range.
     pub fn query_objects(
         &self,
         owner: Option<&str>,
@@ -334,6 +351,7 @@ impl BlockchainEngine {
             .collect())
     }
 
+    /// Returns an object matching the given object reference, or None if not found.
     pub fn get_object_by_ref(&self, object_ref: &ObjectRef) -> Result<Option<ObjectInfo>> {
         let state = self.state_read();
         let Some(obj) = state.get_object(&object_ref.object_id)? else {
@@ -355,6 +373,7 @@ impl BlockchainEngine {
         )))
     }
 
+    /// Returns the bytecode of a module at the given address, or None if not found.
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
         use move_core_types::{identifier::Identifier, language_storage::ModuleId};
 
@@ -373,6 +392,7 @@ impl BlockchainEngine {
         runtime.get_module_bytes(&module_id)
     }
 
+    /// Lists all deployed modules as (address, module_name) pairs.
     pub fn list_all_modules(&self) -> Vec<(String, String)> {
         let runtime = &self.runtime_pool[0];
         runtime
@@ -464,6 +484,7 @@ impl BlockchainEngine {
         )
     }
 
+    /// Returns block data for a given height, or None if the block does not exist.
     pub fn get_block(&self, height: u64) -> Option<BlockData> {
         let chain = self.blockchain_read_for_query("get_block");
         chain
@@ -471,6 +492,7 @@ impl BlockchainEngine {
             .map(Self::block_data_from_checkpoint)
     }
 
+    /// Returns full block data including transactions for a given height.
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
         let chain = self.blockchain_read_for_query("get_full_block");
         chain
@@ -478,6 +500,7 @@ impl BlockchainEngine {
             .map(Self::full_block_data_from_checkpoint)
     }
 
+    /// Returns checkpoint sync data including DAG vertices for a given sequence.
     pub fn get_checkpoint_sync(&self, sequence: u64) -> Result<Option<CheckpointSyncData>> {
         let chain = self.blockchain_read_for_query("get_checkpoint_sync");
         let Some(checkpoint) = chain.get_checkpoint(sequence).cloned() else {
@@ -494,6 +517,7 @@ impl BlockchainEngine {
         }))
     }
 
+    /// Returns the hash of a checkpoint at the given sequence, or None if not found.
     pub fn checkpoint_hash(&self, sequence: u64) -> Result<Option<Vec<u8>>> {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain
@@ -507,6 +531,7 @@ impl BlockchainEngine {
         Ok(decoded)
     }
 
+    /// Attempts to reconstruct a Block from FullBlockData, propagating any errors.
     pub fn try_block_from_full_data(
         full_block: &FullBlockData,
     ) -> Result<kanari_types::block::Block> {
@@ -532,11 +557,13 @@ impl BlockchainEngine {
         })
     }
 
+    /// Reconstructs a Block from FullBlockData, panicking on failure.
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
         Self::try_block_from_full_data(full_block)
             .expect("FullBlockData must contain valid 32-byte hex prev_hash and state_root")
     }
 
+    /// Syncs a checkpoint from provided data, verifying consistency with local state.
     pub fn sync_checkpoint_from_data(&self, checkpoint_data: &CheckpointSyncData) -> Result<()> {
         let stats = self.try_get_stats()?;
         let checkpoint = &checkpoint_data.checkpoint;
@@ -565,6 +592,7 @@ impl BlockchainEngine {
         )
     }
 
+    /// Executes a read-only view function and returns its result as JSON.
     pub fn execute_view_function(
         &self,
         package_addr: &str,
