@@ -108,14 +108,15 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
             }
         },
         trailingContent = {
-            val displayAmount = tx.amount ?: (tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
+            val isTransfer = tx.transferAmount != null
+            val displayAmount = tx.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
             val displayDecimals = tx.decimals ?: 9
-            val tokenSymbol = tx.symbol ?: "KANARI"
+            val tokenSymbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = "${if (isIncoming) "+" else "-"}${formatAmountExact(displayAmount.toLong(), displayDecimals)}",
-                    color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    color = if (isIncoming) MaterialTheme.colorScheme.primary else if (isTransfer) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
@@ -150,23 +151,28 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             }
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
-        tx.amount?.let { amt ->
+        
+        tx.transferAmount?.let { amt ->
+            val symbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
             DetailRowShared(
-                label = "Amount",
-                value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + (tx.symbol ?: "KANARI")
+                label = "Transfer Amount",
+                value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + symbol
             )
         }
+        tx.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
+        tx.recipient?.let { CopyableDetailRow(label = "Recipient", value = it) }
+
         CopyableDetailRow(label = "Hash", value = tx.hash)
         CopyableDetailRow(label = "Sender", value = tx.sender)
         tx.senderAddress?.let { CopyableDetailRow(label = "Sender Address", value = it) }
         tx.module?.let { DetailRowShared(label = "Module", value = it) }
         tx.function?.let { DetailRowShared(label = "Function", value = it) }
-        DetailRowShared(label = "Nonce", value = tx.nonce.toString())
+        DetailRowShared(label = "Nonce", value = tx.nonce?.toString() ?: "N/A")
         DetailRowShared(label = "Gas Limit", value = tx.gasLimit.toString())
         DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
+        tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatAmountExact(it, 9) + " KANARI") }
         tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
         tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }
-        tx.checkpointHeight?.let { DetailRowShared(label = "Checkpoint", value = it.toString()) }
         tx.effects?.let { eff ->
             DetailRowShared(label = "Effects Status", value = eff.status)
             DetailRowShared(label = "Effects Gas", value = eff.gasUsed.toString())

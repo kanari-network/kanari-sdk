@@ -616,6 +616,35 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
     normalize_addr(tx.sender()) == owner
 }
 
+fn token_transfer_details(
+    state: &RpcServerState,
+    tx: &Transaction,
+) -> Option<(String, u64, String)> {
+    let Transaction::ExecuteFunction { function, args, .. } = tx else {
+        return None;
+    };
+
+    if function != "transfer_amount" || args.len() < 3 {
+        return None;
+    }
+
+    let coin_object_id = AccountAddress::from_bytes(args.first()?.as_slice())
+        .ok()?
+        .to_hex_literal();
+    let amount = bcs::from_bytes::<u64>(args.get(1)?).ok()?;
+    let recipient = AccountAddress::from_bytes(args.get(2)?.as_slice())
+        .ok()?
+        .to_hex_literal();
+    let object = state
+        .engine
+        .state_read()
+        .get_object(&coin_object_id)
+        .ok()??;
+    let token_type = coin_token_type_from_object_type(&object.type_)?;
+
+    Some((recipient, amount, token_type))
+}
+
 fn token_module_path(token_type: &str) -> Option<String> {
     let token_type = CoinModule::normalize_token_type(token_type);
     let mut parts = token_type.split("::");
@@ -831,6 +860,10 @@ fn base_transaction_details(
         nonce: Some(nonce),
         gas_limit,
         gas_price,
+        gas_fee: None,
+        recipient: None,
+        transfer_amount: None,
+        transfer_token_type: None,
         object_inputs: None,
         gas_payment: None,
         effects: None,
@@ -865,6 +898,7 @@ fn apply_pending_preview_metadata(
 ) {
     if let Some(gas_used) = record.metadata.preview_gas_used {
         details.gas_used = Some(gas_used);
+        details.gas_fee = Some(gas_used.saturating_mul(effective_gas_price(details.gas_price)));
     }
     if let Some(effects) = &record.metadata.preview_effects {
         details.effects = Some(effects.clone());
@@ -890,6 +924,11 @@ fn apply_committed_effect(
     // A failed Move execution is still final once its Mysticeti sub-DAG commits.
     details.committed = true;
     details.gas_used = Some(effect.gas_used);
+    details.gas_fee = Some(
+        effect
+            .gas_used
+            .saturating_mul(effective_gas_price(details.gas_price)),
+    );
     details.effects = Some(effect.clone());
 }
 
@@ -1035,14 +1074,22 @@ fn map_transaction_to_details(
                 details.object_inputs = Some(object_inputs);
             }
             details.gas_payment = tx.gas_payment();
+            if let Some((recipient, amount, token_type)) = token_transfer_details(state, tx) {
+                details.recipient = Some(recipient);
+                details.transfer_amount = Some(amount);
+                details.transfer_token_type = Some(token_type);
+            }
             if let Some(native_call) = tx.native_call() {
                 match native_call {
                     NativeCall::Transfer {
                         coin_object_id,
                         recipient,
-                        ..
+                        amount,
                     } => {
                         details.module = Some(format!("To: {} via {}", recipient, coin_object_id));
+                        details.recipient = Some(recipient);
+                        details.transfer_amount = Some(amount);
+                        details.transfer_token_type = Some(GAS_COIN.to_string());
                     }
                     NativeCall::Burn { .. } => {}
                 }
