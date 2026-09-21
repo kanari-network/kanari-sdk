@@ -1,19 +1,19 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wallet app: NEVER back up key material or sessions (API 31+ rules).
+     Same rationale as backup_rules.xml: Tink keyset, encrypted wallet store
+     and live zkLogin sessions must not leave the device. Re-import from
+     mnemonic on a new device.
+     See https://developer.android.com/about/versions/12/backup-restore
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="kanari_keyset.xml"/>
+        <exclude domain="file" path="datastore/"/>
+        <exclude domain="file" path="zklogin/"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="kanari_keyset.xml"/>
+        <exclude domain="file" path="datastore/"/>
+        <exclude domain="file" path="zklogin/"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

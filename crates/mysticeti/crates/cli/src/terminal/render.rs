@@ -74,11 +74,16 @@ impl ConfigRender for SimulationConfig {
             ("Replicas", self.committee_size.to_string()),
             ("Topology", self.topology.to_string()),
             ("Duration", format!("{}s", self.duration_secs)),
-            (
-                "Latency range",
-                format!("{}-{} ms", self.latency_min_ms, self.latency_max_ms),
-            ),
+            ("Latency", self.latency.to_string()),
             ("RNG seed", self.rng_seed.to_string()),
+            (
+                "Equivocating leaders",
+                if self.equivocating_leaders.is_empty() {
+                    "none".to_string()
+                } else {
+                    format!("{:?}", self.equivocating_leaders)
+                },
+            ),
         ]
     }
 }
@@ -211,10 +216,10 @@ impl StatusRender for SnapshotAggregate<'_> {
                 ));
             }
         }
-        if let Some(p50) = self.mean_latency_percentile_ms(0.5) {
+        if let Some(p50) = self.mean_transaction_latency_percentile_ms(0.5) {
             parts.push(format!("p50={}ms", fixed_length_format(p50)));
         }
-        if let Some(p90) = self.mean_latency_percentile_ms(0.9) {
+        if let Some(p90) = self.mean_transaction_latency_percentile_ms(0.9) {
             parts.push(format!("p90={}ms", fixed_length_format(p90)));
         }
         parts.join(" · ")

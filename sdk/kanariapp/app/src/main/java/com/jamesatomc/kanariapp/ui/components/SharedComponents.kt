@@ -75,6 +75,22 @@ fun formatMist(amount: Long, decimals: Int): Double =
 fun formatAmount(amount: Long, decimals: Int, fractionDigits: Int = 4): String =
     String.format(java.util.Locale.US, "%.${fractionDigits}f", formatMist(amount, decimals))
 
+/**
+ * Exact balance display: full token precision with trailing zeros trimmed
+ * (`10999989`, `10.5`, `0.0000001` — never `0.00` for dust).
+ *
+ * Unlike [formatAmount], this never goes through `Double` (which silently
+ * drops Mist past 2^53) and never truncates small fractions. Pure string
+ * math, JVM-testable.
+ */
+fun formatAmountExact(amount: Long, decimals: Int): String {
+    val scale = decimals.coerceAtLeast(0)
+    return java.math.BigDecimal(amount)
+        .movePointLeft(scale)
+        .stripTrailingZeros()
+        .toPlainString()
+}
+
 fun validateAddress(address: String): String? {
     val trimmed = address.trim()
     if (trimmed.isEmpty()) return "Recipient address required"
@@ -282,6 +298,35 @@ fun AuthHeroSection(
 }
 
 @Composable
+fun SuccessBanner(message: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                Icons.Default.VerifiedUser,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
 fun ErrorBanner(error: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -435,9 +480,13 @@ fun rememberBiometricAvailable(viewModel: com.jamesatomc.kanariapp.wallet.Wallet
     LaunchedEffect(Unit) {
         try {
             val enabled = viewModel.isBiometricEnabled()
+            val status = androidx.biometric.BiometricManager.from(context)
+                .canAuthenticate(
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                )
             available = if (!enabled) false
-            else androidx.biometric.BiometricManager.from(context)
-                .canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+            else status == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
         } catch (_: Exception) {
             available = false
         }
@@ -528,28 +577,30 @@ fun <T> LoadingEmptyState(
     emptyText: String = "No items yet",
     content: @Composable () -> Unit
 ) {
-    when {
-        isLoading && items.isEmpty() -> Box(
-            modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) { CircularProgressIndicator() }
+    Box(modifier = modifier) {
+        when {
+            isLoading && items.isEmpty() -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) { CircularProgressIndicator() }
 
-        items.isEmpty() -> Column(
-            modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                emptyIcon,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(emptyText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            items.isEmpty() -> Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    emptyIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(emptyText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+
+            else -> content()
         }
-
-        else -> content()
     }
 }
 

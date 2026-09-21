@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 data class AccountInfo(
     val address: String? = null,
     val owner: String? = null,
-    val nonce: Int = 0,
+    val nonce: Long = 0,
     val modules: List<String> = emptyList(),
     @SerialName("token_balances") val tokenBalances: Map<String, Long> = emptyMap(),
     val balances: Map<String, Long> = emptyMap(),

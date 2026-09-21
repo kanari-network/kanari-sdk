@@ -45,6 +45,7 @@ impl BlockchainEngine {
         })
     }
 
+    /// Applies the system clock prologue to the given state.
     pub(crate) fn apply_system_prologue_to_state(
         &self,
         state_arc: &Arc<RwLock<StateManager>>,
@@ -99,6 +100,7 @@ impl BlockchainEngine {
         );
     }
 
+    /// Prepares checkpoint state by executing transactions and computing the new state root.
     pub(crate) fn prepare_checkpoint_state(
         &self,
         checkpoint: &Checkpoint,
@@ -106,6 +108,7 @@ impl BlockchainEngine {
         self.prepare_checkpoint_state_inner(checkpoint, false)
     }
 
+    /// Prepares checkpoint state assuming conflict-free transaction execution.
     pub(crate) fn prepare_conflict_free_checkpoint_state(
         &self,
         checkpoint: &Checkpoint,
@@ -456,6 +459,7 @@ impl BlockchainEngine {
 
         Ok(())
     }
+    /// Applies a previously prepared checkpoint to the blockchain state.
     pub(crate) fn apply_prepared_checkpoint(
         &self,
         checkpoint: Checkpoint,
@@ -474,6 +478,7 @@ impl BlockchainEngine {
         self.finalize_checkpoint(checkpoint, verified_state, smt_changes, validate_supply)
     }
 
+    /// Applies a checkpoint end-to-end, preparing state and finalizing it.
     pub fn apply_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
         info!(
             "[ENGINE] Applying checkpoint {} with {} txs",

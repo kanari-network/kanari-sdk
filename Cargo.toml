@@ -138,14 +138,14 @@ hmac = { version = "0.13.0" }                                                   
 
 ## Key Derivation & Password Hashing
 argon2 = { version = "0.6.0", default-features = true }                             # Password hashing
-bip39 = { version = "2.2.2", features = ["rand"] }                                  # Mnemonic phrases
+bip39 = { version = "3.0.0", features = ["rand"] }                                  # Mnemonic phrases
 bip32 = "0.5.3"                                                                     # HD wallet derivation
 
 ## Encoding Utilities
 hex = "0.4.3"
 base64 = "0.23.1"
 primitive-types = { version = "0.14.0", default-features = true }                   # U256, H160, etc.
-
+ethnum = { version = "1.5.3", default-features = true }                                 # Ethereum-specific numeric types
 # ============================================================================
 # Cryptography - Post-Quantum (PQC)
 # ============================================================================
@@ -196,7 +196,7 @@ prometheus = "0.14.0"
 # ============================================================================
 # CLI, Configuration & Utilities
 # ============================================================================
-clap = { version = "4.6.6", features = ["derive"] }                                 # CLI argument parsing
+clap = { version = "4.6.7", features = ["derive"] }                                 # CLI argument parsing
 dirs = "7.0.0"                                                                      # Platform-specific directories
 walkdir = "2.5.0"                                                                   # Directory traversal
 num_cpus = "1.17.0"                                                                 # CPU core detection
@@ -221,6 +221,20 @@ totp-rs = { version = "6.0.0", features = ["gen_secret", "otpauth"] }           
 qrcode = "0.14.1"                                                                   # QR code generation
 data-encoding = "2.11.1"                                                            # Data encoding utilities
 
+# ============================================================================
+# zkLogin (OIDC JWT verification, Sui-style)
+# ============================================================================
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] } # JWT RS256 verify (Phase 3a)
+ark-r1cs-std = { version = "0.6.0" }                                                        # R1CS constraints for zkLogin signature verification (Phase 3c)
+ark-bn254 = { version = "0.6.0" }                                                           # BN254 pairing curve (Phase 3c Groth16)
+ark-groth16 = { version = "0.6.0" }                                                         # Groth16 verifier (Phase 3c)
+ark-ff = { version = "0.6.0" }                                                              # Field arithmetic (Phase 3c)
+ark-ec = { version = "0.6.0" }                                                              # Curve groups (Phase 3c)
+ark-serialize = { version = "0.6.0" }                                                       # Canonical (de)serialization (Phase 3c)
+ark-relations = { version = "0.6.0" }                                                       # Constraint system (Phase 3c tests/prover)
+ark-snark = { version = "0.6.0" }                                                           # SNARK trait (Phase 3c verifier)
+ark-std = { version = "0.6.0" }                                                             # ark_std::test_rng (Phase 3c tests)
+ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }            # Hash-to-curve (Phase 3c)
 # ============================================================================
 # Time & Date Handling
 # ============================================================================
@@ -260,7 +274,7 @@ rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "serde_json"] 
 # ============================================================================
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "3.0.5", features = ["full"] }
+syn = { version = "3.0.6", features = ["full"] }
 
 # ============================================================================
 # Miscellaneous Utilities

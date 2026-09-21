@@ -109,6 +109,8 @@ impl CurveType {
             CurveType::Falcon512 => Some(666),
             CurveType::Falcon1024 => Some(1_280),
             CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3 => Some(2 + 64 + 3_309),
+            // Session identity: no fixed signature (ephemeral 64B + JWT/proof bundle).
+            CurveType::ZkLogin => None,
         }
     }
 
@@ -125,6 +127,8 @@ impl CurveType {
             CurveType::Falcon1024 => Some(1_793),
             CurveType::Ed25519Dilithium3 => Some(32 + 1_952),
             CurveType::K256Dilithium3 => Some(65 + 1_952),
+            // Session identity: address is derived, not a key (32 bytes).
+            CurveType::ZkLogin => Some(32),
         }
     }
 
@@ -142,6 +146,8 @@ impl CurveType {
             CurveType::Dilithium5 | CurveType::SphincsPlusSha256Robust | CurveType::Falcon1024 => {
                 Some(5)
             }
+            // Session identity: no NIST level; unknown rather than misleading.
+            CurveType::ZkLogin => None,
         }
     }
 
@@ -156,6 +162,8 @@ impl CurveType {
             | CurveType::K256Dilithium3 => UsageProfile::GeneralPurpose,
             CurveType::Dilithium5 | CurveType::SphincsPlusSha256Robust => UsageProfile::ColdStorage,
             CurveType::Dilithium2 | CurveType::Falcon512 => UsageProfile::Specialized,
+            // Session identity: not a key-storage choice; specialized path.
+            CurveType::ZkLogin => UsageProfile::Specialized,
         }
     }
 

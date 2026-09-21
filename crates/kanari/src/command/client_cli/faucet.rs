@@ -14,9 +14,9 @@ pub struct Faucet {
     #[arg(short, long)]
     pub to: Option<String>,
 
-    /// Amount in Kanari
+    /// Amount in Kanari (exact decimal, e.g. "12.5")
     #[arg(short, long)]
-    pub amount: f64,
+    pub amount: String,
 
     /// Dev wallet address override (optional)
     #[arg(long)]
@@ -43,7 +43,7 @@ impl Faucet {
             self.dev_address.as_deref(),
             self.dev_password.as_deref(),
             self.to.as_deref(),
-            self.amount,
+            &self.amount,
             &rpc,
         )
         .await

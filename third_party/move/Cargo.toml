@@ -3,27 +3,28 @@ resolver = "2"
 
 members = [
     "crates/*",
-    "move-execution/v0/crates/bytecode-verifier-tests",
-    "move-execution/v1/crates/bytecode-verifier-tests",
-    "move-execution/v2/crates/bytecode-verifier-tests",
-    # "move-execution/$CUT/crates/bytecode-verifier-tests",
-    "move-execution/v0/crates/invalid-mutations",
-    "move-execution/v1/crates/invalid-mutations",
-    "move-execution/v2/crates/invalid-mutations",
-    # "move-execution/$CUT/crates/invalid-mutations",
-    "move-execution/v0/crates/move-bytecode-verifier",
-    "move-execution/v1/crates/move-bytecode-verifier",
-    "move-execution/v2/crates/move-bytecode-verifier",
-    # "move-execution/$CUT/crates/move-bytecode-verifier",
-    "move-execution/v0/crates/move-vm-runtime",
-    "move-execution/v1/crates/move-vm-runtime",
-    "move-execution/v2/crates/move-vm-runtime",
-    # "move-execution/$CUT/crates/move-vm-runtime",
-    "move-execution/v0/crates/move-stdlib-natives",
-    "move-execution/v1/crates/move-stdlib-natives",
-    "move-execution/v2/crates/move-stdlib-natives",
     "tools/criterion-cpu-time",
-    # "move-execution/$CUT/crates/move-stdlib-natives",
+
+    # "move-execution/v0/crates/bytecode-verifier-tests",
+    # "move-execution/v1/crates/bytecode-verifier-tests",
+    # "move-execution/v2/crates/bytecode-verifier-tests",
+    # # "move-execution/$CUT/crates/bytecode-verifier-tests",
+    # "move-execution/v0/crates/invalid-mutations",
+    # "move-execution/v1/crates/invalid-mutations",
+    # "move-execution/v2/crates/invalid-mutations",
+    # # "move-execution/$CUT/crates/invalid-mutations",
+    # "move-execution/v0/crates/move-bytecode-verifier",
+    # "move-execution/v1/crates/move-bytecode-verifier",
+    # "move-execution/v2/crates/move-bytecode-verifier",
+    # # "move-execution/$CUT/crates/move-bytecode-verifier",
+    # "move-execution/v0/crates/move-vm-runtime",
+    # "move-execution/v1/crates/move-vm-runtime",
+    # "move-execution/v2/crates/move-vm-runtime",
+    # # "move-execution/$CUT/crates/move-vm-runtime",
+    # "move-execution/v0/crates/move-stdlib-natives",
+    # "move-execution/v1/crates/move-stdlib-natives",
+    # "move-execution/v2/crates/move-stdlib-natives",
+    # # "move-execution/$CUT/crates/move-stdlib-natives",
 ]
 
 # Dependencies that should be kept in sync through the whole workspace
@@ -38,7 +39,7 @@ bitvec = "1.1.1"
 byteorder = "1.5.0"
 bytes = "1.12.1"
 chrono = "0.4.45"
-clap = { version = "4.6.6", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 codespan = "0.13.1"
 codespan-reporting = "0.13.1"
 colored = "3.1.1"
@@ -101,7 +102,7 @@ proc-macro2 = "1.0.107"
 proptest = "1.11.0"
 proptest-derive = "0.8.0"
 quote = "1.0.47"
-rand = "0.10.2"
+rand = "0.10.3"
 rayon = "1.12.0"
 ref-cast = "1.0.26"
 regex = "1.13.1"
@@ -120,7 +121,7 @@ similar = "3.1.2"
 smallvec = "1.16.1"
 stacker = "0.1.25"
 static_assertions = "1.1.0"
-syn = { version = "3.0.5", features = ["derive"] }
+syn = { version = "3.0.6", features = ["derive"] }
 tempfile = "3.27.0"
 tera = "2.1.0"
 thiserror = "2.0.20"

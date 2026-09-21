@@ -527,6 +527,18 @@ pub struct TransactionDetails {
     pub nonce: Option<u64>,
     pub gas_limit: u64,
     pub gas_price: u64,
+    /// Actual fee charged after execution: `gas_used * effective_gas_price`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_fee: Option<u64>,
+    /// Recipient of a recognized transfer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<String>,
+    /// Amount transferred for a recognized transfer, in the token's smallest unit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_amount: Option<u64>,
+    /// Token type transferred, when the transfer can be identified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_token_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object_inputs: Option<Vec<ObjectInput>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -622,6 +634,9 @@ pub struct ObjectTransferData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_payment: Option<GasPayment>,
     pub signature: Option<Vec<u8>>,
+    /// Canonical BCS transaction hash returned by the build endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_hash: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }

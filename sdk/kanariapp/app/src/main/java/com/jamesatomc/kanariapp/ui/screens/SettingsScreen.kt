@@ -28,7 +28,9 @@ import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.components.ChangePinFullScreenContent
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
-import com.jamesatomc.kanariapp.ui.components.showBiometricPrompt
+import com.jamesatomc.kanariapp.ui.components.PinGateDialog
+import com.jamesatomc.kanariapp.ui.components.findFragmentActivity
+import com.jamesatomc.kanariapp.ui.components.rememberBiometricPromptLauncher
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
@@ -42,6 +44,57 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
     var showPinDialog by remember { mutableStateOf(false) }
     var showEnvDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showPinGateForBiometric by remember { mutableStateOf(false) }
+    var launchBiometricAfterPin by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val activity = remember(context) { context.findFragmentActivity() }
+    val enableBiometric = rememberBiometricPromptLauncher(
+        activity = activity,
+        title = "Enable Biometric Unlock",
+        subtitle = "Authenticate to enable fingerprint unlock",
+        onSuccess = {
+            scope.launch {
+                try {
+                    val ok = viewModel.setBiometricEnabled(true)
+                    Toast.makeText(
+                        context,
+                        if (ok) "Biometric enabled" else "Error saving biometric",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        "Error saving biometric: ${e.message ?: "unknown error"}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        },
+        onError = { errorCode, errString ->
+            if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
+                errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON
+            ) {
+                Toast.makeText(context, "Biometric error: $errString", Toast.LENGTH_SHORT).show()
+            }
+        },
+        onFailed = {
+            Toast.makeText(context, "Biometric not recognized", Toast.LENGTH_SHORT).show()
+        },
+    )
+
+    LaunchedEffect(showPinGateForBiometric, launchBiometricAfterPin) {
+        if (!showPinGateForBiometric && launchBiometricAfterPin) {
+            launchBiometricAfterPin = false
+            if (activity != null) {
+                enableBiometric()
+            } else {
+                viewModel.setBiometricEnabled(true)
+                Toast.makeText(context, "Biometric enabled", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     ScaffoldWithBackBar(
         title = "Settings",
         onBack = onBack,
@@ -72,18 +125,21 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
                 subtitle = "Update your 6-digit PIN",
                 icon = Icons.Default.Security,
                 onClick = { showPinDialog = true })
-            val context = LocalContext.current
-            val activity = context as? androidx.fragment.app.FragmentActivity
+
             val biometricManager = remember { BiometricManager.from(context) }
             val biometricStatus = remember {
                 try {
-                    biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                    biometricManager.canAuthenticate(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                BiometricManager.Authenticators.BIOMETRIC_WEAK
+                    )
                 } catch (_: Exception) {
                     BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE
                 }
             }
             val biometricAvailable = biometricStatus == BiometricManager.BIOMETRIC_SUCCESS
             val biometricEnabled by viewModel.biometricEnabled.collectAsState()
+
             val biometricSubtitle = when {
                 biometricEnabled -> "Enabled - use fingerprint to unlock"
                 biometricStatus == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "No fingerprint enrolled - add in system settings"
@@ -103,39 +159,31 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
                             viewModel.setBiometricEnabled(false)
                             Toast.makeText(context, "Biometric disabled", Toast.LENGTH_SHORT).show()
                         } else {
+                            // If we don't have the PIN in memory (e.g. Google Login), we must ask for it first
+                            val hasPin = viewModel.hasPin()
+                            if (!hasPin) {
+                                Toast.makeText(context, "Set a PIN in security settings first", Toast.LENGTH_LONG)
+                                    .show()
+                                return@launch
+                            }
+
+                            if (viewModel.unlockedPin == null) {
+                                android.util.Log.d("SettingsScreen", "unlockedPin is null, showing PinGate")
+                                showPinGateForBiometric = true
+                                return@launch
+                            }
+
                             if (activity == null) {
+                                android.util.Log.w("SettingsScreen", "Activity is null, falling back to silent enable")
                                 val ok = viewModel.setBiometricEnabled(true)
                                 Toast.makeText(
                                     context,
-                                    if (ok) "Biometric enabled" else "Unlock with PIN first",
+                                    if (ok) "Biometric enabled (no prompt)" else "Error: Still need PIN",
                                     Toast.LENGTH_SHORT
                                 ).show()
                                 return@launch
                             }
-                            showBiometricPrompt(
-                                activity = activity,
-                                title = "Enable Biometric Unlock",
-                                subtitle = "Authenticate to enable fingerprint unlock",
-                                onSuccess = {
-                                    scope.launch {
-                                        val ok = viewModel.setBiometricEnabled(true)
-                                        Toast.makeText(
-                                            context,
-                                            if (ok) "Biometric enabled" else "Unlock with PIN first",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                },
-                                onError = { errorCode, errString ->
-                                    if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED && errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                                        Toast.makeText(context, "Biometric error: $errString", Toast.LENGTH_SHORT)
-                                            .show()
-                                    }
-                                },
-                                onFailed = {
-                                    Toast.makeText(context, "Biometric not recognized", Toast.LENGTH_SHORT).show()
-                                }
-                            )
+                            enableBiometric()
                         }
                     }
                 })
@@ -172,10 +220,27 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
         current = themeMode,
         onDismiss = { showThemeDialog = false },
         onSelect = { viewModel.setThemeMode(it); showThemeDialog = false })
+
+    if (showPinGateForBiometric) {
+        PinGateDialog(
+            title = "Verify PIN",
+            subtitle = "Enter your 6-digit PIN to enable biometrics",
+            onVerifyAsync = { pin -> viewModel.unlock(pin) },
+            onSuccess = {
+                showPinGateForBiometric = false
+                launchBiometricAfterPin = true
+            },
+            onDismiss = { showPinGateForBiometric = false }
+        )
+    }
 }
 
 @Composable
-fun ChangePinDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Boolean = { _, _ -> false }, onConfirmAsync: (suspend (String, String) -> Boolean)? = null) {
+fun ChangePinDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Boolean = { _, _ -> false },
+    onConfirmAsync: (suspend (String, String) -> Boolean)? = null
+) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(

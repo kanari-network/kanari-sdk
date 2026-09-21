@@ -31,18 +31,30 @@ data class TransactionDetails(
     val hash: String,
     val status: String,
     @SerialName("block_height") val blockHeight: Long? = null,
-    @SerialName("checkpoint_height") val checkpointHeight: Long? = null,
     @SerialName("gas_used") val gasUsed: Long? = null,
+    val success: Boolean = false,
+    val previewed: Boolean = false,
+    val submitted: Boolean = false,
+    val committed: Boolean = false,
     @SerialName("tx_type") val txType: String,
     val sender: String,
     @SerialName("sender_address") val senderAddress: String? = null,
-    val nonce: ULong,
-    @SerialName("gas_limit") val gasLimit: ULong,
-    @SerialName("gas_price") val gasPrice: ULong,
+    @Serializable(with = LenientULongSerializer::class) val nonce: ULong? = null,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_limit") val gasLimit: ULong,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("gas_price") val gasPrice: ULong,
+    @SerialName("gas_fee") val gasFee: Long? = null,
+    val recipient: String? = null,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("transfer_amount") val transferAmount: ULong? = null,
+    @SerialName("transfer_token_type") val transferTokenType: String? = null,
+    @SerialName("object_inputs") val objectInputs: List<ObjectInput>? = null,
+    @SerialName("gas_payment") val gasPayment: GasPayment? = null,
+    val effects: TransactionEffectsInfo? = null,
     val module: String? = null,
     val function: String? = null,
     @SerialName("module_functions") val moduleFunctions: List<String>? = null,
-    val effects: TransactionEffectsInfo? = null
+    // Metadata for UI
+    val symbol: String? = null,
+    val decimals: Int? = null
 )
 
 @Serializable
@@ -214,6 +226,7 @@ data class ObjectTransferData(
     @Serializable(with = LenientULongSerializer::class) var nonce: ULong? = null,
     @SerialName("gas_payment") val gasPayment: GasPayment? = null,
     var signature: List<Int>? = null,
+    @SerialName("transaction_hash") val transactionHash: List<Int>? = null,
     @SerialName("execute_immediate") val executeImmediate: Boolean? = true
 )
 

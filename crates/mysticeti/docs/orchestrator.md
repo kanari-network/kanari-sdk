@@ -140,6 +140,21 @@ Permanent faults are useful for measuring steady-state throughput under static f
 Crash-recovery exercises the protocol's behaviour around recovery transitions; the crash/recovery
 schedule is reported in the benchmark summary.
 
+`crash_order` controls which replicas the schedule crashes first. It applies to both modes:
+
+```yaml
+# Default: crash replicas in selection order. Nodes are picked round-robin across
+# `regions`, so successive crashes cycle through the regions.
+crash_order: round-robin
+
+# Crash region by region, in the order of `regions`: the first-listed region is
+# exhausted before the second is touched, and the last-listed region (typically the
+# most remote one) survives as long as possible.
+crash_order: region-order
+```
+
+The chosen order is recorded in the `parameters` block of each measurements file.
+
 ## 6. Monitoring
 
 When `monitoring: true` (the default), the orchestrator deploys a
@@ -161,3 +176,23 @@ and consistency outcome. The detailed performance data — every Prometheus samp
 the run, including throughput rates and latency percentiles — is saved as a
 YAML measurements collection under `results_dir` (one `measurements-<parameters>.yaml` file per
 benchmark), keyed by metric name with the full label map of each sample for post-hoc filtering.
+
+The replica metrics collected on every scrape are:
+
+- `benchmark_duration`: seconds since the replica started, advanced only while transactions
+  commit.
+- `latency_s` (p50/p90/p99, `_count`, `_sum`) and `latency_squared_s`: submission-to-commit
+  latency of every committed transaction, measured against the timestamp the load generator
+  embeds in each transaction. Includes queuing until the transaction is included in a block.
+- `block_latency_s` (p50/p90/p99, `_count`, `_sum`) and `block_latency_squared_s`:
+  proposal-to-commit latency of every committed block, labelled `kind=leader` for the sub-DAG's
+  leader and `kind=non-leader` otherwise. Computed from the proposer's block timestamp, so it is
+  subject to cross-replica clock skew (a few milliseconds under NTP).
+- `committed_leaders_total`: decided leaders per `authority` and `commit_type` (`fast-commit`,
+  `slow-commit`, `indirect-commit-certificate`, `indirect-commit-weak`, `direct-skip`,
+  `indirect-skip`). Single-path protocols only ever emit `slow-commit` and
+  `indirect-commit-certificate`.
+
+Counters are stored as `rate(..[1m])`, so a sample's `value` is a per-second rate; the `_count`
+and `_sum` rates give the mean, and the squared counters the standard deviation, when the
+histogram buckets are too coarse.

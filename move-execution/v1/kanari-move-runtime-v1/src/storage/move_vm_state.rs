@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Move VM state adapter bridging the VM resolver to Kanari storage.
+
 use anyhow::Result;
 #[cfg(test)]
 use kanari_types::error::KanariUnwrapExt;

@@ -87,6 +87,7 @@ fn genesis_lock_for_db(db: &Arc<DB>) -> Arc<Mutex<()>> {
 
 /// Lightweight persistent BCS-backed store for runtime state using RocksDB.
 #[derive(Debug)]
+#[must_use]
 pub struct PersistentStore {
     db: Option<Arc<DB>>,
     // In-memory store for when RocksDB is not used (e.g. tests, Miri)

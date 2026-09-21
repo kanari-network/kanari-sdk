@@ -12,6 +12,7 @@ import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -46,32 +47,44 @@ data class WalletRecord(
     val encryption: String = "pin_aes_gcm_pbkdf2_v1"
 )
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "kanari_storage")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "kanari_storage"
+)
 
 class WalletStorage(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val biometricPrefs = context.getSharedPreferences(
+        "kanari_biometric",
+        Context.MODE_PRIVATE,
+    )
 
     private val aead: Aead by lazy {
         AeadConfig.register()
         try {
             buildAead()
         } catch (e: Exception) {
-            Log.e("WalletStorage", "Android Keystore error: ${e.message}. Attempting recovery by clearing keyset.")
-            try {
-                // Clear the corrupted keyset from shared preferences to allow regeneration
-                context.getSharedPreferences("kanari_keyset", Context.MODE_PRIVATE).edit { clear() }
-                buildAead()
-            } catch (e2: Exception) {
-                Log.e("WalletStorage", "Hard recovery failed: ${e2.message}. Falling back to non-keystore backed AEAD.")
-                // Final fallback: build without master key URI if Keystore is completely broken on this device
-                AndroidKeysetManager.Builder()
-                    .withSharedPref(context, "kanari_keyset", "kanari_master_key")
-                    .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-                    .build()
-                    .keysetHandle
-                    .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
-            }
+            Log.e("WalletStorage", "Tink Keystore link broken, performing emergency reset", e)
+            emergencyReset()
+            buildAead()
+        }
+    }
+
+    private fun emergencyReset() {
+        try {
+            // 1. Wipe Tink keyset shared prefs
+            context.getSharedPreferences("kanari_keyset", Context.MODE_PRIVATE).edit(commit = true) { clear() }
+
+            // 2. Wipe DataStore file
+            val dsFile = java.io.File(context.filesDir, "datastore/kanari_storage.preferences_pb")
+            if (dsFile.exists()) dsFile.delete()
+
+            // 3. Wipe Biometric prefs (they are tied to the old AEAD)
+            context.getSharedPreferences("kanari_biometric", Context.MODE_PRIVATE).edit(commit = true) { clear() }
+
+            Log.i("WalletStorage", "Emergency reset complete: Corrupted secure storage wiped.")
+        } catch (e: Exception) {
+            Log.e("WalletStorage", "Emergency reset failed", e)
         }
     }
 
@@ -90,10 +103,10 @@ class WalletStorage(private val context: Context) {
         private val KEY_PIN_SALT = stringPreferencesKey("kanari_pin_salt")
         private val KEY_PIN_VERIFIER = stringPreferencesKey("kanari_pin_verifier")
         private val KEY_PIN_ITERATIONS = intPreferencesKey("kanari_pin_iterations")
-        private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("kanari_biometric_enabled")
-        private val KEY_BIOMETRIC_PIN = stringPreferencesKey("kanari_biometric_pin")
+        private const val KEY_BIOMETRIC_ENABLED_NAME = "kanari_biometric_enabled"
+        private const val KEY_BIOMETRIC_PIN_NAME = "kanari_biometric_pin"
         private const val PIN_LENGTH = 6
-        private const val KDF_ITERATIONS = 10000
+        private const val KDF_ITERATIONS = 300000
     }
 
     private suspend fun encryptSecure(data: String): String = withContext(Dispatchers.Default) {
@@ -108,7 +121,12 @@ class WalletStorage(private val context: Context) {
         context.dataStore.data.map { it.contains(KEY_PIN_VERIFIER) }.first()
     }
 
-    suspend fun savePin(pin: String) = withContext(Dispatchers.Default) {
+    /** True when any wallet holds PIN-encrypted secrets (private key / mnemonic). */
+    suspend fun hasSecrets(): Boolean = withContext(Dispatchers.IO) {
+        loadWallets().any { it.privateKeyEncrypted != null || it.mnemonicEncrypted != null }
+    }
+
+    suspend fun savePin(pin: String) = withContext(Dispatchers.Default + NonCancellable) {
         require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
         val salt = ByteArray(16).apply { SecureRandom().nextBytes(this) }
         val iterations = KDF_ITERATIONS
@@ -125,7 +143,6 @@ class WalletStorage(private val context: Context) {
         val prefs = context.dataStore.data.first()
         val saltBase64 = prefs[KEY_PIN_SALT] ?: return@withContext false
         val verifierBase64 = prefs[KEY_PIN_VERIFIER] ?: return@withContext false
-        // Default to 100,000 for legacy PINs created before migration
         val iterations = prefs[KEY_PIN_ITERATIONS] ?: 100000
 
         val salt = Base64.decode(saltBase64, Base64.NO_WRAP)
@@ -136,28 +153,29 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun isBiometricEnabled(): Boolean = withContext(Dispatchers.IO) {
-        context.dataStore.data.map { it[KEY_BIOMETRIC_ENABLED] ?: false }.first()
+        biometricPrefs.getBoolean(KEY_BIOMETRIC_ENABLED_NAME, false)
     }
 
     suspend fun setBiometricEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_BIOMETRIC_ENABLED] = enabled
-            if (!enabled) prefs.remove(KEY_BIOMETRIC_PIN)
+        biometricPrefs.edit(commit = true) {
+            putBoolean(KEY_BIOMETRIC_ENABLED_NAME, enabled)
+            if (!enabled) remove(KEY_BIOMETRIC_PIN_NAME)
         }
     }
 
     suspend fun saveBiometricPin(pin: String) = withContext(Dispatchers.Default) {
         require(pin.length == PIN_LENGTH) { "PIN must be $PIN_LENGTH digits" }
         val encrypted = encryptSecure(pin)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_BIOMETRIC_PIN] = encrypted
-            prefs[KEY_BIOMETRIC_ENABLED] = true
+        biometricPrefs.edit(commit = true) {
+            putString(KEY_BIOMETRIC_PIN_NAME, encrypted)
+                .putBoolean(KEY_BIOMETRIC_ENABLED_NAME, true)
         }
     }
 
     suspend fun getBiometricPin(): String? = withContext(Dispatchers.Default) {
         if (!isBiometricEnabled()) return@withContext null
-        val encrypted = context.dataStore.data.first()[KEY_BIOMETRIC_PIN] ?: return@withContext null
+        val encrypted = biometricPrefs.getString(KEY_BIOMETRIC_PIN_NAME, null)
+            ?: return@withContext null
         try {
             decryptSecure(encrypted)
         } catch (_: Exception) {
@@ -166,26 +184,34 @@ class WalletStorage(private val context: Context) {
     }
 
     suspend fun clearBiometricPin() = withContext(Dispatchers.IO) {
-        context.dataStore.edit { prefs ->
-            prefs.remove(KEY_BIOMETRIC_PIN)
-            prefs.remove(KEY_BIOMETRIC_ENABLED)
+        biometricPrefs.edit(commit = true) {
+            remove(KEY_BIOMETRIC_PIN_NAME)
+                .remove(KEY_BIOMETRIC_ENABLED_NAME)
         }
     }
 
-    suspend fun saveWallets(wallets: List<WalletRecord>) = withContext(Dispatchers.Default) {
-        val data = json.encodeToString(wallets)
-        val encrypted = encryptSecure(data)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_WALLETS] = encrypted
+    suspend fun saveWallets(wallets: List<WalletRecord>) =
+        withContext(Dispatchers.IO + NonCancellable) {
+            val data = json.encodeToString(wallets)
+            val stored = encryptSecure(data)
+            try {
+                context.dataStore.edit { prefs ->
+                    prefs[KEY_WALLETS] = stored
+                }
+            } catch (e: Exception) {
+                throw Exception("Cannot save wallet: ${e.message ?: e.javaClass.simpleName}")
+            }
         }
-    }
 
-    suspend fun loadWallets(): List<WalletRecord> = withContext(Dispatchers.Default) {
-        val encrypted = context.dataStore.data.first()[KEY_WALLETS] ?: return@withContext emptyList()
+    suspend fun loadWallets(): List<WalletRecord> = withContext(Dispatchers.IO) {
+        val stored = context.dataStore.data.first()[KEY_WALLETS]
+            ?: return@withContext emptyList()
         try {
-            val data = decryptSecure(encrypted)
+            val data = decryptSecure(stored)
             json.decodeFromString(data)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("WalletStorage", "Wallet list unreadable (decryption failed). Data is orphaned. Wiping.", e)
+            emergencyReset()
             emptyList()
         }
     }
@@ -208,7 +234,6 @@ class WalletStorage(private val context: Context) {
 
         val encryptedBytes = cipher.doFinal(data.toByteArray())
 
-        // Split cipherText and MAC (Android's AES/GCM includes MAC at the end)
         val cipherText = encryptedBytes.copyOfRange(0, encryptedBytes.size - 16)
         val mac = encryptedBytes.copyOfRange(encryptedBytes.size - 16, encryptedBytes.size)
 

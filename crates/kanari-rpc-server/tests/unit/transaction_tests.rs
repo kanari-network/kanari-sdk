@@ -3,7 +3,7 @@
 
 use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, select_native_coin_consolidation_step,
+    derive_transaction_state_flags, fresh_nonce, select_native_coin_consolidation_step,
     select_native_transfer_and_gas_payment, transaction_error_with_reason,
     validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
@@ -846,4 +846,27 @@ fn selects_native_coin_consolidation_step_with_reserved_gas_coin() {
     assert_eq!(gas.payment_objects[0].object_id, "0x3");
     assert_eq!(primary.id, "0x1");
     assert_eq!(merge.id, "0x2");
+}
+
+#[test]
+fn fresh_nonce_honors_client_value_and_watermark_floor() {
+    // Explicit client nonces pass through (zero is rejected).
+    assert_eq!(fresh_nonce(Some(42), None).unwrap(), 42);
+    assert_eq!(fresh_nonce(Some(42), Some(5000)).unwrap(), 42);
+    assert!(fresh_nonce(Some(0), None).is_err());
+
+    // Without a watermark the engine cannot safely generate a nonce.
+    assert!(
+        fresh_nonce(None, None).is_err(),
+        "must reject nonce generation without watermark"
+    );
+
+    // Simulated post-restart state: the global counter starts at 1 but the
+    // sender's watermark floor is high. Generated nonces must clear the floor
+    // immediately instead of producing thousands of stale rejections, and
+    // stay strictly increasing afterwards.
+    let first = fresh_nonce(None, Some(5000)).unwrap();
+    assert!(first >= 5000, "floor not honored: {first}");
+    let second = fresh_nonce(None, Some(5000)).unwrap();
+    assert!(second > first, "nonces must be strictly increasing");
 }

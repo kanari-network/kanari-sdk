@@ -201,6 +201,8 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Checkpoint Height" value={readFirstString(transaction, ["checkpoint_height", "block_height", "height"])} mono />
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
+                <DetailItem label="Transfer Token" value={readFirstString(transaction, ["transfer_token_type"])} mono wide />
+                <DetailItem label="Transfer Amount" value={readFirstString(transaction, ["transfer_amount"])} mono />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
                 <DetailItem label="Published Module" value={publishedModule} mono wide />
                 <DetailItem
@@ -217,6 +219,7 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />
                 <DetailItem label="Gas Used" value={readFirstString(transaction, ["gas_used"])} mono />
+                <DetailItem label="Gas Fee Charged" value={readFirstString(transaction, ["gas_fee"])} mono />
                 <DetailItem label="Object Inputs" value={objectInputs > 0 ? String(objectInputs) : "-"} mono />
                 <DetailItem label="Gas Objects" value={gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-"} mono />
                 <DetailItem label="Object Changes" value={effectObjectChanges > 0 ? String(effectObjectChanges) : "-"} mono />

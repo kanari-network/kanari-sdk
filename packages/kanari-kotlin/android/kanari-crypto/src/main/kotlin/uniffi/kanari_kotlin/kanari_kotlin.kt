@@ -694,6 +694,20 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_verify_signature_api(
     ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_build_bundle(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_derive_address(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_deterministic_salt(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_prepare_nonce(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_sign_ephemeral(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_verify_ephemeral(
+    ): Int
+    external fun uniffi_kanari_kotlin_checksum_func_zklogin_verify_jwt(
+    ): Int
     external fun ffi_kanari_kotlin_uniffi_contract_version(
     ): Int
 
@@ -729,6 +743,20 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_verify_signature_api(`address`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,`curveName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_build_bundle(`jwt`: RustBuffer.ByValue,`jwksJson`: RustBuffer.ByValue,`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,`randomness`: RustBuffer.ByValue,`ephemeralPubkey`: RustBuffer.ByValue,`ephemeralSig`: RustBuffer.ByValue,`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_derive_address(`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`sub`: RustBuffer.ByValue,`salt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_deterministic_salt(`iss`: RustBuffer.ByValue,`aud`: RustBuffer.ByValue,`sub`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_prepare_nonce(`maxEpoch`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_sign_ephemeral(`secret`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_verify_ephemeral(`pubkey`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_kanari_kotlin_fn_func_zklogin_verify_jwt(`jwt`: RustBuffer.ByValue,`jwksJson`: RustBuffer.ByValue,`expectedIss`: RustBuffer.ByValue,`expectedAud`: RustBuffer.ByValue,`expectedNonce`: RustBuffer.ByValue,`nowSecs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun ffi_kanari_kotlin_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_kanari_kotlin_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -881,6 +909,27 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_kanari_kotlin_checksum_func_verify_signature_api() and 0xFFFF) != 18576) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_build_bundle() and 0xFFFF) != 56463) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_derive_address() and 0xFFFF) != 7306) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_deterministic_salt() and 0xFFFF) != 29401) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_prepare_nonce() and 0xFFFF) != 38387) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_sign_ephemeral() and 0xFFFF) != 29848) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_verify_ephemeral() and 0xFFFF) != 42133) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_kanari_kotlin_checksum_func_zklogin_verify_jwt() and 0xFFFF) != 6875) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
 }
 
 /**
@@ -1021,6 +1070,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
     }
 }
 
@@ -1207,6 +1279,176 @@ public object FfiConverterTypeKeyPairData: FfiConverterRustBuffer<KeyPairData> {
             FfiConverterString.write(value.`taggedAddress`, buf)
             FfiConverterSequenceUByte.write(value.`rawPublicKey`, buf)
             FfiConverterString.write(value.`curveType`, buf)
+    }
+}
+
+
+
+data class ZkLoginClaimsData (
+    var `iss`: kotlin.String
+    , 
+    var `aud`: kotlin.String
+    , 
+    var `sub`: kotlin.String
+    , 
+    var `exp`: kotlin.ULong?
+    , 
+    var `nonce`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeZkLoginClaimsData: FfiConverterRustBuffer<ZkLoginClaimsData> {
+    override fun read(buf: ByteBuffer): ZkLoginClaimsData {
+        return ZkLoginClaimsData(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ZkLoginClaimsData) = (
+            FfiConverterString.allocationSize(value.`iss`) +
+            FfiConverterString.allocationSize(value.`aud`) +
+            FfiConverterString.allocationSize(value.`sub`) +
+            FfiConverterOptionalULong.allocationSize(value.`exp`) +
+            FfiConverterOptionalString.allocationSize(value.`nonce`)
+    )
+
+    override fun write(value: ZkLoginClaimsData, buf: ByteBuffer) {
+            FfiConverterString.write(value.`iss`, buf)
+            FfiConverterString.write(value.`aud`, buf)
+            FfiConverterString.write(value.`sub`, buf)
+            FfiConverterOptionalULong.write(value.`exp`, buf)
+            FfiConverterOptionalString.write(value.`nonce`, buf)
+    }
+}
+
+
+
+data class ZkLoginNonceData (
+    var `ephemeralPubkey`: List<kotlin.UByte>
+    , 
+    var `ephemeralSecret`: List<kotlin.UByte>
+    , 
+    var `randomness`: List<kotlin.UByte>
+    , 
+    var `maxEpoch`: kotlin.ULong
+    , 
+    var `nonce`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeZkLoginNonceData: FfiConverterRustBuffer<ZkLoginNonceData> {
+    override fun read(buf: ByteBuffer): ZkLoginNonceData {
+        return ZkLoginNonceData(
+            FfiConverterSequenceUByte.read(buf),
+            FfiConverterSequenceUByte.read(buf),
+            FfiConverterSequenceUByte.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ZkLoginNonceData) = (
+            FfiConverterSequenceUByte.allocationSize(value.`ephemeralPubkey`) +
+            FfiConverterSequenceUByte.allocationSize(value.`ephemeralSecret`) +
+            FfiConverterSequenceUByte.allocationSize(value.`randomness`) +
+            FfiConverterULong.allocationSize(value.`maxEpoch`) +
+            FfiConverterString.allocationSize(value.`nonce`)
+    )
+
+    override fun write(value: ZkLoginNonceData, buf: ByteBuffer) {
+            FfiConverterSequenceUByte.write(value.`ephemeralPubkey`, buf)
+            FfiConverterSequenceUByte.write(value.`ephemeralSecret`, buf)
+            FfiConverterSequenceUByte.write(value.`randomness`, buf)
+            FfiConverterULong.write(value.`maxEpoch`, buf)
+            FfiConverterString.write(value.`nonce`, buf)
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
     }
 }
 
@@ -1421,6 +1663,104 @@ public object FfiConverterSequenceTypeKeyPairData: FfiConverterRustBuffer<List<K
         FfiConverterSequenceUByte.lower(`message`),
         FfiConverterSequenceUByte.lower(`signature`),
         FfiConverterString.lower(`curveName`),_status)
+}
+    )
+    }
+    
+ fun `zkloginBuildBundle`(`jwt`: kotlin.String, `jwksJson`: kotlin.String, `iss`: kotlin.String, `aud`: kotlin.String, `salt`: List<kotlin.UByte>, `randomness`: List<kotlin.UByte>, `ephemeralPubkey`: List<kotlin.UByte>, `ephemeralSig`: List<kotlin.UByte>, `maxEpoch`: kotlin.ULong): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_build_bundle(
+    
+        
+        FfiConverterString.lower(`jwt`),
+        FfiConverterString.lower(`jwksJson`),
+        FfiConverterString.lower(`iss`),
+        FfiConverterString.lower(`aud`),
+        FfiConverterSequenceUByte.lower(`salt`),
+        FfiConverterSequenceUByte.lower(`randomness`),
+        FfiConverterSequenceUByte.lower(`ephemeralPubkey`),
+        FfiConverterSequenceUByte.lower(`ephemeralSig`),
+        FfiConverterULong.lower(`maxEpoch`),_status)
+}
+    )
+    }
+    
+ fun `zkloginDeriveAddress`(`iss`: kotlin.String, `aud`: kotlin.String, `sub`: kotlin.String, `salt`: List<kotlin.UByte>): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_derive_address(
+    
+        
+        FfiConverterString.lower(`iss`),
+        FfiConverterString.lower(`aud`),
+        FfiConverterString.lower(`sub`),
+        FfiConverterSequenceUByte.lower(`salt`),_status)
+}
+    )
+    }
+    
+ fun `zkloginDeterministicSalt`(`iss`: kotlin.String, `aud`: kotlin.String, `sub`: kotlin.String): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_deterministic_salt(
+    
+        
+        FfiConverterString.lower(`iss`),
+        FfiConverterString.lower(`aud`),
+        FfiConverterString.lower(`sub`),_status)
+}
+    )
+    }
+    
+ fun `zkloginPrepareNonce`(`maxEpoch`: kotlin.ULong): ZkLoginNonceData {
+            return FfiConverterTypeZkLoginNonceData.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_prepare_nonce(
+    
+        
+        FfiConverterULong.lower(`maxEpoch`),_status)
+}
+    )
+    }
+    
+ fun `zkloginSignEphemeral`(`secret`: List<kotlin.UByte>, `message`: List<kotlin.UByte>): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_sign_ephemeral(
+    
+        
+        FfiConverterSequenceUByte.lower(`secret`),
+        FfiConverterSequenceUByte.lower(`message`),_status)
+}
+    )
+    }
+    
+ fun `zkloginVerifyEphemeral`(`pubkey`: List<kotlin.UByte>, `message`: List<kotlin.UByte>, `signature`: List<kotlin.UByte>): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_verify_ephemeral(
+    
+        
+        FfiConverterSequenceUByte.lower(`pubkey`),
+        FfiConverterSequenceUByte.lower(`message`),
+        FfiConverterSequenceUByte.lower(`signature`),_status)
+}
+    )
+    }
+    
+ fun `zkloginVerifyJwt`(`jwt`: kotlin.String, `jwksJson`: kotlin.String, `expectedIss`: kotlin.String, `expectedAud`: kotlin.String, `expectedNonce`: kotlin.String?, `nowSecs`: kotlin.ULong): ZkLoginClaimsData {
+            return FfiConverterTypeZkLoginClaimsData.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_kanari_kotlin_fn_func_zklogin_verify_jwt(
+    
+        
+        FfiConverterString.lower(`jwt`),
+        FfiConverterString.lower(`jwksJson`),
+        FfiConverterString.lower(`expectedIss`),
+        FfiConverterString.lower(`expectedAud`),
+        FfiConverterOptionalString.lower(`expectedNonce`),
+        FfiConverterULong.lower(`nowSecs`),_status)
 }
     )
     }

@@ -77,7 +77,13 @@ dependencies {
     implementation(libs.qrcode.kotlin)
     implementation(libs.androidx.datastore)
     implementation(libs.tink.android)
-    implementation("io.github.jamesatomc:kanari-crypto:0.2.9")
+    // Native Google Sign-In (Credential Manager): replaces the browser +
+    // loopback OAuth flow, which Google rejects on Android (400 invalid_request).
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services)
+    implementation(libs.google.id)
+    // Local build: same coordinates as Maven, served by the included build above.
+    implementation(libs.kanari.crypto)
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

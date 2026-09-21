@@ -43,9 +43,9 @@ pub struct Fanout {
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=512))]
     pub count: u32,
 
-    /// Value of each new coin in KANARI.
+    /// Value of each new coin in KANARI (exact decimal, e.g. "12.5").
     #[arg(long)]
-    pub amount: f64,
+    pub amount: String,
 
     /// RPC endpoint.
     #[arg(long = "rpc")]
@@ -58,16 +58,13 @@ pub struct Fanout {
 
 impl Fanout {
     pub async fn execute(&self) -> Result<()> {
-        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
         let from_addr = resolve_sender(self.from.clone())?;
         let wallet = load_wallet_for(&from_addr, self.password.clone())?;
         let (gas_limit, gas_price) = resolve_transaction_gas(None, None);
-        let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
-        ensure!(
-            amount_mist > 0,
-            "--amount is too small; it rounds to 0 Mist"
-        );
+        let amount_mist = kanari_types::gas_coin::GasModule::parse_kanari_to_mist(&self.amount)
+            .with_context(|| format!("Invalid --amount {:?}", self.amount))?;
+        ensure!(amount_mist > 0, "--amount must be greater than 0 Mist");
 
         let total_mist = amount_mist
             .checked_mul(u64::from(self.count))

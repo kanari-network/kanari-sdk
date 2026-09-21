@@ -93,11 +93,7 @@ impl GasProfiler {
             config: config.clone(),
             finished: false,
         };
-        profile_open_frame_impl!(
-            Some(&mut prof),
-            Self::TOP_LEVEL_FRAME_NAME.to_string(),
-            start_gas
-        );
+        profile_open_frame_impl!(Some(&mut prof), Self::TOP_LEVEL_FRAME_NAME, start_gas);
         prof
     }
 
@@ -111,7 +107,7 @@ impl GasProfiler {
     }
 
     #[cfg(feature = "gas-profiler")]
-    pub fn short_name(s: &String) -> String {
+    pub fn short_name(s: &str) -> String {
         s.split("::").last().unwrap_or(s).to_string()
     }
 
@@ -226,7 +222,7 @@ impl GasProfiler {
         self.finished = true;
         let end_gas = self.start_gas() - self.profiles[0].end_value;
         let mut q = Some(self);
-        profile_close_frame_impl!(&mut q, Self::TOP_LEVEL_FRAME_NAME.to_string(), end_gas);
+        profile_close_frame_impl!(&mut q, Self::TOP_LEVEL_FRAME_NAME, end_gas);
         profile_dump_file!(q.unwrap());
     }
 }
@@ -260,12 +256,13 @@ macro_rules! profile_open_frame_impl {
         {
             if let Some(profiler) = $profiler {
                 if let Some(config) = &profiler.config {
+                    let frame_name: String = $frame_name.into();
                     let name = if !config.use_long_function_name {
-                        GasProfiler::short_name(&$frame_name)
+                        GasProfiler::short_name(frame_name.as_str())
                     } else {
-                        $frame_name
+                        frame_name.clone()
                     };
-                    profiler.open_frame(name, $frame_name, $gas_rem)
+                    profiler.open_frame(name, frame_name, $gas_rem)
                 }
             }
         }
@@ -294,12 +291,13 @@ macro_rules! profile_close_frame_impl {
         {
             if let Some(profiler) = $profiler {
                 if let Some(config) = &profiler.config {
+                    let frame_name: String = $frame_name.into();
                     let name = if !config.use_long_function_name {
-                        GasProfiler::short_name(&$frame_name)
+                        GasProfiler::short_name(frame_name.as_str())
                     } else {
-                        $frame_name
+                        frame_name.clone()
                     };
-                    profiler.close_frame(name, $frame_name, $gas_rem)
+                    profiler.close_frame(name, frame_name, $gas_rem)
                 }
             }
         }
@@ -352,9 +350,7 @@ macro_rules! profile_dump_file {
 #[macro_export]
 macro_rules! gas_profiler_feature_enabled {
     ($($tt:tt)*) => {
-        if cfg!(feature = "gas-profiler") {
-            $($tt)*
-        }
+        $($tt)*
     };
 }
 

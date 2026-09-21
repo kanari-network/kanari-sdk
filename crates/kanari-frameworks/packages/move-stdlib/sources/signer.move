@@ -16,34 +16,12 @@ module std::signer {
         *borrow_address(s)
     }
 
-    /// Converts an `address` to a `u64`.
-    ///
-    /// Note: A native implementation may provide a platform-specific
-    /// conversion (for example extracting the lower 8 bytes). The Move
-    /// stdlib in this repository uses a simple, deterministic Move-side
-    /// implementation so tests can run without depending on VM natives.
-    /// The implementation returns `0` for all inputs but is deterministic
-    /// (so repeated calls on the same input compare equal).
-    public fun address_to_u64(_a: address): u64 {
-        0
-    }
+    /// Converts an `address` to a `u64`: the value of its low 8 bytes
+    /// in big-endian order. High bytes are ignored, so this is a hash-like
+    /// projection, not an injection -- do not use it as a unique key.
+    native public fun address_to_u64(a: address): u64;
 
-    /// Converts an `address` to its raw byte representation.
-    ///
-    /// This Move-side implementation returns a `vector<u8>` of length
-    /// `std::address::length()` filled with zero bytes. It's not a true
-    /// serialization of the address but is sufficient for unit tests that
-    /// only compare lengths or perform equality of repeated conversions.
-    public fun address_to_bytes(_a: address): vector<u8> {
-        let v = std::vector::empty<u8>();
-        let mut_v = v;
-        let i = 0;
-        let len = std::address::length();
-        let mut_index = i;
-        while (mut_index < len) {
-            std::vector::push_back(&mut mut_v, 0);
-            mut_index = mut_index + 1;
-        };
-        mut_v
-    }
+    /// Converts an `address` to its 32-byte big-endian representation
+    /// (same encoding as `kanari_system::address::to_u256`).
+    native public fun address_to_bytes(a: address): vector<u8>;
 }

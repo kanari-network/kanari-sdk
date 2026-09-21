@@ -34,6 +34,7 @@ pub mod dilithium5;
 pub mod ed25519;
 pub mod falcon;
 pub(crate) mod falcon_provider;
+pub mod groth16;
 pub mod hybrid;
 pub mod k256;
 pub(crate) mod ml_dsa_provider;
@@ -42,6 +43,9 @@ pub mod p256;
 pub(crate) mod slh_dsa_provider;
 pub mod sphincs;
 pub(crate) mod validation;
+pub mod zk_authenticator;
+pub mod zklogin;
+pub mod zklogin_circuit;
 
 pub use batch::{BatchVerificationItem, verify_batch_tagged, verify_batch_with_curve};
 pub(crate) use validation::MAX_PUBLIC_KEY_OR_ADDRESS_SIZE;
@@ -61,6 +65,9 @@ pub enum SignatureError {
 
     #[error("Signature verification failed")]
     VerificationFailed,
+
+    #[error("Token expired")]
+    Expired,
 
     #[error("Invalid signature length")]
     InvalidSignatureLength,
@@ -111,6 +118,11 @@ pub fn sign_message(
         CurveType::SphincsPlusSha256Robust => sign_message_sphincs(private_key_hex, message),
         CurveType::Falcon512 => sign_message_falcon512(private_key_hex, message),
         CurveType::Falcon1024 => sign_message_falcon1024(private_key_hex, message),
+        // No private key exists for session identities: sign with the
+        // session's ephemeral key (`EphemeralKeypair`), never here.
+        CurveType::ZkLogin => Err(SignatureError::InvalidPrivateKey(
+            "ZkLogin has no signing key (use a login session)".to_string(),
+        )),
     }
 }
 
@@ -167,6 +179,14 @@ pub fn verify_signature_with_curve(
         }
         CurveType::Falcon512 => verify_signature_falcon512(address_hex, message, signature),
         CurveType::Falcon1024 => verify_signature_falcon1024(address_hex, message, signature),
+        // zkLogin senders (`ZkLogin:0x...`): `signature` is a JSON
+        // `ZkLoginTxSignature` bundle, verified against `message` (the tx
+        // hash) with the current wall-clock time. See `zk_authenticator`.
+        CurveType::ZkLogin => crate::signatures::zk_authenticator::verify_zklogin_tx_signature(
+            address_hex,
+            message,
+            signature,
+        ),
     }
 }
 
@@ -272,5 +292,10 @@ pub fn verify_signature_with_keypair(
                 .unwrap_or(&keypair.public_key);
             verify_signature_falcon1024(pqc_pub, message, signature)
         }
+        // A KeyPair must never claim this curve (no key material exists);
+        // fail closed rather than mis-verifying.
+        CurveType::ZkLogin => Err(SignatureError::InvalidPublicKey(
+            "ZkLogin has no KeyPair form (use a login session)".to_string(),
+        )),
     }
 }

@@ -1,6 +1,15 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! File I/O utilities for Kanari.
+//! This module provides functions for reading and writing files atomically, ensuring that file operations are safe and consistent across processes. It includes functionality for locking files, creating temporary files, and replacing files in a way that avoids exposing partially written data. Additionally, it provides utilities for serializing and deserializing JSON data to and from files.
+//!  
+//! The main functions provided in this module are:
+//! - `write_file_atomically`: Writes raw bytes to a file atomically.
+//! - `write_json_pretty_atomically`: Serializes a value as pretty JSON and writes it to a file atomically.
+//! - `read_json_file`: Reads and deserializes a JSON file into a specified type.
+//!
+//! The module also handles platform-specific differences in file operations, such as replacing files on Windows versus Unix-like systems, and provides mechanisms for synchronizing file writes to ensure data integrity.
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use std::fs::{self, File, OpenOptions};

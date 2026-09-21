@@ -1,6 +1,15 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Object manipulation operations for the Move runtime.
+
+// MoveRuntime object operations
+// This module provides functions for managing objects within the Kanari Move runtime, including adding transferred objects
+// to a ChangeSet, persisting runtime state, and handling object ownership and versioning. It includes functionality for processing transferred objects, determining their persistence requirements, and updating the ChangeSet accordingly. The module also handles the extraction of treasury and balance information from object data, ensuring that relevant state changes are accurately reflected in the ChangeSet.
+// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner. It also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
+// The module is designed to work with the Kanari Move runtime and integrates with the ChangeSet and StateOverlay types to provide a comprehensive solution for managing objects and their associated state.
+// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
+// The module also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
 use crate::common::ids::canonical_object_id;
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
 use kanari_system_natives::transfer_natives::TransferredObject;
@@ -44,9 +53,12 @@ impl super::MoveRuntime {
             } else {
                 format!("0x{}", id.trim())
             };
-            let Some(canonical_id) = canonical_object_id(&normalized_id) else {
-                debug!("Skipping transferred object with invalid object id: {}", id);
-                continue;
+            let canonical_id = match canonical_object_id(&normalized_id) {
+                Some(id) => id,
+                None => {
+                    debug!("Skipping transferred object with invalid object id: {}", id);
+                    continue;
+                }
             };
 
             let existing = self.get_object_for_execution(
@@ -62,6 +74,8 @@ impl super::MoveRuntime {
                 .unwrap_or_else(|| {
                     if obj.is_frozen {
                         kanari_types::transaction::ObjectOwnerKind::Immutable
+                    } else if obj.is_shared {
+                        kanari_types::transaction::ObjectOwnerKind::Shared
                     } else {
                         kanari_types::transaction::ObjectOwnerKind::AddressOwner(
                             owner.to_hex_literal(),

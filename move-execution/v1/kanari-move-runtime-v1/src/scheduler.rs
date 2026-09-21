@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Parallel transaction scheduler with conflict detection.
+
 use kanari_types::transaction::SignedTransaction;
 use std::collections::BTreeSet;
 

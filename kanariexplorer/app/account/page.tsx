@@ -312,6 +312,10 @@ function AccountContent() {
               const objectInputs = readArrayLength(transaction, "object_inputs");
               const objectChanges = readEffectArrayLength(transaction, "object_changes");
               const graphEdges = readEffectArrayLength(transaction, "causal_edges");
+              const transferToken = readString(transaction, "transfer_token_type", "");
+              const transferSymbol = transferToken.split("::").pop() || "";
+              const transferAmount = readString(transaction, "transfer_amount", "");
+              const gasFee = readString(transaction, "gas_fee", "");
               return (
                 <div className="data-row" key={`${hash}-${index}`}>
                   <div>
@@ -335,6 +339,20 @@ function AccountContent() {
                     <p className="tiny-label">Target</p>
                     <span className="mono muted-text">{shortHash(readString(transaction, "module", "-"))}</span>
                   </div>
+                  {transferAmount ? (
+                    <div>
+                      <p className="tiny-label">Transfer</p>
+                      <span className="mono muted-text">
+                        {formatBalance(transferAmount, transferSymbol === "KANARI" ? "9" : "0")} {transferSymbol}
+                      </span>
+                    </div>
+                  ) : null}
+                  {gasFee ? (
+                    <div>
+                      <p className="tiny-label">Gas Fee</p>
+                      <span className="mono muted-text">{formatBalance(gasFee, "9")} KANARI</span>
+                    </div>
+                  ) : null}
                   <div>
                     <p className="tiny-label">Status</p>
                     <StatusPill label={lifecycle.label} state={lifecycle.state} />

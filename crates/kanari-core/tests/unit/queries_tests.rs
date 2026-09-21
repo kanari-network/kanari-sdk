@@ -187,7 +187,7 @@ fn state_snapshot_rejects_untrusted_checkpoint_hash_before_import() {
     let directory = tempfile::tempdir().unwrap();
     let snapshot_path = directory.path().join("snapshot.json");
     let target_dir = directory.path().join("node5");
-    source
+    let _ = source
         .export_state_snapshot(&snapshot_path, "devnet")
         .unwrap();
 
@@ -208,7 +208,7 @@ fn state_snapshot_rejects_tampered_entries_before_import() {
     let directory = tempfile::tempdir().unwrap();
     let snapshot_path = directory.path().join("snapshot.json");
     let target_dir = directory.path().join("node5");
-    source
+    let _ = source
         .export_state_snapshot(&snapshot_path, "devnet")
         .unwrap();
 

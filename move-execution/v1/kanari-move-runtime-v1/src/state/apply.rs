@@ -1,17 +1,19 @@
+//! Changeset application logic for the blockchain state.
+
 use super::*;
 use kanari_types::transaction::ObjectOwnerKind;
 
 impl StateManager {
     fn is_system_clock_object(&self, object_id: &str, type_name: &str) -> Result<bool> {
-        if Self::is_system_clock_type(type_name).is_some_and(|is_clock| !is_clock) {
-            return Ok(false);
+        let is_clock = Self::is_system_clock_type(type_name);
+        match is_clock {
+            Some(false) => return Ok(false),
+            Some(true) => {}
+            None => return Ok(false),
         }
-        if Self::is_system_clock_type(type_name).unwrap_or(false) {
-            let object_address = AccountAddress::from_hex_literal(object_id).ok();
-            let configured_clock = self.get_system_clock_object_id()?;
-            return Ok(configured_clock.is_none() || configured_clock == object_address);
-        }
-        Ok(false)
+        let object_address = AccountAddress::from_hex_literal(object_id).ok();
+        let configured_clock = self.get_system_clock_object_id()?;
+        Ok(configured_clock.is_none() || configured_clock == object_address)
     }
 
     fn is_system_clock_type(type_name: &str) -> Option<bool> {
@@ -243,6 +245,7 @@ impl StateManager {
         self.apply_changeset_with_options(changeset, true)
     }
 
+    /// Apply a ChangeSet without validating supply invariants.
     pub fn apply_changeset_without_supply_validation(
         &mut self,
         changeset: &ChangeSet,
@@ -1292,6 +1295,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Try to apply a batch of owned native burn changesets without supply validation.
     pub fn try_apply_owned_native_burn_batch_without_supply_validation(
         &mut self,
         changesets: &[ChangeSet],

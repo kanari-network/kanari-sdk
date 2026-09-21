@@ -33,6 +33,17 @@ impl GasParameters {
             from_bytes: InternalGas::new(0),
         }
     }
+
+    pub fn production() -> Self {
+        // Estimate: fixed 32-byte reversals, same cost class as the
+        // cheapest measured natives (~2ns). Revisit with a micro-bench
+        // if address conversions ever dominate a workload.
+        Self {
+            to_u256: InternalGas::new(100),
+            from_u256: InternalGas::new(100),
+            from_bytes: InternalGas::new(100),
+        }
+    }
 }
 
 /// Convert big-endian bytes to U256 by reversing to little-endian first

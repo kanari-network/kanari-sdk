@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// APIs for accessing time from move calls, via the `Clock`: a unique
-/// shared object that is created during genesis.
+/// system object that is created during genesis.
+///
+/// Custody model:
+/// - The Clock is owned by the system address `@0x0` (see `create`).
+/// - Reads are public: any transaction holding the object, or any contract
+///   via `timestamp_ms_by_address` (which loads it with `borrow_global`),
+///   can call `timestamp_ms`.
+/// - Writes go only through `consensus_commit_prologue`, which requires
+///   `sender == @0x0` as defense in depth: the runtime routes validator
+///   system transactions from `@0x0`, and grants `borrow_global_mut`
+///   authorization only to those transactions.
 module kanari_system::clock {
     use kanari_system::object::{Self, UID};
     use kanari_system::tx_context::{Self, TxContext};
@@ -17,7 +27,7 @@ module kanari_system::clock {
     /// Singleton shared object that exposes time to Move calls.
     struct Clock has key, store {
         id: UID,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     /// The `clock`'s current timestamp as a running total of
@@ -26,25 +36,36 @@ module kanari_system::clock {
         clock.timestamp_ms
     }
 
+    /// Read the Clock at a known address without holding the object.
+    /// Aborts with the object layer's `E_OBJECT_NOT_FOUND` when no Clock
+    /// exists at `clock_addr` in the current execution context.
+    public fun timestamp_ms_by_address(clock_addr: address): u64 {
+        timestamp_ms(object::borrow_global<Clock>(clock_addr))
+    }
+
     /// Create and share the singleton Clock -- this function is
     /// called exactly once, during genesis.
+    /// The Clock is transferred to the system address `@0x0`, which is the
+    /// only sender the runtime will ever authorize to mutate it (see
+    /// `consensus_commit_prologue`). Reads stay public via `borrow_global`.
     public fun create(ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
 
-        let clock = Clock {
-            id: object::new(ctx), 
-            timestamp_ms: 0,
-        };
+        let clock = Clock { id: object::new(ctx), timestamp_ms: 0 };
 
-        object::save_object(&clock); 
-        
-       // 🚨 Transfer ownership to System Address (@0x0)
-       // To properly clear the clock value from the function according to Move rules.
+        object::save_object(&clock);
+
+        // Custody passes to the system address; Move linearity guarantees
+        // this function cannot retain a copy.
         transfer::public_transfer(clock, @0x0);
     }
 
-    /// System call: Validator (the Rust node) will call this function every time the block is closed.
-    public fun consensus_commit_prologue(clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext) {
+    /// System call: the validator calls this at every block boundary with the
+    /// block timestamp. Only a transaction sent from `@0x0` may call it, and
+    /// time must never move backwards.
+    public fun consensus_commit_prologue(
+        clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext
+    ) {
         // Requires that the call be made only through the System Validator.
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
         // Ensure that the new timestamp is greater than or equal to the current one
@@ -56,13 +77,9 @@ module kanari_system::clock {
     // =================================================================
     // Functions for Testing
     // =================================================================
-
     #[test_only]
     public fun create_for_testing(ctx: &mut TxContext): Clock {
-        Clock {
-            id: object::new(ctx),
-            timestamp_ms: 0,
-        }
+        Clock { id: object::new(ctx), timestamp_ms: 0 }
     }
 
     #[test_only]
@@ -82,3 +99,4 @@ module kanari_system::clock {
         object::delete(id);
     }
 }
+

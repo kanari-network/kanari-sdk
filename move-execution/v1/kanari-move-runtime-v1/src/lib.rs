@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Move VM runtime for Kanari blockchain with native system modules.
+
 pub mod scheduler;
 pub use scheduler::TransactionScheduler;
 
@@ -9,6 +11,7 @@ mod common;
 mod genesis;
 mod kanari_gas_meter;
 pub mod move_runtime;
+pub mod validation;
 
 pub mod state;
 pub mod storage;

@@ -3,16 +3,32 @@
 
 use std::time::Duration;
 
-use prometheus::{Encoder, TextEncoder, proto::MetricFamily};
-
-use super::names::{
-    COMMIT_TYPE_DIRECT_COMMIT, COMMIT_TYPE_DIRECT_SKIP, COMMIT_TYPE_INDIRECT_COMMIT,
-    COMMIT_TYPE_INDIRECT_SKIP, COMMITTED_LEADERS_TOTAL, LABEL_COMMIT_TYPE, LATENCY_S,
-    LEADER_TIMEOUT_TOTAL,
+use prometheus::{
+    Encoder, TextEncoder,
+    proto::{Metric, MetricFamily},
 };
 
+use super::names::{
+    BLOCK_LATENCY_S, BlockKind, COMMIT_TYPE_DIRECT_SKIP, COMMIT_TYPE_FAST_COMMIT,
+    COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE, COMMIT_TYPE_INDIRECT_COMMIT_WEAK,
+    COMMIT_TYPE_INDIRECT_SKIP, COMMIT_TYPE_SLOW_COMMIT, COMMITTED_LEADERS_TOTAL, LABEL_AUTHORITY,
+    LABEL_COMMIT_TYPE, LABEL_KIND, LATENCY_S, LEADER_TIMEOUT_TOTAL,
+};
+use crate::authority::Authority;
+
+/// Every value of the `commit_type` label: the decision paths partition the decided slots.
+const COMMIT_TYPES: [&str; 6] = [
+    COMMIT_TYPE_FAST_COMMIT,
+    COMMIT_TYPE_SLOW_COMMIT,
+    COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE,
+    COMMIT_TYPE_INDIRECT_COMMIT_WEAK,
+    COMMIT_TYPE_DIRECT_SKIP,
+    COMMIT_TYPE_INDIRECT_SKIP,
+];
+
 /// A point-in-time snapshot of all metrics from a Prometheus
-/// registry. Test-only — no production cost.
+/// registry. Tooling-only (local testbed, simulator, tests): a deployed validator serves the
+/// registry over its Prometheus endpoint and never takes a snapshot.
 #[derive(Debug)]
 pub struct MetricsSnapshot {
     families: Vec<MetricFamily>,
@@ -30,16 +46,28 @@ impl MetricsSnapshot {
 
     /// Percentile `p` (in `0.0..=1.0`) of this replica's committed-transaction latency
     /// histogram, in milliseconds. Returns `None` when the histogram is absent or empty.
-    pub fn latency_percentile_ms(&self, p: f64) -> Option<f64> {
-        self.histogram_percentile(LATENCY_S, p)
+    pub fn transaction_latency_percentile_ms(&self, p: f64) -> Option<f64> {
+        self.histogram_percentile(LATENCY_S, &[], p)
             .map(|seconds| seconds * 1000.0)
+    }
+
+    /// Percentile `p` of this replica's proposal-to-commit latency for blocks of `kind`, in
+    /// milliseconds. `None` when the histogram is absent or empty.
+    pub fn block_latency_percentile_ms(&self, kind: BlockKind, p: f64) -> Option<f64> {
+        self.histogram_percentile(BLOCK_LATENCY_S, &[(LABEL_KIND, kind.as_label())], p)
+            .map(|seconds| seconds * 1000.0)
+    }
+
+    /// Sample sum (s) and count of the proposal-to-commit latency for blocks of `kind`.
+    pub fn block_latency_sum_and_count(&self, kind: BlockKind) -> Option<(f64, u64)> {
+        self.histogram_sum_and_count(BLOCK_LATENCY_S, &[(LABEL_KIND, kind.as_label())])
     }
 
     /// Total committed transactions observed by this replica, taken from the
     /// `latency_s` histogram sample-count (one observation per committed
     /// transaction). `0` when the histogram is absent or empty.
     pub fn total_committed_transactions(&self) -> u64 {
-        self.histogram_sum_and_count(LATENCY_S)
+        self.histogram_sum_and_count(LATENCY_S, &[])
             .map(|(_, count)| count)
             .unwrap_or(0)
     }
@@ -64,7 +92,10 @@ impl MetricsSnapshot {
                 l.name() == LABEL_COMMIT_TYPE
                     && matches!(
                         l.value(),
-                        COMMIT_TYPE_DIRECT_COMMIT | COMMIT_TYPE_INDIRECT_COMMIT,
+                        COMMIT_TYPE_FAST_COMMIT
+                            | COMMIT_TYPE_SLOW_COMMIT
+                            | COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE
+                            | COMMIT_TYPE_INDIRECT_COMMIT_WEAK,
                     )
             });
             if is_commit && metric.counter.is_some() {
@@ -85,31 +116,76 @@ impl MetricsSnapshot {
 
     /// Leaders committed by the direct rule (fast or slow path).
     pub fn direct_commits(&self) -> u64 {
-        self.commit_type_total(COMMIT_TYPE_DIRECT_COMMIT)
+        self.fast_commits() + self.slow_commits()
+    }
+
+    /// Leaders committed by the fast path (a quorum of votes at the voting round).
+    pub fn fast_commits(&self) -> u64 {
+        self.commit_type_total(COMMIT_TYPE_FAST_COMMIT, None)
+    }
+
+    /// Leaders committed by the slow path (a quorum of certificates at the decision round).
+    pub fn slow_commits(&self) -> u64 {
+        self.commit_type_total(COMMIT_TYPE_SLOW_COMMIT, None)
+    }
+
+    /// Leaders committed by the indirect rule (either rung).
+    pub fn indirect_commits(&self) -> u64 {
+        self.indirect_certificate_commits() + self.indirect_weak_commits()
+    }
+
+    /// Leaders committed by the indirect rule's certificate rung.
+    pub fn indirect_certificate_commits(&self) -> u64 {
+        self.commit_type_total(COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE, None)
+    }
+
+    /// Leaders committed by the indirect rule's weak-quorum rung.
+    pub fn indirect_weak_commits(&self) -> u64 {
+        self.commit_type_total(COMMIT_TYPE_INDIRECT_COMMIT_WEAK, None)
     }
 
     /// Leaders skipped by the direct rule (a quorum of blames).
     pub fn direct_skips(&self) -> u64 {
-        self.commit_type_total(COMMIT_TYPE_DIRECT_SKIP)
+        self.commit_type_total(COMMIT_TYPE_DIRECT_SKIP, None)
     }
 
     /// Leaders skipped by the indirect rule (via an anchor).
     pub fn indirect_skips(&self) -> u64 {
-        self.commit_type_total(COMMIT_TYPE_INDIRECT_SKIP)
+        self.commit_type_total(COMMIT_TYPE_INDIRECT_SKIP, None)
     }
 
-    /// Decided leaders of one `commit_type`, summed across leader authorities.
-    fn commit_type_total(&self, commit_type: &str) -> u64 {
+    /// Slots of `leader` committed by the fast path.
+    pub fn fast_commits_of(&self, leader: Authority) -> u64 {
+        self.commit_type_total(COMMIT_TYPE_FAST_COMMIT, Some(leader))
+    }
+
+    /// Slots of `leader` decided by any rule (committed or skipped).
+    pub fn decided_leaders_of(&self, leader: Authority) -> u64 {
+        COMMIT_TYPES
+            .iter()
+            .map(|commit_type| self.commit_type_total(commit_type, Some(leader)))
+            .sum()
+    }
+
+    /// Total of the `committed_leaders_total` series with the given `commit_type`, restricted
+    /// to the slots of `leader` when one is given.
+    fn commit_type_total(&self, commit_type: &str, leader: Option<Authority>) -> u64 {
         let Some(family) = self.find_family(COMMITTED_LEADERS_TOTAL) else {
             return 0;
         };
+        let leader = leader.map(|leader| leader.to_string());
         let mut total = 0.0;
         for metric in family.get_metric() {
-            let type_matches = metric
-                .get_label()
-                .iter()
-                .any(|label| label.name() == LABEL_COMMIT_TYPE && label.value() == commit_type);
-            if type_matches && metric.counter.is_some() {
+            let labels = metric.get_label();
+            let has = |name: &str, value: &str| {
+                labels
+                    .iter()
+                    .any(|label| label.name() == name && label.value() == value)
+            };
+            let leader_matches = leader
+                .as_deref()
+                .is_none_or(|leader| has(LABEL_AUTHORITY, leader));
+            if has(LABEL_COMMIT_TYPE, commit_type) && leader_matches && metric.counter.is_some() {
                 total += metric.counter.value();
             }
         }
@@ -136,14 +212,7 @@ impl MetricsSnapshot {
             return 0.0;
         };
         for metric in family.get_metric() {
-            let actual = metric.get_label();
-            let labels_match = actual.len() == label_values.len()
-                && label_values.iter().all(|(key, value)| {
-                    actual
-                        .iter()
-                        .any(|l| l.name() == *key && l.value() == *value)
-                });
-            if !labels_match {
+            if !Self::labels_match(metric, label_values) {
                 continue;
             }
             if metric.counter.is_some() {
@@ -157,16 +226,33 @@ impl MetricsSnapshot {
         0.0
     }
 
+    /// Whether `metric` carries exactly the given label pairs (an empty list matches only
+    /// unlabelled series).
+    fn labels_match(metric: &Metric, label_values: &[(&str, &str)]) -> bool {
+        let actual = metric.get_label();
+        actual.len() == label_values.len()
+            && label_values.iter().all(|(key, value)| {
+                actual
+                    .iter()
+                    .any(|l| l.name() == *key && l.value() == *value)
+            })
+    }
+
     /// Percentile `p` (clamped to `[0, 1]`) of a histogram's observations, in the histogram's
     /// native unit. Uses the Prometheus `histogram_quantile` idiom: linear interpolation between
     /// the upper bounds of adjacent buckets. Returns `None` when the histogram is absent or has
     /// zero observations. When the selected bucket is the `+Inf` terminal, falls back to the
     /// previous finite upper bound so the result stays plottable.
-    pub(super) fn histogram_percentile(&self, name: &str, p: f64) -> Option<f64> {
+    pub(super) fn histogram_percentile(
+        &self,
+        name: &str,
+        label_values: &[(&str, &str)],
+        p: f64,
+    ) -> Option<f64> {
         let p = p.clamp(0.0, 1.0);
         let family = self.find_family(name)?;
         for metric in family.get_metric() {
-            if metric.histogram.is_none() {
+            if metric.histogram.is_none() || !Self::labels_match(metric, label_values) {
                 continue;
             }
             let histogram = metric.get_histogram();
@@ -218,10 +304,14 @@ impl MetricsSnapshot {
     /// Read a histogram's sample sum and count. Returns `None` when no
     /// matching histogram is found (distinct from a present histogram
     /// with zero observations, which returns `Some((0.0, 0))`).
-    pub fn histogram_sum_and_count(&self, name: &str) -> Option<(f64, u64)> {
+    pub fn histogram_sum_and_count(
+        &self,
+        name: &str,
+        label_values: &[(&str, &str)],
+    ) -> Option<(f64, u64)> {
         let family = self.find_family(name)?;
         for metric in family.get_metric() {
-            if metric.histogram.is_none() {
+            if metric.histogram.is_none() || !Self::labels_match(metric, label_values) {
                 continue;
             }
             let histogram = metric.get_histogram();
@@ -240,8 +330,8 @@ mod test {
     use super::MetricsSnapshot;
     use crate::authority::Authority;
     use crate::metrics::names::{
-        COMMIT_TYPE_DIRECT_COMMIT, COMMIT_TYPE_DIRECT_SKIP, COMMIT_TYPE_INDIRECT_COMMIT,
-        COMMIT_TYPE_INDIRECT_SKIP,
+        COMMIT_TYPE_DIRECT_SKIP, COMMIT_TYPE_FAST_COMMIT, COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE,
+        COMMIT_TYPE_INDIRECT_COMMIT_WEAK, COMMIT_TYPE_INDIRECT_SKIP, COMMIT_TYPE_SLOW_COMMIT,
     };
     use prometheus::{
         Registry, register_histogram_with_registry, register_int_counter_vec_with_registry,
@@ -304,8 +394,8 @@ mod test {
     #[test]
     fn committed_leaders_excludes_skips() {
         // Drives `committed_leaders_total` directly so the test doesn't need a `Data<Block>` to
-        // construct `LeaderStatus::DirectCommit`. Label values here must match the wire strings
-        // that `Metrics::inc_decided_leaders` writes.
+        // construct a `LeaderStatus`. Label values here must match the wire strings that
+        // `Metrics::inc_decided_leaders` writes.
         let authority = Authority::from(0_usize).to_string();
         let registry = Registry::new();
         let counter = register_int_counter_vec_with_registry!(
@@ -315,20 +405,24 @@ mod test {
             registry
         )
         .unwrap();
-        counter
-            .with_label_values(&[authority.as_str(), COMMIT_TYPE_DIRECT_COMMIT])
-            .inc();
-        counter
-            .with_label_values(&[authority.as_str(), COMMIT_TYPE_INDIRECT_COMMIT])
-            .inc();
-        counter
-            .with_label_values(&[authority.as_str(), COMMIT_TYPE_DIRECT_SKIP])
-            .inc();
-        counter
-            .with_label_values(&[authority.as_str(), COMMIT_TYPE_INDIRECT_SKIP])
-            .inc();
+        for commit_type in [
+            COMMIT_TYPE_FAST_COMMIT,
+            COMMIT_TYPE_SLOW_COMMIT,
+            COMMIT_TYPE_INDIRECT_COMMIT_CERTIFICATE,
+            COMMIT_TYPE_INDIRECT_COMMIT_WEAK,
+            COMMIT_TYPE_DIRECT_SKIP,
+            COMMIT_TYPE_INDIRECT_SKIP,
+        ] {
+            counter
+                .with_label_values(&[authority.as_str(), commit_type])
+                .inc();
+        }
         let snapshot = collect_snapshot(&registry);
-        assert_eq!(snapshot.total_committed_leaders(), 2);
+        assert_eq!(snapshot.total_committed_leaders(), 4);
+        assert_eq!(snapshot.direct_commits(), 2);
+        assert_eq!(snapshot.indirect_commits(), 2);
+        assert_eq!(snapshot.fast_commits(), 1);
+        assert_eq!(snapshot.indirect_weak_commits(), 1);
     }
 
     #[test]
@@ -351,23 +445,23 @@ mod test {
         }
         let snapshot = collect_snapshot(&registry);
         assert_eq!(
-            snapshot.histogram_percentile("demo_latency_s", 0.0),
+            snapshot.histogram_percentile("demo_latency_s", &[], 0.0),
             Some(0.0)
         );
         assert_eq!(
-            snapshot.histogram_percentile("demo_latency_s", 0.5),
+            snapshot.histogram_percentile("demo_latency_s", &[], 0.5),
             Some(0.5)
         );
         // p90 target = 360, lies in the fourth bucket between cumulative 300 and 400 → 0.75 +
         // 0.6 * 0.25 = 0.9.
         let p90 = snapshot
-            .histogram_percentile("demo_latency_s", 0.9)
+            .histogram_percentile("demo_latency_s", &[], 0.9)
             .unwrap();
         assert!((p90 - 0.9).abs() < 1e-9, "p90 = {p90}");
         // p100: prometheus crate adds an implicit +Inf bucket; fall back to the previous finite
         // edge.
         assert_eq!(
-            snapshot.histogram_percentile("demo_latency_s", 1.0),
+            snapshot.histogram_percentile("demo_latency_s", &[], 1.0),
             Some(1.0)
         );
     }
@@ -379,7 +473,10 @@ mod test {
             register_histogram_with_registry!("demo_empty_s", "help", vec![0.25, 0.5], registry)
                 .unwrap();
         let snapshot = collect_snapshot(&registry);
-        assert_eq!(snapshot.histogram_percentile("demo_empty_s", 0.5), None);
+        assert_eq!(
+            snapshot.histogram_percentile("demo_empty_s", &[], 0.5),
+            None
+        );
     }
 
     #[test]
@@ -399,5 +496,35 @@ mod test {
             snapshot.scalar_value("label_test", &[("a", "x"), ("b", "y")]),
             1.0
         );
+    }
+
+    #[test]
+    fn per_leader_commit_types() {
+        let registry = Registry::new();
+        let counter = register_int_counter_vec_with_registry!(
+            "committed_leaders_total",
+            "help",
+            &["authority", "commit_type"],
+            registry
+        )
+        .unwrap();
+        let (first, second) = (Authority::from(0_usize), Authority::from(1_usize));
+        let (first_label, second_label) = (first.to_string(), second.to_string());
+        counter
+            .with_label_values(&[first_label.as_str(), COMMIT_TYPE_FAST_COMMIT])
+            .inc_by(3);
+        counter
+            .with_label_values(&[first_label.as_str(), COMMIT_TYPE_INDIRECT_SKIP])
+            .inc_by(2);
+        counter
+            .with_label_values(&[second_label.as_str(), COMMIT_TYPE_SLOW_COMMIT])
+            .inc_by(4);
+        let snapshot = collect_snapshot(&registry);
+        assert_eq!(snapshot.fast_commits_of(first), 3);
+        assert_eq!(snapshot.fast_commits_of(second), 0);
+        assert_eq!(snapshot.decided_leaders_of(first), 5);
+        assert_eq!(snapshot.decided_leaders_of(second), 4);
+        assert_eq!(snapshot.fast_commits(), 3);
+        assert_eq!(snapshot.total_committed_leaders(), 7);
     }
 }

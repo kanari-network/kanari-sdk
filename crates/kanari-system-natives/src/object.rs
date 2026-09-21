@@ -71,6 +71,27 @@ impl GasParameters {
             },
         }
     }
+
+    pub fn production() -> Self {
+        // Layout + (de)serialization per op. per_byte matches the
+        // repo-wide serialization rate (50 units/B); bases cover map +
+        // layout work, aligned with `dynamic_field::production`.
+        Self {
+            save_object: SaveObjectGasParameters {
+                base: 8_000.into(),
+                per_byte_serialized: 50.into(),
+            },
+            delete_object: DeleteObjectGasParameters { base: 6_000.into() },
+            borrow_global: BorrowGlobalGasParameters {
+                base: 4_000.into(),
+                per_byte_loaded: 50.into(),
+            },
+            borrow_global_mut: BorrowGlobalMutGasParameters {
+                base: 4_000.into(),
+                per_byte_loaded: 50.into(),
+            },
+        }
+    }
 }
 
 pub(crate) fn uid_address_bytes(uid_val: &move_vm_types::values::Value) -> Option<Vec<u8>> {

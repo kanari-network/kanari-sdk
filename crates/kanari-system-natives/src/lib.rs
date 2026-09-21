@@ -43,6 +43,29 @@ impl GasParameters {
             dynamic_field: dynamic_field::GasParameters::zeros(),
         }
     }
+
+    /// Sui-style production injection: tests and dev tooling use `zeros()`;
+    /// node software passes `production()` to `all_natives` instead.
+    ///
+    /// `math_calculate` and `crypto` are calibrated from release
+    /// micro-benchmarks; `address`/`base64`/`dynamic_field` use measured or
+    /// conservative estimates. `event`/`object`/`transfer`/`tx_context`
+    /// charge for (de)serialization traffic at the repo-wide 50 units/byte
+    /// rate with conservative bases — revisit with dedicated benchmarks if
+    /// those paths ever dominate a workload.
+    pub fn production() -> Self {
+        Self {
+            address: address::GasParameters::production(),
+            base64: base64::GasParameters::production(),
+            crypto: crypto::GasParameters::production(),
+            event: event::GasParameters::production(),
+            math_calculate: math_calculate::GasParameters::production(),
+            object: object::GasParameters::production(),
+            transfer: transfer_natives::GasParameters::production(),
+            tx_context: tx_context::GasParameters::production(),
+            dynamic_field: dynamic_field::GasParameters::production(),
+        }
+    }
 }
 
 pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> NativeFunctionTable {
@@ -93,7 +116,8 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
         "k256_dilithium3",
         crypto::make_k256_dilithium3(gas_params.crypto.clone())
     );
-    add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto));
+    add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto.clone()));
+    add_module_natives!("zklogin", crypto::make_zklogin(gas_params.crypto));
 
     add_module_natives!("event", event::make_all(gas_params.event));
     add_module_natives!("math", math_calculate::make_all(gas_params.math_calculate));

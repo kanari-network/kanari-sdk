@@ -79,6 +79,7 @@ pub struct DagVertex {
 }
 
 impl DagVertex {
+    /// Creates a new DAG vertex with the given parameters.
     pub fn new<T>(
         round: u64,
         author: String,
@@ -109,6 +110,7 @@ impl DagVertex {
 // Checkpoint production info (public API)
 // ---------------------------------------------------------------------------
 
+/// Outcome of producing a single DAG vertex.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointProductionInfo {
     pub vertex_id: String,
@@ -121,6 +123,7 @@ pub struct CheckpointProductionInfo {
     pub vertex: Option<DagVertex>,
 }
 
+/// Summary of a committed checkpoint, returned as part of vertex production.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointInfo {
     pub sequence: u64,
@@ -132,6 +135,8 @@ pub struct CheckpointInfo {
 // DAG production policy (public API)
 // ---------------------------------------------------------------------------
 
+/// Parameters controlling when the engine should produce or wait for a new
+/// DAG vertex in the current round.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DagProductionPolicy {
     pub current_round: u64,
@@ -145,6 +150,7 @@ pub struct DagProductionPolicy {
 }
 
 impl DagProductionPolicy {
+    /// Returns whether the engine should wait for a quorum in the current round.
     pub fn should_wait_for_current_round_quorum(&self) -> bool {
         self.current_round > 0
             && self.parent_round == self.current_round
@@ -547,6 +553,7 @@ pub struct DagEngine {
 }
 
 impl DagEngine {
+    /// Creates a new DAG engine with cryptographic validation of the signing key.
     pub fn new_secure(
         engine: Arc<BlockchainEngine>,
         authority_id: String,
@@ -679,6 +686,7 @@ impl DagEngine {
         )
     }
 
+    /// Produces a new DAG vertex containing pending transactions.
     pub fn produce_vertex(&self) -> Result<CheckpointProductionInfo> {
         let transactions = self.engine.pending_conflict_free_transactions_snapshot();
 
@@ -851,6 +859,7 @@ impl DagEngine {
         Ok(Some(checkpoint))
     }
 
+    /// Returns the latest vertices produced by this authority, up to the given limit.
     pub fn latest_own_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -869,6 +878,7 @@ impl DagEngine {
             .collect()
     }
 
+    /// Returns vertices across all authorities for DAG synchronization, up to the given limit.
     pub fn vertices_for_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -1158,6 +1168,7 @@ impl DagEngine {
         Ok(())
     }
 
+    /// Validates and injects a vertex received from the network into mysticeti storage.
     pub fn add_network_vertex(&self, vertex: DagVertex) -> Result<()> {
         {
             let mut state = lock_write(&self.state);

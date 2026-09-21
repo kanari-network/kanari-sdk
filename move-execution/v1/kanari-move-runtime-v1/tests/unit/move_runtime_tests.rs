@@ -83,7 +83,7 @@ fn native_hash_can_trigger_out_of_gas_end_to_end() -> Result<()> {
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
     runtime.load_system_modules()?;
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish hash meter test module")?;
 
@@ -110,7 +110,7 @@ fn native_event_emit_can_trigger_out_of_gas_end_to_end() -> Result<()> {
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
     runtime.load_system_modules()?;
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish event meter test module")?;
 
@@ -137,7 +137,7 @@ fn native_save_object_can_trigger_out_of_gas_end_to_end() -> Result<()> {
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
     runtime.load_system_modules()?;
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish save_object meter test module")?;
 
@@ -164,7 +164,7 @@ fn native_public_transfer_can_trigger_out_of_gas_end_to_end() -> Result<()> {
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
     runtime.load_system_modules()?;
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish transfer meter test module")?;
 
@@ -190,7 +190,7 @@ fn production_runtime_hash_native_can_trigger_out_of_gas() -> Result<()> {
     let package_dir = create_hash_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish production hash meter test module")?;
 
@@ -216,7 +216,7 @@ fn production_runtime_event_native_can_trigger_out_of_gas() -> Result<()> {
     let package_dir = create_event_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish production event meter test module")?;
 
@@ -242,7 +242,7 @@ fn production_runtime_save_object_native_can_trigger_out_of_gas() -> Result<()> 
     let package_dir = create_save_object_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish production save_object meter test module")?;
 
@@ -267,7 +267,7 @@ fn production_runtime_transfer_native_can_trigger_out_of_gas() -> Result<()> {
     let package_dir = create_transfer_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish production transfer meter test module")?;
 
@@ -384,7 +384,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish escrow-like object input test module")?;
 
@@ -404,7 +404,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     };
     runtime.object_storage.store_object(coin.clone())?;
 
-    runtime.execute_entry_function_with_object_context_and_persistence(
+    let _ = runtime.execute_entry_function_with_object_context_and_persistence(
         &module_id,
         "create_deal",
         vec![TypeTag::Struct(Box::new(StructTag::from_str(
@@ -437,7 +437,7 @@ fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<(
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish escrow-like unauthorized borrow test module")?;
 
@@ -500,7 +500,7 @@ fn raw_address_arg_cannot_mutably_borrow_non_coin_object_from_other_owner() -> R
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish escrow-like cross-owner object test module")?;
 
@@ -556,7 +556,7 @@ fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owne
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
-    runtime
+    let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish escrow-like explicit cross-owner object test module")?;
 
@@ -577,7 +577,7 @@ fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owne
         version: 1,
     })?;
 
-    runtime.execute_entry_function_with_object_context_and_persistence(
+    let _ = runtime.execute_entry_function_with_object_context_and_persistence(
         &module_id,
         "touch_marker",
         vec![],

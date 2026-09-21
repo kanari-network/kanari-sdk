@@ -34,7 +34,7 @@ macro_rules! select_gas_impl {
     };
 }
 
-select_gas_impl!(v2);
+select_gas_impl!(v3_1);
 
 #[cfg(test)]
 mod tests {
@@ -78,5 +78,26 @@ mod tests {
         assert_eq!(gas_v2::effective_gas_price(0), 0);
         assert_eq!(gas_v2::effective_gas_price(1), 0);
         assert_eq!(gas_v2::GAS_MODEL, "v2");
+    }
+
+    /// Permanent policy lock: the ACTIVE model must charge gas. Flipping the
+    /// selector above back to `v2` (zero-fee) silently re-opens the whole
+    /// paid-gas client contract (admission, faucet economics, bulk-send
+    /// accounting); that decision must be deliberate and break this test
+    /// loudly instead of drifting in.
+    #[test]
+    fn active_gas_model_must_be_priced() {
+        assert!(
+            !super::gas_price_is_valid(0),
+            "active gas model ({}) must reject zero price; paid gas is policy",
+            super::GAS_MODEL,
+        );
+        for requested in [1u64, 5, 100, 1000] {
+            assert!(
+                super::effective_gas_price(requested) > 0,
+                "active gas model ({}) mapped price {requested} to zero cost",
+                super::GAS_MODEL,
+            );
+        }
     }
 }

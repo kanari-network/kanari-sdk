@@ -9,7 +9,8 @@ module kanari_system::address {
     const LENGTH: u64 = 32;
 
     // The largest integer that can be represented with 32 bytes: 2^(8*32) - 1
-    const MAX: u256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935;
+    const MAX: u256 =
+        115792089237316195423570985008687907853269984665640564039457584007913129639935;
 
     #[allow(unused_const)]
     /// Error from `from_bytes` when it is supplied too many or too few bytes.
@@ -62,9 +63,12 @@ module kanari_system::address {
     }
 
     fun hex_char_value(c: u8): u8 {
-        if (c >= 48 && c <= 57) c - 48 // 0-9
-        else if (c >= 65 && c <= 70) c - 55 // A-F
-        else if (c >= 97 && c <= 102) c - 87 // a-f
+        if (c >= 48 && c <= 57) c - 48
+        // 0-9
+        else if (c >= 65 && c <= 70) c - 55
+        // A-F
+        else if (c >= 97 && c <= 102) c - 87
+        // a-f
         else abort EAddressParseError
     }
 
@@ -76,5 +80,6 @@ module kanari_system::address {
     /// Largest possible address
     public fun max(): u256 {
         MAX
-    }    
+    }
 }
+

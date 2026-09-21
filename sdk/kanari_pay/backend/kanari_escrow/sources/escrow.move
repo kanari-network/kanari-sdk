@@ -2,6 +2,7 @@ module kanari_escrow::escrow {
     use std::string::{Self, String};
     use std::vector;
     use std::option::{Self, Option};
+    use kanari_system::borrow;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::event;
     use kanari_system::tx_context::{Self, TxContext};
@@ -152,8 +153,8 @@ module kanari_escrow::escrow {
         buyer_coin_id:  address,  // Object ID ของ Coin ที่ต้องการใช้
         ctx:            &mut TxContext,
     ) {
-        // Load Coin object from storage using borrow_global_mut
-        let buyer_coin: &mut Coin<CoinType> = object::borrow_global_mut<Coin<CoinType>>(buyer_coin_id);
+        // Load Coin object from storage by ID
+        let buyer_coin = borrow::borrow_mut<Coin<CoinType>>(buyer_coin_id);
         
         // Delegate to internal function
         create_deal_internal(
@@ -238,9 +239,11 @@ module kanari_escrow::escrow {
         proof_id:       address,  // Object ID ของ EscrowProof
         ctx:            &mut TxContext,
     ) {
-        // Load objects from storage using borrow_global_mut
-        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
-        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
+        // Load both objects by ID; they must be distinct or Move cannot
+        // hold two `&mut` at once.
+        borrow::assert_distinct(deal_id, proof_id);
+        let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof = borrow::borrow_mut<EscrowProof>(proof_id);
         
         let seller_addr = tx_context::sender(ctx);
         
@@ -263,9 +266,9 @@ module kanari_escrow::escrow {
         };
         vector::push_back(&mut proof.entries, entry);
 
-        // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        // Save updated objects (exactly once per mutated borrow)
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -303,8 +306,8 @@ module kanari_escrow::escrow {
         };
         vector::push_back(&mut proof.entries, entry);
 
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         event::emit(DealStateChanged {
             deal_id: deal_id_str,
@@ -344,8 +347,8 @@ module kanari_escrow::escrow {
         };
         vector::push_back(&mut proof.entries, entry);
 
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         event::emit(DealStateChanged {
             deal_id: deal_id_str,
@@ -385,8 +388,8 @@ module kanari_escrow::escrow {
         };
         vector::push_back(&mut proof.entries, entry);
 
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         event::emit(DealStateChanged {
             deal_id: deal_id_str,
@@ -426,8 +429,8 @@ module kanari_escrow::escrow {
         vector::push_back(&mut proof.entries, entry);
 
         // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -446,9 +449,11 @@ module kanari_escrow::escrow {
         proof_id:       address,  // Object ID ของ EscrowProof
         ctx:            &mut TxContext,
     ) {
-        // Load objects from storage using borrow_global_mut
-        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
-        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
+        // Load both objects by ID; they must be distinct or Move cannot
+        // hold two `&mut` at once.
+        borrow::assert_distinct(deal_id, proof_id);
+        let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof = borrow::borrow_mut<EscrowProof>(proof_id);
         
         let buyer_addr = tx_context::sender(ctx);
         
@@ -476,8 +481,8 @@ module kanari_escrow::escrow {
         vector::push_back(&mut proof.entries, entry);
 
         // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -521,8 +526,8 @@ module kanari_escrow::escrow {
         vector::push_back(&mut proof.entries, entry);
 
         // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -542,9 +547,11 @@ module kanari_escrow::escrow {
         reason:         String,
         ctx:            &mut TxContext,
     ) {
-        // Load objects from storage using borrow_global_mut
-        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
-        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
+        // Load both objects by ID; they must be distinct or Move cannot
+        // hold two `&mut` at once.
+        borrow::assert_distinct(deal_id, proof_id);
+        let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof = borrow::borrow_mut<EscrowProof>(proof_id);
         
         let caller = tx_context::sender(ctx);
         
@@ -576,8 +583,8 @@ module kanari_escrow::escrow {
         vector::push_back(&mut proof.entries, entry);
 
         // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -626,8 +633,8 @@ module kanari_escrow::escrow {
         vector::push_back(&mut proof.entries, entry);
 
         // Save updated objects
-        object::save_object(deal);
-        object::save_object(proof);
+        borrow::save(deal);
+        borrow::save(proof);
 
         // Emit event
         event::emit(DealStateChanged {
@@ -646,8 +653,7 @@ module kanari_escrow::escrow {
     public fun get_state<CoinType>(
         deal_id: address,
     ): u8 {
-        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
-        deal.state
+        borrow::borrow<EscrowDeal<CoinType>>(deal_id).state
     }
 
     /// Get current deal state from an authenticated object input.
@@ -662,8 +668,7 @@ module kanari_escrow::escrow {
     public fun get_proof_count(
         proof_id: address,
     ): u64 {
-        let proof: &EscrowProof = object::borrow_global<EscrowProof>(proof_id);
-        (vector::length(&proof.entries) as u64)
+        (vector::length(&borrow::borrow<EscrowProof>(proof_id).entries) as u64)
     }
 
     /// Get full deal details by Object ID
@@ -671,7 +676,7 @@ module kanari_escrow::escrow {
     public fun get_deal_details<CoinType>(
         deal_id: address,
     ): (address, address, address, u64) {
-        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
+        let deal = borrow::borrow<EscrowDeal<CoinType>>(deal_id);
         
         (
             deal_id,  // ใช้ deal_id ที่รับเข้ามาโดยตรง (เป็น address อยู่แล้ว)
@@ -699,7 +704,6 @@ module kanari_escrow::escrow {
         deal_id: address,
         expected_state: u8,
     ): bool {
-        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
-        deal.state == expected_state
+        borrow::borrow<EscrowDeal<CoinType>>(deal_id).state == expected_state
     }
 }

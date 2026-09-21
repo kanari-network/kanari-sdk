@@ -51,39 +51,14 @@ fun MainNavigation(viewModel: WalletViewModel) {
             exitTransition = { fadeOut(tween(200)) }
         ) {
             WelcomeScreen(
-                onNavigateToLogin = { navController.navigate(Screen.Login.route) },
-                onNavigateToRegister = { navController.navigate(Screen.Register.route) },
+                viewModel = viewModel,
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
-                onNavigateToUnlock = { navController.navigate(Screen.Unlock.route) }
-            )
-        }
-        composable(
-            Screen.Login.route,
-            enterTransition = { slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)) },
-            exitTransition = { slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(200)) },
-            popEnterTransition = { slideInHorizontally(tween(300)) { -it } + fadeIn(tween(300)) },
-            popExitTransition = { slideOutHorizontally(tween(200)) { it / 3 } + fadeOut(tween(200)) }
-        ) {
-            LoginScreen(
+                onNavigateToUnlock = { navController.navigate(Screen.Unlock.route) },
                 onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(Screen.Welcome.route) { inclusive = true }
                     }
-                },
-                onNavigateToRegister = { navController.navigate(Screen.Register.route) },
-                onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
-            )
-        }
-        composable(
-            Screen.Register.route,
-            enterTransition = { slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)) },
-            exitTransition = { slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(200)) },
-            popEnterTransition = { slideInHorizontally(tween(300)) { -it } + fadeIn(tween(300)) },
-            popExitTransition = { slideOutHorizontally(tween(200)) { it / 3 } + fadeOut(tween(200)) }
-        ) {
-            RegisterScreen(
-                onRegisterSuccess = { navController.navigate(Screen.Login.route) },
-                onNavigateToLogin = { navController.popBackStack() }
+                }
             )
         }
         composable(Screen.Main.route) {

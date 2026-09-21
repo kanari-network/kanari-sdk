@@ -35,7 +35,7 @@ fn locals() -> PartialVMResult<()> {
 
 #[test]
 fn struct_pack_and_unpack() -> PartialVMResult<()> {
-    let vals = vec![
+    let vals = [
         Value::u8(10),
         Value::u16(12),
         Value::u32(15),

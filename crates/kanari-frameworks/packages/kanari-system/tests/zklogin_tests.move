@@ -1,0 +1,252 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// End-to-end fixtures for `kanari_system::zklogin` (deterministic):
+// - ephemeral key from secret `[42u8; 32]`, message "kanari ephemeral fixture"
+// - JWT minted RS256 with kid `kanari-fixture-1`, nonce bound to the
+//   ephemeral key above (pub, max_epoch 1000, randomness `[7u8; 32]`)
+// - Binding-circuit (salt `[9u8; 32]`, google/test-client/1234) Groth16
+//   proof, seed `0xB10C5EED`; address/nonce are the v2 scheme vectors
+#[test_only]
+module kanari_system::zklogin_tests {
+    use kanari_system::tx_context;
+    use kanari_system::zklogin;
+
+    fun iss(): vector<u8> {
+        b"https://accounts.google.com"
+    }
+
+    fun aud(): vector<u8> {
+        b"kanari-test-client"
+    }
+
+    fun sub(): vector<u8> {
+        b"1234"
+    }
+    const NOW: u64 = 1700000000;
+
+    fun eph_pub(): vector<u8> {
+        x"197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61"
+    }
+
+    fun eph_msg(): vector<u8> {
+        b"kanari ephemeral fixture"
+    }
+
+    fun eph_sig(): vector<u8> {
+        x"50bd675ac9206bafbbec36010d5ef5b902e25aaa8cbd11c6d8626e2f105487df6eb7273c7ad5acda84a422df9bf45e9ecfc0461d33ecae5035ebeee33aa8ba05"
+    }
+
+    fun randomness(): vector<u8> {
+        x"0707070707070707070707070707070707070707070707070707070707070707"
+    }
+
+    fun salt(): vector<u8> {
+        x"0909090909090909090909090909090909090909090909090909090909090909"
+    }
+
+    fun jwt(): vector<u8> {
+        b"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImthbmFyaS1maXh0dXJlLTEifQ.eyJhdWQiOiJrYW5hcmktdGVzdC1jbGllbnQiLCJleHAiOjIwMDAwMDAwMDAsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsIm5vbmNlIjoiMWJiNDg2YzAyZGVlZjBhNGFjY2Y1ZjdjNGNhMmU3ZTU0Y2UxOGNiMTNiN2ZhNGUxOTMzOThlYmUxYjg1ODBmYiIsInN1YiI6IjEyMzQifQ.Ivv6o1AWQ2b4vOQauAd7-cg1PH6E-MCoTb3QlNPCgvVZSEk2bRVsxtwOu_FkXON2336ZxxA3oJaKKCi1uEKLMIxw1rf_RE-fNEn8kmW9sgZZZTJGiFx2W9YMB6-xHP5vJJiFVGyH8SgjPAwHCkct9DA3Q1N3k1o_IIkYPukRuo20X-8utI7JsZ6GkKgzNwQnaJKbzRiG4jBr6CqwLKTlAYPWi15IxtXZrYvO64g2iTW5vHGyOXzUyUn0c1vwdYgCiiMjdbHIBx-6mK8fBaD18YeiLf97viQhLwQS2ydM-hFZv970UsDa3574ig2YMV5ILW2fhOSJiqEf7ri_6SAgPg"
+    }
+
+    fun jwks(): vector<u8> {
+        b"{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"kanari-fixture-1\",\"alg\":\"RS256\",\"n\":\"mm_L6UcI9QJow4_cr4lKVKk-TI5flT1JKUZn-RSdF9dykE99UfBoCjOd9GAjjcyzmLU2nQ1d3NxmmnM79yMA9AJCR17PH7F1T5D1sBH6ljnst2b0qmdCH6ocvHoHYo7eG3dNjkX8OgK2a5_rQWtuAbh9r5GBGz5MqkkQl16NAdsLoTNNN6JpXl-UgmKuaCrjYTBlQEbclVY6exgC1EV5zKwnd6dq44czYJUlzJt5nEdU_0P429OTu6o6XuxAB0B6bxeqg3-SPHTXtdzEfykUsNXMF4dKrbYZTboj6b2Ic4gqfC6aiEB5Et8iQQrON5c87yOERRspyOnywaAlzS92RQ\",\"e\":\"AQAB\"}]}"
+    }
+
+    fun vk(): vector<u8> {
+        x"06b9805e877a58f9370f470dfbc50c657404d9cb02fcc055d4d4cb60101967ad9d9c9a1c2d511ec9681c67ca3de04b9e8e4ea7a606e6d103fd6d14c1fcb2bb10637c733a7a4e13f261973e312b7d940264a386fde37775ef6378e1b85fd2c28e012022b224346f0726b61e1a6a0bb6b49d58fa31c49f6b80001252ba73d27f18e1dcfc30490b596acbc07a2db3d8966f179f86129f08c057af1fda307162209457ac5d576a7123cfb7ef47ba38accae463e0ec4ca8c3863a7669deeb524ff6096df4a64e34f7cd6115f2a97b64a59017de5cdce790d2acad11474bce45ea99074100000000000000441960e5a9725fa9992eeefefac4b4ec8826dd3898ca9a4c453f34a2b923f92999ec4ed83c009098c1b032ea5fea845efa1893b2f60510fd9477a44c853ab82a9b640b6cbafebd970d439be2861eac4c337a53dc489a97a52ce84d9580c04c9403651b5a10525eb3c28d2ba734247dcffa9359aea1e2ecfa4ae21cbce93d5008f3b148393c3c744f3c2e3f7cf78a559cc5540059704a04c443fa451f4e9f4590ada6a1d10e14106b8406dccee7a5eb4fdadfabf4f25d3ea7c6cce2e2fc8f630bac151349862da435724280cdba19f3138fffe4dbd0f39ae864b58521f3426b06c1fe6d13199170b932c7455bf9c6a6fb569b01f6107d22e5a1c40ac0029c1b0c06000324be0daf653e092a5354415c2428428ab1db94d326d758b3f3d2821825f3738a88ce7fc0b8d7e887293d4815515cf7799e38fba428a7f46e6e34688d19870fd826221433327c744889ab98de52bf569c110008e0ac6d34ffc26d76489e69cc25f79ac9af4670a750ca6fea52a522b590e1acd6ba6ae4c0de8d525ba98eaec53b8fc72e028fd217e0bd3874773ea220f41985ba5e74688f2ee3a36f2925b8e69041cd41628c56a11e5984e4456741835d6c3b4ea64e0e85f319ebaedc0c0103086d5e3f0f4ec19a72660ab6a26a955cbb24fc8532f0109c44a46e236318e47f387ea8e0d3bc12d2a4cc5e91aca0ec57213781f6fc9fb2a3620c1fb23d9f45627e23d8e9dc890959a3e01d0fe5bd5020bb0ae8230604b3f9655019776d8eeab12cbe56892bb48e9abbafe2f0a97c5b7a18edca385f47cc497a0a9ea7ce072795106fb45b192d51b58d8a1fdbb82e706154995e88d923206989bf8233438fe105b253274c6c83be5d9d55fd84db5ea7421551d60a8c1befaa610d7abeb281e292904b6013ca35565b18196931257f0b09091d7b903ba547a0026b1903fb2073550bfb38ce544140dd16dc57e42d9bbb25a111d18455dba6831aa16dacf98d6a0dc60ea196b7414cad581f37300afc0fe1f48877ad25a17afca8b6e074f7126586e1ae1d141fdf89db23900c37c71d85fd7245f5fe8a619fa4ca564ff938844cc0710569a7403bd6a8598d8dde3d5dec2e8fd7b9aaf88c8f0facb2cfd11e2d9c80e6d1dbcc79535340f469944b0fe5219a80c9f68dd3eecb5dde6c247ab708b03f2c934b60ddccca8f7fb11670a2356db6738dbbcc2073a6ecbd1fafe1e08cb862e84c8b65575aba1d560b7ba7e3bde2cd15a321d4bb34a008d88187e7669fa3f8e3b0f6d4663f2f0b670a9869076adfc52899bd59921143e56456f945e72f13567882f627c3ffeb776a591d4dd526ffb86eec69deaef58349bbbedae575942a7e155a970397b726280bcaf4f3ce2f32e4c2adc405b1e6931649ccc54eb92730d34ee125831f20ba55f8767af9a3ab3f53ca52f041aeaf9057f6b79234d089a0f8774e63163b4b8d2ea360224035b0bdb82c664718fc37239beecde4fd908a85bc7f1da1a18f9a17ee27471d4c0c433119a6e3b92164381c508861a6be3309745c07b7de38ca2518e73ca63b797df3268910e26d2a56f28cc88959cac6218a290ad70c01348198e402296341828d51576ba28817d54e747808006d070afe828877aa391d76c01577174c5ab9f8250de3ec5648bd0f6cf211e60e4300f556a4f2232c0973eeb063e94994e6288a5453cd32812d89bb139719e776927e4938af1200e7b35366ec69227b37dc36ce7b9065f5341a03cba847bf2808c26cd321197f2cd2ec865f3329cfecaa6bf014dab56765ecc5cd560d410e45dc6f9fa7c39d9fffbaa7e0fe1afdb0b5371917ecb26225a331de9ac3b53534fc4f4d934a84897452242a441136444c8f5afdf0dc77058f65a2b6ad2f8afd9deae30f2093e2058eea807cf2f841363b6a69308ac85f9555ca56c74ea02ff815d6f23fb231a81c7b8b6003aab316ce73fff88aa20c2c1fbfbf0b2df0894475607c35a920ed53836e52a222311bb8ca4a8b8c24ed51767694308b2ca6502b6e2d9cc3d36550929dfd25125acff6ce57c6deed85ef3e3f1c98e3c0264c62ffbe5d0c22ac502af083474f8ac82bd506862956429fae852b7dedb05b54ec394b71d624c1a33f06dd087761c339f9ca8fcc1bc8f23525a9e0867b3b5691dbdd227b5daeb5f61b98491491e9411bc7e22f6fc009f8990f7bd97bb128a7fa6056f1a87d09ff188337a52edaeb73ae89200408062c79f99d59010094b3023212b09681b8972efb10911116ec71791c1745eefe146610fc99b67185134c6f79bcd34a3b1aeb07d74a289d8e7ae3116dc52d6dc0b95ae1cd58bad2384eba4b51a665f8271cc075165782862b911ff3513aca628d5e5d71f8752f2847a47474eabeb55e7dfe6730ce134a2e060bb9cc1ba275e13cb8e2672f43784879ce4b7abe0fde4abecbdded9aa869ae870bb3d8bf07177cfb7a132fe6e2f0356f680739ddd1c7cb6bc2512cccc9b2fbadbc7389dc76d1bad02a9500a8f3ce1238003b72dfbbddeffbf1c24abf9743eb29519965afaab0c0065118fd0f5f8861c098e4087245600758a5a41a3647965119ba7a64793842d93a5e3e1554a3b0f55d85f192e25abd3bafc8e6f41cfb0166071086ba29c0a7bb8d134d241d3bd8a2e7320f61f02e33b60afb4fdd6790d4b425319bc0ced06d50056c4af50c064d7f9b22fb4c4c21bc6180210bcd7b4cd32a0a4031a8e1df7fc9f26597df84d99c3e25bd03a835b13e0b0d661aedc54fdaf3970f0ba3a615152bf0fc8ac3c478031a21b038fbfe91c86ab763451fd1285c5d16ac1620bd4d58d534f3ce84f744772d0f2e69ab0a144e7ac407b7699540df78ab717f35671c8019c922bba1e411d8be5ca948f1e7706822d27a86a7c8163b842ab1e77effb24e862d0c130f15c02d704921bcafc130786181fb682bdc4a5e3298"
+    }
+
+    fun proof_inputs(): vector<u8> {
+        x"000000000000000000000000000000000000000000000000000000000000003b00000000000000000000000000000000000000000000000000000000000000c2000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000a2000000000000000000000000000000000000000000000000000000000000003d00000000000000000000000000000000000000000000000000000000000000dd0000000000000000000000000000000000000000000000000000000000000021000000000000000000000000000000000000000000000000000000000000007700000000000000000000000000000000000000000000000000000000000000cb000000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000057000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000520000000000000000000000000000000000000000000000000000000000000027000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000180000000000000000000000000000000000000000000000000000000000000027000000000000000000000000000000000000000000000000000000000000004500000000000000000000000000000000000000000000000000000000000000a5000000000000000000000000000000000000000000000000000000000000007600000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000090000000000000000000000000000000000000000000000000000000000000009500000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000005a0000000000000000000000000000000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000009700000000000000000000000000000000000000000000000000000000000000110000000000000000000000000000000000000000000000000000000000000081000000000000000000000000000000000000000000000000000000000000008f000000000000000000000000000000000000000000000000000000000000005700000000000000000000000000000000000000000000000000000000000000b300000000000000000000000000000000000000000000000000000000000000b8000000000000000000000000000000000000000000000000000000000000002900000000000000000000000000000000000000000000000000000000000000ee000000000000000000000000000000000000000000000000000000000000006800000000000000000000000000000000000000000000000000000000000000690000000000000000000000000000000000000000000000000000000000000028000000000000000000000000000000000000000000000000000000000000000b00000000000000000000000000000000000000000000000000000000000000ba000000000000000000000000000000000000000000000000000000000000005d00000000000000000000000000000000000000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000000c400000000000000000000000000000000000000000000000000000000000000f800000000000000000000000000000000000000000000000000000000000000b900000000000000000000000000000000000000000000000000000000000000170000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000008c00000000000000000000000000000000000000000000000000000000000000f9000000000000000000000000000000000000000000000000000000000000005b000000000000000000000000000000000000000000000000000000000000001700000000000000000000000000000000000000000000000000000000000000ab000000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000e600000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000ce0000000000000000000000000000000000000000000000000000000000000036000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000cb00000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000086"
+    }
+
+    fun proof (): vector<u8> {
+        x"fcff916270b5d94355b44ef1e4ec38894018b36d12333b62526f7ec2b32e5b0972f3df97e593fafb2d775bbee8b575c1ac7ee4e9c2249e6499aec09dc6f0d20f953e4518ca9fb3f94f8052addcc6b528e6e0ef2d93062734660b8498c0144e2788bd5d751e2f563a30599fbe3875c43d5d018795fc2dc142ef6ffdf411851b99"
+    }
+
+    // =================================================================
+    // JWT path (Phase 3b)
+    // =================================================================
+    #[test]
+    fun test_verify_jwt_accepts_fixture() {
+        assert!(
+            zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), NOW),
+            0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 1)]
+    fun test_verify_jwt_wrong_aud_aborts() {
+        // Bad signature/audience => E_INVALID_JWT(1); expiry alone => 5.
+        zklogin::verify(&jwt(), &jwks(), &iss(), &b"someone-else", NOW);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 5)]
+    fun test_verify_jwt_expired_aborts() {
+        // Fixture exp is 2000000000; far-future `now` trips E_EXPIRED only.
+        zklogin::verify(&jwt(), &jwks(), &iss(), &aud(), 2000000100);
+    }
+
+    #[test]
+    fun test_check_nonce_accepts_fixture() {
+        assert!(
+            zklogin::check_nonce(&jwt(), &eph_pub(), 1000, &randomness()),
+            0
+        );
+        // Wrong epoch changes the binding.
+        assert!(
+            !zklogin::check_nonce(&jwt(), &eph_pub(), 999, &randomness()),
+            1
+        );
+    }
+
+    #[test]
+    fun test_derive_address_matches_rust() {
+        // v2 fixed-width scheme vector (see zklogin_circuit tests).
+        let addr = zklogin::derive_address(&iss(), &aud(), &sub(), &salt());
+        assert!(
+            addr == x"3bc27fa23ddd2177cb1914572052272ce060182745a576019095c05a70971181",
+            0
+        );
+    }
+
+    // =================================================================
+    // Ephemeral path (pop-order regression test)
+    // =================================================================
+    #[test]
+    fun test_verify_ephemeral_accepts_fixture() {
+        // Declared order is (sig, pk, msg) — matching native pop order.
+        assert!(
+            zklogin::verify_ephemeral(&eph_sig(), &eph_pub(), &eph_msg()),
+            0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 3)]
+    fun test_verify_ephemeral_swapped_order_aborts() {
+        // The old, misleading order (pk, msg, sig) puts a 24-byte message
+        // where the 32-byte pubkey goes: the Move length guard aborts
+        // instead of mis-verifying. This locks the pop order in.
+        zklogin::verify_ephemeral(&eph_pub(), &eph_msg(), &eph_sig());
+    }
+
+    #[test]
+    fun test_verify_session_full_combo() {
+        let ctx = tx_context::dummy(); // epoch 0 <= max_epoch 1000
+        assert!(
+            zklogin::verify_session(
+                &jwt(),
+                &jwks(),
+                &iss(),
+                &aud(),
+                NOW,
+                &eph_pub(),
+                1000,
+                &randomness(),
+                &eph_msg(),
+                &eph_sig(),
+                &ctx
+            ),
+            0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 5)]
+    // E_EXPIRED
+    fun test_verify_session_rejects_expired_epoch() {
+        // Chain epoch 1001 is past max_epoch 1000: session over, even
+        // though the JWT itself is still within `exp`.
+        let ctx = tx_context::new_from_hint(@0x0, 0, 1001, 0, 0);
+        zklogin::verify_session(
+            &jwt(),
+            &jwks(),
+            &iss(),
+            &aud(),
+            NOW,
+            &eph_pub(),
+            1000,
+            &randomness(),
+            &eph_msg(),
+            &eph_sig(),
+            &ctx
+        );
+    }
+
+    // =================================================================
+    // Groth16 path (Phase 3c)
+    // =================================================================
+    #[test]
+    fun test_verify_proof_accepts_fixture() {
+        assert!(
+            zklogin::verify_proof(&vk(), &proof_inputs(), &proof ()),
+            0
+        );
+        // Same proof, last input byte flipped: well-formed but false.
+        let bad = proof_inputs();
+        let n = std::vector::length(&bad);
+        *std::vector::borrow_mut(&mut bad, n - 1) = 0x87;
+        assert!(
+            !zklogin::verify_proof(&vk(), &bad, &proof ()),
+            1
+        );
+    }
+
+    #[test]
+    fun test_verify_pinned_proof_accepts_ceremony_hash() {
+        // Pinned VK hash from the deterministic fixture setup.
+        let pin = x"cb610265cb3354f24a0b9fc25d7ebb3b769bd70c28a614a2824f99ef3d1cfccd";
+        assert!(
+            zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof ()),
+            0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 7)]
+    fun test_verify_pinned_proof_wrong_pin_aborts() {
+        // Right proof, wrong trust root: must abort, never verify.
+        let pin = x"0000000000000000000000000000000000000000000000000000000000000000";
+        zklogin::verify_pinned_proof(pin, vk(), &proof_inputs(), &proof ());
+    }
+
+    #[test]
+    fun test_verify_private_session_combo() {
+        // Same ceremony pin as test_verify_pinned_proof_accepts_ceremony_hash.
+        let pin = x"cb610265cb3354f24a0b9fc25d7ebb3b769bd70c28a614a2824f99ef3d1cfccd";
+        assert!(
+            zklogin::verify_private_session(
+                pin,
+                vk(),
+                &proof_inputs(),
+                &proof (),
+                &eph_pub(),
+                &eph_msg(),
+                &eph_sig()
+            ),
+            0
+        );
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::zklogin, abort_code = 7)]
+    // E_VK_MISMATCH
+    fun test_verify_private_session_wrong_pin_aborts() {
+        // Right proof, wrong trust root: must abort, never verify.
+        let pin = x"0000000000000000000000000000000000000000000000000000000000000000";
+        zklogin::verify_private_session(
+            pin,
+            vk(),
+            &proof_inputs(),
+            &proof (),
+            &eph_pub(),
+            &eph_msg(),
+            &eph_sig()
+        );
+    }
+}
+

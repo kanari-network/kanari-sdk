@@ -37,6 +37,17 @@ impl GasParameters {
             },
         }
     }
+
+    pub fn production() -> Self {
+        // One Sha3-256 over (tx_hash || ids_created). per_byte charges the
+        // hashed tx_hash bytes; base covers digest setup + address build.
+        Self {
+            derive_id: DeriveIdGasParameters {
+                base: 2_000.into(),
+                per_byte: 50.into(),
+            },
+        }
+    }
 }
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {

@@ -20,6 +20,7 @@ fn speculative_transferred_objects_do_not_mutate_object_storage() {
         data: vec![1, 2, 3],
         should_persist: true,
         is_frozen: false,
+        is_shared: false,
     };
 
     let baseline_count = runtime.object_storage.count();
@@ -75,6 +76,7 @@ fn transferred_object_version_and_owner_kind_are_read_from_speculative_overlay()
         data: vec![2],
         should_persist: true,
         is_frozen: false,
+        is_shared: false,
     };
 
     let mut changeset = ChangeSet::new();

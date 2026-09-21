@@ -3,9 +3,7 @@
 
 use std::{
     io,
-    ops::Range,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use consensus::committer::Committer;
@@ -31,6 +29,7 @@ use crate::{
     config::{NetworkTopology, SimulationConfig},
     context::SimulatorContext,
     executor::{JoinHandle, SimulatorExecutor},
+    latency::LatencyModel,
     network::SimulatedNetwork,
     tracing::SimulatorTracing,
 };
@@ -61,6 +60,10 @@ impl SimulationRunner {
         let _guard = SimulatorTracing::new().setup().ok();
         let rng = StdRng::seed_from_u64(self.config.rng_seed);
         let Self { config } = self;
+        config
+            .latency
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         SimulatorExecutor::run(rng, async move {
             let state = SimulationState::setup(config).await;
             state.apply_topology().await;
@@ -96,10 +99,9 @@ impl SimulatedNetwork {
         commit_consumers: Vec<Option<mpsc::Sender<CommittedSubDag>>>,
     ) -> (Self, Vec<ReplicaHandle<SimulatorContext>>) {
         let public_config = PublicReplicaConfig::new_for_tests(commit_consumers.len());
-        let latency_range = Duration::from_millis(50)..Duration::from_millis(100);
+        let latency = LatencyModel::default();
         let (network, replicas, _) =
-            SimulationState::build_replicas(public_config, latency_range, None, commit_consumers)
-                .await;
+            SimulationState::build_replicas(public_config, latency, None, commit_consumers).await;
         network.connect_all().await;
         (network, replicas)
     }
@@ -111,7 +113,7 @@ impl SimulationState {
     /// consumer per replica.
     async fn build_replicas(
         public_config: PublicReplicaConfig,
-        latency_range: Range<Duration>,
+        latency: LatencyModel,
         load_generator: Option<LoadGeneratorConfig>,
         commit_consumers: Vec<Option<mpsc::Sender<CommittedSubDag>>>,
     ) -> (
@@ -122,7 +124,7 @@ impl SimulationState {
         let committee = public_config.committee();
         let committee_size = committee.len();
         assert_eq!(commit_consumers.len(), committee_size);
-        let (network, networks) = SimulatedNetwork::new(&committee, latency_range);
+        let (network, networks) = SimulatedNetwork::new(&committee, latency);
 
         // The simulator doesn't touch disk; the WAL path in the private
         // configs is unused once we override storage with `InMemory`.
@@ -141,7 +143,7 @@ impl SimulationState {
             let metrics = Metrics::new_for_test(committee_size);
             let mut builder = ReplicaBuilder::new(authority, public_config.clone(), private_config)
                 .with_storage(StorageKind::Ephemeral)
-                .with_crypto_disabled()
+                .with_simulated_crypto()
                 .with_metrics(metrics)
                 .with_network(node_network);
             if let Some(commit_consumer) = commit_consumer {
@@ -163,14 +165,23 @@ impl SimulationState {
     async fn setup(config: SimulationConfig) -> Self {
         let public_config = PublicReplicaConfig::new_for_tests(config.committee_size)
             .with_parameters(config.replica_parameters.clone());
+        let leader_count = config
+            .replica_parameters
+            .consensus
+            .to_protocol(&public_config.committee())
+            .expect("invalid consensus protocol")
+            .leader_count
+            .get();
         let commit_consumers = vec![None; config.committee_size];
         let (network, replicas, load_generators) = Self::build_replicas(
             public_config,
-            config.latency_range(),
+            config.latency.clone(),
             config.load_generator.clone(),
             commit_consumers,
         )
         .await;
+        // Connections are only wired in `apply_topology`, so the shim sees every link.
+        let network = network.with_equivocating_leaders(&config.equivocating_leaders, leader_count);
 
         Self {
             config,

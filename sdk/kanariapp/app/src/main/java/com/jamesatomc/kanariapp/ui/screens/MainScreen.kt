@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
-import com.jamesatomc.kanariapp.ui.components.formatAmount
+import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.components.validateAddress
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
@@ -226,7 +226,12 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "${token.symbol} (Balance: ${formatAmount(token.getEffectiveAmount(), token.decimals)})"
+                                "${token.symbol} (Balance: ${
+                                    formatAmountExact(
+                                        token.getEffectiveAmount(),
+                                        token.decimals
+                                    )
+                                })"
                             )
                         },
                         onClick = {

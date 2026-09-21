@@ -19,3 +19,4 @@ module kanari_system::base64 {
 
     native fun native_encode(input: &vector<u8>): vector<u8>;
 }
+

@@ -10,6 +10,7 @@ pub mod command;
 use command::client_cli;
 use command::keytool_cli;
 use command::move_cli;
+use command::zklogin_cli;
 
 /// Kanari - A Move-based money transfer system
 #[derive(Parser)]
@@ -38,6 +39,11 @@ enum Commands {
         #[command(subcommand)]
         command: keytool_cli::KeytoolCommand,
     },
+    /// zkLogin operations (Google OIDC login bound to an ephemeral key)
+    Zklogin {
+        #[command(subcommand)]
+        command: zklogin_cli::ZkLoginCommand,
+    },
 }
 
 fn main() -> Result<()> {
@@ -53,6 +59,11 @@ fn main() -> Result<()> {
         }
 
         Commands::Keytool { command } => {
+            command.execute()?;
+            Ok(())
+        }
+
+        Commands::Zklogin { command } => {
             command.execute()?;
             Ok(())
         }

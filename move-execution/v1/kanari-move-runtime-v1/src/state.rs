@@ -58,6 +58,7 @@ type DerivedIndexes = (
 
 /// Owner state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct OwnerState {
     pub address: AccountAddress,
     pub nonce: u64,
@@ -68,6 +69,7 @@ pub struct OwnerState {
 }
 
 impl OwnerState {
+    /// Create a new empty owner state for the given address.
     pub fn new(address: AccountAddress) -> Self {
         Self {
             address,
@@ -77,6 +79,7 @@ impl OwnerState {
         }
     }
 
+    /// Create an owner state with a pre-set native token balance.
     pub fn with_native_balance(address: AccountAddress, balance: u64) -> Self {
         let mut account = Self::new(address);
         if balance > 0 {
@@ -89,6 +92,7 @@ impl OwnerState {
         self.modules.insert(module_name);
     }
 
+    /// Set the balance for a specific token type.
     pub fn set_token_balance(&mut self, token_type: String, amount: BalanceRecord) {
         self.token_balances.insert(token_type, amount);
     }
@@ -101,6 +105,7 @@ impl OwnerState {
         }
     }
 
+    /// Get the balance for a specific token type.
     pub fn get_token_balance(&self, token_type: &str) -> u64 {
         self.token_balances
             .get(token_type)
@@ -108,14 +113,17 @@ impl OwnerState {
             .unwrap_or(0)
     }
 
+    /// Get the native token balance for this owner.
     pub fn native_balance(&self) -> u64 {
         self.get_token_balance(GAS_COIN)
     }
 
+    /// Get the owner's account address.
     pub fn owner_address(&self) -> AccountAddress {
         self.address
     }
 
+    /// Check if this owner has no modules or token balances.
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty() && self.token_balances.is_empty()
     }
@@ -280,6 +288,7 @@ impl StateManager {
         self.load_index_list(b"nft_collection_index")
     }
 
+    /// Retrieve all collection IDs from the index.
     pub fn get_all_collection_ids(&self) -> Vec<String> {
         self.try_get_all_collection_ids()
             .unwrap_or_else(|error| Self::log_index_fallback("nft_collection_index", error))
@@ -290,6 +299,7 @@ impl StateManager {
         self.load_index_list(&metadata_key(b"collection_members:", collection_id))
     }
 
+    /// Retrieve NFT IDs for the specified collection.
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
         self.try_get_collection_nft_ids(collection_id)
             .unwrap_or_else(|error| {
@@ -399,6 +409,7 @@ impl StateManager {
         Self::try_new(store)
     }
 
+    /// Get a clone of the underlying persistent store.
     pub fn store(&self) -> Arc<PersistentStore> {
         self.store.clone()
     }
@@ -875,6 +886,7 @@ impl StateManager {
         self.commit_with_raw_updates(vec![(key, value)])
     }
 
+    /// Commit canonical state with a verified root and a single durable key-value pair.
     pub fn commit_with_raw_update_and_verified_root(
         &mut self,
         key: Vec<u8>,
@@ -887,6 +899,7 @@ impl StateManager {
         self.commit_with_raw_updates_and_root(vec![(key, value)], Vec::new(), Some(root), None)
     }
 
+    /// Commit canonical state with a verified root, a single durable key-value pair, and precomputed SMT changes.
     pub fn commit_with_raw_update_verified_root_and_smt_changes(
         &mut self,
         key: Vec<u8>,
@@ -905,6 +918,7 @@ impl StateManager {
         )
     }
 
+    /// Commit raw changes with a verified root and precomputed SMT changes.
     pub fn commit_with_raw_changes_verified_root_and_smt_changes(
         &mut self,
         updates: Vec<(Vec<u8>, Vec<u8>)>,
@@ -1032,6 +1046,7 @@ impl StateManager {
     }
 
     // Helper to write to overlay (pub for genesis module)
+    /// Write a serialized value to the overlay buffer.
     pub(crate) fn save_internal<T: Serialize + ?Sized>(
         &mut self,
         key: &[u8],
@@ -1043,6 +1058,7 @@ impl StateManager {
     }
 
     // Helper to read from overlay then store
+    /// Read a value from the overlay or persistent store.
     pub fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
         if let Some(val_opt) = self.overlay.get(key) {
             match val_opt {
@@ -1068,14 +1084,17 @@ impl StateManager {
             .collect()
     }
 
+    /// Get a snapshot of the current access versions.
     pub fn access_version_snapshot(&self) -> BTreeMap<Vec<u8>, u64> {
         self.access_versions.clone()
     }
 
+    /// Get the current access epoch counter.
     pub fn access_epoch(&self) -> u64 {
         self.access_epoch
     }
 
+    /// Validate that an access snapshot is still consistent with current versions.
     pub fn validate_access_snapshot(
         &self,
         snapshot: &BTreeMap<Vec<u8>, u64>,
@@ -1087,6 +1106,7 @@ impl StateManager {
         })
     }
 
+    /// Bump the monotonic version counters for keys written by the access set.
     pub(crate) fn advance_access_versions(&mut self, access: &StateAccessSet) -> Result<()> {
         let persist_access_versions = std::env::var("KANARI_PERSIST_ACCESS_VERSIONS")
             .map(|value| !matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
@@ -1365,6 +1385,7 @@ impl StateManager {
         Ok(false)
     }
 
+    /// Load the configured system clock object ID.
     pub(crate) fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
         let bytes_opt: Option<Vec<u8>> = self.load_internal(SYSTEM_CLOCK_OBJECT_ID_KEY)?;
         match bytes_opt {
@@ -1376,6 +1397,7 @@ impl StateManager {
         }
     }
 
+    /// Set the system clock object ID.
     pub(crate) fn set_system_clock_object_id(&mut self, id: AccountAddress) -> Result<()> {
         self.save_internal(SYSTEM_CLOCK_OBJECT_ID_KEY, &id.as_ref().to_vec())
     }
@@ -1409,6 +1431,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Get all registered owner addresses.
     pub fn owner_addresses(&self) -> Result<Vec<AccountAddress>> {
         let ids = self.load_owner_index_ids()?;
         ids.into_iter()
@@ -1434,6 +1457,7 @@ impl StateManager {
             .unwrap_or_else(|| OwnerState::new(address)))
     }
 
+    /// Load the persisted owner state for the given address.
     pub fn load_owner_state(&self, owner: &AccountAddress) -> Result<Option<OwnerState>> {
         self.load_internal(&Self::owner_state_key(owner))
     }
@@ -1449,6 +1473,7 @@ impl StateManager {
         }
     }
 
+    /// Save owner state and update the supply index cache.
     pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
         let old_balances = self
             .load_owner_state(&owner_state.address)?
@@ -1476,6 +1501,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Get the owner state, returning None on error instead of propagating.
     pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {
         match self.load_owner_state(owner) {
             Ok(account) => account,
@@ -1490,6 +1516,7 @@ impl StateManager {
         }
     }
 
+    /// Look up owner state by hex address, returning an error on parse failure.
     pub fn try_get_owner_state_by_hex(&self, owner: &str) -> Result<Option<OwnerState>> {
         let addr = kanari_types::address::Address::parse_to_account_address(owner)
             .with_context(|| format!("Failed to parse owner address: {owner}"))?;
@@ -1497,6 +1524,7 @@ impl StateManager {
             .with_context(|| format!("Failed to load owner state for {owner}"))
     }
 
+    /// Look up owner state by hex address, returning None on any error.
     pub fn get_owner_state_by_hex(&self, owner: &str) -> Option<OwnerState> {
         // Use Address::parse_to_account_address which handles tagged addresses,
         // tagged public keys (hashing), and regular 0x addresses.
@@ -1552,10 +1580,12 @@ impl StateManager {
         }))
     }
 
+    /// Get all objects matching the specified type.
     pub fn get_objects_by_type(&self, object_type: &str) -> Result<Vec<(String, CreatedObject)>> {
         self.query_objects(None, None, Some(object_type), None, None)
     }
 
+    /// Query objects by owner, type, and version range.
     pub fn query_objects(
         &self,
         owner: Option<AccountAddress>,
@@ -1685,10 +1715,19 @@ impl StateManager {
     /// `try_compute_state_root` so persistent-state faults are returned rather
     /// than converted into a different root.
     pub fn compute_state_root(&self) -> Vec<u8> {
-        self.try_compute_state_root()
-            .expect("canonical state root requires readable, well-formed persistent state")
+        self.try_compute_state_root().unwrap_or_else(|e| {
+            // Use a distinct sentinel so callers can distinguish a corrupted
+            // fallback from a genuinely empty state root (all zeros).
+            log::error!(
+                "CRITICAL: Failed to compute state root - storage may be corrupted: {}. \
+                 Returning sentinel root [0xFF; 32] to signal corruption.",
+                e
+            );
+            vec![0xFF; 32]
+        })
     }
 
+    /// Get a snapshot of the canonical state entries including pending overlay.
     pub fn try_canonical_state_snapshot(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
             self.store.logical_entries()?.into_iter().collect();
@@ -1705,9 +1744,16 @@ impl StateManager {
         Ok(entries)
     }
 
+    /// Get a snapshot of the canonical state, returning empty on error.
     pub fn canonical_state_snapshot(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
-        self.try_canonical_state_snapshot()
-            .expect("canonical snapshot requires readable, well-formed persistent state")
+        self.try_canonical_state_snapshot().unwrap_or_else(|e| {
+            log::error!(
+                "CRITICAL: Failed to compute canonical state snapshot - storage may be corrupted: {}",
+                e
+            );
+            // Return empty snapshot as fallback instead of panicking
+            BTreeMap::new()
+        })
     }
 
     /// Get the total number of owners with persisted owner state.

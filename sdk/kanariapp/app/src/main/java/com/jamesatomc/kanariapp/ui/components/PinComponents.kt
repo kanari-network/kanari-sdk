@@ -39,10 +39,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -236,6 +239,84 @@ fun PinEntryHeader(
 }
 
 @Composable
+private fun PinEntryPanel(
+    pin: PinState,
+    title: String,
+    subtitle: String,
+    onPinComplete: suspend (String) -> Unit,
+    biometricEnabled: Boolean = false,
+    onBiometric: (() -> Unit)? = null,
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
+    headerSpacing: Dp = 32.dp,
+) {
+    val scope = rememberCoroutineScope()
+    val onNumberPressed = remember {
+        { num: String ->
+            val nextPin = if (!pin.isChecking && pin.entered.length < 6) {
+                pin.entered + num
+            } else {
+                null
+            }
+            pin.onNumber(num)
+            if (nextPin?.length == 6) {
+                pin.isChecking = true
+                scope.launch { onPinComplete(nextPin) }
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        PinEntryHeader(
+            title = title,
+            subtitle = subtitle,
+            enteredLength = pin.entered.length,
+            errorText = pin.error,
+            isChecking = pin.isChecking,
+        )
+        Spacer(Modifier.height(headerSpacing))
+        PinNumberPad(
+            onNumberPressed = onNumberPressed,
+            onBackspacePressed = { pin.onBackspace() },
+            biometricEnabled = biometricEnabled,
+            onBiometricPressed = onBiometric,
+        )
+    }
+}
+
+@Composable
+private fun PinVerificationBody(
+    title: String,
+    subtitle: String,
+    onVerify: (String) -> Boolean = { false },
+    onVerifyAsync: (suspend (String) -> Boolean)? = null,
+    onSuccess: (String) -> Unit,
+    biometricEnabled: Boolean = false,
+    onBiometric: (() -> Unit)? = null,
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
+) {
+    val pin = rememberPinState()
+    PinEntryPanel(
+        pin = pin,
+        title = title,
+        subtitle = subtitle,
+        onPinComplete = { currentPin ->
+            val ok = try {
+                if (onVerifyAsync != null) onVerifyAsync(currentPin) else onVerify(currentPin)
+            } catch (_: Exception) {
+                false
+            }
+            if (ok) onSuccess(currentPin) else pin.fail("Invalid PIN")
+        },
+        biometricEnabled = biometricEnabled,
+        onBiometric = onBiometric,
+        modifier = modifier,
+    )
+}
+
+@Composable
 fun PinVerificationContent(
     title: String,
     subtitle: String,
@@ -246,50 +327,20 @@ fun PinVerificationContent(
     onBiometric: (() -> Unit)? = null,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier
 ) {
-    val pin = rememberPinState()
-    val scope = rememberCoroutineScope()
-    val onNumberPressedStable = remember {
-        { num: String ->
-            pin.onNumber(num)
-            if (pin.entered.length == 6) {
-                pin.isChecking = true
-                scope.launch {
-                    val currentPin = pin.entered
-                    val ok = try {
-                        if (onVerifyAsync != null) onVerifyAsync(currentPin) else onVerify(currentPin)
-                    } catch (_: Exception) {
-                        false
-                    }
-                    if (ok) {
-                        onSuccess(currentPin)
-                    } else {
-                        pin.fail("Invalid PIN")
-                    }
-                }
-            }
-        }
-    }
-
-    val onBackspacePressedStable = remember { { pin.onBackspace() } }
-
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        PinEntryHeader(
+        PinVerificationBody(
             title = title,
             subtitle = subtitle,
-            enteredLength = pin.entered.length,
-            errorText = pin.error,
-            isChecking = pin.isChecking
-        )
-        Spacer(Modifier.height(32.dp))
-        PinNumberPad(
-            onNumberPressed = onNumberPressedStable,
-            onBackspacePressed = onBackspacePressedStable,
+            onVerify = onVerify,
+            onVerifyAsync = onVerifyAsync,
+            onSuccess = onSuccess,
             biometricEnabled = biometricEnabled,
-            onBiometricPressed = onBiometric
+            onBiometric = onBiometric,
+            modifier = Modifier,
         )
     }
 }
@@ -308,7 +359,6 @@ fun ChangePinFullScreenContent(
     var currentPin by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val title = when (step) {
         0 -> "Current PIN"; 1 -> "New PIN"; else -> "Confirm New PIN"
     }
@@ -336,59 +386,153 @@ fun ChangePinFullScreenContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            PinEntryHeader(
+            PinEntryPanel(
+                pin = pin,
                 title = title,
                 subtitle = subtitle,
-                enteredLength = pin.entered.length,
-                errorText = pin.error,
-                isChecking = pin.isChecking
-            )
-            Spacer(Modifier.height(32.dp))
-            val onNumberPressedStable = remember(step, currentPin, newPin) {
-                { num: String ->
-                    pin.onNumber(num)
-                    if (pin.entered.length == 6) {
-                        when (step) {
-                            0 -> {
-                                currentPin = pin.entered; pin.reset(); step = 1
-                            }
+                onPinComplete = { enteredPin ->
+                    when (step) {
+                        0 -> {
+                            currentPin = enteredPin
+                            pin.reset()
+                            step = 1
+                        }
 
-                            1 -> {
-                                newPin = pin.entered; pin.reset(); step = 2
-                            }
+                        1 -> {
+                            newPin = enteredPin
+                            pin.reset()
+                            step = 2
+                        }
 
-                            2 -> {
-                                if (pin.entered != newPin) pin.fail("PINs do not match")
-                                else if (currentPin == newPin) pin.fail("New PIN must be different")
-                                else {
-                                    pin.isChecking = true
-                                    scope.launch {
-                                        val ok = try {
-                                            if (onConfirmAsync != null) onConfirmAsync(currentPin, pin.entered)
-                                            else withContext(Dispatchers.Default) { onConfirm(currentPin, pin.entered) }
-                                        } catch (_: Exception) {
-                                            false
-                                        }
-                                        if (ok) {
-                                            Toast.makeText(context, "PIN changed successfully", Toast.LENGTH_SHORT)
-                                                .show()
-                                            onDismiss()
-                                        } else pin.fail("Incorrect current PIN or invalid new PIN")
+                        else -> {
+                            when {
+                                enteredPin != newPin -> pin.fail("PINs do not match")
+                                currentPin == newPin -> pin.fail("New PIN must be different")
+                                else -> {
+                                    val ok = try {
+                                        if (onConfirmAsync != null) onConfirmAsync(currentPin, enteredPin)
+                                        else withContext(Dispatchers.Default) { onConfirm(currentPin, enteredPin) }
+                                    } catch (_: Exception) {
+                                        false
                                     }
+                                    if (ok) {
+                                        Toast.makeText(context, "PIN changed successfully", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } else pin.fail("Incorrect current PIN or invalid new PIN")
                                 }
                             }
                         }
                     }
+                },
+                biometricEnabled = showBiometric,
+                onBiometric = onBiometric,
+            )
+        }
+    }
+}
+
+/** Full-screen PIN gate shared by authentication and sensitive settings flows. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PinGateDialog(
+    title: String,
+    subtitle: String,
+    onVerifyAsync: suspend (String) -> Boolean,
+    onSuccess: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text(title) },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                )
+                            }
+                        },
+                    )
+                },
+            ) { padding ->
+                PinVerificationBody(
+                    title = "",
+                    subtitle = subtitle,
+                    onVerifyAsync = onVerifyAsync,
+                    onSuccess = { onSuccess(it) },
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 24.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreatePinDialog(
+    onPinCreated: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val pin = rememberPinState()
+    var step by remember { mutableIntStateOf(0) }
+    var firstPin by remember { mutableStateOf("") }
+
+    val title = if (step == 0) "Create PIN" else "Confirm PIN"
+    val subtitle = if (step == 0) "Set a 6-digit PIN to secure your wallet" else "Re-enter PIN to confirm"
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Setup PIN") },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                if (step == 1) {
+                                    step = 0; pin.reset()
+                                } else onDismiss()
+                            }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        }
+                    )
+                }
+            ) { padding ->
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    PinEntryPanel(
+                        pin = pin,
+                        title = title,
+                        subtitle = subtitle,
+                        onPinComplete = { enteredPin ->
+                            if (step == 0) {
+                                firstPin = enteredPin
+                                pin.reset()
+                                step = 1
+                            } else {
+                                if (enteredPin == firstPin) {
+                                    onPinCreated(enteredPin)
+                                } else {
+                                    pin.fail("PINs do not match")
+                                }
+                            }
+                        }
+                    )
                 }
             }
-            val onBackspacePressedStable = remember { { pin.onBackspace() } }
-
-            PinNumberPad(
-                onNumberPressed = onNumberPressedStable,
-                onBackspacePressed = onBackspacePressedStable,
-                biometricEnabled = showBiometric,
-                onBiometricPressed = onBiometric
-            )
         }
     }
 }

@@ -10,10 +10,14 @@ import com.jamesatomc.kanariapp.network.models.TokenBalance
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.network.models.KanariEnvironment
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
+import com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth
+import com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,11 +50,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _isUnlocked = MutableStateFlow(false)
     val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
 
-    private var unlockedPin: String? = null
+    private var _unlockedPin: String? = null
+    val unlockedPin: String? get() = _unlockedPin
 
     private var client = KanariClient(_environment.value)
 
     private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
+    private val walletMutationMutex = Mutex()
 
     private val _themeMode = MutableStateFlow(loadThemeMode())
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
@@ -79,19 +85,29 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         loadWallets()
     }
 
+    companion object {
+        private const val KEY_ACTIVE_WALLET_ID = "active_wallet_id"
+    }
+
     fun loadWallets() {
         viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val records = walletStorage.loadWallets()
-                _wallets.value = records
-                if (records.isNotEmpty() && (_activeWallet.value == null)) {
-                    _activeWallet.value = records.first()
+            walletMutationMutex.withLock {
+                _isLoading.value = true
+                try {
+                    val records = walletStorage.loadWallets()
+                    _wallets.value = records
+                    if (records.isNotEmpty() && (_activeWallet.value == null)) {
+                        val savedId = prefs.getString(KEY_ACTIVE_WALLET_ID, null)
+                        _activeWallet.value = records.firstOrNull { it.id == savedId } ?: records.first()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("WalletViewModel", "CRITICAL: Failed to load wallets", e)
+                    // Inform the UI about the corruption/error
+                    _error.value = "Wallet storage is unreadable. You may need to re-import your wallets."
+                    _wallets.value = emptyList()
                 }
-            } catch (e: Exception) {
-                _error.value = "Failed to load wallets: ${e.message}"
+                _isLoading.value = false
             }
-            _isLoading.value = false
         }
     }
 
@@ -132,12 +148,18 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun switchWallet(record: WalletRecord) {
         _activeWallet.value = record
+        prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
         refreshBalance()
     }
 
     suspend fun unlock(pin: String): Boolean {
-        if (walletStorage.verifyPin(pin)) {
-            unlockedPin = pin
+        // Session-only wallets (zkLogin) hold no PIN-encrypted secrets, so any
+        // PIN unlocks if no key-based wallet exists. Real key wallets always
+        // require the exact PIN.
+        val verified = walletStorage.verifyPin(pin) ||
+                (!walletStorage.hasPin() && !walletStorage.hasSecrets())
+        if (verified) {
+            _unlockedPin = pin
             _isUnlocked.value = true
             // Sync biometric PIN if biometric is enabled (like kanari_pay)
             if (walletStorage.isBiometricEnabled()) {
@@ -168,6 +190,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     suspend fun verifyPin(pin: String): Boolean = walletStorage.verifyPin(pin)
+
+    /** True when the user has set an app PIN (gate sensitive flows behind it). */
+    suspend fun hasPin(): Boolean = try {
+        walletStorage.hasPin()
+    } catch (_: Exception) {
+        false
+    }
 
     suspend fun revealPrivateKey(record: WalletRecord, pin: String): String? {
         val enc = record.privateKeyEncrypted ?: return null
@@ -225,7 +254,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             }
             walletStorage.saveWallets(reEncrypted)
             walletStorage.savePin(newPin)
-            unlockedPin = newPin
+            _unlockedPin = newPin
             if (walletStorage.isBiometricEnabled()) {
                 walletStorage.saveBiometricPin(newPin)
             }
@@ -249,8 +278,17 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             current.remove(record)
             walletStorage.saveWallets(current)
             _wallets.value = current
+            if (record.curveType == "ZkLogin") {
+                try {
+                    ZkLoginAuth.sessionFile(getApplication(), record.address).delete()
+                } catch (_: Exception) {
+                }
+            }
             if (_activeWallet.value?.id == record.id) {
-                _activeWallet.value = current.firstOrNull()
+                val next = current.firstOrNull()
+                _activeWallet.value = next
+                if (next != null) prefs.edit { putString(KEY_ACTIVE_WALLET_ID, next.id) }
+                else prefs.edit { remove(KEY_ACTIVE_WALLET_ID) }
                 refreshBalance()
             }
         }
@@ -261,30 +299,46 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             _error.value = "No active wallet"
             return false
         }
-        val pin = unlockedPin ?: run {
-            _error.value = "Wallet is locked. Please unlock again."
-            return false
-        }
+        // zkLogin wallets hold no encrypted secrets, so no PIN is required.
+        val pin = unlockedPin
 
         return try {
-            val privateKeyEncrypted = record.privateKeyEncrypted ?: run {
-                _error.value = "Wallet missing private key"
-                return false
-            }
             val isKanari = tokenType == "0x2::kanari::KANARI" ||
                     tokenType.lowercase(java.util.Locale.US) == "0x2::kanari::kanari" ||
                     tokenType.endsWith("::kanari::KANARI", ignoreCase = true)
 
-            val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
-            val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+            val result: com.jamesatomc.kanariapp.network.models.TransactionResult? =
+                if (record.curveType == "ZkLogin") {
+                    // No private key: sign with the on-device Google session.
+                    val session = try {
+                        ZkLoginAuth.loadSession(getApplication(), record.address)
+                    } catch (_: Exception) {
+                        _error.value =
+                            "No Google session for this wallet — sign in with Google from the Login screen first."
+                        return false
+                    }
+                    if (isKanari) client.transferZkLogin(session, recipient, amount)
+                    else client.transferTokenZkLogin(session, recipient, tokenType, amount)
+                } else {
+                    val pin = pin ?: run {
+                        _error.value = "Wallet is locked. Please unlock again."
+                        return false
+                    }
+                    val privateKeyEncrypted = record.privateKeyEncrypted ?: run {
+                        _error.value = "Wallet missing private key"
+                        return false
+                    }
+                    val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
+                    val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+                    if (isKanari) {
+                        client.transfer(wallet, recipient, amount)
+                    } else {
+                        // Generic fungible token transfer via kanari_buildTokenTransfer / kanari_callFunction
+                        // Amount is already in token's smallest units (as per parseAmountToMist)
+                        client.transferToken(wallet, recipient, tokenType, amount)
+                    }
+                }
 
-            val result = if (isKanari) {
-                client.transfer(wallet, recipient, amount)
-            } else {
-                // Generic fungible token transfer via kanari_buildTokenTransfer / kanari_callFunction
-                // Amount is already in token's smallest units (as per parseAmountToMist)
-                client.transferToken(wallet, recipient, tokenType, amount)
-            }
             val status = result?.status?.lowercase(java.util.Locale.US)
             val isSuccess = result?.success == true ||
                     status == "success" || status == "executed" ||
@@ -300,9 +354,53 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _error.value = mapTransferError(msg)
                 false
             }
+        } catch (_: ZkLoginTxSigner.SessionExpiredException) {
+            _error.value = "Google session expired — open Login and sign in with Google again, then retry the transfer."
+            false
+        } catch (_: ZkLoginTxSigner.SessionIncompleteException) {
+            _error.value = "Google session file is from an old app version — sign in with Google again."
+            false
         } catch (e: Exception) {
             _error.value = mapTransferError(e.message ?: "Unknown error")
             false
+        }
+    }
+
+    /**
+     * Registers the Google zkLogin wallet (no private key stored; signing
+     * runs from the on-device session file) and switches to it.
+     */
+    suspend fun addZkLoginWallet(session: ZkLoginAuth.Session): WalletRecord {
+        return walletMutationMutex.withLock {
+            val record = WalletRecord(
+                id = "zklogin-${session.address}",
+                name = "Google zkLogin",
+                address = session.address,
+                curveType = "ZkLogin",
+                privateKeyEncrypted = null,
+                mnemonicEncrypted = null,
+            )
+            val persisted = try {
+                walletStorage.loadWallets()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val current = (persisted + _wallets.value).distinctBy { it.id }
+            val updated = if (current.any { it.id == record.id }) {
+                current
+            } else {
+                current + record
+            }
+            try {
+                walletStorage.saveWallets(updated)
+            } catch (e: Exception) {
+                android.util.Log.e("WalletViewModel", "Failed to save wallet record", e)
+            }
+            _wallets.value = updated
+            _activeWallet.value = record
+            prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
+            refreshBalance()
+            record
         }
     }
 

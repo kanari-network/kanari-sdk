@@ -1,0 +1,81 @@
+[package]
+name = "kanari-move-runtime-v1-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+bcs = "0.2.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+# Local dependencies
+[dependencies.kanari-move-runtime-v1]
+path = ".."
+
+[dependencies.kanari-types]
+path = "../../../../crates/kanari-types"
+
+[dependencies.kanari-crypto]
+path = "../../../../crates/kanari-crypto"
+
+[dependencies.move-core-types]
+path = "../../../../third_party/move/crates/move-core-types"
+
+[dependencies.move-binary-format]
+path = "../../../../third_party/move/crates/move-binary-format"
+
+[[bin]]
+name = "fuzz-changeset"
+path = "fuzz_targets/fuzz_changeset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-state-manager"
+path = "fuzz_targets/fuzz_state_manager.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-transaction-execution"
+path = "fuzz_targets/fuzz_transaction_execution.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-object-parsing"
+path = "fuzz_targets/fuzz_object_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-module-publishing"
+path = "fuzz_targets/fuzz_module_publishing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-gas-metering"
+path = "fuzz_targets/fuzz_gas_metering.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = false
+debug-assertions = false

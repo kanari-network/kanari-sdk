@@ -1,6 +1,20 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! MoveRuntime is the core runtime for executing Move transactions in Kanari. It provides an interface for executing Move entry functions, publishing and upgrading modules, and managing the state of Move objects. The runtime handles the interaction between the Move VM, the underlying storage, and the Kanari-specific extensions such as object ownership and event handling.
+//!
+//! The MoveRuntime is designed to be thread-safe and supports concurrent execution of transactions. It maintains a cache of published modules and provides mechanisms for validating module compatibility during upgrades. The runtime also includes utilities for parsing Move changesets into Kanari-specific state changes, ensuring that the effects of Move transactions are correctly reflected in the Kanari state model.
+//!
+//! The main components of the MoveRuntime include:
+//! - `MoveVM`: The Move virtual machine instance used for executing Move bytecode.
+//! - `KanariMoveResolver`: A resolver that provides access to Move modules and resources stored in the Kanari state.
+//! - `ObjectStorage`: An abstraction for storing and retrieving Move objects, supporting both in-memory and persistent storage backends.
+//!
+//! The MoveRuntime provides a high-level API for executing transactions, publishing modules, and managing state, while encapsulating the complexities of the underlying Move VM and storage mechanisms.
+//!
+//! The MoveRuntime is intended to be used by higher-level components such as the TransactionScheduler, which orchestrates the execution of transactions and manages the overall state of the blockchain.
+//!
+//! The MoveRuntime is also responsible for ensuring that transactions are executed in a manner consistent with the Kanari protocol, including enforcing ownership semantics, validating object inputs, and applying changesets to the state. It provides a robust foundation for building applications and services on top of the Kanari blockchain platform.
 use crate::state::default_owner_kind_for_type;
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::{Context, Result, ensure};
@@ -295,6 +309,7 @@ impl MoveRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Create a new runtime with custom native functions and default storage.
     pub(crate) fn new_with_natives(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = if cfg!(miri) {
             MoveVMState::new_in_memory()?
@@ -304,11 +319,13 @@ impl MoveRuntime {
         Self::new_internal(natives, state, None)
     }
 
+    /// Create a new runtime with custom native functions using in-memory storage.
     pub fn new_with_natives_in_memory(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = MoveVMState::new_in_memory()?;
         Self::new_internal(natives, state, None)
     }
 
+    /// Create a new runtime with custom native functions and a shared persistent store.
     pub(crate) fn new_with_natives_and_store(
         natives: Vec<NativeFunctionTable>,
         store: Arc<PersistentStore>,
@@ -366,6 +383,7 @@ impl MoveRuntime {
         })
     }
 
+    /// Create a new runtime with Kanari system natives and default storage.
     pub fn new_with_kanari_natives() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives(natives)?;
@@ -375,6 +393,7 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    /// Create a new runtime with Kanari system natives using in-memory storage.
     pub fn new_with_kanari_natives_in_memory() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_in_memory(natives)?;
@@ -382,6 +401,7 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    /// Create a new runtime with Kanari system natives and a shared persistent store.
     pub fn new_with_kanari_natives_and_store(store: Arc<PersistentStore>) -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_and_store(natives, store)?;
@@ -396,13 +416,17 @@ impl MoveRuntime {
                 KanariAddress::std_account_address(),
                 move_stdlib_natives::GasParameters::zeros(),
             ),
+            // Node execution prices system natives with the production
+            // schedule; tests/dev tooling (move_cli Test, unit tests) keep
+            // `zeros()` so assertions stay gas-agnostic.
             kanari_system_natives::all_natives(
                 sys_addr,
-                kanari_system_natives::GasParameters::zeros(),
+                kanari_system_natives::GasParameters::production(),
             ),
         ]
     }
 
+    /// Spawn a worker runtime that shares the same state and native table.
     pub fn spawn_worker(&self) -> Result<Self> {
         let vm = MoveVM::new(self.all_natives.as_ref().clone()).require("Worker VM init error")?;
 
@@ -418,6 +442,7 @@ impl MoveRuntime {
         })
     }
 
+    /// Spawn an isolated worker with its own VM, resolver, and object cache.
     pub fn spawn_isolated_worker(&self) -> Result<Self> {
         let vm = MoveVM::new(self.all_natives.as_ref().clone())
             .require("Isolated worker VM init error")?;
@@ -480,6 +505,7 @@ impl MoveRuntime {
         self.reload_vm_cache()
     }
 
+    /// Clear the in-memory object cache.
     pub fn clear_object_cache(&self) -> Result<()> {
         self.object_storage
             .clear()
@@ -515,6 +541,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Apply a Move changeset to persistent storage and update the published module index.
     pub(crate) fn apply_move_changeset(
         &self,
         move_cs: move_core_types::effects::ChangeSet,
@@ -606,6 +633,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Upgrade an existing Move module with compatibility checks.
     pub fn upgrade_module(
         &self,
         module_bytes: Vec<u8>,
@@ -623,6 +651,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Publish a new Move module with verification and safety checks.
     pub fn publish_module(
         &self,
         module_bytes: Vec<u8>,
@@ -640,6 +669,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Bootstrap a module allowing overwrite of an existing module during genesis.
     pub fn bootstrap_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -660,6 +690,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Upgrade an existing Move module with explicit context and persistence control.
     pub fn upgrade_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -680,6 +711,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Publish a new Move module with explicit context and persistence control.
     pub fn publish_module_with_context_and_persistence(
         &self,
         module_bytes: Vec<u8>,
@@ -722,7 +754,7 @@ impl MoveRuntime {
         self.verify_module_publish_safety(sender, &module_id, &compiled, &module_bytes, intent)?;
 
         let (move_changeset, events, vm_gas_used) = {
-            // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
+            // Separate Lock into a variable first to prevent it from being dropped immediately
             let vm_guard = self.read_vm();
             let mut session = self.create_session_with_storage_ext(&vm_guard);
 
@@ -763,6 +795,7 @@ impl MoveRuntime {
         Ok(cs)
     }
 
+    /// Publish a multi-module package with explicit context and persistence control.
     pub fn publish_package_with_context_and_persistence(
         &self,
         modules: Vec<(String, Vec<u8>)>,
@@ -783,6 +816,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Upgrade a multi-module package with compatibility checks.
     pub fn upgrade_package_with_context_and_persistence(
         &self,
         modules: Vec<(String, Vec<u8>)>,
@@ -963,6 +997,7 @@ impl MoveRuntime {
                 )
             })
     }
+    /// Execute a module's init function with explicit context parameters.
     pub(crate) fn execute_init_function_with_context(
         &self,
         module_addr: AccountAddress,
@@ -997,6 +1032,17 @@ impl MoveRuntime {
             .map(|arg| {
                 // Only perform preprocessing for string-like inputs that are meant to be converted
                 // Skip preprocessing if the arg is already a properly serialized BCS value
+
+                // Skip if the arg has a common BCS-encoded primitive size:
+                // - 1 byte: u8/bool
+                // - 8 bytes: u64 (BCS little-endian)
+                // - 16 bytes: u128
+                // - 32 bytes: AccountAddress (handled below for hex string case)
+                // This prevents misinterpreting binary BCS data as human-readable text.
+                let len = arg.len();
+                if len == 1 || len == 8 || len == 16 {
+                    return arg;
+                }
 
                 // Check if this looks like a potential address string (hex string)
                 if let Ok(s) = std::str::from_utf8(&arg) {
@@ -1176,6 +1222,7 @@ impl MoveRuntime {
             .push((object_id.to_string(), updated_obj));
     }
 
+    /// Persist created objects from a changeset to the object store.
     pub fn persist_created_objects(&self, cs: &ChangeSet) -> Result<()> {
         for (id, created) in &cs.created_objects {
             let stored = StoredObject {
@@ -1193,6 +1240,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Persist deleted objects from a changeset to the object store.
     pub fn persist_deleted_objects(&self, cs: &ChangeSet) -> Result<()> {
         for obj_id in &cs.deleted_objects {
             self.object_storage
@@ -1202,6 +1250,7 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Preload an object snapshot into the object cache before execution.
     pub fn preload_object_snapshot(
         &self,
         object_id: &str,
@@ -1223,6 +1272,7 @@ impl MoveRuntime {
             .require("Object storage operation failed")
     }
 
+    /// Ensure the system clock object exists, creating it via VM or native path as needed.
     pub fn ensure_system_clock(&self, state: &mut StateManager) -> Result<AccountAddress> {
         if let Some(id) = state.get_system_clock_object_id()? {
             return Ok(id);
@@ -1309,6 +1359,7 @@ impl MoveRuntime {
         Ok(addr)
     }
 
+    /// Build a consensus commit prologue changeset for the native clock object.
     pub fn build_native_clock_consensus_commit_prologue(
         &self,
         state: &StateManager,
@@ -1355,6 +1406,7 @@ impl MoveRuntime {
         Ok(changeset)
     }
 
+    /// Execute a Move entry function with the given arguments and context.
     pub fn execute_entry_function(
         &self,
         module_id: &ModuleId,
@@ -1374,6 +1426,7 @@ impl MoveRuntime {
         )
     }
 
+    /// Execute a Move entry function with full object context and persistence control.
     pub fn execute_entry_function_with_object_context_and_persistence(
         &self,
         module_id: &ModuleId,
@@ -1600,7 +1653,17 @@ impl MoveRuntime {
                     if let Some(stored_obj) =
                         self.get_object_for_execution(&object_id, state_overlay.as_deref())?
                     {
-                        if !bound_from_explicit_input && let Some(s_addr) = sender {
+                        // Raw address args (not declared in object_inputs) may
+                        // only touch sender-owned / system / zero-address
+                        // objects. Objects declared explicitly in object_inputs
+                        // opted into dependency tracking, so cross-owner reads
+                        // (e.g. a co-owner approving a multisig proposal) are
+                        // allowed here — Move-level authorization (is_owner,
+                        // capability checks) still applies inside the called
+                        // function.
+                        let declared_explicitly =
+                            bound_from_explicit_input || explicit_object_ids.contains(&object_id);
+                        if !declared_explicitly && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
                             if stored_obj.owner != s_addr
@@ -2139,345 +2202,9 @@ impl MoveRuntime {
 }
 
 #[cfg(test)]
-mod binding_tests {
-    use super::*;
-    use move_vm_types::loaded_data::runtime_types::CachedStructIndex;
-    use proptest::prelude::*;
-
-    #[test]
-    fn generic_struct_references_are_object_input_candidates() {
-        let generic_coin_ref =
-            RuntimeType::MutableReference(Box::new(RuntimeType::StructInstantiation(Box::new((
-                CachedStructIndex(0),
-                vec![RuntimeType::TyParam(0)],
-            )))));
-
-        assert_eq!(
-            MoveRuntime::object_param_mutability(&generic_coin_ref, |_| true),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn key_struct_values_are_object_input_candidates() {
-        let coin_value = RuntimeType::StructInstantiation(Box::new((
-            CachedStructIndex(0),
-            vec![RuntimeType::TyParam(0)],
-        )));
-
-        assert_eq!(
-            MoveRuntime::object_param_mutability(&coin_value, |_| true),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn non_struct_references_are_not_object_input_candidates() {
-        let vector_ref =
-            RuntimeType::Reference(Box::new(RuntimeType::Vector(Box::new(RuntimeType::U8))));
-
-        assert_eq!(
-            MoveRuntime::object_param_mutability(&vector_ref, |_| false),
-            None
-        );
-    }
-
-    #[test]
-    fn declared_object_inputs_must_match_reference_param_count() {
-        let err = MoveRuntime::validate_declared_object_input_bindings(
-            &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    "0x1",
-                    Some(1),
-                    Some("d".to_string()),
-                ),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                    "0x1".to_string(),
-                )),
-                mutable: true,
-            }],
-            &[],
-        )
-        .expect_err("count mismatch should fail");
-
-        assert!(err.to_string().contains("count mismatch"));
-    }
-
-    #[test]
-    fn declared_object_inputs_must_match_reference_param_mutability() {
-        let err = MoveRuntime::validate_declared_object_input_bindings(
-            &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    "0x1",
-                    Some(1),
-                    Some("d".to_string()),
-                ),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                    "0x1".to_string(),
-                )),
-                mutable: false,
-            }],
-            &[ObjectParamBindingRequirement {
-                param_index: 0,
-                mutable: true,
-            }],
-        )
-        .expect_err("mutability mismatch should fail");
-
-        assert!(err.to_string().contains("mutability"));
-    }
-
-    #[test]
-    fn mutable_object_input_can_bind_immutable_reference_param() {
-        MoveRuntime::validate_declared_object_input_bindings(
-            &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    "0x1",
-                    Some(1),
-                    Some("d".to_string()),
-                ),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                    "0x1".to_string(),
-                )),
-                mutable: true,
-            }],
-            &[ObjectParamBindingRequirement {
-                param_index: 0,
-                mutable: false,
-            }],
-        )
-        .expect("mutable input should satisfy immutable reference binding");
-    }
-
-    #[test]
-    fn immutable_object_cannot_bind_mutable_reference_param() {
-        let err = MoveRuntime::validate_declared_object_input_bindings(
-            &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    "0x1",
-                    Some(1),
-                    Some("d".to_string()),
-                ),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::Immutable),
-                mutable: true,
-            }],
-            &[ObjectParamBindingRequirement {
-                param_index: 0,
-                mutable: true,
-            }],
-        )
-        .expect_err("immutable mutable-ref binding should fail");
-
-        assert!(err.to_string().contains("Immutable object input"));
-    }
-
-    #[test]
-    fn generic_immutable_reference_is_an_object_input_candidate() {
-        let generic_pool_ref = RuntimeType::Reference(Box::new(RuntimeType::StructInstantiation(
-            Box::new((CachedStructIndex(1), vec![RuntimeType::TyParam(0)])),
-        )));
-
-        assert_eq!(
-            MoveRuntime::object_param_mutability(&generic_pool_ref, |_| false),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn multiple_object_inputs_validate_in_parameter_order() {
-        let inputs = (0..2)
-            .map(|index| ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    format!("0x{}", index + 1),
-                    Some(1),
-                    Some(format!("digest-{index}")),
-                ),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::Shared),
-                mutable: true,
-            })
-            .collect::<Vec<_>>();
-        let requirements = vec![
-            ObjectParamBindingRequirement {
-                param_index: 0,
-                mutable: true,
-            },
-            ObjectParamBindingRequirement {
-                param_index: 1,
-                mutable: false,
-            },
-        ];
-
-        MoveRuntime::validate_declared_object_input_bindings(&inputs, &requirements)
-            .expect("multiple object inputs should validate in order");
-    }
-
-    #[test]
-    fn object_input_requires_owner_semantics() {
-        let err = MoveRuntime::validate_declared_object_input_bindings(
-            &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new(
-                    "0x1",
-                    Some(1),
-                    Some("d".to_string()),
-                ),
-                owner: None,
-                mutable: true,
-            }],
-            &[ObjectParamBindingRequirement {
-                param_index: 0,
-                mutable: true,
-            }],
-        )
-        .expect_err("object input without owner semantics should fail");
-
-        assert!(err.to_string().contains("must declare owner semantics"));
-    }
-
-    fn policy_object_input(
-        index: usize,
-        mutable: bool,
-        owner: Option<ObjectOwnerKind>,
-    ) -> ObjectInput {
-        ObjectInput {
-            object_ref: kanari_types::transaction::ObjectRef::new(
-                format!("0x{:x}", index + 1),
-                Some(index as u64 + 1),
-                Some(format!("digest-{index}")),
-            ),
-            owner,
-            mutable,
-        }
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(1024))]
-        #[test]
-        fn raw_address_mutability_policy_never_allows_cross_owner_owned_objects(
-            requested_mutable in any::<bool>(),
-            is_coin in any::<bool>(),
-        ) {
-            let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
-            let sender = AccountAddress::from_hex_literal("0x2222").unwrap();
-            let object_type = if is_coin {
-                format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN)
-            } else {
-                "0x48::escrow_like::Marker".to_string()
-            };
-
-            prop_assert!(!MoveRuntime::can_mutably_borrow_preloaded_object(
-                requested_mutable,
-                &object_type,
-                &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
-                owner,
-                Some(sender),
-                false,
-            ));
-        }
-
-        #[test]
-        fn explicit_cross_owner_policy_allows_only_mutable_non_coin_owned_objects(
-            requested_mutable in any::<bool>(),
-            is_coin in any::<bool>(),
-        ) {
-            let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
-            let sender = AccountAddress::from_hex_literal("0x2222").unwrap();
-            let object_type = if is_coin {
-                format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN)
-            } else {
-                "0x48::escrow_like::Marker".to_string()
-            };
-
-            let allowed = MoveRuntime::can_mutably_borrow_preloaded_object(
-                requested_mutable,
-                &object_type,
-                &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
-                owner,
-                Some(sender),
-                true,
-            );
-
-            prop_assert_eq!(allowed, requested_mutable && !is_coin);
-        }
-
-        #[test]
-        fn owner_and_shared_policy_respects_mutable_and_immutable_flags(
-            requested_mutable in any::<bool>(),
-            use_shared in any::<bool>(),
-            use_immutable in any::<bool>(),
-        ) {
-            let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
-            let owner_kind = if use_immutable {
-                ObjectOwnerKind::Immutable
-            } else if use_shared {
-                ObjectOwnerKind::Shared
-            } else {
-                ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
-            };
-
-            let allowed = MoveRuntime::can_mutably_borrow_preloaded_object(
-                requested_mutable,
-                "0x48::escrow_like::Marker",
-                &owner_kind,
-                owner,
-                Some(owner),
-                false,
-            );
-
-            prop_assert_eq!(allowed, requested_mutable && !use_immutable);
-        }
-
-        #[test]
-        fn object_input_binding_policy_matrix_is_strict(
-            requirement_mutability in prop::collection::vec(any::<bool>(), 0..8),
-            input_mutability in prop::collection::vec(any::<bool>(), 0..10),
-            owner_selector in prop::collection::vec(0u8..4, 0..10),
-            allow_extra_dependency_inputs in any::<bool>(),
-        ) {
-            let requirements = requirement_mutability
-                .iter()
-                .enumerate()
-                .map(|(param_index, mutable)| ObjectParamBindingRequirement {
-                    param_index,
-                    mutable: *mutable,
-                })
-                .collect::<Vec<_>>();
-            let inputs = input_mutability
-                .iter()
-                .enumerate()
-                .map(|(index, mutable)| {
-                    let owner = match owner_selector.get(index).copied().unwrap_or(0) {
-                        0 => Some(ObjectOwnerKind::AddressOwner(format!("0x{:x}", index + 0x100))),
-                        1 => Some(ObjectOwnerKind::Shared),
-                        2 => Some(ObjectOwnerKind::Immutable),
-                        _ => None,
-                    };
-                    policy_object_input(index, *mutable, owner)
-                })
-                .collect::<Vec<_>>();
-
-            let result = MoveRuntime::validate_object_input_bindings(
-                &inputs,
-                &requirements,
-                allow_extra_dependency_inputs,
-            );
-
-            let count_ok = inputs.len() >= requirements.len()
-                && (allow_extra_dependency_inputs || inputs.len() == requirements.len());
-            let per_param_ok = inputs
-                .iter()
-                .zip(requirements.iter())
-                .all(|(input, requirement)| {
-                    (!requirement.mutable || input.mutable)
-                        && input.owner.is_some()
-                        && (!requirement.mutable
-                            || !matches!(input.owner, Some(ObjectOwnerKind::Immutable)))
-                });
-
-            prop_assert_eq!(result.is_ok(), count_ok && per_param_ok);
-        }
-    }
-}
+#[path = "../../tests/unit/binding_tests.rs"]
+mod binding_tests;
 
 #[cfg(test)]
 #[path = "../../tests/unit/move_runtime_tests.rs"]
-mod tests;
+mod move_runtime_tests;

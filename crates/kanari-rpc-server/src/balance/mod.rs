@@ -71,6 +71,7 @@ fn collect_fungible_asset_holders(
     state_guard: &StateManager,
     token_type: &str,
     limit: Option<usize>,
+    compute_coin_count: bool,
 ) -> anyhow::Result<Vec<FungibleAssetHolder>> {
     let token_type = CoinModule::normalize_token_type(token_type);
     let coin_type = CoinModule::coin_type(&token_type);
@@ -86,14 +87,19 @@ fn collect_fungible_asset_holders(
             continue;
         }
 
-        let mut coin_object_count = 0usize;
-        for object_id in state_guard.get_owned_objects(&owner)? {
-            if let Some(object) = state_guard.get_object(&object_id)?
-                && object.type_ == coin_type
-            {
-                coin_object_count += 1;
+        let coin_object_count = if compute_coin_count {
+            let mut count = 0usize;
+            for object_id in state_guard.get_owned_objects(&owner)? {
+                if let Some(object) = state_guard.get_object(&object_id)?
+                    && object.type_ == coin_type
+                {
+                    count += 1;
+                }
             }
-        }
+            count
+        } else {
+            0
+        };
 
         holders.push(FungibleAssetHolder {
             owner: owner.to_hex_literal(),
@@ -264,11 +270,12 @@ pub async fn handle_get_fungible_asset(
         Ok(summary) => summary,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
-    let holders_count =
-        match collect_fungible_asset_holders(&state_guard, &token_type, None).map(|h| h.len()) {
-            Ok(count) => count,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+    let holders_count = match collect_fungible_asset_holders(&state_guard, &token_type, None, false)
+        .map(|h| h.len())
+    {
+        Ok(count) => count,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
     let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
@@ -315,7 +322,7 @@ pub async fn handle_get_fungible_asset_holders(
     let token_type = CoinModule::normalize_token_type(&req_data.token_type);
     let holder_limit = req_data.limit.unwrap_or(100).min(500);
     let holders =
-        match collect_fungible_asset_holders(&state_guard, &token_type, Some(holder_limit)) {
+        match collect_fungible_asset_holders(&state_guard, &token_type, Some(holder_limit), true) {
             Ok(holders) => holders,
             Err(e) => return internal_error_response(request.id, e.to_string()),
         };

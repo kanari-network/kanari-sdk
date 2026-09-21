@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Cryptographic key utilities.
+
 use move_core_types::account_address::AccountAddress;
 
 pub(crate) fn metadata_key(prefix: &[u8], suffix: &str) -> Vec<u8> {

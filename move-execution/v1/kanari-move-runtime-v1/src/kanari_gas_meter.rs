@@ -1,3 +1,5 @@
+//! Gas meter implementation for Kanari Move transactions.
+
 use move_binary_format::errors::{PartialVMError, PartialVMResult};
 use move_core_types::gas_algebra::InternalGas;
 use move_core_types::vm_status::StatusCode;

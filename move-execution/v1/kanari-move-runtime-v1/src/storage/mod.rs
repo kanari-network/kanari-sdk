@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Storage layer abstractions for persistent and in-memory backends.
+
 pub(crate) mod move_vm_state;
 pub(crate) mod object_storage;
 pub mod persistent_store;

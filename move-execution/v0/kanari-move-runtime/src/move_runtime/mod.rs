@@ -154,9 +154,12 @@ impl MoveRuntime {
                 KanariAddress::std_account_address(),
                 move_stdlib_natives::GasParameters::zeros(),
             ),
+            // Node execution prices system natives with the production
+            // schedule; tests/dev tooling (move_cli Test, unit tests) keep
+            // `zeros()` so assertions stay gas-agnostic.
             kanari_system_natives::all_natives(
                 sys_addr,
-                kanari_system_natives::GasParameters::zeros(),
+                kanari_system_natives::GasParameters::production(),
             ),
         ]
     }

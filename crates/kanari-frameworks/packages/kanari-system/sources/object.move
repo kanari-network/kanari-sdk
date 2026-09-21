@@ -1,6 +1,5 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::object {
     use kanari_system::tx_context;
     use kanari_system::tx_context::TxContext;
@@ -10,13 +9,13 @@ module kanari_system::object {
     /// The UID contains an object-style address generated from the
     /// transaction context, ensuring it is unique per creation.
     struct UID has store, drop {
-        addr: address,
+        addr: address
     }
 
     /// ID is a copyable, storable identifier for an object.
     /// It is used to reference objects without requiring ownership of the UID.
     struct ID has copy, drop, store {
-        bytes: address,
+        bytes: address
     }
 
     // --- Public Creator ---
@@ -81,11 +80,11 @@ module kanari_system::object {
     // authorization has completed.
     public native fun save_object<T: key>(obj: &T);
 
-    /// Internal-only legacy loader retained for runtime compatibility.
+    /// Load a mutable object reference from storage.
     ///
-    /// This function is intentionally not public. Arbitrary published modules must
-    /// receive mutable object references as transaction inputs so the trusted runtime
-    /// can authenticate ownership before Move execution begins.
+    /// The runtime authenticates ownership / shared-object authorization
+    /// before resolving the reference (borrowed objects are tracked for
+    /// writeback), so this stays public like `borrow_global`.
     public native fun borrow_global_mut<T: key>(addr: address): &mut T;
 
     /// Load an object from storage by its address and return an immutable reference.
@@ -107,7 +106,7 @@ module kanari_system::object {
         let test_u64 = signer::address_to_u64(test_addr);
 
         let uid = UID { addr: test_addr };
-        
+
         // 1. Check UID address
         assert!(uid_address(&uid) == test_addr, 0);
 
@@ -123,3 +122,4 @@ module kanari_system::object {
         assert!(id_to_address(&created_id) == test_addr, 3);
     }
 }
+

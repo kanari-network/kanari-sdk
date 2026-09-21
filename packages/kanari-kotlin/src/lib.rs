@@ -177,6 +177,194 @@ pub fn derive_multiple_addresses_api(
         .collect())
 }
 
+/// ---- zkLogin (Google OIDC bound to an ephemeral key) ----
+///
+/// Thin FFI over `kanari_crypto::signatures::zklogin`: nonce binding, JWT
+/// verification against a provider JWKS, and v2 address derivation. The
+/// OAuth browser dance stays in Kotlin; Rust owns the crypto vectors so
+/// both sides can never drift.
+/// Verified JWT claims returned to Kotlin.
+#[derive(Serialize, Deserialize, Debug, Clone, uniffi::Record)]
+pub struct ZkLoginClaimsData {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub exp: Option<u64>,
+    pub nonce: Option<String>,
+}
+
+/// Fresh login material: ephemeral pubkey + randomness + nonce.
+///
+/// NOTE: no salt here — the address-salt is the kanari-crypto standard
+/// (`deterministic_salt`, exposed as `zklogin_deterministic_salt`), derived
+/// after the JWT is known. A random salt per prepare would rotate the wallet
+/// address every login, so prepare must not mint one.
+#[derive(Serialize, Deserialize, Debug, Clone, uniffi::Record)]
+pub struct ZkLoginNonceData {
+    pub ephemeral_pubkey: Vec<u8>,
+    pub ephemeral_secret: Vec<u8>,
+    pub randomness: Vec<u8>,
+    pub max_epoch: u64,
+    pub nonce: String,
+}
+
+/// Generate ephemeral keypair + randomness and bind them into a nonce.
+#[uniffi::export]
+pub fn zklogin_prepare_nonce(max_epoch: u64) -> Result<ZkLoginNonceData, String> {
+    use kanari_crypto::signatures::zklogin::{
+        EphemeralKeypair, compute_nonce, generate_randomness,
+    };
+    let ephemeral =
+        EphemeralKeypair::generate().map_err(|e| format!("ephemeral key failed: {e:?}"))?;
+    let randomness = generate_randomness().map_err(|e| format!("randomness failed: {e:?}"))?;
+    let pubkey = ephemeral.public_bytes();
+    let secret = ephemeral.secret_bytes();
+    let nonce = compute_nonce(&pubkey, max_epoch, &randomness);
+    Ok(ZkLoginNonceData {
+        ephemeral_pubkey: pubkey.to_vec(),
+        ephemeral_secret: secret.to_vec(),
+        randomness: randomness.to_vec(),
+        max_epoch,
+        nonce,
+    })
+}
+
+/// Verify an id_token against a provider JWKS (RS256 + iss/aud/exp + nonce).
+#[uniffi::export]
+pub fn zklogin_verify_jwt(
+    jwt: String,
+    jwks_json: String,
+    expected_iss: String,
+    expected_aud: String,
+    expected_nonce: Option<String>,
+    now_secs: u64,
+) -> Result<ZkLoginClaimsData, String> {
+    use kanari_crypto::signatures::zklogin::verify_jwt_with_jwks;
+    let jwks: kanari_crypto::signatures::zklogin::JwksDocument =
+        serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
+    let claims = verify_jwt_with_jwks(
+        &jwt,
+        &jwks,
+        &expected_iss,
+        &expected_aud,
+        expected_nonce.as_deref(),
+        now_secs,
+    )
+    .map_err(|e| format!("JWT verification failed: {e:?}"))?;
+    let aud = claims.aud.as_vec().first().cloned().unwrap_or_default();
+    Ok(ZkLoginClaimsData {
+        iss: claims.iss,
+        aud,
+        sub: claims.sub,
+        exp: claims.exp,
+        nonce: claims.nonce,
+    })
+}
+
+/// Derive the canonical v2 zkLogin address (matches chain + Android).
+#[uniffi::export]
+pub fn zklogin_derive_address(
+    iss: String,
+    aud: String,
+    sub: String,
+    salt: Vec<u8>,
+) -> Result<String, String> {
+    use kanari_crypto::signatures::zklogin::derive_zklogin_address_v2;
+    derive_zklogin_address_v2(&iss, &aud, &sub, &salt)
+        .map_err(|e| format!("address derivation failed: {e:?}"))
+}
+
+/// Canonical zkLogin address-salt (THE primary salt, shared by the CLI and
+/// the Android app): deterministic per (iss, aud, sub), stable across
+/// reinstalls and devices. See
+/// `kanari_crypto::signatures::zklogin::deterministic_salt`.
+#[uniffi::export]
+pub fn zklogin_deterministic_salt(
+    iss: String,
+    aud: String,
+    sub: String,
+) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zklogin::deterministic_salt;
+    deterministic_salt(&iss, &aud, &sub)
+        .map(|s| s.to_vec())
+        .map_err(|e| format!("salt derivation failed: {e:?}"))
+}
+
+/// Build the opaque `ZkLogin:` transaction signature bundle (v1 JSON).
+/// Returns the exact bytes `encode_zklogin_tx_signature` produces so Kotlin
+/// just does `sign(hash)` + this call — no manual JSON.
+#[uniffi::export]
+pub fn zklogin_build_bundle(
+    jwt: String,
+    jwks_json: String,
+    iss: String,
+    aud: String,
+    salt: Vec<u8>,
+    randomness: Vec<u8>,
+    ephemeral_pubkey: Vec<u8>,
+    ephemeral_sig: Vec<u8>,
+    max_epoch: u64,
+) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zk_authenticator::{
+        JwtAuth, ZkAuthKind, ZkLoginAuthenticator, encode_zklogin_tx_signature,
+    };
+    use kanari_crypto::signatures::zklogin::JwksDocument;
+    let jwks: JwksDocument =
+        serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
+    let salt_arr: [u8; 32] = salt
+        .try_into()
+        .map_err(|_| "salt must be 32 bytes".to_string())?;
+    let rand_arr: [u8; 32] = randomness
+        .try_into()
+        .map_err(|_| "randomness must be 32 bytes".to_string())?;
+    let pub_arr: [u8; 32] = ephemeral_pubkey
+        .try_into()
+        .map_err(|_| "ephemeral pubkey must be 32 bytes".to_string())?;
+    let sig_arr: [u8; 64] = ephemeral_sig
+        .try_into()
+        .map_err(|_| "ephemeral sig must be 64 bytes".to_string())?;
+    let auth = ZkLoginAuthenticator {
+        ephemeral_pubkey: pub_arr,
+        ephemeral_sig: sig_arr,
+        max_epoch,
+        kind: ZkAuthKind::Jwt(JwtAuth {
+            jwt,
+            jwks,
+            iss,
+            aud,
+            randomness: rand_arr,
+            salt: salt_arr,
+        }),
+    };
+    encode_zklogin_tx_signature(&auth).map_err(|e| format!("bundle encode failed: {e:?}"))
+}
+
+/// Sign bytes with an ephemeral secret (32 raw bytes from prepare).
+#[uniffi::export]
+pub fn zklogin_sign_ephemeral(secret: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zklogin::EphemeralKeypair;
+    let raw: [u8; 32] = secret
+        .try_into()
+        .map_err(|_| "ephemeral secret must be 32 bytes".to_string())?;
+    let kp = EphemeralKeypair::from_secret(raw).map_err(|e| format!("bad secret: {e:?}"))?;
+    Ok(kp.sign(&message))
+}
+
+/// Verify an ephemeral Ed25519 signature.
+#[uniffi::export]
+pub fn zklogin_verify_ephemeral(
+    pubkey: Vec<u8>,
+    message: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<bool, String> {
+    use kanari_crypto::signatures::zklogin::EphemeralKeypair;
+    match EphemeralKeypair::verify(&pubkey, &message, &signature) {
+        Ok(()) => Ok(true),
+        Err(kanari_crypto::signatures::SignatureError::VerificationFailed) => Ok(false),
+        Err(e) => Err(format!("malformed ephemeral input: {e:?}")),
+    }
+}
+
 /// List all supported curves
 #[uniffi::export]
 pub fn list_supported_curves() -> Vec<CurveInfo> {
@@ -240,5 +428,110 @@ fn parse_curve_type(name: &str) -> Option<CurveType> {
         "Ed25519Dilithium3" => Some(CurveType::Ed25519Dilithium3),
         "K256Dilithium3" => Some(CurveType::K256Dilithium3),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod zklogin_ffi_tests {
+    use super::*;
+
+    /// Cross-language vectors shared with the Android suite and Move tests.
+    /// If any of these change, every consumer must update in lockstep.
+    const NONCE_FIXTURE_PUBKEY: &str =
+        "197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61";
+    const NONCE_FIXTURE_RAND: &str =
+        "0707070707070707070707070707070707070707070707070707070707070707";
+    const NONCE_FIXTURE_EXPECTED: &str =
+        "1bb486c02deef0a4accf5f7c4ca2e7e54ce18cb13b7fa4e193398ebe1b8580fb";
+    const ADDR_FIXTURE_EXPECTED: &str =
+        "0x3bc27fa23ddd2177cb1914572052272ce060182745a576019095c05a70971181";
+    /// Primary-salt vector: `deterministic_salt` for the fixture account.
+    /// CLI + app must both produce this exact salt (hence this address).
+    const SALT_FIXTURE_EXPECTED: &str =
+        "82364ea8d3563ad90cd8876b4242a2d44be88114b1b4ca114b39ca7027617fe0";
+
+    #[test]
+    fn ffi_vectors_match_chain() {
+        use kanari_crypto::signatures::zklogin::compute_nonce;
+        let pubkey = hex::decode(NONCE_FIXTURE_PUBKEY).unwrap();
+        let rand = hex::decode(NONCE_FIXTURE_RAND).unwrap();
+        assert_eq!(compute_nonce(&pubkey, 1000, &rand), NONCE_FIXTURE_EXPECTED);
+        let salt = hex::decode("0909090909090909090909090909090909090909090909090909090909090909")
+            .unwrap();
+        let addr = zklogin_derive_address(
+            "https://accounts.google.com".into(),
+            "kanari-test-client".into(),
+            "1234".into(),
+            salt,
+        )
+        .unwrap();
+        assert_eq!(addr, ADDR_FIXTURE_EXPECTED);
+    }
+
+    #[test]
+    fn ffi_primary_salt_is_deterministic() {
+        let salt = zklogin_deterministic_salt(
+            "https://accounts.google.com".into(),
+            "kanari-test-client".into(),
+            "1234".into(),
+        )
+        .unwrap();
+        assert_eq!(hex::encode(&salt), SALT_FIXTURE_EXPECTED);
+        // Stable + address matches end to end through the FFI itself.
+        let again = zklogin_deterministic_salt(
+            "https://accounts.google.com".into(),
+            "kanari-test-client".into(),
+            "1234".into(),
+        )
+        .unwrap();
+        assert_eq!(salt, again);
+        let addr = zklogin_derive_address(
+            "https://accounts.google.com".into(),
+            "kanari-test-client".into(),
+            "1234".into(),
+            salt,
+        )
+        .unwrap();
+        assert!(addr.starts_with("0x") && addr.len() == 66);
+        // Bad inputs fail closed, never silently truncated.
+        assert!(zklogin_deterministic_salt("".into(), "a".into(), "b".into()).is_err());
+    }
+
+    #[test]
+    fn ffi_prepare_sign_verify_roundtrip() {
+        let prep = zklogin_prepare_nonce(1000).unwrap();
+        assert_eq!(prep.ephemeral_pubkey.len(), 32);
+        assert_eq!(prep.ephemeral_secret.len(), 32);
+        assert_eq!(prep.randomness.len(), 32);
+        // Nonce re-derives from its own parts.
+        use kanari_crypto::signatures::zklogin::compute_nonce;
+        assert_eq!(
+            compute_nonce(&prep.ephemeral_pubkey, 1000, &prep.randomness),
+            prep.nonce
+        );
+        let msg = b"kanari kotlin ffi";
+        let sig = zklogin_sign_ephemeral(prep.ephemeral_secret.clone(), msg.to_vec()).unwrap();
+        assert_eq!(sig.len(), 64);
+        assert!(zklogin_verify_ephemeral(prep.ephemeral_pubkey, msg.to_vec(), sig).unwrap());
+        // Tampered message fails (false, not error).
+        let sig2 = zklogin_sign_ephemeral(prep.ephemeral_secret, msg.to_vec()).unwrap();
+        assert!(
+            !zklogin_verify_ephemeral(
+                zklogin_prepare_nonce(1000).unwrap().ephemeral_pubkey,
+                msg.to_vec(),
+                sig2
+            )
+            .unwrap_or(true)
+        );
+    }
+
+    #[test]
+    fn ffi_rejects_bad_inputs() {
+        assert!(zklogin_derive_address("".into(), "a".into(), "b".into(), vec![0u8; 32]).is_err());
+        assert!(zklogin_derive_address("i".into(), "a".into(), "b".into(), vec![0u8; 16]).is_err());
+        assert!(zklogin_sign_ephemeral(vec![0u8; 16], b"m".to_vec()).is_err());
+        assert!(
+            zklogin_verify_jwt("bad".into(), "{}".into(), "i".into(), "a".into(), None, 0).is_err()
+        );
     }
 }

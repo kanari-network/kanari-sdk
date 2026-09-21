@@ -9,12 +9,12 @@ module kanari_system::collection_usage_tests {
     use kanari_system::tx_context;
 
     struct Host has key, store, drop {
-        id: UID,
+        id: UID
     }
 
     struct Child has key, store, drop {
         id: UID,
-        value: u64,
+        value: u64
     }
 
     fun new_host(ctx: &mut tx_context::TxContext): Host {
@@ -38,7 +38,10 @@ module kanari_system::collection_usage_tests {
         assert!(bag::contains<u64>(bag_ref, 7), 1);
         assert!(bag::contains<bool>(bag_ref, true), 2);
         assert!(*bag::borrow<u64, u64>(bag_ref, 7) == 99, 3);
-        assert!(*bag::borrow<bool, address>(bag_ref, true) == @0x55, 4);
+        assert!(
+            *bag::borrow<bool, address>(bag_ref, true) == @0x55,
+            4
+        );
 
         *bag::borrow_mut<u64, u64>(bag_ref, 7) = 123;
         assert!(*bag::borrow<u64, u64>(bag_ref, 7) == 123, 5);
@@ -101,10 +104,16 @@ module kanari_system::collection_usage_tests {
 
         dynamic_field::add<u64, u64>(&mut host.id, 9, 44);
         assert!(dynamic_field::exists_<u64>(&host.id, 9), 20);
-        assert!(*dynamic_field::borrow<u64, u64>(&host.id, 9) == 44, 21);
+        assert!(
+            *dynamic_field::borrow<u64, u64>(&host.id, 9) == 44,
+            21
+        );
 
         *dynamic_field::borrow_mut<u64, u64>(&mut host.id, 9) = 88;
-        assert!(*dynamic_field::borrow<u64, u64>(&host.id, 9) == 88, 22);
+        assert!(
+            *dynamic_field::borrow<u64, u64>(&host.id, 9) == 88,
+            22
+        );
 
         let removed = dynamic_field::remove<u64, u64>(&mut host.id, 9);
         assert!(removed == 88, 23);
@@ -132,10 +141,16 @@ module kanari_system::collection_usage_tests {
 
         dynamic_object_field::add<u64, Child>(&mut host.id, 3, child);
         assert!(dynamic_object_field::exists_<u64>(&host.id, 3), 30);
-        assert!(dynamic_object_field::borrow<u64, Child>(&host.id, 3).value == 500, 31);
+        assert!(
+            dynamic_object_field::borrow<u64, Child>(&host.id, 3).value == 500,
+            31
+        );
 
         dynamic_object_field::borrow_mut<u64, Child>(&mut host.id, 3).value = 777;
-        assert!(dynamic_object_field::borrow<u64, Child>(&host.id, 3).value == 777, 32);
+        assert!(
+            dynamic_object_field::borrow<u64, Child>(&host.id, 3).value == 777,
+            32
+        );
 
         let removed = dynamic_object_field::remove<u64, Child>(&mut host.id, 3);
         let Child { id, value } = removed;
@@ -165,3 +180,4 @@ module kanari_system::collection_usage_tests {
         assert!(deny_list::contains(denylist_ref, @0x2), 45);
     }
 }
+

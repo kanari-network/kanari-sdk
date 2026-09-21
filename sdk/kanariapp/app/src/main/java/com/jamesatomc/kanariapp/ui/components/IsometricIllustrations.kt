@@ -237,7 +237,11 @@ fun IsometricNetworkOrbit(
                     textAlign = android.graphics.Paint.Align.CENTER
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
-                drawText(label, nx, ny + 3.5.dp.toPx(), paint)
+                // Avoid using nativeCanvas.drawText inside hardware-accelerated Compose structures if causing severe native crashes, 
+                // but let's make sure it doesn't cause canvas issues by checking if size is valid.
+                if (nx.isFinite() && ny.isFinite()) {
+                    drawText(label, nx, ny + 3.5.dp.toPx(), paint)
+                }
             }
         }
     }

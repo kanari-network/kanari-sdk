@@ -161,9 +161,9 @@ pub struct StressTest {
     #[arg(short, long)]
     pub to: String,
 
-    /// Amount in Kanari per transaction (will be converted to Mist)
+    /// Amount in Kanari per transaction (exact decimal, e.g. "0.1")
     #[arg(short, long)]
-    pub amount: f64,
+    pub amount: String,
 
     /// Number of transactions to send (default: 1000)
     #[arg(short, long, default_value_t = 1000)]
@@ -177,9 +177,9 @@ pub struct StressTest {
     #[arg(long)]
     pub faucet: bool,
 
-    /// Faucet amount in Kanari (default: amount * count * 2 to cover all txs + gas)
+    /// Faucet amount in Kanari (exact decimal; default: amount * count * 10)
     #[arg(long)]
-    pub faucet_amount: Option<f64>,
+    pub faucet_amount: Option<String>,
 
     /// Dev faucet address override
     #[arg(long)]
@@ -224,10 +224,10 @@ impl StressTest {
         let wallet = load_wallet_for(&from_addr, Some(self.password.clone()))?;
         let (gas_limit, gas_price) = resolve_transaction_gas(None, None);
 
-        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-        let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
+        let amount_mist = kanari_types::gas_coin::GasModule::parse_kanari_to_mist(&self.amount)
+            .with_context(|| format!("Invalid --amount {:?}", self.amount))?;
         if amount_mist == 0 {
-            bail!("--amount is too small; it rounds to 0 Mist");
+            bail!("--amount must be greater than 0 Mist");
         }
 
         eprintln!("=== Kanari Stress Test ===");
@@ -266,16 +266,24 @@ impl StressTest {
         eprintln!("  Node height: {}", last_observed_height);
 
         if self.faucet {
-            let faucet_amt = self
-                .faucet_amount
-                .unwrap_or((self.amount * self.count as f64) * 10.0);
+            let faucet_mist = match &self.faucet_amount {
+                Some(explicit) => kanari_types::gas_coin::GasModule::parse_kanari_to_mist(explicit)
+                    .with_context(|| format!("Invalid --faucet-amount {explicit:?}"))?,
+                None => amount_mist
+                    .checked_mul(self.count)
+                    .and_then(|total| total.checked_mul(10))
+                    .context("faucet amount overflow")?,
+            };
             eprintln!();
-            eprintln!("--- Faucet: Requesting {:.9} KANARI ---", faucet_amt);
-            match kanari_faucet::request_from_dev(
+            eprintln!(
+                "--- Faucet: Requesting {} KANARI ---",
+                kanari_types::gas_coin::GasModule::format_mist_to_kanari(faucet_mist)
+            );
+            match kanari_faucet::request_from_dev_mist(
                 self.dev_address.as_deref(),
                 self.dev_password.as_deref(),
                 Some(&from_addr),
-                faucet_amt,
+                faucet_mist,
                 &rpc,
             )
             .await
@@ -304,20 +312,20 @@ impl StressTest {
         eprintln!();
         eprintln!("--- Balance check ---");
         eprintln!(
-            "  Native balance: {:.9} KANARI",
-            native_balance as f64 / MIST_PER_KANARI
+            "  Native balance: {} KANARI",
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(native_balance)
         );
         eprintln!(
-            "  Transfer total: {:.9} KANARI",
-            total_needed as f64 / MIST_PER_KANARI
+            "  Transfer total: {} KANARI",
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(total_needed)
         );
         eprintln!(
-            "  Est. gas:       {:.9} KANARI",
-            total_gas as f64 / MIST_PER_KANARI
+            "  Est. gas:       {} KANARI",
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(total_gas)
         );
         eprintln!(
-            "  Required:       {:.9} KANARI",
-            total_required as f64 / MIST_PER_KANARI
+            "  Required:       {} KANARI",
+            kanari_types::gas_coin::GasModule::format_mist_to_kanari(total_required)
         );
         eprintln!(
             "  Native coins:   {} object(s)",
@@ -338,10 +346,10 @@ impl StressTest {
 
         if native_balance < total_required {
             bail!(
-                "Insufficient balance: have {:.9} KANARI, need {:.9} KANARI\n\
+                "Insufficient balance: have {} KANARI, need {} KANARI\n\
                  Use --faucet or request more tokens.",
-                native_balance as f64 / MIST_PER_KANARI,
-                total_required as f64 / MIST_PER_KANARI,
+                kanari_types::gas_coin::GasModule::format_mist_to_kanari(native_balance),
+                kanari_types::gas_coin::GasModule::format_mist_to_kanari(total_required),
             );
         }
 

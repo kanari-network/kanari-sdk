@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Transaction changeset types for tracking object mutations and gas accounting.
+
 use hex;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::coin::TreasuryCap;
@@ -17,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Created object information captured from Move VM write-sets
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct CreatedObject {
     pub owner: AccountAddress,
     pub owner_kind: ObjectOwnerKind,
@@ -31,14 +34,17 @@ pub struct CreatedObject {
 }
 
 impl CreatedObject {
+    /// Returns the owner kind of this object.
     pub fn owner_kind(&self) -> ObjectOwnerKind {
         self.owner_kind.clone()
     }
 
+    /// Returns the hex-encoded Blake3 digest of the object data.
     pub fn digest(&self) -> String {
         format!("0x{}", hex::encode(hash_data_blake3(&self.data)))
     }
 
+    /// Constructs an ObjectRef for this object with the given id, version, and digest.
     pub fn object_ref(&self, object_id: &str) -> ObjectRef {
         ObjectRef::new(
             object_id.to_string(),
@@ -70,6 +76,7 @@ pub struct StateAccessSet {
 }
 
 impl StateAccessSet {
+    /// Returns true if this access set conflicts with another (writes overlap with reads or writes).
     pub fn conflicts_with(&self, other: &Self) -> bool {
         self.writes
             .iter()
@@ -95,10 +102,12 @@ impl OwnerDelta {
         }
     }
 
+    /// Decrements the balance delta by the given amount.
     pub fn debit(&mut self, amount: u64) {
         self.balance_delta -= amount as i128;
     }
 
+    /// Increments the balance delta by the given amount.
     pub fn credit(&mut self, amount: u64) {
         self.balance_delta += amount as i128;
     }
@@ -111,6 +120,7 @@ impl OwnerDelta {
 /// ChangeSet represents all state changes from Move VM execution.
 /// This is the canonical output from Move VM that StateManager will apply.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[must_use]
 pub struct ChangeSet {
     pub owner_deltas: BTreeMap<AccountAddress, OwnerDelta>,
     /// Native gas credits keyed by collector. This is tracked separately from
@@ -296,6 +306,7 @@ impl ChangeSet {
         payment_owner == *owner
     }
 
+    /// Records resolver read keys into the access set.
     pub fn record_resolver_reads<I>(&mut self, reads: I)
     where
         I: IntoIterator<Item = Vec<u8>>,
@@ -365,10 +376,12 @@ impl ChangeSet {
         }
     }
 
+    /// Creates a new empty ChangeSet with default success status.
     pub fn new() -> Self {
         Self::with_status(0, true, None)
     }
 
+    /// Returns a mutable reference to the owner delta for the given address, creating one if absent.
     pub fn get_or_create_owner_delta(&mut self, address: AccountAddress) -> &mut OwnerDelta {
         self.owner_deltas
             .entry(address)
@@ -408,15 +421,18 @@ impl ChangeSet {
         *collected = collected.saturating_add(gas_amount);
     }
 
+    /// Sets the total gas consumed by this execution.
     pub fn set_gas_used(&mut self, gas: u64) {
         self.gas_used = gas;
     }
 
+    /// Marks this execution as failed with the given error message.
     pub fn mark_failed(&mut self, error: String) {
         self.success = false;
         self.error_message = Some(error);
     }
 
+    /// Returns true if this ChangeSet contains no side effects.
     pub fn is_empty(&self) -> bool {
         self.owner_deltas.is_empty()
             && self.native_gas_credits.is_empty()
@@ -566,14 +582,17 @@ impl ChangeSet {
         }
     }
 
+    /// Appends an event to this ChangeSet.
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
     }
 
+    /// Records a Move module/resource write or deletion.
     pub fn record_move_write(&mut self, key: Vec<u8>, value: Option<Vec<u8>>) {
         self.move_writes.insert(key, value);
     }
 
+    /// Records an object deletion by its canonical ID.
     pub fn add_deleted_object(&mut self, object_id: String) {
         self.deleted_objects
             .push(Self::canonicalize_object_id(&object_id));
@@ -585,6 +604,7 @@ impl ChangeSet {
             .unwrap_or_else(|_| object_id.to_string())
     }
 
+    /// Records a treasury cap creation or update for a token type.
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
         self.treasuries
             .push((owner, token_type, TreasuryCap { total_supply }));
@@ -610,6 +630,7 @@ impl ChangeSet {
         }
     }
 
+    /// Records a newly created object with owner, type, data, and optional UID/ID records.
     pub fn add_created_object(
         &mut self,
         owner: AccountAddress,
@@ -667,6 +688,7 @@ impl ChangeSet {
         }
     }
 
+    /// Computes the list of object changes from created and deleted objects.
     pub fn object_changes(&self) -> Vec<ObjectChange> {
         if !self.explicit_object_changes.is_empty() {
             return self.explicit_object_changes.clone();
@@ -674,6 +696,12 @@ impl ChangeSet {
         let mut changes = Vec::new();
 
         for (object_id, created) in &self.created_objects {
+            // NOTE: version <= 1 is a heuristic to distinguish Created vs Mutated.
+            // Objects created by parse_move_changeset start at version 0.
+            // Objects created by upsert_created_object use existing.version + 1.
+            // A re-created object after deletion would start at version 1 again,
+            // but this is extremely rare in practice. A proper fix would add an
+            // explicit `is_new` flag to CreatedObject.
             let change_type = if created.version <= 1 {
                 ObjectChangeKind::Created
             } else {
@@ -716,6 +744,7 @@ impl ChangeSet {
         changes
     }
 
+    /// Builds the full TransactionEffects from this ChangeSet.
     pub fn effects(&self, gas_payment: Option<GasPayment>) -> TransactionEffects {
         let object_changes = self.object_changes();
         let mut created = Vec::new();
@@ -859,6 +888,7 @@ impl ChangeSet {
         }
     }
 
+    /// Sets input object references, gas payment, and partitions shared/immutable inputs.
     pub fn set_transaction_context(
         &mut self,
         object_inputs: Vec<ObjectInput>,
@@ -882,6 +912,7 @@ impl ChangeSet {
         self.gas_payment = gas_payment;
     }
 
+    /// Replaces the explicit object changes with the provided list.
     pub fn set_explicit_object_changes(&mut self, object_changes: Vec<ObjectChange>) {
         self.explicit_object_changes = object_changes;
     }

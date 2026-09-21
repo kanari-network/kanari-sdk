@@ -16,6 +16,7 @@ description.workspace = true
 tokio = { workspace = true, features = ["full"] }
 
 # Serialization
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 # Error handling
@@ -28,6 +29,9 @@ reqwest = { workspace = true, features = ["blocking", "json"] }
 
 # Cryptography
 hex = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+ark-std = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["derive"] }

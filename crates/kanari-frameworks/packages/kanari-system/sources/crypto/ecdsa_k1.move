@@ -28,7 +28,6 @@ module kanari_system::ecdsa_k1 {
     /// Error if the public key is invalid.
     const ErrorInvalidPubKey: u64 = 3;
 
-
     #[allow(unused_const)]
     /// Error if the x only public key is invalid.
     const ErrorInvalidXOnlyPubKey: u64 = 5;
@@ -74,7 +73,9 @@ module kanari_system::ecdsa_k1 {
     /// If the signature is valid, return the corresponding recovered Secpk256k1 public
     /// key, otherwise throw error. This is similar to ecrecover in Ethereum, can only be
     /// applied to Ecdsa signatures.
-    native public fun ecrecover(signature: &vector<u8>, msg: &vector<u8>, hash: u8): vector<u8>;
+    native public fun ecrecover(
+        signature: &vector<u8>, msg: &vector<u8>, hash: u8
+    ): vector<u8>;
 
     /// @param pubkey: A 33-bytes compressed public key, a prefix either 0x02 or 0x03 and a 256-bit integer.
     ///
@@ -94,14 +95,16 @@ module kanari_system::ecdsa_k1 {
         signature: &vector<u8>,
         public_key: &vector<u8>,
         msg: &vector<u8>,
-        hash: u8,
+        hash: u8
     ): bool;
 
     #[test]
     fun test_verify_ecdsa_success() {
         let msg = x"00010203";
-        let pubkey = x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
-        let sig = x"416a21d50b3c838328d4f03213f8ef0c3776389a972ba1ecd37b56243734eba208ea6aaa6fc076ad7accd71d355f693a6fe54fe69b3c168eace9803827bc9046";
+        let pubkey =
+            x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
+        let sig =
+            x"416a21d50b3c838328d4f03213f8ef0c3776389a972ba1ecd37b56243734eba208ea6aaa6fc076ad7accd71d355f693a6fe54fe69b3c168eace9803827bc9046";
         let result = verify(&sig, &pubkey, &msg, SHA256);
         assert!(result, 0);
     }
@@ -110,53 +113,60 @@ module kanari_system::ecdsa_k1 {
     fun test_verify_schnorr_success() {
         let msg = x"f08285dc969c9cdfa65a5a29dc592371acb80534ae301965f38b0583817ea33f";
         let pubkey = x"cddcc4a1d4a94d627e7808f904d0477cf16ae9d4fafa1eb883ab7a498bdda777";
-        let sig = x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
+        let sig =
+            x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
         let result = verify(&sig, &pubkey, &msg, SHA256);
         assert!(result, 1)
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidSignature)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidSignature)]
     fun test_verify_ecdsa_fails_invalid_sig() {
         let msg = x"00010203";
-        let pubkey = x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
+        let pubkey =
+            x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
         let sig = x"";
         verify(&sig, &pubkey, &msg, SHA256);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidPubKey)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidPubKey)]
     fun test_verify_ecdsa_fails_invalid_pubkey() {
         let msg = x"00010203";
-        let pubkey = x"133e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
-        let sig = x"416a21d50b3c838328d4f03213f8ef0c3776389a972ba1ecd37b56243734eba208ea6aaa6fc076ad7accd71d355f693a6fe54fe69b3c168eace9803827bc9046";
+        let pubkey =
+            x"133e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
+        let sig =
+            x"416a21d50b3c838328d4f03213f8ef0c3776389a972ba1ecd37b56243734eba208ea6aaa6fc076ad7accd71d355f693a6fe54fe69b3c168eace9803827bc9046";
         verify(&sig, &pubkey, &msg, SHA256);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidSchnorrSignature)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidSchnorrSignature)]
     fun test_verify_schnorr_fails_invalid_sig() {
         let msg = x"f08285dc969c9cdfa65a5a29dc592371acb80534ae301965f38b0583817ea33f";
         let pubkey = x"cddcc4a1d4a94d627e7808f904d0477cf16ae9d4fafa1eb883ab7a498bdda777";
-        let sig = x"0c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd12";
+        let sig =
+            x"0c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd12";
         verify(&sig, &pubkey, &msg, SHA256);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidMessage)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidMessage)]
     fun test_verify_schnorr_fails_invalid_message() {
         let msg = x"00010203";
         let pubkey = x"cddcc4a1d4a94d627e7808f904d0477cf16ae9d4fafa1eb883ab7a498bdda777";
-        let sig = x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
+        let sig =
+            x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
         verify(&sig, &pubkey, &msg, SHA256);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidXOnlyPubKey)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidXOnlyPubKey)]
     fun test_verify_schnorr_fails_invalid_x_only_pubkey() {
         let msg = x"f08285dc969c9cdfa65a5a29dc592371acb80534ae301965f38b0583817ea33f";
         let pubkey = x"5e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
-        let sig = x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
+        let sig =
+            x"6c2565ceabff153609aa9ccdeb13421a1181a54d0ca4fe10cd074b0c2da44c641c98992701c9a4d3e24391db3e358eff190510be46e73d0e517d5e5b13bb06fd";
         verify(&sig, &pubkey, &msg, SHA256);
     }
 
@@ -166,41 +176,47 @@ module kanari_system::ecdsa_k1 {
         let msg = b"Hello, world!";
 
         // recover with keccak256 hash
-        let sig = x"7e4237ebfbc36613e166bfc5f6229360a9c1949242da97ca04867e4de57b2df30c8340bcb320328cf46d71bda51fcb519e3ce53b348eec62de852e350edbd88600";
-        let pubkey_bytes = x"02337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c";
+        let sig =
+            x"7e4237ebfbc36613e166bfc5f6229360a9c1949242da97ca04867e4de57b2df30c8340bcb320328cf46d71bda51fcb519e3ce53b348eec62de852e350edbd88600";
+        let pubkey_bytes =
+            x"02337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c";
         let pubkey = ecrecover(&sig, &msg, KECCAK256);
         assert!(pubkey == pubkey_bytes, 0);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorFailToRecoverPubKey)]
+    #[expected_failure(location = Self, abort_code = ErrorFailToRecoverPubKey)]
     fun test_ecrecover_pubkey_fail_to_recover() {
         let msg = x"00";
-        let sig = x"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let sig =
+            x"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
         ecrecover(&sig, &msg, KECCAK256);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidSignature)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidSignature)]
     fun test_ecrecover_pubkey_invalid_sig() {
         let msg = b"Hello, world!";
         // incorrect length sig
-        let sig = x"7e4237ebfbc36613e166bfc5f6229360a9c1949242da97ca04867e4de57b2df30c8340bcb320328cf46d71bda51fcb519e3ce53b348eec62de852e350edbd886";
+        let sig =
+            x"7e4237ebfbc36613e166bfc5f6229360a9c1949242da97ca04867e4de57b2df30c8340bcb320328cf46d71bda51fcb519e3ce53b348eec62de852e350edbd886";
         ecrecover(&sig, &msg, KECCAK256);
     }
 
     #[test]
     fun test_decompress_pubkey() {
-        let pubkey = x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
+        let pubkey =
+            x"033e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
         assert!(std::vector::length(&pubkey) == 33, 0);
         let pubkey_decompressed = decompress_pubkey(&pubkey);
         assert!(std::vector::length(&pubkey_decompressed) == 65, 0);
     }
 
     #[test]
-    #[expected_failure(location=Self, abort_code = ErrorInvalidPubKey)]
+    #[expected_failure(location = Self, abort_code = ErrorInvalidPubKey)]
     fun test_decompress_pubkey_invalid_pubkey() {
-        let pubkey = x"013e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
+        let pubkey =
+            x"013e99a541db69bd32040dfe5037fbf5210dafa8151a71e21c5204b05d95ce0a62";
         decompress_pubkey(&pubkey);
     }
 
@@ -208,7 +224,8 @@ module kanari_system::ecdsa_k1 {
     fun test_ecrecover_eth_address() {
         // recover with keccak256 hash from ecrecover_eth_address function
         let msg = b"Hello, world!";
-        let sig = x"e5847245b38548547f613aaea3421ad47f5b95a222366fb9f9b8c57568feb19c7077fc31e7d83e00acc1347d08c3e1ad50a4eeb6ab044f25c861ddc7be5b8f9f01";
+        let sig =
+            x"e5847245b38548547f613aaea3421ad47f5b95a222366fb9f9b8c57568feb19c7077fc31e7d83e00acc1347d08c3e1ad50a4eeb6ab044f25c861ddc7be5b8f9f01";
         let eth_address = x"4259abf3f34ab0e5a399494cb1e9a7f8465ae4d6";
         let addr = ecrecover_eth_address(sig, msg);
         assert!(addr == eth_address, 0);
@@ -256,3 +273,4 @@ module kanari_system::ecdsa_k1 {
         addr
     }
 }
+

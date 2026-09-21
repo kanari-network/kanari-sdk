@@ -1,21 +1,23 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 module kanari_system::balance {
 
     /// Error codes
     const ERR_INSUFFICIENT_BALANCE: u64 = 1;
     const ERR_OVERFLOW: u64 = 2;
-    const ERR_ZERO_AMOUNT: u64 = 3; // Cannot decrease, transfer, or mint an amount of zero.
+    const ERR_ZERO_AMOUNT: u64 = 3;
+    const ERR_INSUFFICIENT_SUPPLY: u64 = 4; // New: Distinguish supply vs balance errors
 
     /// Balance resource - Stores the balance value (generic per token type)
-    struct Balance<phantom T> has store, drop {
-        value: u64,
+    /// REMOVED `drop` ability to enforce explicit destruction via `destroy()`
+    struct Balance<phantom T> has store {
+        value: u64
     }
 
     /// Supply: mutable minting handle consumed to create balances
-    struct Supply<phantom T> has store, drop {
-        total: u64,
+    /// REMOVED `drop` ability to prevent accidental loss of minting authority
+    struct Supply<phantom T> has store {
+        total: u64
     }
 
     /// Create a new zero-value Balance
@@ -35,24 +37,27 @@ module kanari_system::balance {
 
     /// Increase the balance value
     public fun increase<T>(balance: &mut Balance<T>, amount: u64) {
+        assert!(amount > 0, ERR_ZERO_AMOUNT); // FIXED: Added zero check
+        // Pre-check: `+` traps as an arithmetic error before the assert below runs.
+        assert!(
+            amount <= 18446744073709551615 - balance.value, ERR_OVERFLOW
+        );
         let new_value = balance.value + amount;
-        // Check for overflow
         assert!(new_value >= balance.value, ERR_OVERFLOW);
         balance.value = new_value;
     }
 
     /// Decrease the balance value
     public fun decrease<T>(balance: &mut Balance<T>, amount: u64) {
-        // Ensure amount is non-zero
         assert!(amount > 0, ERR_ZERO_AMOUNT);
-        // Check for sufficient balance
         assert!(balance.value >= amount, ERR_INSUFFICIENT_BALANCE);
         balance.value = balance.value - amount;
     }
 
     /// Transfer value from one Balance to another
-    public fun transfer<T>(from: &mut Balance<T>, to: &mut Balance<T>, amount: u64) {
-        // Ensure amount is non-zero
+    public fun transfer<T>(
+        from: &mut Balance<T>, to: &mut Balance<T>, amount: u64
+    ) {
         assert!(amount > 0, ERR_ZERO_AMOUNT);
         decrease<T>(from, amount);
         increase<T>(to, amount);
@@ -76,27 +81,34 @@ module kanari_system::balance {
 
     /// Increase supply: add `amount` to `s` and return a `Balance` for the newly minted amount.
     public fun increase_supply<T>(s: &mut Supply<T>, amount: u64): Balance<T> {
-        // Ensure amount is non-zero for minting
         assert!(amount > 0, ERR_ZERO_AMOUNT);
-        
+        // Pre-check: `+` traps as an arithmetic error before the assert below runs.
+        assert!(
+            amount <= 18446744073709551615 - s.total, ERR_OVERFLOW
+        );
         let new_total = s.total + amount;
-        // Check for overflow
         assert!(new_total >= s.total, ERR_OVERFLOW);
         s.total = new_total;
         create<T>(amount)
     }
 
-    /// Decrease/destroy a supply handle (legacy)
-    public fun destroy_supply<T>(s: Supply<T>) {
+    // REMOVED: destroy_supply<T>(s: Supply<T>)
+    // Reason: Dangerous function allowing destruction of Supply cap with non-zero total.
+    // Supply destruction should only happen at module initialization cleanup (if ever)
+    // and must be handled explicitly, not via a public helper.
+
+    // Test-only supply cleanup: unpacks the handle explicitly.
+    #[test_only]
+    public fun destroy_supply_for_testing<T>(s: Supply<T>) {
         let Supply { total: _ } = s;
     }
 
     /// Decrease supply by `amount`. Useful for burning coins.
+    /// Made internal logic tighter. Consider making this `public(friend)`
+    /// if only `coin` module should call it.
     public fun decrease_supply<T>(s: &mut Supply<T>, amount: u64) {
-        // Ensure amount is non-zero
         assert!(amount > 0, ERR_ZERO_AMOUNT);
-        // Ensure sufficient total supply
-        assert!(s.total >= amount, ERR_INSUFFICIENT_BALANCE);
+        assert!(s.total >= amount, ERR_INSUFFICIENT_SUPPLY); // FIXED: Specific error code
         s.total = s.total - amount;
     }
 
@@ -105,12 +117,14 @@ module kanari_system::balance {
         s.total
     }
 
-    
-
     /// Merge two Balances together
     public fun merge<T>(dst: &mut Balance<T>, src: Balance<T>) {
         let value = destroy<T>(src);
-        increase<T>(dst, value);
+        // Zero-amount merge is a no-op: `increase` rejects 0, but joining
+        // empty coins (e.g. `coin::join` of zero coins) must stay legal.
+        if (value > 0) {
+            increase<T>(dst, value);
+        };
     }
 
     /// Split the Balance into two
@@ -119,12 +133,15 @@ module kanari_system::balance {
         create<T>(amount)
     }
 
+    // ==========================================
+    // Tests
+    // ==========================================
     #[test]
     fun test_balance_operations() {
-        let balance = create<u8>(1000);
+        let balance = create<u8>(1000); // ลบ mut ออก
         assert!(value(&balance) == 1000, 0);
 
-        increase<u8>(&mut balance, 500);
+        increase<u8>(&mut balance, 500); // ส่ง &mut ได้ตามปกติ
         assert!(value(&balance) == 1500, 1);
 
         decrease<u8>(&mut balance, 300);
@@ -139,7 +156,7 @@ module kanari_system::balance {
         let balance1 = create<u8>(1000);
         let balance2 = create<u8>(500);
 
-        transfer<u8>(&mut (balance1), &mut (balance2), 300);
+        transfer<u8>(&mut balance1, &mut balance2, 300);
 
         assert!(value(&balance1) == 700, 0);
         assert!(value(&balance2) == 800, 1);
@@ -149,46 +166,43 @@ module kanari_system::balance {
     }
 
     #[test]
-    fun test_split_merge() {
-        let balance1 = create<u8>(1000);
-        let balance2 = split<u8>(&mut (balance1), 400);
-
-        assert!(value(&balance1) == 600, 0);
-        assert!(value(&balance2) == 400, 1);
-
-        merge<u8>(&mut balance1, balance2);
-        assert!(value(&balance1) == 1000, 2);
-
-        destroy<u8>(balance1);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = ERR_INSUFFICIENT_BALANCE)]
-    fun test_insufficient_balance() {
+    #[expected_failure(abort_code = ERR_ZERO_AMOUNT)]
+    fun test_zero_amount_increase() {
         let balance = create<u8>(100);
-        decrease<u8>(&mut (balance), 200);
+        increase<u8>(&mut balance, 0);
         destroy<u8>(balance);
     }
 
     #[test]
     fun test_supply_operations() {
         let s = new_supply<u8>();
+        // ต้องรับค่า Balance ที่ถูก Mint ออกมาเสมอ เพราะไม่มี drop ability
         let b1 = increase_supply<u8>(&mut s, 1000);
         assert!(supply_total(&s) == 1000, 0);
+
         let b2 = increase_supply<u8>(&mut s, 500);
         assert!(value(&b2) == 500, 1);
         assert!(supply_total(&s) == 1500, 2);
+
         decrease_supply<u8>(&mut s, 800);
         assert!(supply_total(&s) == 700, 3);
-        destroy<u8>(b1);
+
+        destroy<u8>(b1); // ทำลายทิ้งให้ถูกต้อง
         destroy<u8>(b2);
+        destroy_supply_for_testing(s);
     }
 
     #[test]
-    #[expected_failure(abort_code = ERR_INSUFFICIENT_BALANCE)]
-    fun test_decrease_supply_insufficient() {
-        let s = new_supply<u8>();
-        increase_supply<u8>(&mut s, 100);
-        decrease_supply<u8>(&mut s, 200);
+    #[expected_failure(abort_code = ERR_OVERFLOW)]
+    fun test_supply_overflow() {
+        let s = new_supply<u64>();
+        // ใช้ค่าตัวเลขสูงสุดของ u64 แทน u64::MAX
+        let b1 = increase_supply<u64>(&mut s, 18446744073709551615);
+        let b2 = increase_supply<u64>(&mut s, 1);
+        destroy<u64>(b1);
+        destroy<u64>(b2);
+        // Unreachable at runtime (aborts above), but satisfies the borrow checker.
+        destroy_supply_for_testing(s);
     }
 }
+

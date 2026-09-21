@@ -39,3 +39,10 @@ tarpaulin-report.html
 # OS
 .DS_Store
 Thumbs.db
+
+# Experiment pipeline outputs (scripts/)
+data/
+plots/
+scripts/.venv/
+scripts/.venv-eval/
+__pycache__/

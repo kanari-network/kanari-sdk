@@ -46,6 +46,45 @@ mod tests {
         assert_eq!(params.ed25519_dilithium3_verify, 0.into());
         assert_eq!(params.k256_dilithium3_verify, 0.into());
         assert_eq!(params.rs256_verify, 0.into());
+        assert_eq!(params.zklogin_verify, 0.into());
+        assert_eq!(params.zklogin_proof_verify, 0.into());
+    }
+
+    /// Production schedule must leave no native free: a zero cost is a DoS
+    /// hole. Fails loudly if anyone adds a field without pricing it.
+    /// Ordering mirrors measured cost (see `production()` doc table).
+    #[test]
+    fn test_gas_parameters_production() {
+        use move_core_types::gas_algebra::InternalGas;
+        let p = crate::crypto::GasParameters::production();
+        let fees: &[(&str, InternalGas)] = &[
+            ("ecrecover", p.ecrecover),
+            ("decompress_pubkey", p.decompress_pubkey),
+            ("verify_k1", p.verify_k1),
+            ("verify_r1", p.verify_r1),
+            ("ed25519_verify", p.ed25519_verify),
+            ("dilithium2_verify", p.dilithium2_verify),
+            ("dilithium3_verify", p.dilithium3_verify),
+            ("dilithium5_verify", p.dilithium5_verify),
+            ("sphincs_verify", p.sphincs_plus_sha256_robust_verify),
+            ("falcon512_verify", p.falcon512_verify),
+            ("falcon1024_verify", p.falcon1024_verify),
+            ("ed25519_dilithium3_verify", p.ed25519_dilithium3_verify),
+            ("k256_dilithium3_verify", p.k256_dilithium3_verify),
+            ("rs256_verify", p.rs256_verify),
+            ("zklogin_verify", p.zklogin_verify),
+            ("zklogin_proof_verify", p.zklogin_proof_verify),
+        ];
+        assert_eq!(fees.len(), 16);
+        for (name, fee) in fees {
+            assert!(u64::from(*fee) > 0, "production fee for {name} is zero");
+        }
+        // Spot-check measured order: pairing >> RSA-class > ed25519.
+        let at = |i: usize| u64::from(fees[i].1);
+        let idx = |name: &str| fees.iter().position(|(n, _)| *n == name).unwrap();
+        assert!(at(idx("zklogin_proof_verify")) > at(idx("zklogin_verify")));
+        assert!(at(idx("zklogin_verify")) > at(idx("ed25519_verify")));
+        assert!(at(idx("sphincs_verify")) > at(idx("dilithium2_verify")));
     }
 
     #[test]

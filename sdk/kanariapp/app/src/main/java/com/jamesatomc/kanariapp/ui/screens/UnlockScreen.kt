@@ -10,7 +10,7 @@ import com.jamesatomc.kanariapp.ui.components.PinVerificationContent
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
 import com.jamesatomc.kanariapp.ui.components.findFragmentActivity
 import com.jamesatomc.kanariapp.ui.components.rememberBiometricAvailable
-import com.jamesatomc.kanariapp.ui.components.showBiometricPrompt
+import com.jamesatomc.kanariapp.ui.components.rememberBiometricPromptLauncher
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 @Composable
@@ -20,19 +20,14 @@ fun UnlockScreen(viewModel: WalletViewModel, onUnlockSuccess: () -> Unit, onBack
     val canUseBiometric = rememberBiometricAvailable(viewModel)
     val scope = rememberCoroutineScope()
 
-    fun onBiometric() {
-        if (activity == null) return
-        showBiometricPrompt(
-            activity = activity,
-            title = "Unlock Kanari Wallet",
-            subtitle = "Use biometrics to unlock",
-            onSuccess = {
-                scope.launch {
-                    if (viewModel.unlockWithBiometric()) onUnlockSuccess()
-                }
-            }
-        )
-    }
+    val onBiometric = rememberBiometricPromptLauncher(
+        activity = activity,
+        title = "Unlock Kanari Wallet",
+        subtitle = "Use biometrics to unlock",
+        onSuccess = {
+            scope.launch { if (viewModel.unlockWithBiometric()) onUnlockSuccess() }
+        },
+    )
 
     ScaffoldWithBackBar(title = "Unlock Wallet", onBack = onBack) { padding ->
         PinVerificationContent(
@@ -41,7 +36,7 @@ fun UnlockScreen(viewModel: WalletViewModel, onUnlockSuccess: () -> Unit, onBack
             onVerifyAsync = { pin -> viewModel.unlock(pin) },
             onSuccess = { _: String -> onUnlockSuccess() },
             biometricEnabled = canUseBiometric,
-            onBiometric = ::onBiometric,
+            onBiometric = onBiometric,
             modifier = Modifier.fillMaxSize().padding(padding)
         )
     }

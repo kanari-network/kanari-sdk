@@ -20,12 +20,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
-import com.jamesatomc.kanariapp.ui.components.formatAmount
+import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,7 +56,10 @@ fun HistoryScreen(viewModel: WalletViewModel) {
             emptyText = "No Transactions Yet",
             modifier = Modifier.padding(padding)
         ) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 110.dp) // Space for the floating NavigationBar
+            ) {
                 items(transactions, key = { it.hash }) { tx ->
                     HistoryItem(tx, tx.isIncomingTo(activeWallet?.address), onClick = { selectedTx = tx })
                 }
@@ -79,26 +83,53 @@ private fun TransactionDetails.isIncomingTo(walletAddress: String?): Boolean {
 @Composable
 fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(tx.txType) },
+        headlineContent = { Text(tx.txType, fontWeight = FontWeight.SemiBold) },
         supportingContent = {
             Text(
-                if (isIncoming) "From: ${tx.sender.take(8)}..." else "Sent • ${tx.status}",
-                maxLines = 1
+                if (isIncoming) "From: ${tx.sender.take(12)}..." else "Sent • ${tx.status}",
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall
             )
         },
         leadingContent = {
-            Icon(
-                imageVector = if (isIncoming) Icons.Default.SouthWest else Icons.Default.NorthEast,
-                contentDescription = null,
-                tint = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-            )
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = (if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error).copy(alpha = 0.1f),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isIncoming) Icons.Default.SouthWest else Icons.Default.NorthEast,
+                        contentDescription = null,
+                        tint = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         },
         trailingContent = {
-            val gasAmount = tx.effects?.gasUsed ?: tx.gasUsed ?: 0L
-            Text(
-                text = "${if (isIncoming) "+" else "-"}${formatAmount(gasAmount, 9, 2)}",
-                color = if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
+            val isTransfer = tx.transferAmount != null
+            val displayAmount = tx.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
+            val displayDecimals = tx.decimals ?: 9
+            val tokenSymbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "${if (isIncoming) "+" else "-"}${formatAmountExact(displayAmount.toLong(), displayDecimals)}",
+                    color = if (isIncoming) MaterialTheme.colorScheme.primary else if (isTransfer) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+                Text(
+                    text = tokenSymbol,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+            }
         },
         modifier = Modifier.clickable(onClick = onClick)
     )
@@ -120,17 +151,28 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             }
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
+        
+        tx.transferAmount?.let { amt ->
+            val symbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+            DetailRowShared(
+                label = "Transfer Amount",
+                value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + symbol
+            )
+        }
+        tx.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
+        tx.recipient?.let { CopyableDetailRow(label = "Recipient", value = it) }
+
         CopyableDetailRow(label = "Hash", value = tx.hash)
         CopyableDetailRow(label = "Sender", value = tx.sender)
         tx.senderAddress?.let { CopyableDetailRow(label = "Sender Address", value = it) }
         tx.module?.let { DetailRowShared(label = "Module", value = it) }
         tx.function?.let { DetailRowShared(label = "Function", value = it) }
-        DetailRowShared(label = "Nonce", value = tx.nonce.toString())
+        DetailRowShared(label = "Nonce", value = tx.nonce?.toString() ?: "N/A")
         DetailRowShared(label = "Gas Limit", value = tx.gasLimit.toString())
         DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
+        tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatAmountExact(it, 9) + " KANARI") }
         tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
         tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }
-        tx.checkpointHeight?.let { DetailRowShared(label = "Checkpoint", value = it.toString()) }
         tx.effects?.let { eff ->
             DetailRowShared(label = "Effects Status", value = eff.status)
             DetailRowShared(label = "Effects Gas", value = eff.gasUsed.toString())

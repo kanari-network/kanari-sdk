@@ -27,9 +27,11 @@ pub const E_INVALID_PUBKEY: u64 = 2;
 pub const E_INVALID_HASH_TYPE: u64 = 3;
 pub const E_INVALID_MESSAGE_LENGTH: u64 = 4;
 
-// Constants from Move module
+// Constants from Move module (must match `kanari_system::rs256` and
+// `kanari_crypto::cryptos::verify_rs256_prehash_native`, which caps keys
+// at 512 bytes / 4096 bits).
 const RSASSA_PKCS1_V1_5_MINIMUM_MODULUS_LENGTH: u64 = 2048; // bits
-const RSASSA_PKCS1_V1_5_MAXIMUM_MODULUS_LENGTH: u64 = 8192; // bits
+const RSASSA_PKCS1_V1_5_MAXIMUM_MODULUS_LENGTH: u64 = 4096; // bits
 const RSASSA_PKCS1_V1_5_MINIMUM_EXPONENT_LENGTH: u64 = 1; // bytes
 const RSASSA_PKCS1_V1_5_MAXIMUM_EXPONENT_LENGTH: u64 = 512; // bytes
 const SHA256_MESSAGE_LENGTH: u64 = 32; // bytes
