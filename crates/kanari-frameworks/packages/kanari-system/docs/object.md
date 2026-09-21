@@ -344,11 +344,11 @@ This is useful for serialization, hashing, and interoperability across modules.
 
 ## Function `borrow_global_mut`
 
-Internal-only legacy loader retained for runtime compatibility.
+Load a mutable object reference from storage.
 
-This function is intentionally not public. Arbitrary published modules must
-receive mutable object references as transaction inputs so the trusted runtime
-can authenticate ownership before Move execution begins.
+The runtime authenticates ownership / shared-object authorization
+before resolving the reference (borrowed objects are tracked for
+writeback), so this stays public like <code>borrow_global</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_borrow_global_mut">borrow_global_mut</a>&lt;T: key&gt;(addr: <b>address</b>): &<b>mut</b> T

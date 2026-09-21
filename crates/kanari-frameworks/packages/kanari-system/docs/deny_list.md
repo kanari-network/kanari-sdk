@@ -11,6 +11,8 @@
 -  [Function `new_denycap`](#0x2_deny_list_new_denycap)
 -  [Function `deny_list_add`](#0x2_deny_list_deny_list_add)
 -  [Function `deny_list_remove`](#0x2_deny_list_deny_list_remove)
+-  [Function `contains`](#0x2_deny_list_contains)
+-  [Function `length`](#0x2_deny_list_length)
 
 
 <pre><code><b>use</b> <a href="dependencies/move-stdlib/vector.md#0x1_vector">0x1::vector</a>;
@@ -93,7 +95,9 @@ Create a new empty DenyList
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_new_denylist">new_denylist</a>(): <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> {
-    <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> { addresses: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<b>address</b>&gt;() }
+    <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> {
+        addresses: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<b>address</b>&gt;()
+    }
 }
 </code></pre>
 
@@ -144,10 +148,12 @@ Add an address to the deny list
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_add">deny_list_add</a>&lt;T&gt;(
+    d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext
+) {
     // Check <b>if</b> <b>address</b> already exists in the deny list
     <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses);
-    <b>let</b>  i = 0;
+    <b>let</b> i = 0;
     <b>while</b> (i &lt; len) {
         <b>let</b> existing_addr = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&d.addresses, i);
         <b>if</b> (existing_addr == addr) {
@@ -182,7 +188,9 @@ Remove an address from the deny list
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_deny_list_remove">deny_list_remove</a>&lt;T&gt;(
+    d: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, _cap: &<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> TxContext
+) {
     <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses);
     <b>let</b> i = 0;
     <b>while</b> (i &lt; len) {
@@ -195,6 +203,64 @@ Remove an address from the deny list
         i = i + 1;
     };
     // If <b>address</b> not found, do nothing (no-op)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_deny_list_contains"></a>
+
+## Function `contains`
+
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_contains">contains</a>(d: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, addr: <b>address</b>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_contains">contains</a>(d: &<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>, addr: <b>address</b>): bool {
+    <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses);
+    <b>let</b> i = 0;
+    <b>while</b> (i &lt; len) {
+        <b>let</b> existing_addr = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&d.addresses, i);
+        <b>if</b> (existing_addr == addr) {
+            <b>return</b> <b>true</b>
+        };
+        i = i + 1;
+    };
+    <b>false</b>
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_deny_list_length"></a>
+
+## Function `length`
+
+Length of the deny list (public read API).
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_length">length</a>(d: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_length">length</a>(d: &<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>): u64 {
+    <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&d.addresses)
 }
 </code></pre>
 

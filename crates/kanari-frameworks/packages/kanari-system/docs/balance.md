@@ -18,7 +18,6 @@
 -  [Function `destroy`](#0x2_balance_destroy)
 -  [Function `new_supply`](#0x2_balance_new_supply)
 -  [Function `increase_supply`](#0x2_balance_increase_supply)
--  [Function `destroy_supply`](#0x2_balance_destroy_supply)
 -  [Function `decrease_supply`](#0x2_balance_decrease_supply)
 -  [Function `supply_total`](#0x2_balance_supply_total)
 -  [Function `merge`](#0x2_balance_merge)
@@ -34,9 +33,10 @@
 ## Struct `Balance`
 
 Balance resource - Stores the balance value (generic per token type)
+REMOVED <code>drop</code> ability to enforce explicit destruction via <code><a href="balance.md#0x2_balance_destroy">destroy</a>()</code>
 
 
-<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; <b>has</b> drop, store
+<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; <b>has</b> store
 </code></pre>
 
 
@@ -62,9 +62,10 @@ Balance resource - Stores the balance value (generic per token type)
 ## Struct `Supply`
 
 Supply: mutable minting handle consumed to create balances
+REMOVED <code>drop</code> ability to prevent accidental loss of minting authority
 
 
-<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; <b>has</b> drop, store
+<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; <b>has</b> store
 </code></pre>
 
 
@@ -90,6 +91,15 @@ Supply: mutable minting handle consumed to create balances
 ## Constants
 
 
+<a name="0x2_balance_ERR_OVERFLOW"></a>
+
+
+
+<pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 2;
+</code></pre>
+
+
+
 <a name="0x2_balance_ERR_INSUFFICIENT_BALANCE"></a>
 
 Error codes
@@ -100,11 +110,11 @@ Error codes
 
 
 
-<a name="0x2_balance_ERR_OVERFLOW"></a>
+<a name="0x2_balance_ERR_INSUFFICIENT_SUPPLY"></a>
 
 
 
-<pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 2;
+<pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_SUPPLY">ERR_INSUFFICIENT_SUPPLY</a>: u64 = 4;
 </code></pre>
 
 
@@ -210,8 +220,12 @@ Increase the balance value
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
+    <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>); // FIXED: Added zero check
+    // Pre-check: `+` traps <b>as</b> an arithmetic error before the <b>assert</b> below runs.
+    <b>assert</b>!(
+        amount &lt;= 18446744073709551615 - <a href="balance.md#0x2_balance">balance</a>.value, <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>
+    );
     <b>let</b> new_value = <a href="balance.md#0x2_balance">balance</a>.value + amount;
-    // Check for overflow
     <b>assert</b>!(new_value &gt;= <a href="balance.md#0x2_balance">balance</a>.value, <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>);
     <a href="balance.md#0x2_balance">balance</a>.value = new_value;
 }
@@ -238,9 +252,7 @@ Decrease the balance value
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
-    // Ensure amount is non-zero
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
-    // Check for sufficient <a href="balance.md#0x2_balance">balance</a>
     <b>assert</b>!(<a href="balance.md#0x2_balance">balance</a>.value &gt;= amount, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
     <a href="balance.md#0x2_balance">balance</a>.value = <a href="balance.md#0x2_balance">balance</a>.value - amount;
 }
@@ -266,8 +278,9 @@ Transfer value from one Balance to another
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(from: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, <b>to</b>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
-    // Ensure amount is non-zero
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(
+    from: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, <b>to</b>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64
+) {
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
     <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(from, amount);
     <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<b>to</b>, amount);
@@ -371,39 +384,15 @@ Increase supply: add <code>amount</code> to <code>s</code> and return a <code><a
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_increase_supply">increase_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, amount: u64): <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
-    // Ensure amount is non-zero for minting
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
-
+    // Pre-check: `+` traps <b>as</b> an arithmetic error before the <b>assert</b> below runs.
+    <b>assert</b>!(
+        amount &lt;= 18446744073709551615 - s.total, <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>
+    );
     <b>let</b> new_total = s.total + amount;
-    // Check for overflow
     <b>assert</b>!(new_total &gt;= s.total, <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>);
     s.total = new_total;
     <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(amount)
-}
-</code></pre>
-
-
-
-</details>
-
-<a name="0x2_balance_destroy_supply"></a>
-
-## Function `destroy_supply`
-
-Decrease/destroy a supply handle (legacy)
-
-
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy_supply">destroy_supply</a>&lt;T&gt;(s: <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;)
-</code></pre>
-
-
-
-<details>
-<summary>Implementation</summary>
-
-
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy_supply">destroy_supply</a>&lt;T&gt;(s: <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;) {
-    <b>let</b> <a href="balance.md#0x2_balance_Supply">Supply</a> { total: _ } = s;
 }
 </code></pre>
 
@@ -416,6 +405,8 @@ Decrease/destroy a supply handle (legacy)
 ## Function `decrease_supply`
 
 Decrease supply by <code>amount</code>. Useful for burning coins.
+Made internal logic tighter. Consider making this <code><b>public</b>(<b>friend</b>)</code>
+if only <code><a href="coin.md#0x2_coin">coin</a></code> module should call it.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, amount: u64)
@@ -428,10 +419,8 @@ Decrease supply by <code>amount</code>. Useful for burning coins.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, amount: u64) {
-    // Ensure amount is non-zero
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
-    // Ensure sufficient total supply
-    <b>assert</b>!(s.total &gt;= amount, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
+    <b>assert</b>!(s.total &gt;= amount, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_SUPPLY">ERR_INSUFFICIENT_SUPPLY</a>); // FIXED: Specific error code
     s.total = s.total - amount;
 }
 </code></pre>
@@ -483,7 +472,11 @@ Merge two Balances together
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_merge">merge</a>&lt;T&gt;(dst: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, src: <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;) {
     <b>let</b> value = <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(src);
-    <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(dst, value);
+    // Zero-amount merge is a no-op: `increase` rejects 0, but joining
+    // empty coins (e.g. `<a href="coin.md#0x2_coin_join">coin::join</a>` of zero coins) must stay legal.
+    <b>if</b> (value &gt; 0) {
+        <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(dst, value);
+    };
 }
 </code></pre>
 

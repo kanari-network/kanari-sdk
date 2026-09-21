@@ -1,5 +1,5 @@
 [versions]
-agp = "9.3.2"
+agp = "9.3.3"
 kotlin = "2.4.20"
 androidx-core-ktx = "1.19.0"
 androidx-activity-compose = "1.13.0"
@@ -7,7 +7,7 @@ androidx-compose-bom = "2026.09.00"
 androidx-lifecycle = "2.11.0"
 kotlinx-serialization = "1.11.0"
 jna = "5.19.1"
-vanniktech-publish = "0.34.0"
+vanniktech-publish = "0.37.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }

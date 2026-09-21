@@ -222,7 +222,7 @@ Return an immutable reference to the value inside <code>t</code>
 Aborts if <code>t</code> does not hold a value
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_borrow">borrow</a>&lt;Element&gt;(t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;Element&gt;): &Element
+<pre><code><b>public</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;Element&gt;): &Element
 </code></pre>
 
 
@@ -231,7 +231,7 @@ Aborts if <code>t</code> does not hold a value
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_borrow">borrow</a>&lt;Element&gt;(t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;): &Element {
+<pre><code><b>public</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;): &Element {
     <b>assert</b>!(<a href="../../dependencies/move-stdlib/option.md#0x1_option_is_some">is_some</a>(t), <a href="../../dependencies/move-stdlib/option.md#0x1_option_EOPTION_NOT_SET">EOPTION_NOT_SET</a>);
     <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&t.vec, 0)
 }

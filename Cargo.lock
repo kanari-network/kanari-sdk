@@ -3437,7 +3437,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3473,7 +3473,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-auth"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3498,7 +3498,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ed25519-dalek 3.0.0",
@@ -3513,7 +3513,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3522,7 +3522,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3558,7 +3558,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -3611,7 +3611,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3621,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-faucet"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3634,14 +3634,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3656,11 +3656,12 @@ dependencies = [
  "move-prover",
  "move-symbol-pool",
  "serde",
+ "tempfile",
 ]
 
 [[package]]
 name = "kanari-indexer"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3675,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3686,7 +3687,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3718,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3758,7 +3759,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3767,7 +3768,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3776,7 +3777,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3785,7 +3786,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3797,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3808,7 +3809,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
@@ -3821,7 +3822,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3832,7 +3833,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3858,7 +3859,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "ark-std",
  "base64 0.23.1",
@@ -3887,7 +3888,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -6463,7 +6464,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6506,7 +6507,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -7211,7 +7212,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -8217,7 +8218,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "kanari-crypto",
 ]

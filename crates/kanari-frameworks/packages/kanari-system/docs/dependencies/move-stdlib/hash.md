@@ -8,6 +8,9 @@ Module which defines SHA hashes for byte vectors.
 The functions in this module are natively declared both in the Move runtime
 as in the Move prover's prelude.
 
+Unit tests live in <code>tests/hash_tests.<b>move</b></code>, not here: this module has no
+<code><b>use</b></code> imports on purpose so non-test builds stay warning-free.
+
 
 -  [Function `sha2_256`](#0x1_hash_sha2_256)
 -  [Function `sha3_256`](#0x1_hash_sha3_256)

@@ -188,16 +188,28 @@ fn get_package_name(package_dir: &Path) -> Result<String> {
         .to_string())
 }
 
-/// Collect all .move files from directory
+/// Collect all .move files from directory, recursing into subdirectories.
+///
+/// Package sources may live in subdirectories (e.g. `sources/crypto/`).
+/// A flat listing silently drops those modules, surfacing later as
+/// `E03002 unbound module` errors in files that `use` them.
 fn collect_move_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("move") {
-            files.push(path);
+    fn walk(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+        let mut entries: Vec<_> = fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+        entries.sort_by_key(|e| e.path());
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, files)?;
+            } else if path.extension().and_then(|s| s.to_str()) == Some("move") {
+                files.push(path);
+            }
         }
+        Ok(())
     }
+
+    let mut files = Vec::new();
+    walk(dir, &mut files)?;
     if files.is_empty() {
         anyhow::bail!("No Move source files found in {:?}", dir);
     }
@@ -251,4 +263,29 @@ fn parse_package_name(content: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: `sources/` subdirectories (e.g. `sources/crypto/`)
+    /// must be included. A flat listing silently drops those modules and
+    /// surfaces later as `E03002 unbound module` in files that `use` them.
+    #[test]
+    fn collect_move_files_recurses_into_subdirectories() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("crypto");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(dir.path().join("a.move"), "module 0x1::a {}").unwrap();
+        fs::write(nested.join("b.move"), "module 0x1::b {}").unwrap();
+        fs::write(nested.join("notes.txt"), "not a move file").unwrap();
+
+        let mut files = collect_move_files(dir.path()).unwrap();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![dir.path().join("a.move"), nested.join("b.move")]
+        );
+    }
 }

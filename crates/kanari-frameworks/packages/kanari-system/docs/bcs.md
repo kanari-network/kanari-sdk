@@ -201,13 +201,13 @@ Read address from the bcs-serialized bytes.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bcs.md#0x2_bcs_peel_address">peel_address</a>(<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>: &<b>mut</b> <a href="bcs.md#0x2_bcs_BCS">BCS</a>): <b>address</b> {
-    <b>assert</b>!(v::length(&<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>.bytes) &gt;= <a href="dependencies/move-stdlib/address.md#0x1_address_length">address::length</a>(), <a href="bcs.md#0x2_bcs_EOutOfRange">EOutOfRange</a>);
+    <b>assert</b>!(v::length(&<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>.bytes) &gt;= <a href="address.md#0x2_address_length">address::length</a>(), <a href="bcs.md#0x2_bcs_EOutOfRange">EOutOfRange</a>);
     <b>let</b> (addr_bytes, i) = (v::empty(), 0);
-    <b>while</b> (i &lt; <a href="dependencies/move-stdlib/address.md#0x1_address_length">address::length</a>()) {
+    <b>while</b> (i &lt; <a href="address.md#0x2_address_length">address::length</a>()) {
         v::push_back(&<b>mut</b> addr_bytes, v::pop_back(&<b>mut</b> <a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>.bytes));
         i = i + 1;
     };
-    address::from_bytes(addr_bytes)
+    <a href="address.md#0x2_address_from_bytes">address::from_bytes</a>(addr_bytes)
 }
 </code></pre>
 
@@ -233,11 +233,9 @@ Read a <code>bool</code> value from bcs-serialized bytes.
 
 <pre><code><b>public</b> <b>fun</b> <a href="bcs.md#0x2_bcs_peel_bool">peel_bool</a>(<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>: &<b>mut</b> <a href="bcs.md#0x2_bcs_BCS">BCS</a>): bool {
     <b>let</b> value = <a href="bcs.md#0x2_bcs_peel_u8">peel_u8</a>(<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>);
-    <b>if</b> (value == 0) {
-        <b>false</b>
-    } <b>else</b> <b>if</b> (value == 1) {
-        <b>true</b>
-    } <b>else</b> {
+    <b>if</b> (value == 0) { <b>false</b> }
+    <b>else</b> <b>if</b> (value == 1) { <b>true</b> }
+    <b>else</b> {
         <b>abort</b> <a href="bcs.md#0x2_bcs_ENotBool">ENotBool</a>
     }
 }
@@ -402,9 +400,7 @@ See more here: https://en.wikipedia.org/wiki/LEB128
         <b>let</b> byte = (v::pop_back(&<b>mut</b> <a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>.bytes) <b>as</b> u64);
         len = len + 1;
         total = total | ((byte & 0x7f) &lt;&lt; shift);
-        <b>if</b> ((byte & 0x80) == 0) {
-            <b>break</b>
-        };
+        <b>if</b> ((byte & 0x80) == 0) { <b>break</b> };
         shift = shift + 7;
     };
     total

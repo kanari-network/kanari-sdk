@@ -262,9 +262,12 @@ or if an invalid character is encountered.
 
 
 <pre><code><b>fun</b> <a href="address.md#0x2_address_hex_char_value">hex_char_value</a>(c: u8): u8 {
-    <b>if</b> (c &gt;= 48 && c &lt;= 57) c - 48 // 0-9
-    <b>else</b> <b>if</b> (c &gt;= 65 && c &lt;= 70) c - 55 // A-F
-    <b>else</b> <b>if</b> (c &gt;= 97 && c &lt;= 102) c - 87 // a-f
+    <b>if</b> (c &gt;= 48 && c &lt;= 57) c - 48
+    // 0-9
+    <b>else</b> <b>if</b> (c &gt;= 65 && c &lt;= 70) c - 55
+    // A-F
+    <b>else</b> <b>if</b> (c &gt;= 97 && c &lt;= 102) c - 87
+    // a-f
     <b>else</b> <b>abort</b> <a href="address.md#0x2_address_EAddressParseError">EAddressParseError</a>
 }
 </code></pre>

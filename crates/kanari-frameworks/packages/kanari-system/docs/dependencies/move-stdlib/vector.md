@@ -100,7 +100,7 @@ Acquire an immutable reference to the <code>i</code>th element of the vector <co
 Aborts if <code>i</code> is out of bounds.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element
+<pre><code><b>public</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element
 </code></pre>
 
 
@@ -109,7 +109,7 @@ Aborts if <code>i</code> is out of bounds.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element;
+<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element;
 </code></pre>
 
 
@@ -369,7 +369,7 @@ Otherwise, returns false.
     <b>let</b> i = 0;
     <b>let</b> len = <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_length">length</a>(v);
     <b>while</b> (i &lt; len) {
-        <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">borrow</a>(v, i) == e) <b>return</b> <b>true</b>;
+        <b>if</b> (<a href="../../borrow.md#0x2_borrow">borrow</a>(v, i) == e) <b>return</b> <b>true</b>;
         i = i + 1;
     };
     <b>false</b>
@@ -401,7 +401,7 @@ Otherwise, returns <code>(<b>false</b>, 0)</code>.
     <b>let</b> i = 0;
     <b>let</b> len = <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_length">length</a>(v);
     <b>while</b> (i &lt; len) {
-        <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">borrow</a>(v, i) == e) <b>return</b> (<b>true</b>, i);
+        <b>if</b> (<a href="../../borrow.md#0x2_borrow">borrow</a>(v, i) == e) <b>return</b> (<b>true</b>, i);
         i = i + 1;
     };
     (<b>false</b>, 0)

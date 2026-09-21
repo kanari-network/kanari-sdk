@@ -23,7 +23,8 @@ Uses proper address types with validation
 -  [Function `share_object`](#0x2_transfer_share_object)
 
 
-<pre><code><b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
+<pre><code><b>use</b> <a href="math.md#0x2_math">0x2::math</a>;
+<b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
 </code></pre>
 
 
@@ -118,6 +119,15 @@ Error codes
 
 
 <pre><code><b>const</b> <a href="transfer.md#0x2_transfer_ERR_INVALID_AMOUNT">ERR_INVALID_AMOUNT</a>: u64 = 1;
+</code></pre>
+
+
+
+<a name="0x2_transfer_ERR_OVERFLOW"></a>
+
+
+
+<pre><code><b>const</b> <a href="transfer.md#0x2_transfer_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 3;
 </code></pre>
 
 
@@ -236,7 +246,8 @@ Get transfer details
 
 ## Function `total_amount`
 
-Calculate total from multiple transfers
+Calculate total from multiple transfers.
+Aborts <code><a href="transfer.md#0x2_transfer_ERR_OVERFLOW">ERR_OVERFLOW</a></code> instead of a generic arithmetic error.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_total_amount">total_amount</a>(transfers: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="transfer.md#0x2_transfer_Transfer">transfer::Transfer</a>&gt;): u64
@@ -255,6 +266,9 @@ Calculate total from multiple transfers
 
     <b>while</b> (i &lt; len) {
         <b>let</b> <a href="transfer.md#0x2_transfer">transfer</a> = <a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(transfers, i);
+        <b>assert</b>!(
+            <a href="transfer.md#0x2_transfer">transfer</a>.amount &lt;= <a href="math.md#0x2_math_max_u64_value">math::max_u64_value</a>() - total, <a href="transfer.md#0x2_transfer_ERR_OVERFLOW">ERR_OVERFLOW</a>
+        );
         total = total + <a href="transfer.md#0x2_transfer">transfer</a>.amount;
         i = i + 1;
     };
@@ -394,11 +408,13 @@ Internal transfer that extracts UID for tracking
 
 ## Function `share_object`
 
-Share an object by returning it instead of transferring
-The caller should handle storage. This is a workaround for object tracking.
+Share an object: anyone can use it as a mutable transaction input.
+Unlike <code>freeze_object</code> (immutable forever), shared objects stay
+mutable but lose single-owner control — the Sui <code>share_object</code> model.
+The object must have <code>key</code> and <code>store</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: store&gt;(obj: T): T
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: store, key&gt;(obj: T)
 </code></pre>
 
 
@@ -407,9 +423,7 @@ The caller should handle storage. This is a workaround for object tracking.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: store&gt;(obj: T): T {
-    obj
-}
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: key + store&gt;(obj: T);
 </code></pre>
 
 

@@ -29,3 +29,6 @@ move-errmapgen.workspace = true
 move-prover.workspace = true
 log.workspace = true
 bincode = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

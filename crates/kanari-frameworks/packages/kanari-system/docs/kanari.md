@@ -116,15 +116,20 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
     // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, ENotSystemAddress); // Sender check might be too strict for init
     // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx) == 0, EAlreadyMinted); // Epoch check might be okay
 
-    <b>let</b> (treasury, metadata) = <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
-        witness,
-        9,
-        b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>",
-        b"Kanari Network Coin",
-        b"",
-        <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(<a href="url.md#0x2_url_new_unsafe_from_bytes">url::new_unsafe_from_bytes</a>(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
-        ctx
-    );
+    <b>let</b> (treasury, metadata) =
+        <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
+            witness,
+            9,
+            b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>",
+            b"Kanari Network Coin",
+            b"",
+            <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(
+                <a href="url.md#0x2_url_new_unsafe_from_bytes">url::new_unsafe_from_bytes</a>(
+                    b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
+                )
+            ),
+            ctx
+        );
     <a href="transfer.md#0x2_transfer_public_freeze_object">transfer::public_freeze_object</a>(metadata);
 
     // make a mutable binding for minting (<b>use</b> a different name than the original)
@@ -132,10 +137,12 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
 
     // Mint the initial supply into two <a href="coin.md#0x2_coin">coin</a> objects so the dev wallet <b>has</b>
     // a dedicated gas <a href="coin.md#0x2_coin">coin</a> from genesis onward.
-    <b>let</b> dev_address: <b>address</b> = @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
+    <b>let</b> dev_address: <b>address</b> =
+        @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
     <b>let</b> primary_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; =
         <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a> - <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>, ctx);
-    <b>let</b> gas_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; = <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>, ctx);
+    <b>let</b> gas_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; =
+        <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_DEV_GAS_RESERVE_MIST">DEV_GAS_RESERVE_MIST</a>, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(primary_coin, dev_address);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(gas_coin, dev_address);
 
@@ -194,7 +201,9 @@ Burns KANARI tokens, decreasing total supply
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kanari.md#0x2_kanari_burn">burn</a>(treasury_cap: &<b>mut</b> TreasuryCap&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;, <a href="coin.md#0x2_coin">coin</a>: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="kanari.md#0x2_kanari_burn">burn</a>(
+    treasury_cap: &<b>mut</b> TreasuryCap&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;, <a href="coin.md#0x2_coin">coin</a>: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;
+) {
     <a href="coin.md#0x2_coin_burn">coin::burn</a>(treasury_cap, <a href="coin.md#0x2_coin">coin</a>);
 }
 </code></pre>

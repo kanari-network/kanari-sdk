@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use doc_generator::{PackageDocConfig, generate_documentation};
 use kanari_types::address::Address;
-use log::{error, info, warn};
+use log::{info, warn};
 use packages_config::get_package_configs;
 use std::{
     env,
@@ -50,6 +50,15 @@ fn main() -> Result<()> {
     }
 }
 
+/// A directory only counts as the Move packages dir if it actually
+/// contains the configured Move packages. A bare existence check is not
+/// enough: the repo root also has an unrelated SDK `packages/` directory
+/// (`kanari-kotlin`, `kanari_flutter`), which used to shadow the real one
+/// and made every build fail with `Directory not found`.
+fn looks_like_move_packages_dir(dir: &Path) -> bool {
+    dir.is_dir() && dir.join("move-stdlib").is_dir() && dir.join("kanari-system").is_dir()
+}
+
 /// Get the packages directory from current working directory
 fn get_packages_dir() -> Result<PathBuf> {
     let current_dir = env::current_dir()?;
@@ -59,7 +68,7 @@ fn get_packages_dir() -> Result<PathBuf> {
     // 2. ./packages (when running from crates/kanari-frameworks)
     // 3. ./crates/kanari-frameworks/packages (when running from repo root)
     let candidate1 = current_dir.join("packages");
-    if candidate1.exists() && candidate1.is_dir() {
+    if looks_like_move_packages_dir(&candidate1) {
         return Ok(candidate1);
     }
 
@@ -68,13 +77,13 @@ fn get_packages_dir() -> Result<PathBuf> {
         || current_dir.ends_with("kanari-frameworks")
     {
         let cand = current_dir.join("packages");
-        if cand.exists() && cand.is_dir() {
+        if looks_like_move_packages_dir(&cand) {
             return Ok(cand);
         }
     }
 
     let candidate2 = current_dir.join("crates/kanari-frameworks/packages");
-    if candidate2.exists() && candidate2.is_dir() {
+    if looks_like_move_packages_dir(&candidate2) {
         return Ok(candidate2);
     }
 
@@ -143,6 +152,11 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
 
     print_summary("Compilation", success, failed);
 
+    // Surface failures via the exit code. Previously this always returned
+    // `Ok`, so a failed package build still exited 0 and CI kept going.
+    if failed > 0 {
+        anyhow::bail!("Compilation failed for {failed} package(s)");
+    }
     Ok(())
 }
 
@@ -185,7 +199,10 @@ where
         match process_fn(&config) {
             Ok(_) => success += 1,
             Err(e) => {
-                error!("{}: {}\n", config.name, e);
+                // NOTE: `log` has no logger initialized in this binary, so
+                // `error!` would be silently dropped. Print to stderr so
+                // failures are always visible (exit code alone hid them).
+                eprintln!("{}: {:#}\n", config.name, e);
                 failed += 1;
             }
         }
@@ -203,7 +220,8 @@ fn process_doc_configs(configs: Vec<PackageDocConfig>) -> (usize, usize) {
         match generate_documentation(&config) {
             Ok(_) => success += 1,
             Err(e) => {
-                error!("{}: {}", config.name, e);
+                // See note in `process_packages`: keep failures visible.
+                eprintln!("{}: {:#}", config.name, e);
                 failed += 1;
             }
         }

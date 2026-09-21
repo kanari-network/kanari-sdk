@@ -67,9 +67,7 @@ Error codes
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_add">add</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
-    value: Value,
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name, value: Value
 );
 </code></pre>
 
@@ -93,8 +91,7 @@ Error codes
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_borrow_mut">borrow_mut</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name
 ): &<b>mut</b> Value;
 </code></pre>
 
@@ -108,7 +105,7 @@ Error codes
 
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_borrow">borrow</a>&lt;Name: <b>copy</b>, drop, store, Value: store, key&gt;(<a href="object.md#0x2_object">object</a>: &<a href="object.md#0x2_object_UID">object::UID</a>, name: Name): &Value
+<pre><code><b>public</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;Name: <b>copy</b>, drop, store, Value: store, key&gt;(<a href="object.md#0x2_object">object</a>: &<a href="object.md#0x2_object_UID">object::UID</a>, name: Name): &Value
 </code></pre>
 
 
@@ -117,9 +114,8 @@ Error codes
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_borrow">borrow</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
+    <a href="object.md#0x2_object">object</a>: &UID, name: Name
 ): &Value;
 </code></pre>
 
@@ -143,8 +139,7 @@ Error codes
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_remove">remove</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name
 ): Value;
 </code></pre>
 
@@ -168,8 +163,7 @@ Error codes
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_exists_">exists_</a>&lt;Name: <b>copy</b> + drop + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    <a href="object.md#0x2_object">object</a>: &UID, name: Name
 ): bool;
 </code></pre>
 
