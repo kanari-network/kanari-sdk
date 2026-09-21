@@ -3,9 +3,10 @@
 
 use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, fresh_nonce, select_native_coin_consolidation_step,
-    select_native_transfer_and_gas_payment, transaction_error_with_reason,
-    validate_object_inputs_and_gas, validate_object_inputs_match_state,
+    derive_transaction_state_flags, enrich_transfer_from_effect, fresh_nonce, push_transfer_entry,
+    select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
+    transaction_error_with_reason, transfers_from_effect, validate_object_inputs_and_gas,
+    validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -855,10 +856,11 @@ fn fresh_nonce_honors_client_value_and_watermark_floor() {
     assert_eq!(fresh_nonce(Some(42), Some(5000)).unwrap(), 42);
     assert!(fresh_nonce(Some(0), None).is_err());
 
-    // Without a watermark the engine cannot safely generate a nonce.
+    // Without a watermark (fresh sender) fall back to floor 1, which the
+    // engine accepts since the per-sender watermark defaults to 0.
     assert!(
-        fresh_nonce(None, None).is_err(),
-        "must reject nonce generation without watermark"
+        fresh_nonce(None, None).unwrap() >= 1,
+        "must generate nonce from default floor without watermark"
     );
 
     // Simulated post-restart state: the global counter starts at 1 but the
@@ -869,4 +871,199 @@ fn fresh_nonce_honors_client_value_and_watermark_floor() {
     assert!(first >= 5000, "floor not honored: {first}");
     let second = fresh_nonce(None, Some(5000)).unwrap();
     assert!(second > first, "nonces must be strictly increasing");
+}
+
+fn coin_change(
+    object_id: &str,
+    owner: &str,
+    token_type: &str,
+) -> kanari_types::transaction::ObjectChange {
+    kanari_types::transaction::ObjectChange {
+        change_type: kanari_types::transaction::ObjectChangeKind::Transferred,
+        object_ref: kanari_types::transaction::ObjectRef::new(
+            object_id.to_string(),
+            Some(2),
+            Some("0xdigest".to_string()),
+        ),
+        previous_object_ref: None,
+        type_: Some(format!("0x2::coin::Coin<{token_type}>")),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+            owner.to_string(),
+        )),
+        previous_owner: None,
+        previous_version: Some(1),
+    }
+}
+
+fn empty_success_effect() -> kanari_types::transaction::TransactionEffects {
+    kanari_types::transaction::TransactionEffects {
+        status: "success".to_string(),
+        gas_used: 10,
+        gas_payment: None,
+        input_objects: Vec::new(),
+        shared_inputs: Vec::new(),
+        immutable_inputs: Vec::new(),
+        gas_object_refs: Vec::new(),
+        object_changes: Vec::new(),
+        created: Vec::new(),
+        mutated: Vec::new(),
+        deleted: Vec::new(),
+        transferred: Vec::new(),
+        causal_edges: Vec::new(),
+        error_message: None,
+    }
+}
+
+#[test]
+fn transfers_from_effect_collects_every_coin_movement() {
+    let mut effect = empty_success_effect();
+    effect.transferred = vec![
+        coin_change("0xaaa", "0xbbb", "0x1::james::JAMES"),
+        coin_change("0xccc", "0xddd", "0x2::kanari::KANARI"),
+    ];
+    // Same coin repeated in another bucket must not duplicate.
+    effect.object_changes = vec![coin_change("0xaaa", "0xbbb", "0x1::james::JAMES")];
+
+    let transfers = transfers_from_effect(&effect);
+    assert_eq!(transfers.len(), 2);
+    assert_eq!(
+        transfers[0].transfer_token_type.as_deref(),
+        Some("0x1::james::JAMES")
+    );
+    assert_eq!(
+        transfers[1].transfer_token_type.as_deref(),
+        Some("0x2::kanari::KANARI")
+    );
+}
+
+#[test]
+fn enrich_merges_arg_amount_with_effect_owner_by_coin_id() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0x1".to_string(),
+        "0x1".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(77),
+            transfer_token_type: None,
+            coin_object_id: Some("0xaaa".to_string()),
+        },
+    );
+
+    let mut effect = empty_success_effect();
+    effect.transferred = vec![coin_change("0xaaa", "0xbbb", "0x1::james::JAMES")];
+    enrich_transfer_from_effect(&mut details, &effect);
+
+    // Merged into one entry, not appended as a second.
+    let transfers = details.transfers.as_ref().unwrap();
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers[0].recipient.as_deref(), Some("0xbbb"));
+    assert_eq!(transfers[0].transfer_amount, Some(77));
+    assert_eq!(
+        transfers[0].transfer_token_type.as_deref(),
+        Some("0x1::james::JAMES")
+    );
+}
+
+#[test]
+fn multiple_transfers_are_all_preserved() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0x1".to_string(),
+        "0x1".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(5),
+            transfer_token_type: Some("0x1::james::JAMES".to_string()),
+            coin_object_id: None,
+        },
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xddd".to_string()),
+            transfer_amount: Some(6),
+            transfer_token_type: Some("0x2::kanari::KANARI".to_string()),
+            coin_object_id: None,
+        },
+    );
+    let transfers = details.transfers.as_ref().unwrap();
+    assert_eq!(transfers.len(), 2);
+    assert_eq!(transfers[0].recipient.as_deref(), Some("0xbbb"));
+    assert_eq!(transfers[0].transfer_amount, Some(5));
+    assert_eq!(transfers[1].recipient.as_deref(), Some("0xddd"));
+    assert_eq!(transfers[1].transfer_amount, Some(6));
+}
+
+#[test]
+fn concurrent_nonce_generation_stays_unique_above_floor() {
+    use std::collections::HashSet;
+    let floor = 9000u64;
+    let handles: Vec<_> = (0..8)
+        .map(|_| std::thread::spawn(move || fresh_nonce(None, Some(floor)).unwrap()))
+        .collect();
+    let mut seen = HashSet::new();
+    for h in handles {
+        let n = h.join().expect("nonce thread panicked");
+        assert!(n >= floor, "floor not honored under concurrency: {n}");
+        assert!(
+            seen.insert(n),
+            "duplicate nonce generated concurrently: {n}"
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn transfers_preserve_every_entry_in_order(
+        n in 1usize..5,
+        amount in 1u64..1_000_000,
+    ) {
+        let mut details = base_transaction_details(
+            "0xhash".to_string(),
+            "pending".to_string(),
+            None,
+            "transfer",
+            "0x1".to_string(),
+            "0x1".to_string(),
+            1,
+            100_000,
+            1,
+        );
+        for i in 0..n {
+            push_transfer_entry(
+                &mut details,
+                kanari_rpc_api::TransferEntry {
+                    recipient: Some(format!("0x{i}")),
+                    transfer_amount: Some(amount + i as u64),
+                    transfer_token_type: Some("0x1::james::JAMES".to_string()),
+                    coin_object_id: Some(format!("0xcoin{i}")),
+                },
+            );
+        }
+        let transfers = details.transfers.as_ref().unwrap();
+        prop_assert_eq!(transfers.len(), n);
+        prop_assert_eq!(transfers[0].recipient.as_deref(), Some("0x0"));
+        prop_assert_eq!(transfers[0].transfer_amount, Some(amount));
+    }
 }

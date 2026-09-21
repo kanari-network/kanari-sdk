@@ -108,10 +108,11 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
             }
         },
         trailingContent = {
-            val isTransfer = tx.transferAmount != null
-            val displayAmount = tx.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
+            val firstTransfer = tx.transfers?.firstOrNull()
+            val isTransfer = firstTransfer?.transferAmount != null
+            val displayAmount = firstTransfer?.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
             val displayDecimals = tx.decimals ?: 9
-            val tokenSymbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+            val tokenSymbol = tx.symbol ?: firstTransfer?.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -152,15 +153,19 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
         
-        tx.transferAmount?.let { amt ->
-            val symbol = tx.symbol ?: tx.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+        val detailTransfer = tx.transfers?.firstOrNull()
+        detailTransfer?.transferAmount?.let { amt ->
+            val symbol = tx.symbol ?: detailTransfer.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
             DetailRowShared(
                 label = "Transfer Amount",
                 value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + symbol
             )
         }
-        tx.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
-        tx.recipient?.let { CopyableDetailRow(label = "Recipient", value = it) }
+        detailTransfer?.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
+        detailTransfer?.recipient?.let { CopyableDetailRow(label = "Recipient", value = it) }
+        if ((tx.transfers?.size ?: 0) > 1) {
+            DetailRowShared(label = "Transfers", value = "${tx.transfers?.size} movements")
+        }
 
         CopyableDetailRow(label = "Hash", value = tx.hash)
         CopyableDetailRow(label = "Sender", value = tx.sender)

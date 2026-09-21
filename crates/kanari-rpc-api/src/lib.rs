@@ -504,6 +504,23 @@ pub struct TransactionStatus {
     pub committed: bool,
 }
 
+/// Single recognized coin movement within a transaction.
+///
+/// A transaction can move multiple coins (batch transfers, splits, merges).
+/// `transfers` lists every movement the RPC layer could identify from
+/// transaction args plus execution effects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_amount: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_token_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coin_object_id: Option<String>,
+}
+
 /// Detailed transaction information returned by `getTransaction` and `getAllTransactions`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionDetails {
@@ -530,15 +547,9 @@ pub struct TransactionDetails {
     /// Actual fee charged after execution: `gas_used * effective_gas_price`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_fee: Option<u64>,
-    /// Recipient of a recognized transfer.
+    /// Every recognized coin movement. `None` when nothing identifiable.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recipient: Option<String>,
-    /// Amount transferred for a recognized transfer, in the token's smallest unit.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_amount: Option<u64>,
-    /// Token type transferred, when the transfer can be identified.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_token_type: Option<String>,
+    pub transfers: Option<Vec<TransferEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object_inputs: Option<Vec<ObjectInput>>,
     #[serde(skip_serializing_if = "Option::is_none")]

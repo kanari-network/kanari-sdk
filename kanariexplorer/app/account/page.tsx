@@ -312,9 +312,20 @@ function AccountContent() {
               const objectInputs = readArrayLength(transaction, "object_inputs");
               const objectChanges = readEffectArrayLength(transaction, "object_changes");
               const graphEdges = readEffectArrayLength(transaction, "causal_edges");
-              const transferToken = readString(transaction, "transfer_token_type", "");
+              const firstTransfer = (() => {
+                const t = (transaction as Record<string, unknown>)["transfers"];
+                if (Array.isArray(t) && t.length > 0 && typeof t[0] === "object" && t[0] !== null) {
+                  return t[0] as Record<string, unknown>;
+                }
+                return null;
+              })();
+              const transferToken = firstTransfer?.["transfer_token_type"] != null
+                ? String(firstTransfer["transfer_token_type"])
+                : "";
               const transferSymbol = transferToken.split("::").pop() || "";
-              const transferAmount = readString(transaction, "transfer_amount", "");
+              const transferAmount = firstTransfer?.["transfer_amount"] != null
+                ? String(firstTransfer["transfer_amount"])
+                : "";
               const gasFee = readString(transaction, "gas_fee", "");
               return (
                 <div className="data-row" key={`${hash}-${index}`}>

@@ -208,7 +208,7 @@ once_cell = "1.21.4"
 # ============================================================================
 # Randomness & Testing
 # ============================================================================
-rand = "0.10.2"
+rand = "0.10.3"
 rand_core = "0.10.1"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.11.0"                                                                 # Property-based testing
@@ -343,7 +343,7 @@ move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifie
 
 [patch.crates-io]
 # libp2p-kad = { path = "third_party/patches/libp2p-kad-0.48.0" }
-proc-macro-error2 = { path = "third_party/patches/proc-macro-error2-2.0.1" }
+# proc-macro-error2 = { path = "third_party/patches/proc-macro-error2-2.0.1" }
 
 
 # Profile Configurations: Define different build profiles for various scenarios.

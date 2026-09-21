@@ -66,6 +66,46 @@ class TransactionResult extends Equatable {
   ];
 }
 
+class TransferEntry extends Equatable {
+  final String? recipient;
+  final int? transferAmount;
+  final String? transferTokenType;
+  final String? coinObjectId;
+
+  const TransferEntry({
+    this.recipient,
+    this.transferAmount,
+    this.transferTokenType,
+    this.coinObjectId,
+  });
+
+  factory TransferEntry.fromJson(Map<String, dynamic> json) {
+    return TransferEntry(
+      recipient: json['recipient']?.toString(),
+      transferAmount: json['transfer_amount'] == null
+          ? null
+          : _jsonInt(json['transfer_amount']),
+      transferTokenType: json['transfer_token_type']?.toString(),
+      coinObjectId: json['coin_object_id']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'recipient': recipient,
+    'transfer_amount': transferAmount,
+    'transfer_token_type': transferTokenType,
+    'coin_object_id': coinObjectId,
+  };
+
+  @override
+  List<Object?> get props => [
+    recipient,
+    transferAmount,
+    transferTokenType,
+    coinObjectId,
+  ];
+}
+
 class TransactionDetails extends Equatable {
   final String hash;
   final String status;
@@ -78,6 +118,7 @@ class TransactionDetails extends Equatable {
   final int nonce;
   final int gasLimit;
   final int gasPrice;
+  final List<TransferEntry>? transfers;
   final String? module;
   final String? function;
   final List<String>? moduleFunctions;
@@ -95,6 +136,7 @@ class TransactionDetails extends Equatable {
     required this.nonce,
     required this.gasLimit,
     required this.gasPrice,
+    this.transfers,
     this.module,
     this.function,
     this.moduleFunctions,
@@ -102,6 +144,7 @@ class TransactionDetails extends Equatable {
   });
 
   factory TransactionDetails.fromJson(Map<String, dynamic> json) {
+    final rawTransfers = json['transfers'];
     return TransactionDetails(
       hash: json['hash']?.toString() ?? '',
       status: json['status']?.toString() ?? '',
@@ -120,6 +163,12 @@ class TransactionDetails extends Equatable {
       nonce: _jsonInt(json['nonce']),
       gasLimit: _jsonInt(json['gas_limit']),
       gasPrice: _jsonInt(json['gas_price']),
+      transfers: rawTransfers is List
+          ? rawTransfers
+                .whereType<Map<String, dynamic>>()
+                .map(TransferEntry.fromJson)
+                .toList()
+          : null,
       module: json['module']?.toString(),
       function: json['function']?.toString(),
       moduleFunctions: (json['module_functions'] as List<dynamic>?)
@@ -145,6 +194,7 @@ class TransactionDetails extends Equatable {
     'nonce': nonce,
     'gas_limit': gasLimit,
     'gas_price': gasPrice,
+    'transfers': transfers?.map((item) => item.toJson()).toList(),
     'module': module,
     'function': function,
     'module_functions': moduleFunctions,
@@ -164,6 +214,7 @@ class TransactionDetails extends Equatable {
     nonce,
     gasLimit,
     gasPrice,
+    transfers,
     module,
     function,
     moduleFunctions,
