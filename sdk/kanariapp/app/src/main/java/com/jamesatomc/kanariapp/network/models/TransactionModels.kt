@@ -27,6 +27,14 @@ data class TransactionResult(
 )
 
 @Serializable
+data class TransferEntry(
+    val recipient: String? = null,
+    @Serializable(with = LenientULongSerializer::class) @SerialName("transfer_amount") val transferAmount: ULong? = null,
+    @SerialName("transfer_token_type") val transferTokenType: String? = null,
+    @SerialName("coin_object_id") val coinObjectId: String? = null
+)
+
+@Serializable
 data class TransactionDetails(
     val hash: String,
     val status: String,
@@ -43,9 +51,7 @@ data class TransactionDetails(
     @Serializable(with = LenientULongSerializer::class) @SerialName("gas_limit") val gasLimit: ULong,
     @Serializable(with = LenientULongSerializer::class) @SerialName("gas_price") val gasPrice: ULong,
     @SerialName("gas_fee") val gasFee: Long? = null,
-    val recipient: String? = null,
-    @Serializable(with = LenientULongSerializer::class) @SerialName("transfer_amount") val transferAmount: ULong? = null,
-    @SerialName("transfer_token_type") val transferTokenType: String? = null,
+    val transfers: List<TransferEntry>? = null,
     @SerialName("object_inputs") val objectInputs: List<ObjectInput>? = null,
     @SerialName("gas_payment") val gasPayment: GasPayment? = null,
     val effects: TransactionEffectsInfo? = null,

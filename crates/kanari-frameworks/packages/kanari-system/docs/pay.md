@@ -10,6 +10,7 @@
 -  [Function `split`](#0x2_pay_split)
 -  [Function `split_vec`](#0x2_pay_split_vec)
 -  [Function `split_and_transfer`](#0x2_pay_split_and_transfer)
+-  [Function `split_and_transfer_checked`](#0x2_pay_split_and_transfer_checked)
 -  [Function `divide_and_keep`](#0x2_pay_divide_and_keep)
 -  [Function `join`](#0x2_pay_join)
 -  [Function `join_vec`](#0x2_pay_join_vec)
@@ -17,6 +18,7 @@
 
 
 <pre><code><b>use</b> <a href="coin.md#0x2_coin">0x2::coin</a>;
+<b>use</b> <a href="deny_list.md#0x2_deny_list">0x2::deny_list</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
 </code></pre>
@@ -28,12 +30,62 @@
 ## Constants
 
 
+<a name="0x2_pay_EZERO_AMOUNT"></a>
+
+Amount specified must be greater than zero.
+
+
+<pre><code><b>const</b> <a href="pay.md#0x2_pay_EZERO_AMOUNT">EZERO_AMOUNT</a>: u64 = 4;
+</code></pre>
+
+
+
+<a name="0x2_pay_EDENIED"></a>
+
+Recipient is on the deny list.
+
+
+<pre><code><b>const</b> <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>: u64 = 1;
+</code></pre>
+
+
+
+<a name="0x2_pay_EDIVISION_BY_ZERO"></a>
+
+Division by zero is not allowed.
+
+
+<pre><code><b>const</b> <a href="pay.md#0x2_pay_EDIVISION_BY_ZERO">EDIVISION_BY_ZERO</a>: u64 = 5;
+</code></pre>
+
+
+
 <a name="0x2_pay_ENoCoins"></a>
 
 For when empty vector is supplied into join function.
 
 
 <pre><code><b>const</b> <a href="pay.md#0x2_pay_ENoCoins">ENoCoins</a>: u64 = 0;
+</code></pre>
+
+
+
+<a name="0x2_pay_ESELF_PAY"></a>
+
+Sending to the sender themselves: use <code>keep</code>/<code>split</code> instead.
+
+
+<pre><code><b>const</b> <a href="pay.md#0x2_pay_ESELF_PAY">ESELF_PAY</a>: u64 = 3;
+</code></pre>
+
+
+
+<a name="0x2_pay_ETOO_MANY_COINS"></a>
+
+Vector fan-out exceeds <code><a href="coin.md#0x2_coin_max_split_parts">coin::max_split_parts</a></code>.
+
+
+<pre><code><b>const</b> <a href="pay.md#0x2_pay_ETOO_MANY_COINS">ETOO_MANY_COINS</a>: u64 = 2;
 </code></pre>
 
 
@@ -83,6 +135,7 @@ and the remaining balance is left is <code>self</code>.
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split">split</a>&lt;T&gt;(
     self: &<b>mut</b> Coin&lt;T&gt;, split_amount: u64, ctx: &<b>mut</b> TxContext
 ) {
+    <b>assert</b>!(split_amount &gt; 0, <a href="pay.md#0x2_pay_EZERO_AMOUNT">EZERO_AMOUNT</a>);
     <a href="pay.md#0x2_pay_keep">keep</a>(<a href="coin.md#0x2_coin_split">coin::split</a>(self, split_amount, ctx), ctx)
 }
 </code></pre>
@@ -111,6 +164,10 @@ in <code>split_amounts</code>. Remaining balance is left in <code>self</code>.
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_vec">split_vec</a>&lt;T&gt;(
     self: &<b>mut</b> Coin&lt;T&gt;, split_amounts: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u64&gt;, ctx: &<b>mut</b> TxContext
 ) {
+    <b>assert</b>!(
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&split_amounts) &lt;= <a href="coin.md#0x2_coin_max_split_parts">coin::max_split_parts</a>(),
+        <a href="pay.md#0x2_pay_ETOO_MANY_COINS">ETOO_MANY_COINS</a>
+    );
     <b>let</b> (i, len) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&split_amounts));
     <b>while</b> (i &lt; len) {
         <a href="pay.md#0x2_pay_split">split</a>(self, *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&split_amounts, i), ctx);
@@ -128,7 +185,8 @@ in <code>split_amounts</code>. Remaining balance is left in <code>self</code>.
 ## Function `split_and_transfer`
 
 Send <code>amount</code> units of <code>c</code> to <code>recipient</code>
-Aborts with <code>EVALUE</code> if <code>amount</code> is greater than or equal to <code>amount</code>
+Aborts <code><a href="pay.md#0x2_pay_ESELF_PAY">ESELF_PAY</a></code> when <code>recipient</code> is the transaction sender; keep
+the coin with <code>keep</code>/<code>split</code> instead. Aborts <code><a href="pay.md#0x2_pay_EZERO_AMOUNT">EZERO_AMOUNT</a></code> if <code>amount</code> is 0.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_and_transfer">split_and_transfer</a>&lt;T&gt;(c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, amount: u64, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -143,7 +201,43 @@ Aborts with <code>EVALUE</code> if <code>amount</code> is greater than or equal 
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_and_transfer">split_and_transfer</a>&lt;T&gt;(
     c: &<b>mut</b> Coin&lt;T&gt;, amount: u64, recipient: <b>address</b>, ctx: &<b>mut</b> TxContext
 ) {
+    <b>assert</b>!(amount &gt; 0, <a href="pay.md#0x2_pay_EZERO_AMOUNT">EZERO_AMOUNT</a>);
+    <b>assert</b>!(recipient != <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx), <a href="pay.md#0x2_pay_ESELF_PAY">ESELF_PAY</a>);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(<a href="coin.md#0x2_coin_split">coin::split</a>(c, amount, ctx), recipient)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_pay_split_and_transfer_checked"></a>
+
+## Function `split_and_transfer_checked`
+
+Regulated send: like <code>split_and_transfer</code>, but aborts <code><a href="pay.md#0x2_pay_EDENIED">EDENIED</a></code> when
+<code>recipient</code> is on the given deny list. Plain <code>split_and_transfer</code>
+deliberately skips the check (permissionless coin path).
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_and_transfer_checked">split_and_transfer_checked</a>&lt;T&gt;(c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, amount: u64, recipient: <b>address</b>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_and_transfer_checked">split_and_transfer_checked</a>&lt;T&gt;(
+    c: &<b>mut</b> Coin&lt;T&gt;,
+    amount: u64,
+    recipient: <b>address</b>,
+    deny: &DenyList,
+    ctx: &<b>mut</b> TxContext
+) {
+    <b>assert</b>!(!<a href="deny_list.md#0x2_deny_list_contains">deny_list::contains</a>(deny, recipient), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
+    <a href="pay.md#0x2_pay_split_and_transfer">split_and_transfer</a>(c, amount, recipient, ctx)
 }
 </code></pre>
 
@@ -155,7 +249,7 @@ Aborts with <code>EVALUE</code> if <code>amount</code> is greater than or equal 
 
 ## Function `divide_and_keep`
 
-Divide coin <code>self</code> into <code>n - 1</code> coins with equal balances. If the balance is
+Divide coin <code>self</code> into <code>n</code> coins with equal balances. If the balance is
 not evenly divisible by <code>n</code>, the remainder is left in <code>self</code>.
 
 
@@ -171,10 +265,13 @@ not evenly divisible by <code>n</code>, the remainder is left in <code>self</cod
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_divide_and_keep">divide_and_keep</a>&lt;T&gt;(
     self: &<b>mut</b> Coin&lt;T&gt;, n: u64, ctx: &<b>mut</b> TxContext
 ) {
+    <b>assert</b>!(n &gt; 0, <a href="pay.md#0x2_pay_EDIVISION_BY_ZERO">EDIVISION_BY_ZERO</a>);
     <b>let</b> vec: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt; = <a href="coin.md#0x2_coin_divide_into_n">coin::divide_into_n</a>(self, n, ctx);
     <b>let</b> (i, len) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&vec));
     <b>while</b> (i &lt; len) {
-        <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(<a href="dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> vec), <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
+        <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(
+            <a href="dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> vec), <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)
+        );
         i = i + 1;
     };
     <a href="dependencies/move-stdlib/vector.md#0x1_vector_destroy_empty">vector::destroy_empty</a>(vec);
@@ -227,6 +324,7 @@ Join everything in <code>coins</code> with <code>self</code>
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec">join_vec</a>&lt;T&gt;(self: &<b>mut</b> Coin&lt;T&gt;, coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;) {
+    <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins) &lt;= <a href="coin.md#0x2_coin_max_split_parts">coin::max_split_parts</a>(), <a href="pay.md#0x2_pay_ETOO_MANY_COINS">ETOO_MANY_COINS</a>);
     <b>let</b> (i, len) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins));
     <b>while</b> (i &lt; len) {
         <b>let</b> <a href="coin.md#0x2_coin">coin</a> = <a href="dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> coins);
@@ -249,7 +347,7 @@ Join everything in <code>coins</code> with <code>self</code>
 Join a vector of <code>Coin</code> into a single object and transfer it to <code>receiver</code>.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -258,8 +356,15 @@ Join a vector of <code>Coin</code> into a single object and transfer it to <code
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;, receiver: <b>address</b>) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(
+    coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;, receiver: <b>address</b>, ctx: &TxContext
+) {
+    <b>assert</b>!(receiver != <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx), <a href="pay.md#0x2_pay_ESELF_PAY">ESELF_PAY</a>);
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins) &gt; 0, <a href="pay.md#0x2_pay_ENoCoins">ENoCoins</a>);
+    <b>assert</b>!(
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins) &lt;= <a href="coin.md#0x2_coin_max_split_parts">coin::max_split_parts</a>() + 1,
+        <a href="pay.md#0x2_pay_ETOO_MANY_COINS">ETOO_MANY_COINS</a>
+    );
 
     <b>let</b> self = <a href="dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> coins);
     <a href="pay.md#0x2_pay_join_vec">join_vec</a>(&<b>mut</b> self, coins);

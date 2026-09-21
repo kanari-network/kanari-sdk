@@ -229,7 +229,7 @@ Returns <code>(<a href="collection.md#0x2_collection_Collection">Collection</a>,
     description: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    max_supply: u64,
+    max_supply: u64
 ): (<a href="collection.md#0x2_collection_Collection">Collection</a>, <a href="collection.md#0x2_collection_NftCap">NftCap</a>) {
     <b>let</b> id = <a href="object.md#0x2_object_new">object::new</a>(ctx);
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
@@ -243,21 +243,23 @@ Returns <code>(<a href="collection.md#0x2_collection_Collection">Collection</a>,
         banner_url: kanari_system::url::new_unsafe_from_bytes(banner_url),
         website_url: kanari_system::url::new_unsafe_from_bytes(website_url),
         creator: sender,
-        max_supply,
+        max_supply
     };
 
     <b>let</b> cap = <a href="collection.md#0x2_collection_NftCap">NftCap</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         remaining: max_supply,
         issued_counter: 0,
-        collection_id: collection_addr, // ใช้ <b>address</b> ที่ดึงมา
+        collection_id: collection_addr // ใช้ <b>address</b> ที่ดึงมา
     };
 
-    <a href="event.md#0x2_event_emit">event::emit</a>(<a href="collection.md#0x2_collection_CollectionCreated">CollectionCreated</a> {
-        collection_id: collection_addr,
-        creator: sender,
-        max_supply
-    });
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="collection.md#0x2_collection_CollectionCreated">CollectionCreated</a> {
+            collection_id: collection_addr,
+            creator: sender,
+            max_supply
+        }
+    );
 
     (coll, cap)
 }
@@ -387,7 +389,7 @@ may perform this mutation; supply and ownership are intentionally unchanged.
     c: &<b>mut</b> <a href="collection.md#0x2_collection_Collection">Collection</a>,
     banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ctx: &TxContext,
+    ctx: &TxContext
 ) {
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == c.creator, <a href="collection.md#0x2_collection_E_NOT_COLLECTION_CREATOR">E_NOT_COLLECTION_CREATOR</a>);
     c.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
@@ -521,7 +523,9 @@ Transfer helpers using <code><a href="transfer.md#0x2_transfer_public_transfer">
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_collection">transfer_collection</a>(c: <a href="collection.md#0x2_collection_Collection">Collection</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_collection">transfer_collection</a>(
+    c: <a href="collection.md#0x2_collection_Collection">Collection</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext
+) {
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(c, recipient)
 }
 </code></pre>
@@ -545,7 +549,9 @@ Transfer helpers using <code><a href="transfer.md#0x2_transfer_public_transfer">
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_cap">transfer_cap</a>(cap: <a href="collection.md#0x2_collection_NftCap">NftCap</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_cap">transfer_cap</a>(
+    cap: <a href="collection.md#0x2_collection_NftCap">NftCap</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext
+) {
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(cap, recipient)
 }
 </code></pre>

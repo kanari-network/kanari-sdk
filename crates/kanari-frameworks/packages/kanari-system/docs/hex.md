@@ -108,8 +108,9 @@ Aborts if the hex string contains non-valid hex characters (valid characters are
     <b>let</b> (i, r, l) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>[], <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&<a href="hex.md#0x2_hex">hex</a>));
     <b>assert</b>!(l % 2 == 0, <a href="hex.md#0x2_hex_EInvalidHexLength">EInvalidHexLength</a>);
     <b>while</b> (i &lt; l) {
-        <b>let</b> decimal = (<a href="hex.md#0x2_hex_decode_byte">decode_byte</a>(*<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="hex.md#0x2_hex">hex</a>, i)) * 16) +
-                      <a href="hex.md#0x2_hex_decode_byte">decode_byte</a>(*<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="hex.md#0x2_hex">hex</a>, i + 1));
+        <b>let</b> decimal =
+            (<a href="hex.md#0x2_hex_decode_byte">decode_byte</a>(*<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="hex.md#0x2_hex">hex</a>, i)) * 16)
+                + <a href="hex.md#0x2_hex_decode_byte">decode_byte</a>(*<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="hex.md#0x2_hex">hex</a>, i + 1));
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> r, decimal);
         i = i + 2;
     };
@@ -137,9 +138,8 @@ Aborts if the hex string contains non-valid hex characters (valid characters are
 
 
 <pre><code><b>fun</b> <a href="hex.md#0x2_hex_decode_byte">decode_byte</a>(<a href="hex.md#0x2_hex">hex</a>: u8): u8 {
-    <b>if</b> (/* 0 .. 9 */ 48 &lt;= <a href="hex.md#0x2_hex">hex</a> && <a href="hex.md#0x2_hex">hex</a> &lt; 58) {
-        <a href="hex.md#0x2_hex">hex</a> - 48
-    } <b>else</b> <b>if</b> (/* A .. F */ 65 &lt;= <a href="hex.md#0x2_hex">hex</a> && <a href="hex.md#0x2_hex">hex</a> &lt; 71) {
+    <b>if</b> (/* 0 .. 9 */ 48 &lt;= <a href="hex.md#0x2_hex">hex</a> && <a href="hex.md#0x2_hex">hex</a> &lt; 58) { <a href="hex.md#0x2_hex">hex</a> - 48 }
+    <b>else</b> <b>if</b> (/* A .. F */ 65 &lt;= <a href="hex.md#0x2_hex">hex</a> && <a href="hex.md#0x2_hex">hex</a> &lt; 71) {
         10 + <a href="hex.md#0x2_hex">hex</a> - 65
     } <b>else</b> <b>if</b> (/* a .. f */ 97 &lt;= <a href="hex.md#0x2_hex">hex</a> && <a href="hex.md#0x2_hex">hex</a> &lt; 103) {
         10 + <a href="hex.md#0x2_hex">hex</a> - 97

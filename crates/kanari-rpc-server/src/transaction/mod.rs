@@ -619,12 +619,23 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
 fn token_transfer_details(
     state: &RpcServerState,
     tx: &Transaction,
-) -> Option<(String, u64, String)> {
-    let Transaction::ExecuteFunction { function, args, .. } = tx else {
+) -> Option<(String, u64, Option<String>, String)> {
+    let Transaction::ExecuteFunction {
+        function,
+        args,
+        module,
+        type_args,
+        ..
+    } = tx
+    else {
         return None;
     };
 
-    if function != "transfer_amount" || args.len() < 3 {
+    if function != "transfer_amount" && function != "transfer" || args.len() < 3 {
+        return None;
+    }
+    // Native KANARI transfers go through `native_call`; don't double-report here.
+    if module == &GasModule::module_path() {
         return None;
     }
 
@@ -635,14 +646,110 @@ fn token_transfer_details(
     let recipient = AccountAddress::from_bytes(args.get(2)?.as_slice())
         .ok()?
         .to_hex_literal();
-    let object = state
-        .engine
-        .state_read()
-        .get_object(&coin_object_id)
-        .ok()??;
-    let token_type = coin_token_type_from_object_type(&object.type_)?;
 
-    Some((recipient, amount, token_type))
+    // 1. Prefer explicit type args when present.
+    if let Some(first) = type_args.first()
+        && first.contains("::")
+    {
+        return Some((
+            recipient,
+            amount,
+            Some(CoinModule::normalize_token_type(first)),
+            coin_object_id,
+        ));
+    }
+
+    // 2. Live object lookup (works for pending + recent txs).
+    if let Ok(Some(object)) = state.engine.state_read().get_object(&coin_object_id)
+        && let Some(token_type) = coin_token_type_from_object_type(&object.type_)
+    {
+        return Some((recipient, amount, Some(token_type), coin_object_id));
+    }
+
+    // 3. Return recipient + amount even when the coin object already moved
+    // and the live lookup fails. Token type is backfilled from effects later.
+    Some((recipient, amount, None, coin_object_id))
+}
+
+fn transfers_from_effect(
+    effect: &kanari_types::transaction::TransactionEffects,
+) -> Vec<kanari_rpc_api::TransferEntry> {
+    // Collect every identifiable coin movement. Prefer `transferred`,
+    // then `mutated`, then `created`, then the flat list. Dedup by
+    // (object_id, owner) so the same coin appearing in two buckets
+    // is reported once.
+    use std::collections::HashSet;
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let buckets = [
+        &effect.transferred,
+        &effect.mutated,
+        &effect.created,
+        &effect.object_changes,
+    ];
+    for bucket in buckets {
+        for change in bucket.iter() {
+            let Some(type_) = change.type_.as_deref() else {
+                continue;
+            };
+            let Some(token_type) = coin_token_type_from_object_type(type_) else {
+                continue;
+            };
+            let recipient = match &change.owner {
+                Some(ObjectOwnerKind::AddressOwner(addr)) => Some(addr.clone()),
+                _ => None,
+            };
+            let key = (
+                change.object_ref.object_id.clone(),
+                recipient.clone().unwrap_or_default(),
+            );
+            if !seen.insert(key) {
+                continue;
+            }
+            // Only report coin changes that actually have a new owner.
+            if recipient.is_some() {
+                out.push(kanari_rpc_api::TransferEntry {
+                    recipient,
+                    transfer_amount: None,
+                    transfer_token_type: Some(token_type),
+                    coin_object_id: Some(change.object_ref.object_id.clone()),
+                });
+            }
+        }
+    }
+    out
+}
+
+fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::TransferEntry) {
+    let transfers = details.transfers.get_or_insert_with(Vec::new);
+    // Merge by coin_object_id when present so arg-parsed amount and
+    // effect-parsed owner/type combine into one entry instead of two.
+    if let Some(coin_id) = entry.coin_object_id.clone()
+        && let Some(existing) = transfers
+            .iter_mut()
+            .find(|e| e.coin_object_id.as_deref() == Some(coin_id.as_str()))
+    {
+        if existing.recipient.is_none() {
+            existing.recipient = entry.recipient;
+        }
+        if existing.transfer_amount.is_none() {
+            existing.transfer_amount = entry.transfer_amount;
+        }
+        if existing.transfer_token_type.is_none() {
+            existing.transfer_token_type = entry.transfer_token_type;
+        }
+        return;
+    }
+    transfers.push(entry);
+}
+
+fn enrich_transfer_from_effect(
+    details: &mut TransactionDetails,
+    effect: &kanari_types::transaction::TransactionEffects,
+) {
+    for entry in transfers_from_effect(effect) {
+        push_transfer_entry(details, entry);
+    }
 }
 
 fn token_module_path(token_type: &str) -> Option<String> {
@@ -861,9 +968,7 @@ fn base_transaction_details(
         gas_limit,
         gas_price,
         gas_fee: None,
-        recipient: None,
-        transfer_amount: None,
-        transfer_token_type: None,
+        transfers: None,
         object_inputs: None,
         gas_payment: None,
         effects: None,
@@ -902,6 +1007,7 @@ fn apply_pending_preview_metadata(
     }
     if let Some(effects) = &record.metadata.preview_effects {
         details.effects = Some(effects.clone());
+        enrich_transfer_from_effect(details, effects);
     }
 }
 
@@ -930,6 +1036,7 @@ fn apply_committed_effect(
             .saturating_mul(effective_gas_price(details.gas_price)),
     );
     details.effects = Some(effect.clone());
+    enrich_transfer_from_effect(details, effect);
 }
 
 // =========================================================================
@@ -1074,10 +1181,18 @@ fn map_transaction_to_details(
                 details.object_inputs = Some(object_inputs);
             }
             details.gas_payment = tx.gas_payment();
-            if let Some((recipient, amount, token_type)) = token_transfer_details(state, tx) {
-                details.recipient = Some(recipient);
-                details.transfer_amount = Some(amount);
-                details.transfer_token_type = Some(token_type);
+            if let Some((recipient, amount, token_type, coin_object_id)) =
+                token_transfer_details(state, tx)
+            {
+                push_transfer_entry(
+                    &mut details,
+                    kanari_rpc_api::TransferEntry {
+                        recipient: Some(recipient),
+                        transfer_amount: Some(amount),
+                        transfer_token_type: token_type,
+                        coin_object_id: Some(coin_object_id),
+                    },
+                );
             }
             if let Some(native_call) = tx.native_call() {
                 match native_call {
@@ -1086,10 +1201,15 @@ fn map_transaction_to_details(
                         recipient,
                         amount,
                     } => {
-                        details.module = Some(format!("To: {} via {}", recipient, coin_object_id));
-                        details.recipient = Some(recipient);
-                        details.transfer_amount = Some(amount);
-                        details.transfer_token_type = Some(GAS_COIN.to_string());
+                        push_transfer_entry(
+                            &mut details,
+                            kanari_rpc_api::TransferEntry {
+                                recipient: Some(recipient),
+                                transfer_amount: Some(amount),
+                                transfer_token_type: Some(GAS_COIN.to_string()),
+                                coin_object_id: Some(coin_object_id),
+                            },
+                        );
                     }
                     NativeCall::Burn { .. } => {}
                 }

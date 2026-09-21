@@ -344,6 +344,27 @@ class _TransactionDetailsSheet extends StatelessWidget {
                 _DetailRow(label: 'Module', value: transaction.module!),
               if (transaction.function != null)
                 _DetailRow(label: 'Function', value: transaction.function!),
+              if (transaction.transfers != null &&
+                  transaction.transfers!.isNotEmpty)
+                ...transaction.transfers!.asMap().entries.map(
+                  (entry) {
+                    final t = entry.value;
+                    final parts = [
+                      if (t.recipient != null) t.recipient!,
+                      if (t.transferAmount != null) '${t.transferAmount}',
+                      if (t.transferTokenType != null) t.transferTokenType!,
+                    ].join(' · ');
+                    return _DetailRow(
+                      label: transaction.transfers!.length > 1
+                          ? 'Transfer ${entry.key + 1}'
+                          : 'Transfer',
+                      value: parts.isEmpty ? '-' : parts,
+                      copyable: t.recipient != null,
+                      copyValue: t.recipient,
+                      compactLongValue: true,
+                    );
+                  },
+                ),
             ],
           ),
         ),

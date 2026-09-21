@@ -136,6 +136,19 @@ export default function TransactionDetailsModal({
 }) {
   if (!open) return null;
 
+  const firstTransfer = (() => {
+    const list = readArray(transaction, "transfers");
+    const entry = list.length > 0 ? list[0] : null;
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      return entry as Record<string, unknown>;
+    }
+    return null;
+  })();
+  const firstTransferString = (key: string) => {
+    if (!firstTransfer) return "";
+    const item = firstTransfer[key];
+    return typeof item === "string" || typeof item === "number" ? String(item) : "";
+  };
   const hash = stripHexPrefix(readFirstString(transaction, ["hash", "tx_hash"]));
   const status = describeTransactionLifecycle(transaction);
   const senderAddress = readAddress(transaction, "sender_address", "sender");
@@ -200,9 +213,32 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Status Detail" value={status.detail || readFirstString(transaction, ["status"], "unknown")} />
                 <DetailItem label="Checkpoint Height" value={readFirstString(transaction, ["checkpoint_height", "block_height", "height"])} mono />
                 <DetailItem label="Sender" value={senderAddress} mono wide />
-                <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
-                <DetailItem label="Transfer Token" value={readFirstString(transaction, ["transfer_token_type"])} mono wide />
-                <DetailItem label="Transfer Amount" value={readFirstString(transaction, ["transfer_amount"])} mono />
+                <DetailItem label="Recipient / Target" value={shortHash(firstTransferString("recipient") || readFirstString(transaction, ["to", "module"]))} mono wide />
+                <DetailItem label="Transfer Token" value={firstTransferString("transfer_token_type")} mono wide />
+                <DetailItem label="Transfer Amount" value={firstTransferString("transfer_amount")} mono />
+                <DetailItem
+                  label="Transfers"
+                  value={
+                    readArray(transaction, "transfers").length > 0
+                      ? readArray(transaction, "transfers")
+                          .map((entry) => {
+                            const rec = entry && typeof entry === "object" && !Array.isArray(entry)
+                              ? ((entry as Record<string, unknown>)["recipient"] ?? (entry as Record<string, unknown>)["to"] ?? "")
+                              : "";
+                            const amt = entry && typeof entry === "object" && !Array.isArray(entry)
+                              ? ((entry as Record<string, unknown>)["transfer_amount"] ?? "")
+                              : "";
+                            const tok = entry && typeof entry === "object" && !Array.isArray(entry)
+                              ? ((entry as Record<string, unknown>)["transfer_token_type"] ?? "")
+                              : "";
+                            return `${String(rec)} · ${String(amt)} ${String(tok)}`.trim();
+                          })
+                          .join(" | ")
+                      : "-"
+                  }
+                  mono
+                  wide
+                />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
                 <DetailItem label="Published Module" value={publishedModule} mono wide />
                 <DetailItem

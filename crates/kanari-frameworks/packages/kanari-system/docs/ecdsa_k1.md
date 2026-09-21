@@ -313,7 +313,9 @@ applied to Ecdsa signatures.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecrecover">ecrecover</a>(signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecrecover">ecrecover</a>(
+    signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8
+): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -373,7 +375,7 @@ If the signature is valid to the pubkey and hashed message, return true. Else fa
     signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
+    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8
 ): bool;
 </code></pre>
 
