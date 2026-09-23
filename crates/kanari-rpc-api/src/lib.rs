@@ -518,6 +518,15 @@ pub struct TransactionStatus {
 /// it to scale `transfer_amount` (raw units) into display units:
 /// `display = raw / 10^decimals`. It is `None` only when metadata is
 /// not yet indexed for that token.
+///
+/// `transfer_amount` is `Some` only when the amount was parsed from
+/// transaction args. Effect-derived entries carry `None` (the effect records
+/// ownership changes, not deltas) — clients must render those as amount
+/// unknown, never as zero.
+///
+/// `previous_owner` is the pre-execution owner when the effect records one;
+/// it lets clients distinguish a real ownership change from sender
+/// change-back noise.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -528,6 +537,8 @@ pub struct TransferEntry {
     pub transfer_token_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_decimals: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coin_object_id: Option<String>,
 }

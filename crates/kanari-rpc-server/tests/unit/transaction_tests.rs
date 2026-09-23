@@ -956,6 +956,7 @@ fn enrich_merges_arg_amount_with_effect_owner_by_coin_id() {
             transfer_amount: Some(77),
             transfer_token_type: None,
             transfer_decimals: None,
+            previous_owner: None,
             coin_object_id: Some("0xaaa".to_string()),
         },
     );
@@ -973,6 +974,68 @@ fn enrich_merges_arg_amount_with_effect_owner_by_coin_id() {
         transfers[0].transfer_token_type.as_deref(),
         Some("0x1::james::JAMES")
     );
+}
+
+#[test]
+fn effect_only_sender_change_back_is_filtered_as_noise() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    let mut effect = empty_success_effect();
+    let mut noise = coin_change("0xaaa", "0xsender", "0x1::james::JAMES");
+    noise.previous_owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+        "0xsender".to_string(),
+    ));
+    effect.mutated = vec![noise];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+    assert!(
+        details.transfers.is_none() || details.transfers.as_ref().unwrap().is_empty(),
+        "sender change-back without amount must not appear as a transfer"
+    );
+}
+
+#[test]
+fn arg_backed_self_transfer_survives_noise_filter() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xsender".to_string()),
+            transfer_amount: Some(77),
+            transfer_token_type: Some("0x1::james::JAMES".to_string()),
+            transfer_decimals: None,
+            previous_owner: None,
+            coin_object_id: Some("0xaaa".to_string()),
+        },
+    );
+    let mut effect = empty_success_effect();
+    let mut noise = coin_change("0xaaa", "0xsender", "0x1::james::JAMES");
+    noise.previous_owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+        "0xsender".to_string(),
+    ));
+    effect.mutated = vec![noise];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+    let transfers = details.transfers.as_ref().unwrap();
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers[0].transfer_amount, Some(77));
 }
 
 #[test]
@@ -995,6 +1058,7 @@ fn multiple_transfers_are_all_preserved() {
             transfer_amount: Some(5),
             transfer_token_type: Some("0x1::james::JAMES".to_string()),
             transfer_decimals: None,
+            previous_owner: None,
             coin_object_id: None,
         },
     );
@@ -1005,6 +1069,7 @@ fn multiple_transfers_are_all_preserved() {
             transfer_amount: Some(6),
             transfer_token_type: Some("0x2::kanari::KANARI".to_string()),
             transfer_decimals: Some(9),
+            previous_owner: None,
             coin_object_id: None,
         },
     );
@@ -1061,6 +1126,7 @@ proptest! {
                     transfer_amount: Some(amount + i as u64),
                     transfer_token_type: Some("0x1::james::JAMES".to_string()),
                     transfer_decimals: None,
+                    previous_owner: None,
                     coin_object_id: Some(format!("0xcoin{i}")),
                 },
             );

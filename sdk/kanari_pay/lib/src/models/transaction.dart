@@ -71,6 +71,7 @@ class TransferEntry extends Equatable {
   final int? transferAmount;
   final String? transferTokenType;
   final int? transferDecimals;
+  final String? previousOwner;
   final String? coinObjectId;
 
   const TransferEntry({
@@ -78,6 +79,7 @@ class TransferEntry extends Equatable {
     this.transferAmount,
     this.transferTokenType,
     this.transferDecimals,
+    this.previousOwner,
     this.coinObjectId,
   });
 
@@ -98,6 +100,7 @@ class TransferEntry extends Equatable {
           : _jsonInt(json['transfer_amount']),
       transferTokenType: json['transfer_token_type']?.toString(),
       transferDecimals: decimals,
+      previousOwner: json['previous_owner']?.toString(),
       coinObjectId: json['coin_object_id']?.toString(),
     );
   }
@@ -107,6 +110,7 @@ class TransferEntry extends Equatable {
     'transfer_amount': transferAmount,
     'transfer_token_type': transferTokenType,
     'transfer_decimals': transferDecimals,
+    'previous_owner': previousOwner,
     'coin_object_id': coinObjectId,
   };
 
@@ -116,6 +120,7 @@ class TransferEntry extends Equatable {
     transferAmount,
     transferTokenType,
     transferDecimals,
+    previousOwner,
     coinObjectId,
   ];
 }

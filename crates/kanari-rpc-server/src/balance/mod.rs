@@ -220,19 +220,19 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
         .map(|t| CoinModule::normalize_token_type(&t))
         .collect();
 
-    let vals: Vec<serde_json::Value> = token_types
+    // Batch: one object pass for all tokens instead of one full scan each.
+    let ordered_types: Vec<String> = token_types.into_iter().collect();
+    let summaries = match state_guard.token_supply_summaries(&ordered_types) {
+        Ok(summaries) => summaries,
+        Err(e) => {
+            warn!("[RPC] Failed to build supply summaries: {}", e);
+            return respond_with_serialize(request.id, Vec::<serde_json::Value>::new());
+        }
+    };
+    let vals: Vec<serde_json::Value> = summaries
         .into_iter()
-        .filter_map(|token_type| {
-            let summary = match state_guard.token_supply_summary(&token_type) {
-                Ok(summary) => summary,
-                Err(e) => {
-                    warn!(
-                        "[RPC] Failed to build supply summary for token {}: {}",
-                        token_type, e
-                    );
-                    return None;
-                }
-            };
+        .map(|summary| {
+            let token_type = summary.token_type.clone();
             let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
             let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
 
@@ -247,7 +247,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
             let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
-            Some(serde_json::json!({
+            serde_json::json!({
                 "token_type": summary.token_type,
                 "total_supply": summary.total_supply,
                 "wallet_visible_supply": summary.wallet_visible_supply,
@@ -260,7 +260,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 "name": name,
                 "description": description,
                 "icon_url": icon_url
-            }))
+            })
         })
         .collect();
 

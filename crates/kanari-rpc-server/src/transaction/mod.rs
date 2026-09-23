@@ -761,13 +761,21 @@ fn transfers_from_effect(
                 continue;
             }
             // Only report coin changes that actually have a new owner.
+            // Record previous_owner so clients can tell a real ownership
+            // change from sender change-back noise. Amounts are NOT
+            // inferred here: effects record ownership, not deltas.
             if recipient.is_some() {
                 let transfer_decimals = lookup_token_decimals(state, Some(&token_type));
+                let previous_owner = match &change.previous_owner {
+                    Some(ObjectOwnerKind::AddressOwner(addr)) => Some(addr.clone()),
+                    _ => None,
+                };
                 out.push(kanari_rpc_api::TransferEntry {
                     recipient,
                     transfer_amount: None,
                     transfer_token_type: Some(token_type),
                     transfer_decimals,
+                    previous_owner,
                     coin_object_id: Some(change.object_ref.object_id.clone()),
                 });
             }
@@ -800,9 +808,17 @@ fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::
         if existing.transfer_decimals.is_none() {
             existing.transfer_decimals = entry.transfer_decimals;
         }
+        if existing.previous_owner.is_none() {
+            existing.previous_owner = entry.previous_owner;
+        }
         return;
     }
     transfers.push(entry);
+}
+
+/// Normalized address equality for noise filtering.
+fn same_addr(a: Option<&str>, b: &str) -> bool {
+    a.is_some_and(|x| x.trim().to_lowercase() == b.trim().to_lowercase())
 }
 
 fn enrich_transfer_from_effect(
@@ -810,7 +826,23 @@ fn enrich_transfer_from_effect(
     details: &mut TransactionDetails,
     effect: &kanari_types::transaction::TransactionEffects,
 ) {
+    let sender = details
+        .sender_address
+        .as_deref()
+        .unwrap_or(details.sender.as_str())
+        .to_owned();
     for entry in transfers_from_effect(state, effect) {
+        // Drop sender change-back noise: effect-only entries (no amount)
+        // where the coin didn't actually change hands. Arg-parsed entries
+        // (with amount) always survive, so real self-transfers are kept.
+        if entry.transfer_amount.is_none()
+            && let Some(recipient) = entry.recipient.as_deref()
+            && same_addr(Some(recipient), &sender)
+            && (entry.previous_owner.is_none()
+                || same_addr(entry.previous_owner.as_deref(), recipient))
+        {
+            continue;
+        }
         push_transfer_entry(details, entry);
     }
     // Backfill decimals for arg-parsed entries whose token type was known
@@ -1270,6 +1302,7 @@ fn map_transaction_to_details(
                         transfer_amount: Some(amount),
                         transfer_token_type: token_type,
                         transfer_decimals,
+                        previous_owner: None,
                         coin_object_id: Some(coin_object_id),
                     },
                 );
@@ -1288,6 +1321,7 @@ fn map_transaction_to_details(
                                 transfer_amount: Some(amount),
                                 transfer_token_type: Some(GAS_COIN.to_string()),
                                 transfer_decimals: Some(9),
+                                previous_owner: None,
                                 coin_object_id: Some(coin_object_id),
                             },
                         );
