@@ -409,7 +409,8 @@ class HomeScreenState extends State<HomeScreen> {
             ),
             itemBuilder: (context, index) {
               final token = tokens[index];
-              final formattedAmount = token_utils.displayAmountFromBaseUnits(
+              // No fallback: decimals null → explicit unknown
+              final formattedAmount = token_utils.formatTokenAmount(
                 token.amount,
                 token.decimals,
               );
@@ -462,7 +463,7 @@ class HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      formattedAmount.toStringAsFixed(4),
+                      formattedAmount,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),

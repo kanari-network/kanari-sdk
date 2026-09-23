@@ -16,12 +16,6 @@ bool isKanariLike({
       name?.toUpperCase() == kanariSymbol;
 }
 
-int defaultDecimalsForTokenType(String tokenType, {int fallback = 6}) {
-  if (isKanariType(tokenType)) return kanariDecimals;
-  if (tokenType.contains('USDC') || tokenType.contains('USDT')) return 6;
-  return fallback;
-}
-
 String tokenInitials(String symbol) {
   final normalized = symbol.trim().toUpperCase();
   if (normalized.isEmpty) return '?';

@@ -18,14 +18,14 @@ use serde_json;
 use std::collections::BTreeSet;
 use tracing::warn;
 
-fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
+/// No fallback: returns on-chain `CoinMetadata` decimals only.
+/// `GAS_COIN` (KANARI) is `Some(9)` as protocol constant, everything else
+/// is `None` when metadata is not indexed — callers must not invent 9/6/0.
+fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> Option<u8> {
     if token_type == GAS_COIN {
-        return 9;
+        return Some(9);
     }
-    if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
-        return decimals;
-    }
-    9
+    state_guard.get_token_decimals(token_type).ok().flatten()
 }
 
 fn extract_symbol(token_type: &str) -> String {
@@ -74,8 +74,7 @@ fn collect_fungible_asset_holders(
     compute_coin_count: bool,
 ) -> anyhow::Result<Vec<FungibleAssetHolder>> {
     let token_type = CoinModule::normalize_token_type(token_type);
-    let coin_type = CoinModule::coin_type(&token_type);
-    let mut holders = Vec::new();
+    let mut balances: Vec<(AccountAddress, u64)> = Vec::new();
 
     for owner in state_guard.owner_addresses()? {
         if !is_public_asset_holder(&owner) {
@@ -86,12 +85,24 @@ fn collect_fungible_asset_holders(
         if balance == 0 {
             continue;
         }
+        balances.push((owner, balance));
+    }
 
+    balances.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    if let Some(limit) = limit {
+        balances.truncate(limit);
+    }
+
+    // Hydrate coin counts only for survivors so a limit=10 query for a
+    // rare token doesn't walk every owner's objects. Output identical to
+    // before: truncated-away holders never appeared in the response.
+    let mut holders = Vec::with_capacity(balances.len());
+    for (owner, balance) in balances {
         let coin_object_count = if compute_coin_count {
             let mut count = 0usize;
             for object_id in state_guard.get_owned_objects(&owner)? {
                 if let Some(object) = state_guard.get_object(&object_id)?
-                    && object.type_ == coin_type
+                    && CoinModule::is_coin_type_for(&object.type_, &token_type)
                 {
                     count += 1;
                 }
@@ -106,15 +117,6 @@ fn collect_fungible_asset_holders(
             balance,
             coin_object_count,
         });
-    }
-
-    holders.sort_by(|a, b| {
-        b.balance
-            .cmp(&a.balance)
-            .then_with(|| a.owner.cmp(&b.owner))
-    });
-    if let Some(limit) = limit {
-        holders.truncate(limit);
     }
     Ok(holders)
 }
@@ -150,12 +152,15 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
 
     let target_token = CoinModule::normalize_token_type(&req_data.token_type);
     let final_balance = owner_info.balances.get(&target_token).copied().unwrap_or(0);
+    let state_guard = state.engine.state_read();
+    let decimals = get_token_decimals(&state_guard, &target_token);
 
     RpcResponse {
         jsonrpc: "2.0".into(),
         result: Some(serde_json::json!({
             "token_type": req_data.token_type,
-            "balance": final_balance
+            "balance": final_balance,
+            "decimals": decimals,
         })),
         error: None,
         id: request.id,
@@ -203,24 +208,31 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
     if let Ok(Some(keys)) = state_guard.load_internal::<Vec<String>>(b"treasury_index") {
         for key in keys {
-            let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-            token_types.insert(token_type);
+            let token_type = key.strip_prefix("treasury:").unwrap_or(&key);
+            // Normalize so 0x02/0x2 spellings dedupe to one row.
+            token_types.insert(CoinModule::normalize_token_type(token_type));
         }
     }
-
-    let vals: Vec<serde_json::Value> = token_types
+    // Global cache keys are normalized on write, but normalize defensively
+    // so legacy raw-spelling entries can't produce duplicate rows.
+    let token_types: BTreeSet<String> = token_types
         .into_iter()
-        .filter_map(|token_type| {
-            let summary = match state_guard.token_supply_summary(&token_type) {
-                Ok(summary) => summary,
-                Err(e) => {
-                    warn!(
-                        "[RPC] Failed to build supply summary for token {}: {}",
-                        token_type, e
-                    );
-                    return None;
-                }
-            };
+        .map(|t| CoinModule::normalize_token_type(&t))
+        .collect();
+
+    // Batch: one object pass for all tokens instead of one full scan each.
+    let ordered_types: Vec<String> = token_types.into_iter().collect();
+    let summaries = match state_guard.token_supply_summaries(&ordered_types) {
+        Ok(summaries) => summaries,
+        Err(e) => {
+            warn!("[RPC] Failed to build supply summaries: {}", e);
+            return respond_with_serialize(request.id, Vec::<serde_json::Value>::new());
+        }
+    };
+    let vals: Vec<serde_json::Value> = summaries
+        .into_iter()
+        .map(|summary| {
+            let token_type = summary.token_type.clone();
             let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
             let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
 
@@ -235,7 +247,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
             let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
-            Some(serde_json::json!({
+            serde_json::json!({
                 "token_type": summary.token_type,
                 "total_supply": summary.total_supply,
                 "wallet_visible_supply": summary.wallet_visible_supply,
@@ -248,7 +260,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 "name": name,
                 "description": description,
                 "icon_url": icon_url
-            }))
+            })
         })
         .collect();
 

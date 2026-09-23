@@ -735,6 +735,169 @@ fn create_transfer_test_package() -> Result<PathBuf> {
     )
 }
 
+fn create_value_test_package() -> Result<PathBuf> {
+    create_test_package(
+        "EntryReturnValue",
+        "0x49",
+        "entry_return_value.move",
+        "module tester::entry_return_value {\n    public entry fun get_value(): u64 {\n        42\n    }\n}\n",
+    )
+}
+
+#[test]
+fn entry_function_returns_pure_values_to_caller() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let package_dir = create_value_test_package()?;
+    let (module_id, module_bytes) = compile_test_module(&package_dir)?;
+
+    runtime.load_system_modules()?;
+    let _ = runtime
+        .publish_module(module_bytes, *module_id.address(), None, None)
+        .context("publish value test module")?;
+
+    let (changeset, values) = runtime.execute_entry_function_with_object_context_returns(
+        &module_id,
+        "get_value",
+        vec![],
+        vec![],
+        EntryFunctionObjectContext {
+            object_inputs: vec![],
+            sender: None,
+            gas_info: None,
+            timestamp: None,
+            tx_hash: None,
+            persist_runtime_state: false,
+            state_overlay: None,
+        },
+    )?;
+    assert!(changeset.success);
+    assert_eq!(values, vec![bcs::to_bytes(&42u64)?]);
+    Ok(())
+}
+
+fn create_init_test_package() -> Result<PathBuf> {
+    create_test_package(
+        "InitE2E",
+        "0x4A",
+        "init_e2e.move",
+        "module tester::init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    public entry fun noop() {}\n\n    fun init(_ctx: &mut TxContext) {\n        event::emit<u64>(777);\n    }\n}\n",
+    )
+}
+
+fn create_init_v2_test_package() -> Result<PathBuf> {
+    create_test_package(
+        "InitE2EV2",
+        "0x4A",
+        "init_e2e.move",
+        "module tester::init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    public entry fun noop() {}\n\n    fun init(_ctx: &mut TxContext) {\n        event::emit<u64>(888);\n    }\n}\n",
+    )
+}
+
+#[test]
+fn publish_runs_module_init_effects() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let package_dir = create_init_test_package()?;
+    let (module_id, module_bytes) = compile_test_module(&package_dir)?;
+
+    runtime.load_system_modules()?;
+    let changeset = runtime.publish_module_with_context_and_persistence(
+        module_bytes,
+        *module_id.address(),
+        None,
+        None,
+        None,
+        true,
+    )?;
+
+    // The init event is merged into the publish changeset.
+    let expected = bcs::to_bytes(&777u64)?;
+    assert!(
+        changeset
+            .events
+            .iter()
+            .any(|event| event.event_data == expected),
+        "publish must run module init"
+    );
+    Ok(())
+}
+
+fn create_witness_init_test_package() -> Result<PathBuf> {
+    create_test_package(
+        "WitnessInitE2E",
+        "0x4B",
+        "witness_init_e2e.move",
+        "module tester::witness_init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    struct WITNESS_INIT_E2E has drop {}\n\n    public entry fun noop() {}\n\n    fun init(_witness: WITNESS_INIT_E2E, ctx: &mut TxContext) {\n        let _ = ctx;\n        event::emit<u64>(999);\n    }\n}\n",
+    )
+}
+
+#[test]
+fn publish_runs_witness_style_init() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let package_dir = create_witness_init_test_package()?;
+    let (module_id, module_bytes) = compile_test_module(&package_dir)?;
+
+    runtime.load_system_modules()?;
+    let changeset = runtime.publish_module_with_context_and_persistence(
+        module_bytes,
+        *module_id.address(),
+        None,
+        None,
+        None,
+        true,
+    )?;
+
+    // The one-time-witness slot is synthesized by the entry machinery.
+    let expected = bcs::to_bytes(&999u64)?;
+    assert!(
+        changeset
+            .events
+            .iter()
+            .any(|event| event.event_data == expected),
+        "publish must run witness-style module init"
+    );
+    Ok(())
+}
+
+#[test]
+fn upgrade_never_reruns_module_init() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let package_dir = create_init_test_package()?;
+    let (module_id, module_bytes) = compile_test_module(&package_dir)?;
+
+    runtime.load_system_modules()?;
+    let _ = runtime.publish_module_with_context_and_persistence(
+        module_bytes,
+        *module_id.address(),
+        None,
+        None,
+        None,
+        true,
+    )?;
+
+    let v2_dir = create_init_v2_test_package()?;
+    let (v2_id, v2_bytes) = compile_test_module(&v2_dir)?;
+    assert_eq!(v2_id, module_id);
+    let changeset = runtime.upgrade_module_with_context_and_persistence(
+        v2_bytes,
+        *v2_id.address(),
+        None,
+        None,
+        None,
+        true,
+    )?;
+
+    // v2's init (which would emit 888) must not run on upgrade.
+    let upgraded = bcs::to_bytes(&888u64)?;
+    assert!(
+        changeset
+            .events
+            .iter()
+            .all(|event| event.event_data != upgraded),
+        "upgrade must never re-run module init"
+    );
+    Ok(())
+}
+
 fn create_escrow_like_test_package() -> Result<PathBuf> {
     create_test_package(
         "EscrowLikeObjectInput",

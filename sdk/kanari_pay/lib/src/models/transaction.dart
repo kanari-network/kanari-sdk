@@ -70,22 +70,37 @@ class TransferEntry extends Equatable {
   final String? recipient;
   final int? transferAmount;
   final String? transferTokenType;
+  final int? transferDecimals;
+  final String? previousOwner;
   final String? coinObjectId;
 
   const TransferEntry({
     this.recipient,
     this.transferAmount,
     this.transferTokenType,
+    this.transferDecimals,
+    this.previousOwner,
     this.coinObjectId,
   });
 
   factory TransferEntry.fromJson(Map<String, dynamic> json) {
+    final rawDecimals = json['transfer_decimals'];
+    int? decimals;
+    if (rawDecimals is int) {
+      decimals = rawDecimals;
+    } else if (rawDecimals is num) {
+      decimals = rawDecimals.toInt();
+    } else if (rawDecimals is String) {
+      decimals = int.tryParse(rawDecimals);
+    }
     return TransferEntry(
       recipient: json['recipient']?.toString(),
       transferAmount: json['transfer_amount'] == null
           ? null
           : _jsonInt(json['transfer_amount']),
       transferTokenType: json['transfer_token_type']?.toString(),
+      transferDecimals: decimals,
+      previousOwner: json['previous_owner']?.toString(),
       coinObjectId: json['coin_object_id']?.toString(),
     );
   }
@@ -94,6 +109,8 @@ class TransferEntry extends Equatable {
     'recipient': recipient,
     'transfer_amount': transferAmount,
     'transfer_token_type': transferTokenType,
+    'transfer_decimals': transferDecimals,
+    'previous_owner': previousOwner,
     'coin_object_id': coinObjectId,
   };
 
@@ -102,6 +119,8 @@ class TransferEntry extends Equatable {
     recipient,
     transferAmount,
     transferTokenType,
+    transferDecimals,
+    previousOwner,
     coinObjectId,
   ];
 }

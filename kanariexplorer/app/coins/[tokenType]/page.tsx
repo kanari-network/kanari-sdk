@@ -95,7 +95,11 @@ function FungibleAssetContent() {
   }, [tokenType]);
 
   const symbol = readString(asset, "symbol", tokenType.split("::").slice(-1)[0] || "ASSET");
-  const decimals = readString(asset, "decimals", "9");
+  // No fallback: decimals จาก API เท่านั้น
+  const assetRecord = (asset ?? {}) as Record<string, unknown>;
+  const decimals = assetRecord["decimals"] != null && String(assetRecord["decimals"]).trim() !== ""
+    ? String(assetRecord["decimals"])
+    : null;
   const verified = readBoolean(
     asset,
     "verified",
@@ -160,11 +164,11 @@ function FungibleAssetContent() {
   );
 }
 
-function AssetInfoPanel({ asset, tokenType, decimals }: { asset: unknown; tokenType: string; decimals: string }) {
+function AssetInfoPanel({ asset, tokenType, decimals }: { asset: unknown; tokenType: string; decimals: string | null }) {
   const rows = [
     ["Name", readString(asset, "name", "-")],
     ["Symbol", readString(asset, "symbol", "-")],
-    ["Decimals", decimals],
+    ["Decimals", decimals ?? "- (unknown)"],
     ["Token Type", tokenType],
     ["Circulating Supply", formatBalance(readString(asset, "circulating_supply", "0"), decimals)],
     ["Accounted Supply", formatBalance(readString(asset, "accounted_supply", "0"), decimals)],
@@ -196,7 +200,7 @@ function AssetHoldersPanel({
   loading,
 }: {
   holders: unknown[];
-  decimals: string;
+  decimals: string | null;
   symbol: string;
   loading: boolean;
 }) {

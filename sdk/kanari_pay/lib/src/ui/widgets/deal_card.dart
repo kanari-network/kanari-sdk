@@ -85,7 +85,8 @@ class DealCard extends StatelessWidget {
                 const SizedBox(height: AppUiTokens.contentSpacing),
                 AppDetailRow(label: 'ID', value: _truncate(dealId, 20)),
                 const SizedBox(height: AppUiTokens.compactSpacing),
-                AppDetailRow(label: 'Amount', value: '$amount $coinName'),
+                // No fallback: deal carries no decimals — show raw explicitly
+                AppDetailRow(label: 'Amount', value: '$amount (raw) $coinName'),
                 const SizedBox(height: AppUiTokens.compactSpacing),
                 AppDetailRow(label: 'Buyer', value: _truncate(buyer, 20)),
                 const SizedBox(height: AppUiTokens.compactSpacing),

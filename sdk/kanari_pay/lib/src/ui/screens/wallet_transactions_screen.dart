@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kanari_pay/kanari_pay.dart';
+import 'package:kanari_pay/src/core/token_utils.dart' as token_utils;
 import 'package:kanari_pay/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -349,9 +350,17 @@ class _TransactionDetailsSheet extends StatelessWidget {
                 ...transaction.transfers!.asMap().entries.map(
                   (entry) {
                     final t = entry.value;
+                    // No fallback: transfer_decimals จาก API เท่านั้น
+                    final formattedAmount = t.transferAmount != null
+                        ? token_utils.formatTokenAmount(
+                            t.transferAmount!,
+                            t.transferDecimals,
+                            fractionDigits: 6,
+                          )
+                        : null;
                     final parts = [
                       if (t.recipient != null) t.recipient!,
-                      if (t.transferAmount != null) '${t.transferAmount}',
+                      if (formattedAmount != null) formattedAmount,
                       if (t.transferTokenType != null) t.transferTokenType!,
                     ].join(' · ');
                     return _DetailRow(

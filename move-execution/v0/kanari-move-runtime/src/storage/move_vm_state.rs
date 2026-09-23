@@ -5,12 +5,22 @@ use anyhow::Result;
 use kanari_types::coin::TreasuryCap;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
-use move_core_types::language_storage::ModuleId;
+use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_test_utils::InMemoryStorage;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::storage::persistent_store::PersistentStore;
+
+/// Canonicalize a token type for storage keys so `0x02`/`0x2` spellings
+/// share one record. Local copy to avoid a state-module dependency.
+fn normalize_token_type(token_type: &str) -> String {
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
+        return format!("{}", st);
+    }
+    token_type.to_string()
+}
 
 /// Simple persistent store wrapper for published modules using `PersistentStore`.
 #[derive(Clone)]
@@ -237,6 +247,8 @@ impl MoveVMState {
         owner: &AccountAddress,
         total: u64,
     ) -> Result<()> {
+        // Canonical spelling going forward.
+        let token_type = normalize_token_type(token_type);
         // Use kanari-types `TreasuryCap` to store the total supply
         let key = format!("treasury:{}", token_type);
         let cap = TreasuryCap {
@@ -268,8 +280,8 @@ impl MoveVMState {
                     .store
                     .load::<(AccountAddress, TreasuryCap)>(key.as_bytes())
                 {
-                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-                    out.push((owner_addr, token_type, cap));
+                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key);
+                    out.push((owner_addr, normalize_token_type(token_type), cap));
                 }
             }
         }

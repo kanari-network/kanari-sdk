@@ -66,16 +66,27 @@ export function formatNumber(value: unknown) {
   return number.toLocaleString();
 }
 
-export function formatBalance(value: unknown, decimalsValue: unknown = 9) {
+/**
+ * No fallback: decimals must come from API on-chain metadata.
+ * Returns raw value with explicit marker when decimals is unknown —
+ * never assumes 9/6/0.
+ */
+export function formatBalance(value: unknown, decimalsValue: unknown) {
   if (value === null || value === undefined || value === "") return "-";
+  if (decimalsValue === null || decimalsValue === undefined || decimalsValue === "") {
+    return `${String(value)} (raw, decimals unknown)`;
+  }
   const decimals = Number(decimalsValue);
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
+    return `${String(value)} (raw, decimals unknown)`;
+  }
   try {
     const raw = BigInt(String(value));
-    const scale = BigInt(10) ** BigInt(Number.isFinite(decimals) ? decimals : 9);
+    const scale = BigInt(10) ** BigInt(decimals);
     const whole = String(raw / scale).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     const fraction = raw % scale;
     if (fraction === BigInt(0)) return whole;
-    return `${whole}.${String(fraction).padStart(Number(decimals), "0").replace(/0+$/, "")}`;
+    return `${whole}.${String(fraction).padStart(decimals, "0").replace(/0+$/, "")}`;
   } catch {
     return String(value);
   }

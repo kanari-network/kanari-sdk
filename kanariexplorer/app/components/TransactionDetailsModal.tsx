@@ -1,4 +1,4 @@
-import { describeTransactionLifecycle, EmptyState, RawDetails, readAddress, readString, shortHash, StatusPill, stripHexPrefix } from "./ExplorerUI";
+import { describeTransactionLifecycle, EmptyState, formatBalance, RawDetails, readAddress, readString, shortHash, StatusPill, stripHexPrefix } from "./ExplorerUI";
 import ObjectGraphView from "./ObjectGraphView";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
@@ -149,6 +149,20 @@ export default function TransactionDetailsModal({
     const item = firstTransfer[key];
     return typeof item === "string" || typeof item === "number" ? String(item) : "";
   };
+  // No fallback: decimals จาก API เท่านั้น
+  const firstTransferDecimals = (() => {
+    const raw = firstTransfer?.["transfer_decimals"];
+    if (typeof raw === "string" || typeof raw === "number") {
+      const text = String(raw).trim();
+      if (text) return text;
+    }
+    return null;
+  })();
+  const firstTransferAmountFormatted = (() => {
+    const raw = firstTransferString("transfer_amount");
+    if (!raw) return "";
+    return formatBalance(raw, firstTransferDecimals);
+  })();
   const hash = stripHexPrefix(readFirstString(transaction, ["hash", "tx_hash"]));
   const status = describeTransactionLifecycle(transaction);
   const senderAddress = readAddress(transaction, "sender_address", "sender");
@@ -215,7 +229,7 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(firstTransferString("recipient") || readFirstString(transaction, ["to", "module"]))} mono wide />
                 <DetailItem label="Transfer Token" value={firstTransferString("transfer_token_type")} mono wide />
-                <DetailItem label="Transfer Amount" value={firstTransferString("transfer_amount")} mono />
+                <DetailItem label="Transfer Amount" value={firstTransferAmountFormatted || firstTransferString("transfer_amount")} mono />
                 <DetailItem
                   label="Transfers"
                   value={
@@ -225,12 +239,19 @@ export default function TransactionDetailsModal({
                             const rec = entry && typeof entry === "object" && !Array.isArray(entry)
                               ? ((entry as Record<string, unknown>)["recipient"] ?? (entry as Record<string, unknown>)["to"] ?? "")
                               : "";
-                            const amt = entry && typeof entry === "object" && !Array.isArray(entry)
+                            const rawAmt = entry && typeof entry === "object" && !Array.isArray(entry)
                               ? ((entry as Record<string, unknown>)["transfer_amount"] ?? "")
                               : "";
+                            const rawDecRaw = entry && typeof entry === "object" && !Array.isArray(entry)
+                              ? (entry as Record<string, unknown>)["transfer_decimals"]
+                              : null;
+                            const rawDec = rawDecRaw != null && String(rawDecRaw).trim() !== ""
+                              ? String(rawDecRaw)
+                              : null;
                             const tok = entry && typeof entry === "object" && !Array.isArray(entry)
                               ? ((entry as Record<string, unknown>)["transfer_token_type"] ?? "")
                               : "";
+                            const amt = rawAmt === "" ? "" : formatBalance(rawAmt, rawDec);
                             return `${String(rec)} · ${String(amt)} ${String(tok)}`.trim();
                           })
                           .join(" | ")

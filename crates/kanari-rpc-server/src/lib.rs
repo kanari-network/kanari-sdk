@@ -341,6 +341,7 @@ async fn handle_rpc(
         None
     };
 
+    // Dispatch the request to the appropriate handler based on the method name
     let response = match request.method.as_str() {
         // Account & Balance
         methods::GET_OWNER => handle_get_owner(&state, &request).await,
@@ -425,6 +426,7 @@ async fn handle_rpc(
     (StatusCode::OK, Json(response))
 }
 
+/// Handle Prometheus metrics
 async fn handle_metrics(State(state): State<RpcServerState>) -> impl IntoResponse {
     match state.engine.export_consensus_metrics_prometheus() {
         Ok(metrics) => (
@@ -461,6 +463,7 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
     Ok(())
 }
 
+/// Start RPC server with transaction broadcaster
 pub async fn start_server_with_transaction_broadcaster(
     engine: Arc<BlockchainEngine>,
     addr: &str,

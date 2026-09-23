@@ -181,13 +181,24 @@ impl StateManager {
     }
 
     /// Build the database key for a token supply record.
+    /// Always canonical so `0x02`/`0x2` spellings share one record.
     pub(super) fn supply_key(token_type: &str) -> Vec<u8> {
+        let normalized = Self::normalize_token_type(token_type);
+        let mut key = b"supply:".to_vec();
+        key.extend_from_slice(normalized.as_bytes());
+        key
+    }
+
+    /// Raw-spelling key for backward compat with DBs written before
+    /// normalization. New writes always use [`Self::supply_key`].
+    fn supply_key_raw(token_type: &str) -> Vec<u8> {
         let mut key = b"supply:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         key
     }
 
     /// Load a persisted supply value from the store for the given token type.
+    /// Tries the canonical key first, then the raw spelling.
     pub(super) fn load_persisted_supply_from_store(
         store: &PersistentStore,
         token_type: &str,
@@ -196,7 +207,19 @@ impl StateManager {
         if let Some(cap) = store.load::<TreasuryCap>(&key)? {
             return Ok(Some(cap.total_supply));
         }
-        Ok(store.load::<u64>(&key)?)
+        if let Some(supply) = store.load::<u64>(&key)? {
+            return Ok(Some(supply));
+        }
+        let raw_key = Self::supply_key_raw(token_type);
+        if raw_key != key {
+            if let Some(cap) = store.load::<TreasuryCap>(&raw_key)? {
+                return Ok(Some(cap.total_supply));
+            }
+            if let Some(supply) = store.load::<u64>(&raw_key)? {
+                return Ok(Some(supply));
+            }
+        }
+        Ok(None)
     }
 
     /// Save the native total supply and update the supply record.
@@ -226,20 +249,31 @@ impl StateManager {
 
     /// Get the total issued supply for a token type.
     pub(super) fn issued_supply_for_token(&self, token_type: &str) -> Result<u64> {
-        if token_type == GAS_COIN {
+        let normalized = Self::normalize_token_type(token_type);
+        if normalized == GAS_COIN {
             return Ok(self.total_supply);
         }
 
-        let supply_key = Self::supply_key(token_type);
+        let supply_key = Self::supply_key(&normalized);
         if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
             return Ok(cap.total_supply);
         }
         if let Some(supply) = self.load_internal::<u64>(&supply_key)? {
             return Ok(supply);
         }
+        // Backward compat: DBs written with raw spelling.
+        let raw_key = Self::supply_key_raw(token_type);
+        if raw_key != supply_key {
+            if let Some(cap) = self.load_internal::<TreasuryCap>(&raw_key)? {
+                return Ok(cap.total_supply);
+            }
+            if let Some(supply) = self.load_internal::<u64>(&raw_key)? {
+                return Ok(supply);
+            }
+        }
         Ok(self
             .global_token_supplies
-            .get(token_type)
+            .get(&normalized)
             .copied()
             .unwrap_or(0))
     }
@@ -481,6 +515,139 @@ impl StateManager {
         })
     }
 
+    /// Batch version of [`Self::token_supply_summary`] that performs at most
+    /// ONE canonical object pass for all requested tokens instead of one
+    /// full scan per token. Numbers are identical to calling
+    /// `token_supply_summary` per token: same cache/index/version logic,
+    /// same locked-record aggregation, same overflow checks.
+    pub fn token_supply_summaries(
+        &self,
+        token_types: &[String],
+    ) -> Result<Vec<TokenSupplySummary>> {
+        let normalized: Vec<String> = token_types
+            .iter()
+            .map(|t| Self::normalize_token_type(t))
+            .collect();
+        let index_version = self
+            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
+            .unwrap_or(0);
+        let needs_indexed: Vec<bool> = normalized
+            .iter()
+            .map(|t| t == GAS_COIN || index_version != WALLET_SUPPLY_INDEX_VERSION)
+            .collect();
+        // Single object pass: per-token owner balances + owner universe.
+        let mut indexed_per_token: BTreeMap<String, BTreeMap<AccountAddress, u64>> =
+            BTreeMap::new();
+        let mut indexed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
+        if needs_indexed.iter().any(|b| *b) {
+            let wanted: BTreeSet<&str> = normalized
+                .iter()
+                .zip(needs_indexed.iter())
+                .filter(|(_, b)| **b)
+                .map(|(t, _)| t.as_str())
+                .collect();
+            for (_, object) in self.query_objects(None, None, None, None, None)? {
+                let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
+                    continue;
+                };
+                if !Self::is_balance_struct(&struct_tag) {
+                    continue;
+                }
+                let Some(object_token) = Self::token_type_from_balance_struct(&struct_tag) else {
+                    continue;
+                };
+                let object_token = Self::normalize_token_type(&object_token);
+                if !wanted.contains(object_token.as_str()) {
+                    continue;
+                }
+                let Some(amount) =
+                    Self::extract_balance_from_object_bytes(&object.data, &struct_tag)
+                else {
+                    continue;
+                };
+                indexed_owners.insert(object.owner);
+                let entry = indexed_per_token
+                    .entry(object_token)
+                    .or_default()
+                    .entry(object.owner)
+                    .or_insert(0);
+                *entry = entry
+                    .checked_add(amount)
+                    .require("Indexed owner token balance overflow")?;
+            }
+            if normalized.iter().any(|t| t == GAS_COIN) {
+                indexed_owners.insert(Self::dao_account_address()?);
+                for owner in self.owner_addresses()? {
+                    indexed_owners.insert(owner);
+                }
+            }
+        }
+        // Locked records loaded once, aggregated per token.
+        let locked_records = self.load_object_locked_coin_records()?;
+        let mut out = Vec::with_capacity(normalized.len());
+        for token_type in normalized {
+            let total_supply = self.issued_supply_for_token(&token_type)?;
+            let cached_visible = self
+                .global_token_supplies
+                .get(&token_type)
+                .copied()
+                .unwrap_or(0);
+            let wallet_visible_supply = if token_type == GAS_COIN {
+                let object_balances = indexed_per_token.get(GAS_COIN);
+                let mut total = 0u64;
+                for owner in &indexed_owners {
+                    let object_balance = object_balances
+                        .and_then(|m| m.get(owner))
+                        .copied()
+                        .unwrap_or(0);
+                    let balance = self
+                        .load_owner_state(owner)?
+                        .map(|state| state.native_balance())
+                        .filter(|ledger_balance| *ledger_balance > 0)
+                        .unwrap_or(object_balance);
+                    total = total
+                        .checked_add(balance)
+                        .require("Indexed wallet supply overflow")?;
+                }
+                cached_visible.max(total)
+            } else if index_version == WALLET_SUPPLY_INDEX_VERSION {
+                cached_visible
+            } else {
+                let indexed: u64 = indexed_per_token
+                    .get(&token_type)
+                    .map(|m| {
+                        m.values().try_fold(0u64, |acc, amount| {
+                            acc.checked_add(*amount)
+                                .require("Indexed wallet supply overflow")
+                        })
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                cached_visible.max(indexed)
+            };
+            let object_locked_supply = locked_records
+                .iter()
+                .filter(|record| record.token_type == token_type)
+                .map(|record| record.amount)
+                .try_fold(0u64, |acc, amount| {
+                    acc.checked_add(amount)
+                        .require("Object-locked token supply overflow")
+                })?;
+            let accounted_supply = wallet_visible_supply
+                .checked_add(object_locked_supply)
+                .require("Accounted token supply overflow")?;
+            out.push(TokenSupplySummary {
+                token_type,
+                total_supply,
+                wallet_visible_supply,
+                object_locked_supply,
+                accounted_supply,
+                untracked_supply: total_supply.saturating_sub(accounted_supply),
+            });
+        }
+        Ok(out)
+    }
+
     /// Check whether supply invariant violations should fail fast.
     pub fn supply_invariant_fail_fast_enabled() -> bool {
         std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
@@ -525,7 +692,10 @@ impl StateManager {
         token_type: &str,
         value: &T,
     ) -> Result<()> {
-        let key = metadata_key(prefix, token_type);
+        // Always key metadata by the canonical token type so lookups never
+        // miss due to `0x02` vs `0x2` style spellings.
+        let normalized = Self::normalize_token_type(token_type);
+        let key = metadata_key(prefix, &normalized);
         self.save_internal(&key, value)
     }
 
@@ -534,8 +704,26 @@ impl StateManager {
         prefix: &[u8],
         token_type: &str,
     ) -> Result<Option<T>> {
-        let key = metadata_key(prefix, token_type);
-        self.load_internal(&key)
+        // Try canonical key first, then the raw spelling for DBs written
+        // before normalization was enforced. A corrupt entry (key holds
+        // another type's bytes) is treated as unknown, never fatal: metadata
+        // is best-effort display data, and every caller already degrades to
+        // None. Storage errors still propagate via save paths.
+        let normalized = Self::normalize_token_type(token_type);
+        let key = metadata_key(prefix, &normalized);
+        match self.load_internal::<T>(&key) {
+            Ok(Some(value)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(_) => return Ok(None),
+        }
+        if normalized != token_type {
+            let raw_key = metadata_key(prefix, token_type);
+            match self.load_internal::<T>(&raw_key) {
+                Ok(value) => return Ok(value),
+                Err(_) => return Ok(None),
+            }
+        }
+        Ok(None)
     }
     /// Normalize a token type string to its canonical display form.
     pub(super) fn normalize_token_type(token_type: &str) -> String {
@@ -562,8 +750,10 @@ impl StateManager {
         struct ParsedCoinMetadata {
             id: AccountAddress,
             decimals: u8,
-            symbol: MoveString,
+            // On-chain order is `name` then `symbol`
+            // (see kanari_system::coin::CoinMetadata).
             name: MoveString,
+            symbol: MoveString,
             description: MoveString,
             icon_url: MoveOption<MoveUrl>,
         }
@@ -588,7 +778,11 @@ impl StateManager {
                 self.save_token_metadata_field(b"metadata_icon_url:", token_type, &url)?;
             }
         } else if data.len() > 32 {
-            self.save_token_metadata_field(b"metadata_decimals:", token_type, &data[32])?;
+            // Validate: Move caps decimals at 9; never persist a corrupt byte.
+            let decimals = data[32];
+            if decimals <= 9 {
+                self.save_token_metadata_field(b"metadata_decimals:", token_type, &decimals)?;
+            }
         }
         Ok(())
     }

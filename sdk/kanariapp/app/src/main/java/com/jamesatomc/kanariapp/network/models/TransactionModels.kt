@@ -31,6 +31,8 @@ data class TransferEntry(
     val recipient: String? = null,
     @Serializable(with = LenientULongSerializer::class) @SerialName("transfer_amount") val transferAmount: ULong? = null,
     @SerialName("transfer_token_type") val transferTokenType: String? = null,
+    @SerialName("transfer_decimals") val transferDecimals: Int? = null,
+    @SerialName("previous_owner") val previousOwner: String? = null,
     @SerialName("coin_object_id") val coinObjectId: String? = null
 )
 

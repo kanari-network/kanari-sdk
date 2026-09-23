@@ -15,6 +15,8 @@ use kanari_types::transaction::{
 use move_core_types::account_address::AccountAddress;
 use tempfile::TempDir;
 
+const MAX_NONCE: u64 = (1u64 << 53) - 1;
+
 pub struct PreparedEngine {
     pub engine: BlockchainEngine,
     #[allow(dead_code)]
@@ -69,7 +71,7 @@ pub fn build_signed_workload(
             let sender_index = tx_index % sender_count;
             let nonce = deterministic_workload_nonce(tx_index, sender_index);
             let sender = &senders[sender_index];
-            let tx = Transaction::new_burn_with_gas(sender.tagged_address(), 0, nonce, 100_000, 0);
+            let tx = Transaction::new_burn_with_gas(sender.tagged_address(), 1, nonce, 100_000, 1);
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)
@@ -153,7 +155,7 @@ fn deterministic_workload_nonce(tx_index: usize, sender_index: usize) -> u64 {
     let digest = hash_data_blake3(&material);
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&digest[..8]);
-    u64::from_le_bytes(bytes).max(1)
+    (u64::from_le_bytes(bytes) & MAX_NONCE).max(1)
 }
 
 fn deterministic_object_id(tx_index: usize) -> String {

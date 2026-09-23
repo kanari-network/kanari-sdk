@@ -35,6 +35,13 @@ String formatDisplayAmount(int amount, int decimals, {int fractionDigits = 4}) {
   ).toStringAsFixed(fractionDigits);
 }
 
+/// No fallback: formats only when decimals is known from API,
+/// otherwise returns explicit unknown marker.
+String formatTokenAmount(int amount, int? decimals, {int fractionDigits = 4}) {
+  if (decimals == null) return '$amount (raw, decimals unknown)';
+  return formatDisplayAmount(amount, decimals, fractionDigits: fractionDigits);
+}
+
 int baseUnitsFromDisplayAmount(double amount, int decimals) {
   return (amount * math.pow(10, decimals)).round();
 }

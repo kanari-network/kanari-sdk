@@ -58,7 +58,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '${token.symbol} (${token_utils.formatDisplayAmount(token.amount, token.decimals)})',
+              '${token.symbol} (${token_utils.formatTokenAmount(token.amount, token.decimals)})',
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -220,12 +220,18 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     final token = walletState.tokenBalances.firstWhere(
       (item) => item.tokenType == selectedTokenValue,
     );
+    // No fallback: decimals unknown → do not fill max
+    final tokenDecimals = token.decimals;
+    if (tokenDecimals == null) {
+      _amountController.text = '';
+      return;
+    }
     final maxAmount = token_utils.displayAmountFromBaseUnits(
       token.amount,
-      token.decimals,
+      tokenDecimals,
     );
     _amountController.text = maxAmount.toStringAsFixed(
-      token.decimals < 6 ? token.decimals : 6,
+      tokenDecimals < 6 ? tokenDecimals : 6,
     );
   }
 
@@ -261,7 +267,18 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
         : walletState.tokenBalances.firstWhere(
             (token) => token.tokenType == selectedTokenValue,
           );
-    final decimals = selectedToken?.decimals ?? token_utils.kanariDecimals;
+    // No fallback: KANARI uses protocol constant, others require API metadata
+    final int? decimals = selectedTokenValue == WalletState.kanariTokenType
+        ? token_utils.kanariDecimals
+        : selectedToken?.decimals;
+    if (decimals == null) {
+      _showMessage(
+        context,
+        'Decimals unknown for $selectedTokenValue — refresh balance and try again.',
+        isError: true,
+      );
+      return;
+    }
     final rawAmount = token_utils.baseUnitsFromDisplayAmount(amount, decimals);
     final availableBaseUnits = _availableBaseUnits(
       walletState,

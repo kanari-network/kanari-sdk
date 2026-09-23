@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
-import com.jamesatomc.kanariapp.ui.components.formatAmountExact
+import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.components.validateAddress
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
@@ -227,7 +227,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                         text = {
                             Text(
                                 "${token.symbol} (Balance: ${
-                                    formatAmountExact(
+                                    formatAmountExactOrUnknown(
                                         token.getEffectiveAmount(),
                                         token.decimals
                                     )
@@ -265,7 +265,11 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
 
         LoadingButton(
             onClick = {
-                val decimals = selectedToken?.decimals ?: 9
+                // No fallback: decimals must come from API metadata
+                val decimals = selectedToken?.decimals
+                if (decimals == null) {
+                    error = "Decimals unknown — refresh balance and try again"; return@LoadingButton
+                }
                 val tokenType = selectedToken?.tokenType ?: "0x2::kanari::KANARI"
                 val amt = parseAmountToMist(amount, decimals)
                 if (amt == null || amt == 0uL) {

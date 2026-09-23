@@ -743,8 +743,9 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // The caller provides these context fields for API compatibility. The
-        // bytecode publish path has no TxContext and must not fabricate them.
-        let _ = (timestamp, tx_hash);
+        // bytecode publish path has no TxContext and must not fabricate them;
+        // they are forwarded to a module `init` when one runs at publish.
+        let _ = timestamp;
         let publish_guard = self
             .module_publish_lock
             .lock()
@@ -753,6 +754,7 @@ impl MoveRuntime {
         let module_id = compiled.self_id();
         self.verify_module_publish_safety(sender, &module_id, &compiled, &module_bytes, intent)?;
 
+        let mut cs = ChangeSet::new();
         let (move_changeset, events, vm_gas_used) = {
             // Separate Lock into a variable first to prevent it from being dropped immediately
             let vm_guard = self.read_vm();
@@ -765,6 +767,21 @@ impl MoveRuntime {
                 .publish_module(module_bytes.clone(), sender, &mut metered_gas)
                 .require("Move VM operation failed")?;
 
+            // Fresh publishes run the module's `init` in this same session
+            // (upgrades never do). In-session execution sees the module
+            // because this session published it, in every mode.
+            if intent == ModulePublishIntent::Publish && Self::module_declares_init(&compiled) {
+                self.execute_init_in_publish_session(
+                    &mut session,
+                    &module_id,
+                    sender,
+                    timestamp,
+                    tx_hash.clone(),
+                    &mut metered_gas,
+                    &mut cs,
+                )?;
+            }
+
             let result = session
                 .finish()
                 .0
@@ -772,7 +789,6 @@ impl MoveRuntime {
             (result.0, result.1, metered_gas.gas_used())
         };
 
-        let mut cs = ChangeSet::new();
         cs.publish_module(sender, module_id.name().to_string());
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
@@ -788,6 +804,8 @@ impl MoveRuntime {
 
         if persist_runtime_state {
             self.apply_move_changeset(move_changeset)?;
+            self.persist_created_objects(&cs)?;
+            self.persist_deleted_objects(&cs)?;
             self.reload_vm_cache()?;
         }
 
@@ -848,7 +866,7 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // Package publishing shares the same context rule as single modules.
-        let _ = (timestamp, tx_hash);
+        let _ = timestamp;
         let publish_guard = self
             .module_publish_lock
             .lock()
@@ -871,6 +889,7 @@ impl MoveRuntime {
             compiled_modules.push((module_id, module_bytes.clone()));
         }
 
+        let mut cs = ChangeSet::new();
         let (move_changeset, events, vm_gas_used) = {
             let vm_guard = self.read_vm();
             let mut session = self.create_session_with_storage_ext(&vm_guard);
@@ -883,6 +902,27 @@ impl MoveRuntime {
                     .require("Move VM package publish failed")?;
             }
 
+            // Fresh publishes run each declaring module's `init` in this
+            // same session (upgrades never do).
+            if intent == ModulePublishIntent::Publish {
+                for (module_id, module_bytes) in &compiled_modules {
+                    let compiled = CompiledModule::deserialize_with_defaults(module_bytes)?;
+                    if !Self::module_declares_init(&compiled) {
+                        continue;
+                    }
+                    let init_tx_hash = Self::package_init_tx_hash(tx_hash.as_deref(), module_id);
+                    self.execute_init_in_publish_session(
+                        &mut session,
+                        module_id,
+                        sender,
+                        timestamp,
+                        Some(init_tx_hash),
+                        &mut metered_gas,
+                        &mut cs,
+                    )?;
+                }
+            }
+
             let result = session
                 .finish()
                 .0
@@ -890,7 +930,6 @@ impl MoveRuntime {
             (result.0, result.1, metered_gas.gas_used())
         };
 
-        let mut cs = ChangeSet::new();
         for (module_id, _) in &compiled_modules {
             cs.publish_module(sender, module_id.name().to_string());
         }
@@ -908,11 +947,179 @@ impl MoveRuntime {
 
         if persist_runtime_state {
             self.apply_move_changeset(move_changeset)?;
+            self.persist_created_objects(&cs)?;
+            self.persist_deleted_objects(&cs)?;
             self.reload_vm_cache()?;
         }
 
         drop(publish_guard);
         Ok(cs)
+    }
+
+    /// Whether a compiled module declares an `init` function.
+    fn module_declares_init(compiled: &CompiledModule) -> bool {
+        compiled.function_defs().iter().any(|func_def| {
+            let handle = compiled.function_handle_at(func_def.function);
+            compiled.identifier_at(handle.name).as_str() == "init"
+        })
+    }
+
+    fn package_init_tx_hash(base_tx_hash: Option<&[u8]>, module_id: &ModuleId) -> Vec<u8> {
+        let mut input = b"kanari-package-init-v1".to_vec();
+        if let Some(base_tx_hash) = base_tx_hash {
+            input.extend_from_slice(base_tx_hash);
+        }
+        input.extend_from_slice(module_id.address().as_ref());
+        input.extend_from_slice(module_id.name().as_bytes());
+        hash_data_blake3(&input).to_vec()
+    }
+
+    /// Execute a freshly published module's `init` inside an already-open
+    /// publish session and merge its effects into the publish changeset.
+    ///
+    /// Running in-session (instead of a follow-up session) is what makes
+    /// this work in every mode: the module is visible because this very
+    /// session published it, so dry-run previews include init effects and
+    /// persisted commits behave identically. Gas comes from the caller's
+    /// shared meter, so init compute is paid for, never free. Any init
+    /// failure aborts the whole publish (atomic).
+    ///
+    /// Call only for the [`Publish`](ModulePublishIntent::Publish) intent:
+    /// upgrades and bootstraps must never re-run `init`, which is what makes
+    /// one-time initialization (treasury creation, registry seeding)
+    /// trustworthy. `publisher` becomes `tx_context::sender` inside `init`.
+    #[allow(clippy::too_many_arguments)]
+    fn execute_init_in_publish_session(
+        &self,
+        session: &mut Session<'_, '_, KanariMoveResolver>,
+        module_id: &ModuleId,
+        publisher: AccountAddress,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+        metered_gas: &mut crate::kanari_gas_meter::KanariGasMeter,
+        cs: &mut ChangeSet,
+    ) -> Result<()> {
+        use move_core_types::language_storage::TypeTag;
+
+        let ident = IdentStr::new("init").require("Invalid init function name")?;
+        let func = session
+            .load_function(module_id, ident, &[])
+            .require("Failed to load init function")?;
+
+        // Build args: one empty slot per non-context parameter (the entry
+        // machinery synthesizes one-time-witness bytes into empty slots),
+        // then `TxContext` itself. Anything else is rejected rather than
+        // mis-executed. References are unwrapped first: `TxContext` always
+        // arrives as `&mut`, mirroring the entry-function binding rules.
+        let mut final_args = Vec::new();
+        for param_type in func.parameters.iter() {
+            let base_type = match param_type {
+                RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                    inner.as_ref()
+                }
+                base => base,
+            };
+            let tag = session.get_type_tag(base_type).ok();
+            let is_tx_context =
+                matches!(tag, Some(TypeTag::Struct(ref st)) if Self::is_tx_context_struct(st));
+            if is_tx_context {
+                continue;
+            }
+            match tag {
+                Some(TypeTag::Struct(_)) => {
+                    let layout = session
+                        .type_to_type_layout(base_type)
+                        .require("Failed to resolve init parameter layout")?;
+                    match Self::synthesize_otw_bytes_from_layout(&layout) {
+                        Some(otw) => final_args.push(otw),
+                        None => anyhow::bail!(
+                            "Unsupported init parameter: only one-time-witness and TxContext parameters are allowed"
+                        ),
+                    }
+                }
+                _ => anyhow::bail!(
+                    "Unsupported init parameter: only one-time-witness and TxContext parameters are allowed"
+                ),
+            }
+        }
+        let tx_context_bytes =
+            self.build_tx_context_bytes(Some(publisher), timestamp, tx_hash.as_deref())?;
+        final_args.push(tx_context_bytes);
+
+        let return_values = session
+            .execute_function_bypass_visibility(module_id, ident, vec![], final_args, metered_gas)
+            .require("Module init execution failed")?;
+        let _ = return_values;
+
+        let exts = session.get_native_extensions();
+        let transferred = exts.get_mut::<TransferredObjectsExt>().take_all();
+        let captured_events = exts.get_mut::<EventsExt>().take_all();
+        let saved_objects = exts.get_mut::<SavedObjectsExt>().take_all();
+        let deleted_objects = exts.get_mut::<DeletedObjectsExt>().take_all();
+        let dynamic_fields_ops = exts.get_mut::<DynamicFieldsExt>().take_all();
+        let borrowed_objects = exts.get_mut::<BorrowedObjectsExt>().take_all();
+        let _ = exts;
+
+        self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
+        for ev in captured_events.into_iter() {
+            cs.add_event(Event {
+                key: ev.key,
+                sequence_number: ev.sequence_number,
+                type_tag: ev.type_tag,
+                event_data: ev.event_data,
+            });
+        }
+        let empty_mutables: Vec<LoadedMutableObject> = Vec::new();
+        for saved in saved_objects {
+            let (owner, owner_kind, version) =
+                self.resolve_saved_owner_metadata(&empty_mutables, &saved.object_id)?;
+            self.upsert_created_object(
+                cs,
+                owner,
+                owner_kind,
+                &saved.object_id,
+                &saved.object_type,
+                saved.data.clone(),
+                version,
+                "init-saved",
+            );
+        }
+        for deleted in deleted_objects {
+            cs.add_deleted_object(deleted.object_id);
+        }
+        for op in dynamic_fields_ops {
+            match op {
+                kanari_system_natives::dynamic_field::DynamicFieldOp::Add {
+                    object_id,
+                    name_bytes,
+                    value_bytes,
+                } => {
+                    cs.added_dynamic_fields
+                        .push((object_id, name_bytes, value_bytes));
+                }
+                kanari_system_natives::dynamic_field::DynamicFieldOp::Remove {
+                    object_id,
+                    name_bytes,
+                } => {
+                    cs.removed_dynamic_fields.push((object_id, name_bytes));
+                }
+            }
+        }
+        for borrowed in borrowed_objects {
+            let (owner, owner_kind, version) =
+                self.resolve_saved_owner_metadata(&empty_mutables, &borrowed.object_id)?;
+            self.upsert_created_object(
+                cs,
+                owner,
+                owner_kind,
+                &borrowed.object_id,
+                &borrowed.object_type,
+                borrowed.data.clone(),
+                version,
+                "init-borrowed",
+            );
+        }
+        Ok(())
     }
 
     fn verify_module_publish_safety(
@@ -1025,6 +1232,7 @@ impl MoveRuntime {
             args,
             ExecutionOptions::new(Some(module_addr), None, timestamp, tx_hash).bypass_entry_check(),
         )
+        .map(|(changeset, _)| changeset)
     }
 
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
@@ -1424,6 +1632,7 @@ impl MoveRuntime {
             args,
             ExecutionOptions::new(sender, gas_info, timestamp, None),
         )
+        .map(|(changeset, _)| changeset)
     }
 
     /// Execute a Move entry function with full object context and persistence control.
@@ -1435,6 +1644,29 @@ impl MoveRuntime {
         args: Vec<Vec<u8>>,
         context: EntryFunctionObjectContext,
     ) -> Result<ChangeSet> {
+        self.execute_entry_function_with_object_context_returns(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            context,
+        )
+        .map(|(changeset, _)| changeset)
+    }
+
+    /// Same as
+    /// [`execute_entry_function_with_object_context_and_persistence`](Self::execute_entry_function_with_object_context_and_persistence),
+    /// but additionally returns the entry function's pure return values
+    /// (BCS bytes per value) for callers that compose calls, such as the
+    /// programmable transaction interpreter threading a `u64` across commands.
+    pub fn execute_entry_function_with_object_context_returns(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        context: EntryFunctionObjectContext,
+    ) -> Result<(ChangeSet, Vec<Vec<u8>>)> {
         self.execute_entry_function_internal(
             module_id,
             function_name,
@@ -1473,6 +1705,7 @@ impl MoveRuntime {
                 .with_persistence(persist_runtime_state)
                 .bypass_entry_check(),
         )
+        .map(|(changeset, _)| changeset)
     }
 
     fn execute_entry_function_internal(
@@ -1482,7 +1715,7 @@ impl MoveRuntime {
         type_args: Vec<TypeTag>,
         args: Vec<Vec<u8>>,
         options: ExecutionOptions,
-    ) -> Result<ChangeSet> {
+    ) -> Result<(ChangeSet, Vec<Vec<u8>>)> {
         let ExecutionOptions {
             sender,
             gas_info,
@@ -1734,6 +1967,15 @@ impl MoveRuntime {
 
         match execution_result {
             Ok(return_values) => {
+                // Pure return values (as opposed to mutable-reference
+                // writebacks below) are surfaced to callers that compose
+                // calls, e.g. programmable transactions threading a `u64`
+                // across commands.
+                let pure_return_values: Vec<Vec<u8>> = return_values
+                    .return_values
+                    .iter()
+                    .map(|(bytes, _)| bytes.clone())
+                    .collect();
                 // Extract data from native extensions before finishing the session
                 let (
                     transferred,
@@ -1901,7 +2143,7 @@ impl MoveRuntime {
                 };
                 cs.record_resolver_reads(reads);
                 cs.record_resolver_reads(deterministic_reads);
-                Ok(cs)
+                Ok((cs, pure_return_values))
             }
             Err(e) => {
                 if let Some((gas_limit, gas_price)) = gas_info {

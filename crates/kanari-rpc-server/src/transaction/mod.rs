@@ -194,16 +194,39 @@ fn fresh_nonce(nonce: Option<u64>, min_nonce: Option<u64>) -> anyhow::Result<u64
     }
 }
 
+/// Only `0x2::coin::Coin<T>` (and legacy nested spelling) is a canonical
+/// coin. A bare `ends_with("::coin::Coin")` would accept `0xevil::coin::Coin`
+/// and let worthless attacker tokens appear as transfers/holders.
+fn is_canonical_coin_outer(outer: &str) -> bool {
+    let outer = outer.trim();
+    if !(outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin")) {
+        return false;
+    }
+    // Outer address must be the kanari system address (0x2, any spelling).
+    let addr_str = outer.split("::").next().unwrap_or("");
+    if let Ok(addr) = AccountAddress::from_hex_literal(addr_str) {
+        return addr
+            == AccountAddress::from_hex_literal(
+                kanari_types::address::Address::KANARI_SYSTEM_ADDRESS,
+            )
+            .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
+    }
+    // Fallback for non-hex spellings: accept only literal 0x2 variants.
+    matches!(addr_str.trim(), "0x2" | "0x02" | "0X2" | "0X02")
+}
+
 fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
     if let Some(start) = object_type.find('<')
         && let Some(end) = object_type.rfind('>')
+        && end > start
     {
         let outer = &object_type[..start];
-        if outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin") {
+        if is_canonical_coin_outer(outer) {
             return Some(CoinModule::normalize_token_type(
                 &object_type[start + 1..end],
             ));
         }
+        return None;
     }
 
     if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(object_type)
@@ -211,7 +234,12 @@ fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
         && st.name.as_str() == "Coin"
         && let Some(TypeTag::Struct(inner)) = st.type_params.first()
     {
-        return Some(format!("{}", inner));
+        let expected =
+            AccountAddress::from_hex_literal(kanari_types::address::Address::KANARI_SYSTEM_ADDRESS)
+                .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
+        if st.address == expected {
+            return Some(format!("{}", inner));
+        }
     }
 
     None
@@ -671,13 +699,38 @@ fn token_transfer_details(
     Some((recipient, amount, None, coin_object_id))
 }
 
+fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str>) -> Option<u8> {
+    let token_type = token_type?;
+    let normalized = CoinModule::normalize_token_type(token_type);
+    if normalized == GAS_COIN {
+        return Some(9);
+    }
+    let state = state?;
+    // StateManager already falls back across normalized/raw keys; keep this
+    // lookup infallible so a missing index never breaks transaction display.
+    let guard = state.engine.state_read();
+    guard
+        .get_token_decimals(&normalized)
+        .ok()
+        .flatten()
+        .or_else(|| guard.get_token_decimals(token_type).ok().flatten())
+}
+
+/// Normalize a hex object id for comparison: arg-parsed ids come from
+/// `to_hex_literal` (lowercase `0x…`) while effect ids are verbatim and may
+/// differ in case. Lowercasing can only merge spellings of the same id.
+fn norm_hex_id(id: &str) -> String {
+    id.trim().to_lowercase()
+}
+
 fn transfers_from_effect(
+    state: Option<&RpcServerState>,
     effect: &kanari_types::transaction::TransactionEffects,
 ) -> Vec<kanari_rpc_api::TransferEntry> {
     // Collect every identifiable coin movement. Prefer `transferred`,
     // then `mutated`, then `created`, then the flat list. Dedup by
-    // (object_id, owner) so the same coin appearing in two buckets
-    // is reported once.
+    // (normalized object_id, normalized owner, token_type) so the same
+    // change appearing in two buckets is reported once.
     use std::collections::HashSet;
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -700,18 +753,29 @@ fn transfers_from_effect(
                 _ => None,
             };
             let key = (
-                change.object_ref.object_id.clone(),
-                recipient.clone().unwrap_or_default(),
+                norm_hex_id(&change.object_ref.object_id),
+                recipient.as_deref().unwrap_or("").to_lowercase(),
+                token_type.clone(),
             );
             if !seen.insert(key) {
                 continue;
             }
             // Only report coin changes that actually have a new owner.
+            // Record previous_owner so clients can tell a real ownership
+            // change from sender change-back noise. Amounts are NOT
+            // inferred here: effects record ownership, not deltas.
             if recipient.is_some() {
+                let transfer_decimals = lookup_token_decimals(state, Some(&token_type));
+                let previous_owner = match &change.previous_owner {
+                    Some(ObjectOwnerKind::AddressOwner(addr)) => Some(addr.clone()),
+                    _ => None,
+                };
                 out.push(kanari_rpc_api::TransferEntry {
                     recipient,
                     transfer_amount: None,
                     transfer_token_type: Some(token_type),
+                    transfer_decimals,
+                    previous_owner,
                     coin_object_id: Some(change.object_ref.object_id.clone()),
                 });
             }
@@ -722,12 +786,15 @@ fn transfers_from_effect(
 
 fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::TransferEntry) {
     let transfers = details.transfers.get_or_insert_with(Vec::new);
-    // Merge by coin_object_id when present so arg-parsed amount and
-    // effect-parsed owner/type combine into one entry instead of two.
+    // Merge by normalized coin_object_id so arg-parsed amount and
+    // effect-parsed owner/type combine into one entry instead of two even
+    // when hex spellings differ (to_hex_literal vs verbatim).
     if let Some(coin_id) = entry.coin_object_id.clone()
-        && let Some(existing) = transfers
-            .iter_mut()
-            .find(|e| e.coin_object_id.as_deref() == Some(coin_id.as_str()))
+        && let Some(existing) = transfers.iter_mut().find(|e| {
+            e.coin_object_id
+                .as_deref()
+                .is_some_and(|have| norm_hex_id(have) == norm_hex_id(&coin_id))
+        })
     {
         if existing.recipient.is_none() {
             existing.recipient = entry.recipient;
@@ -738,17 +805,55 @@ fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::
         if existing.transfer_token_type.is_none() {
             existing.transfer_token_type = entry.transfer_token_type;
         }
+        if existing.transfer_decimals.is_none() {
+            existing.transfer_decimals = entry.transfer_decimals;
+        }
+        if existing.previous_owner.is_none() {
+            existing.previous_owner = entry.previous_owner;
+        }
         return;
     }
     transfers.push(entry);
 }
 
+/// Normalized address equality for noise filtering.
+fn same_addr(a: Option<&str>, b: &str) -> bool {
+    a.is_some_and(|x| x.trim().to_lowercase() == b.trim().to_lowercase())
+}
+
 fn enrich_transfer_from_effect(
+    state: Option<&RpcServerState>,
     details: &mut TransactionDetails,
     effect: &kanari_types::transaction::TransactionEffects,
 ) {
-    for entry in transfers_from_effect(effect) {
+    let sender = details
+        .sender_address
+        .as_deref()
+        .unwrap_or(details.sender.as_str())
+        .to_owned();
+    for entry in transfers_from_effect(state, effect) {
+        // Drop sender change-back noise: effect-only entries (no amount)
+        // where the coin didn't actually change hands. Arg-parsed entries
+        // (with amount) always survive, so real self-transfers are kept.
+        if entry.transfer_amount.is_none()
+            && let Some(recipient) = entry.recipient.as_deref()
+            && same_addr(Some(recipient), &sender)
+            && (entry.previous_owner.is_none()
+                || same_addr(entry.previous_owner.as_deref(), recipient))
+        {
+            continue;
+        }
         push_transfer_entry(details, entry);
+    }
+    // Backfill decimals for arg-parsed entries whose token type was known
+    // but whose metadata lookup was deferred.
+    if let Some(transfers) = details.transfers.as_mut() {
+        for transfer in transfers.iter_mut() {
+            if transfer.transfer_decimals.is_none() {
+                transfer.transfer_decimals =
+                    lookup_token_decimals(state, transfer.transfer_token_type.as_deref());
+            }
+        }
     }
 }
 
@@ -789,9 +894,12 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
                 return true;
             }
 
-            object_inputs
-                .iter()
-                .any(|input| input.object_ref.object_id.contains(token_type.as_str()))
+            // NOTE: object inputs carry object ids, never token types, so an
+            // `object_id.contains(token_type)` check can never match. Asset
+            // relevance via object inputs is resolved from execution effects
+            // (see transfers_from_effect), not here.
+            let _ = object_inputs;
+            false
         }
         Transaction::PublishModule { .. }
         | Transaction::PublishPackage { .. }
@@ -998,6 +1106,7 @@ fn pending_status(record: &PendingTransactionRecord) -> &'static str {
 }
 
 fn apply_pending_preview_metadata(
+    state: Option<&RpcServerState>,
     record: &PendingTransactionRecord,
     details: &mut TransactionDetails,
 ) {
@@ -1007,11 +1116,12 @@ fn apply_pending_preview_metadata(
     }
     if let Some(effects) = &record.metadata.preview_effects {
         details.effects = Some(effects.clone());
-        enrich_transfer_from_effect(details, effects);
+        enrich_transfer_from_effect(state, details, effects);
     }
 }
 
 fn apply_committed_effect(
+    state: Option<&RpcServerState>,
     details: &mut TransactionDetails,
     effect: Option<&kanari_types::transaction::TransactionEffects>,
 ) {
@@ -1036,7 +1146,7 @@ fn apply_committed_effect(
             .saturating_mul(effective_gas_price(details.gas_price)),
     );
     details.effects = Some(effect.clone());
-    enrich_transfer_from_effect(details, effect);
+    enrich_transfer_from_effect(state, details, effect);
 }
 
 // =========================================================================
@@ -1184,12 +1294,15 @@ fn map_transaction_to_details(
             if let Some((recipient, amount, token_type, coin_object_id)) =
                 token_transfer_details(state, tx)
             {
+                let transfer_decimals = lookup_token_decimals(Some(state), token_type.as_deref());
                 push_transfer_entry(
                     &mut details,
                     kanari_rpc_api::TransferEntry {
                         recipient: Some(recipient),
                         transfer_amount: Some(amount),
                         transfer_token_type: token_type,
+                        transfer_decimals,
+                        previous_owner: None,
                         coin_object_id: Some(coin_object_id),
                     },
                 );
@@ -1207,6 +1320,8 @@ fn map_transaction_to_details(
                                 recipient: Some(recipient),
                                 transfer_amount: Some(amount),
                                 transfer_token_type: Some(GAS_COIN.to_string()),
+                                transfer_decimals: Some(9),
+                                previous_owner: None,
                                 coin_object_id: Some(coin_object_id),
                             },
                         );
@@ -2353,7 +2468,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             Some(height),
             Some(hex::encode(state_root)),
         );
-        apply_committed_effect(&mut details, effect);
+        apply_committed_effect(Some(state), &mut details, effect);
         return respond_with_serialize(request.id, details);
     }
     drop(chain);
@@ -2373,7 +2488,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         let effect = state
             .engine
             .get_committed_transaction_effect_from_history(&tx_hash_bytes);
-        apply_committed_effect(&mut details, effect.as_ref());
+        apply_committed_effect(Some(state), &mut details, effect.as_ref());
         return respond_with_serialize(request.id, details);
     }
 
@@ -2387,7 +2502,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             None,
             None,
         );
-        apply_pending_preview_metadata(&tx, &mut details);
+        apply_pending_preview_metadata(Some(state), &tx, &mut details);
         return respond_with_serialize(request.id, details);
     }
 
@@ -2419,7 +2534,7 @@ where
                 None,
                 None,
             );
-            apply_pending_preview_metadata(tx, &mut details);
+            apply_pending_preview_metadata(Some(state), tx, &mut details);
             details
         }) {
             break;
@@ -2450,7 +2565,11 @@ where
                     Some(checkpoint.sequence),
                     Some(hex::encode(&checkpoint.state_root)),
                 );
-                apply_committed_effect(&mut details, checkpoint.transaction_effects.get(index));
+                apply_committed_effect(
+                    Some(state),
+                    &mut details,
+                    checkpoint.transaction_effects.get(index),
+                );
                 if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                     break;
                 }
@@ -2475,7 +2594,7 @@ where
                 Some(height),
                 Some(hex::encode(state_root)),
             );
-            apply_committed_effect(&mut details, effect.as_ref());
+            apply_committed_effect(Some(state), &mut details, effect.as_ref());
             if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                 break;
             }

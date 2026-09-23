@@ -23,6 +23,19 @@ import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedO
 
 type AccountTab = "coins" | "nfts" | "objects" | "activity";
 
+/**
+ * No fallback: returns decimals string only when API/registry has it,
+ * otherwise null so formatBalance shows explicit unknown.
+ */
+function readDecimals(...candidates: unknown[]) {
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === "") continue;
+    const text = String(candidate).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
 function readBytes(value: unknown, key: string) {
   const record = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   const item = record[key];
@@ -246,6 +259,10 @@ function AccountContent() {
               const metadata = tokenRegistry.find((entry) =>
                 normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) === normalizeTokenType(tokenType),
               );
+              // No fallback: API decimals (เช่น THB = 6) → registry, ไม่มีคือ null
+              const tokenRecord = (token ?? {}) as Record<string, unknown>;
+              const metadataRecord = (metadata ?? {}) as Record<string, unknown>;
+              const tokenDecimals = readDecimals(tokenRecord["decimals"], metadataRecord["decimals"]);
               return (
                 <div className="data-row data-row--account" key={`${tokenType}-${index}`}>
                   <div className="token-identity primary-text">
@@ -262,7 +279,7 @@ function AccountContent() {
                   <div>
                     <p className="tiny-label">Balance</p>
                     <span className="mono">
-                      {formatBalance(readString(token, "amount", readString(token, "balance", "0")), readString(token, "decimals", "9"))} {symbol}
+                      {formatBalance(readString(token, "amount", readString(token, "balance", "0")), tokenDecimals)} {symbol}
                     </span>
                   </div>
                 </div>
@@ -326,6 +343,8 @@ function AccountContent() {
               const transferAmount = firstTransfer?.["transfer_amount"] != null
                 ? String(firstTransfer["transfer_amount"])
                 : "";
+              // No fallback: transfer_decimals จาก API เท่านั้น (เช่น THB = 6)
+              const transferDecimals = readDecimals(firstTransfer?.["transfer_decimals"]);
               const gasFee = readString(transaction, "gas_fee", "");
               return (
                 <div className="data-row" key={`${hash}-${index}`}>
@@ -354,13 +373,14 @@ function AccountContent() {
                     <div>
                       <p className="tiny-label">Transfer</p>
                       <span className="mono muted-text">
-                        {formatBalance(transferAmount, transferSymbol === "KANARI" ? "9" : "0")} {transferSymbol}
+                        {formatBalance(transferAmount, transferDecimals)} {transferSymbol}
                       </span>
                     </div>
                   ) : null}
                   {gasFee ? (
                     <div>
                       <p className="tiny-label">Gas Fee</p>
+                      {/* KANARI decimals = 9 protocol constant (not a fallback) */}
                       <span className="mono muted-text">{formatBalance(gasFee, "9")} KANARI</span>
                     </div>
                   ) : null}
@@ -396,6 +416,23 @@ function AccountContent() {
               const ownerKind = readOwnerKindLabel(object);
               const dataBytes = readBytes(object, "data");
               const coinBalanceMist = isCoinType(objectType) ? readCoinBalanceMist(dataBytes) : null;
+              // No fallback: decimals จาก balances/registry เท่านั้น ไม่มีคือ null
+              const coinTokenType = (() => {
+                const start = objectType.indexOf("<");
+                const end = objectType.lastIndexOf(">");
+                if (start < 0 || end <= start + 1) return "";
+                return objectType.slice(start + 1, end).trim();
+              })();
+              const coinSource = coinTokenType
+                ? ((balances.find((entry) =>
+                      normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) ===
+                      normalizeTokenType(coinTokenType),
+                    ) ?? tokenRegistry.find((entry) =>
+                      normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) ===
+                      normalizeTokenType(coinTokenType),
+                    ) ?? {}) as Record<string, unknown>)
+                : null;
+              const coinDecimals = coinSource ? readDecimals(coinSource["decimals"]) : null;
               const objectJson =
                 object && typeof object === "object" && !Array.isArray(object)
                   ? { ...(object as Record<string, unknown>), data_hex: formatHex(dataBytes) }
@@ -441,7 +478,7 @@ function AccountContent() {
                     {coinBalanceMist !== null ? (
                       <div className="object-detail-field">
                         <p className="tiny-label">Coin Balance</p>
-                        <span className="mono">{formatBalance(coinBalanceMist, "9")}</span>
+                        <span className="mono">{formatBalance(coinBalanceMist, coinDecimals)}</span>
                       </div>
                     ) : null}
                     <div className="object-detail-field">

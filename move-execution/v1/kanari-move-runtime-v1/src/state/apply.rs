@@ -375,13 +375,16 @@ impl StateManager {
         owner: AccountAddress,
         total_supply: u64,
     ) -> Result<bool> {
-        let key = Self::supply_key(token_type);
+        // supply_key normalizes internally; treasury keys normalized here so
+        // 0x02/0x2 spellings share one record going forward.
+        let normalized = Self::normalize_token_type(token_type);
+        let key = Self::supply_key(&normalized);
         self.save_internal(&key, &TreasuryCap { total_supply })?;
 
         let mut key_owner = b"treasury:".to_vec();
-        key_owner.extend_from_slice(token_type.as_bytes());
+        key_owner.extend_from_slice(normalized.as_bytes());
         self.save_internal(&key_owner, &owner)?;
-        self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
+        self.add_to_index_list(b"treasury_index", format!("treasury:{}", normalized))?;
 
         if Self::normalize_token_type(token_type) == GAS_COIN {
             self.save_native_total_supply(total_supply)?;
@@ -725,16 +728,18 @@ impl StateManager {
             self.save_native_total_supply(next_total_supply)?;
         }
 
-        // Apply treasury creations/updates
+        // Apply treasury creations/updates (canonical spelling going forward;
+        // readers fall back to raw keys for legacy DBs).
         for (owner, token_type, total_supply) in &changeset.treasuries {
-            let key = Self::supply_key(token_type);
+            let normalized = Self::normalize_token_type(token_type);
+            let key = Self::supply_key(&normalized);
             self.save_internal(&key, total_supply)?;
 
             let mut key_owner = b"treasury:".to_vec();
-            key_owner.extend_from_slice(token_type.as_bytes());
+            key_owner.extend_from_slice(normalized.as_bytes());
             self.save_internal(&key_owner, owner)?;
 
-            self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
+            self.add_to_index_list(b"treasury_index", format!("treasury:{}", normalized))?;
 
             if Self::normalize_token_type(token_type) == GAS_COIN {
                 self.save_native_total_supply(total_supply.total_supply)?;
