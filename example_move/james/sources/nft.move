@@ -31,43 +31,39 @@ module james::nft {
         // --- ฟิลด์เสริมที่อยู่นอกเหนือมาตรฐาน ---
         number: String,
         collection_id: address,
-        creator: address,
+        creator: address
     }
 
     /// Event สำหรับการ Mint
     struct MintLog has copy, drop {
         object_id: address,
         creator: address,
-        collection_id: address,
+        collection_id: address
     }
 
     const MAX_SUPPLY: u64 = 2000;
 
-    /// ฟังก์ชันสร้างคอลเลกชัน (เรียกผ่าน setup หรือระบบ)
-    /// 🚨 แก้ไข: เพิ่ม Banner และ Website เข้าไปให้ครบ 6 อาร์กิวเมนต์
-    public fun init(_otw: NFT, ctx: &mut TxContext): (collection::Collection, collection::NftCap) {
+    #[allow(unused_function)]
+    /// ฟังก์ชันสร้างคอลเลกชัน รันครั้งเดียวตอน publish โดย runtime
+    /// (ไม่รันซ้ำตอน upgrade) โดยผู้ publish ได้รับ Collection และ NftCap
+    public fun init(_otw: NFT, ctx: &mut TxContext) {
         let name = b"KariKid Collection";
         let description = b"The first official standardized NFT on Kanari Network.";
         // Use a durable, directly-loadable image URL. A custom HTTPS, ipfs://,
         // or data:image/jpeg;base64,... URI can be set after setup as well.
         let banner = b"https://avatars.githubusercontent.com/u/127471673?s=800&v=4";
-        let website = b"https://james-project.com";            // 🌐 ใส่ลิงก์เว็บที่นี่
-        
-        collection::create_collection(
-            ctx, 
-            name, 
-            description, 
-            banner, 
-            website, 
-            MAX_SUPPLY
-        )
-    }
-
-    /// ฟังก์ชันตั้งค่าเริ่มต้น (Setup)
-    /// 🚨 แก้ไข: เรียกฟังก์ชัน init ที่เราปรับปรุงแล้ว
-    public entry fun setup(ctx: &mut TxContext) {
-        let (coll, issuer) = init(NFT {}, ctx);
+        let website = b"https://james-project.com";
         let sender = tx_context::sender(ctx);
+
+        let (coll, issuer) =
+            collection::create_collection(
+                ctx,
+                name,
+                description,
+                banner,
+                website,
+                MAX_SUPPLY
+            );
         transfer::public_transfer(issuer, sender);
         transfer::public_transfer(coll, sender);
     }
@@ -78,7 +74,7 @@ module james::nft {
         coll: &mut collection::Collection,
         banner: vector<u8>,
         website: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         collection::update_metadata(coll, banner, website, ctx);
     }
@@ -107,44 +103,42 @@ module james::nft {
             attribute_values,
             number: utf8(number),
             collection_id: collection::cap_collection_id(cap),
-            creator: sender,
+            creator: sender
         };
 
-        event::emit(MintLog {
-            object_id: object::uid_address(&nft.id),
-            creator: sender,
-            collection_id: collection::cap_collection_id(cap),
-        });
+        event::emit(
+            MintLog {
+                object_id: object::uid_address(&nft.id),
+                creator: sender,
+                collection_id: collection::cap_collection_id(cap)
+            }
+        );
 
         transfer::public_transfer(nft, sender);
     }
 
     /// การทำลาย NFT (Burn)
     public entry fun burn(
-        cap: &mut collection::NftCap,
-        nft: KariKid,
-        _: &mut TxContext
+        cap: &mut collection::NftCap, nft: KariKid, _: &mut TxContext
     ) {
         collection::return_from_burn(cap);
-        let KariKid { 
-            id, 
-            name: _, 
-            image_url: _, 
-            description: _, 
-            attribute_keys: _, 
-            attribute_values: _, 
-            number: _, 
-            collection_id: _, 
-            creator: _ 
+        let KariKid {
+            id,
+            name: _,
+            image_url: _,
+            description: _,
+            attribute_keys: _,
+            attribute_values: _,
+            number: _,
+            collection_id: _,
+            creator: _
         } = nft;
         object::delete(id);
     }
 
     /// การโอน NFT
     public entry fun transfer(
-        nft: KariKid, 
-        recipient: address, 
-        _: &mut TxContext
+        nft: KariKid, recipient: address, _: &mut TxContext
     ) {
         transfer::public_transfer(nft, recipient)
     }
@@ -160,3 +154,4 @@ module james::nft {
         nft.attribute_values = attribute_values;
     }
 }
+

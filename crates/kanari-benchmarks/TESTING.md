@@ -3,7 +3,7 @@
 This crate measures Kanari throughput using explicit benchmark modes.
 
 The default mode is `production`, which exercises the full local blockchain production path with
-an in-memory engine and a signed zero-gas native workload:
+an in-memory engine and a signed unfunded native workload at the minimum gas price:
 
 1. Generate and sign deterministic native transactions.
 2. Submit every transaction through the batch mempool API.

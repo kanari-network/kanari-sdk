@@ -11,39 +11,37 @@ module james::james {
     /// Name of the coin
     struct JAMES has drop {}
 
+    #[allow(unused_function)]
     /// Initialize and register the JAMES currency.
-    /// Returns the `TreasuryCap<JAMES>` which can be used to mint tokens.
-    /// This should be invoked once (e.g., during genesis or deployment).
-    fun init(witness: JAMES ,ctx: &mut TxContext): (TreasuryCap<JAMES>, coin::CoinMetadata<JAMES>) {
-        let (treasury, metadata) = coin::create_currency<JAMES>(
-            witness,
-            9,
-            b"JAMES",
-            b"James Token",
-            b"",
-            option::some(url::new_unsafe_from_bytes(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
-            ctx,
-        );
-        // Return both TreasuryCap and Metadata so callers can persist them.
-        (treasury, metadata)
-    }
-
-    /// Public setup entry that creates the required `JAMES` witness,
-    /// invokes `init`, and transfers the created objects to the
-    /// transaction sender so they are persisted in the caller's account.
-    public entry fun setup(ctx: &mut TxContext) {
-        let witness = JAMES {};
-        let (treasury, metadata) = init(witness, ctx);
+    ///
+    /// Runs exactly once: the runtime invokes `init` on fresh publish only
+    /// (never on upgrade), with `tx_context::sender` set to the publisher,
+    /// so TreasuryCap and metadata land with the deployer and no replayable
+    /// setup entry needs to exist.
+    fun init(witness: JAMES, ctx: &mut TxContext) {
+        let (treasury, metadata) =
+            coin::create_currency<JAMES>(
+                witness,
+                9,
+                b"JAMES",
+                b"James Token",
+                b"",
+                option::some(
+                    url::new_unsafe_from_bytes(
+                        b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
+                    )
+                ),
+                ctx
+            );
         let sender = kanari_system::tx_context::sender(ctx);
         transfer::public_transfer(treasury, sender);
         transfer::public_transfer(metadata, sender);
     }
 
-
     /// Mint new JAMES tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>
-    /// 
+    ///
     /// This function mints tokens directly to the recipient's address
     /// The runtime will automatically create or update the recipient's Coin object
     public entry fun mint(
@@ -54,12 +52,11 @@ module james::james {
     ) {
         // Mint a new Coin with the specified amount
         let coin = coin::mint<JAMES>(treasury_cap, amount, ctx);
-        
+
         // Transfer the Coin to the recipient
         // The runtime will merge Coins of the same type automatically
         transfer::public_transfer(coin, recipient);
     }
-
 
     /// Transfer a specific `amount` of JAMES from a mutable Coin held by the caller
     /// Usage: provide the caller's coin, the amount to send, and the recipient
@@ -72,10 +69,8 @@ module james::james {
         // 1. Check if sender is the same as recipient, if so, do nothing
         let sender = kanari_system::tx_context::sender(ctx);
 
-       // 2. sender is not the same as recipient, proceed with transfer
-        if (sender == recipient) {
-            return
-        };
+        // 2. sender is not the same as recipient, proceed with transfer
+        if (sender == recipient) { return };
 
         // 3. Split the specified amount from the sender's coin
         let split_coin = coin::split(c, amount, ctx);
@@ -100,12 +95,13 @@ module james::james {
     public entry fun update_icon(
         treasury_cap: &TreasuryCap<JAMES>,
         metadata: &mut coin::CoinMetadata<JAMES>,
-        new_url: vector<u8>,
+        new_url: vector<u8>
     ) {
         // สร้าง Url object ใหม่จาก bytes ที่ส่งมา
         let new_url_obj = url::new_unsafe_from_bytes(new_url);
-        
+
         // ใช้ TreasuryCap เพื่อขอสิทธิ์อัปเดต icon_url ใน Metadata
         coin::update_icon_url<JAMES>(treasury_cap, metadata, option::some(new_url_obj));
     }
 }
+

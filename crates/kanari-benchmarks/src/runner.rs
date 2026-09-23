@@ -40,7 +40,7 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     if use_funded_owned_workload {
         eprintln!("Using funded owned-object fanout workload for successful fastpath commits.");
     } else {
-        eprintln!("Using zero-gas native benchmark workload; funding is not required.");
+        eprintln!("Using unfunded native benchmark workload at the minimum gas price.");
     }
     eprintln!("Signing transactions...");
     let signed_txs = if use_funded_owned_workload {

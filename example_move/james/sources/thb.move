@@ -15,7 +15,7 @@ module james::thb {
     struct THB has drop {}
 
     // ==========================================
-    // 🟢 DAO Configuration
+    // DAO Configuration
     // ==========================================
     
     /// DAO wallet address for collecting transfer fees (0.1%)
@@ -25,10 +25,14 @@ module james::thb {
     const FEE_RATE_NUMERATOR: u64 = 1;
     const FEE_RATE_DENOMINATOR: u64 = 1000;
 
+    #[allow(unused_function)]
     /// Initialize and register the THB currency.
-    /// Returns the `TreasuryCap<THB>` which can be used to mint tokens.
-    /// This should be invoked once (e.g., during genesis or deployment).
-    fun init(witness: THB ,ctx: &mut TxContext): (TreasuryCap<THB>, coin::CoinMetadata<THB>) {
+    ///
+    /// Runs exactly once: the runtime invokes `init` on fresh publish only
+    /// (never on upgrade), with `tx_context::sender` set to the publisher,
+    /// so TreasuryCap and metadata land with the deployer and no replayable
+    /// setup entry needs to exist.
+    fun init(witness: THB ,ctx: &mut TxContext) {
         let (treasury, metadata) = coin::create_currency<THB>(
             witness,
             6,
@@ -38,16 +42,6 @@ module james::thb {
                         option::none<kanari_system::url::Url>(),
             ctx,
         );
-        // Return both TreasuryCap and Metadata so callers can persist them.
-        (treasury, metadata)
-    }
-
-    /// Public setup entry that creates the required `THB` witness,
-    /// invokes `init`, and transfers the created objects to the
-    /// transaction sender so they are persisted in the caller's account.
-    public entry fun setup(ctx: &mut TxContext) {
-        let witness = THB {};
-        let (treasury, metadata) = init(witness, ctx);
         let sender = kanari_system::tx_context::sender(ctx);
         transfer::public_transfer(treasury, sender);
         transfer::public_transfer(metadata, sender);
@@ -144,7 +138,7 @@ module james::thb {
     }
 
     // ==========================================
-    // 🟢 Entry wrappers for CLI calling
+    // Entry wrappers for CLI calling
     // ==========================================
 
     /// Usage: kanari move call --function update_icon --args <TreasuryCap_ID> <Metadata_ID> "https://..."
