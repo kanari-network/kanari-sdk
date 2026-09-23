@@ -308,7 +308,7 @@ fun WalletCard(
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        formatAmountExactOrUnknown(t?.getEffectiveAmount() ?: 0L, t?.decimals),
+                        formatAmountExactOrUnknown(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -404,8 +404,9 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
                 )
             },
             trailingContent = {
+                val decimals = token.decimals ?: if (token.tokenType == "0x2::kanari::KANARI" || token.symbol.equals("KANARI", true)) 9 else null
                 Text(
-                    formatAmountExactOrUnknown(token.getEffectiveAmount(), token.decimals),
+                    formatAmountExactOrUnknown(token.getEffectiveAmount(), decimals),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
                     color = MaterialTheme.colorScheme.onSurface
                 )

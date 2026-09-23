@@ -21,11 +21,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
+import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
@@ -83,11 +85,19 @@ private fun TransactionDetails.isIncomingTo(walletAddress: String?): Boolean {
 @Composable
 fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(tx.txType, fontWeight = FontWeight.SemiBold) },
+        headlineContent = {
+            Text(
+                tx.txType,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
         supportingContent = {
             Text(
                 if (isIncoming) "From: ${tx.sender.take(12)}..." else "Sent • ${tx.status}",
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall
             )
         },
@@ -109,16 +119,16 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
         },
         trailingContent = {
             val firstTransfer = tx.transfers?.firstOrNull()
-            val isTransfer = firstTransfer?.transferAmount != null
-            val displayAmount = firstTransfer?.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
-            // No fallback: transfer_decimals/tx.decimals จาก API เท่านั้น
-            val displayDecimals: Int? = firstTransfer?.transferDecimals ?: tx.decimals
+            val transferAmt = firstTransfer?.transferAmount
+            val displayAmount = transferAmt?.toLong() ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L)
+            val displayDecimals = firstTransfer?.transferDecimals ?: tx.decimals ?: 9
             val tokenSymbol = tx.symbol ?: firstTransfer?.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+            val sign = if (isIncoming && transferAmt != null) "+" else "-"
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (isIncoming) "+" else "-"}${formatAmountExactOrUnknown(displayAmount.toLong(), displayDecimals)}",
-                    color = if (isIncoming) MaterialTheme.colorScheme.primary else if (isTransfer) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    text = "$sign${formatAmountExactOrUnknown(displayAmount, displayDecimals)}",
+                    color = if (isIncoming) MaterialTheme.colorScheme.primary else if (transferAmt != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
