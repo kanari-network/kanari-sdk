@@ -194,16 +194,39 @@ fn fresh_nonce(nonce: Option<u64>, min_nonce: Option<u64>) -> anyhow::Result<u64
     }
 }
 
+/// Only `0x2::coin::Coin<T>` (and legacy nested spelling) is a canonical
+/// coin. A bare `ends_with("::coin::Coin")` would accept `0xevil::coin::Coin`
+/// and let worthless attacker tokens appear as transfers/holders.
+fn is_canonical_coin_outer(outer: &str) -> bool {
+    let outer = outer.trim();
+    if !(outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin")) {
+        return false;
+    }
+    // Outer address must be the kanari system address (0x2, any spelling).
+    let addr_str = outer.split("::").next().unwrap_or("");
+    if let Ok(addr) = AccountAddress::from_hex_literal(addr_str) {
+        return addr
+            == AccountAddress::from_hex_literal(
+                kanari_types::address::Address::KANARI_SYSTEM_ADDRESS,
+            )
+            .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
+    }
+    // Fallback for non-hex spellings: accept only literal 0x2 variants.
+    matches!(addr_str.trim(), "0x2" | "0x02" | "0X2" | "0X02")
+}
+
 fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
     if let Some(start) = object_type.find('<')
         && let Some(end) = object_type.rfind('>')
+        && end > start
     {
         let outer = &object_type[..start];
-        if outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin") {
+        if is_canonical_coin_outer(outer) {
             return Some(CoinModule::normalize_token_type(
                 &object_type[start + 1..end],
             ));
         }
+        return None;
     }
 
     if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(object_type)
@@ -211,7 +234,12 @@ fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
         && st.name.as_str() == "Coin"
         && let Some(TypeTag::Struct(inner)) = st.type_params.first()
     {
-        return Some(format!("{}", inner));
+        let expected =
+            AccountAddress::from_hex_literal(kanari_types::address::Address::KANARI_SYSTEM_ADDRESS)
+                .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
+        if st.address == expected {
+            return Some(format!("{}", inner));
+        }
     }
 
     None
@@ -680,20 +708,19 @@ fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str
     let state = state?;
     // StateManager already falls back across normalized/raw keys; keep this
     // lookup infallible so a missing index never breaks transaction display.
-    state
-        .engine
-        .state_read()
+    let guard = state.engine.state_read();
+    guard
         .get_token_decimals(&normalized)
         .ok()
         .flatten()
-        .or_else(|| {
-            state
-                .engine
-                .state_read()
-                .get_token_decimals(token_type)
-                .ok()
-                .flatten()
-        })
+        .or_else(|| guard.get_token_decimals(token_type).ok().flatten())
+}
+
+/// Normalize a hex object id for comparison: arg-parsed ids come from
+/// `to_hex_literal` (lowercase `0x…`) while effect ids are verbatim and may
+/// differ in case. Lowercasing can only merge spellings of the same id.
+fn norm_hex_id(id: &str) -> String {
+    id.trim().to_lowercase()
 }
 
 fn transfers_from_effect(
@@ -702,8 +729,8 @@ fn transfers_from_effect(
 ) -> Vec<kanari_rpc_api::TransferEntry> {
     // Collect every identifiable coin movement. Prefer `transferred`,
     // then `mutated`, then `created`, then the flat list. Dedup by
-    // (object_id, owner) so the same coin appearing in two buckets
-    // is reported once.
+    // (normalized object_id, normalized owner, token_type) so the same
+    // change appearing in two buckets is reported once.
     use std::collections::HashSet;
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -726,8 +753,9 @@ fn transfers_from_effect(
                 _ => None,
             };
             let key = (
-                change.object_ref.object_id.clone(),
-                recipient.clone().unwrap_or_default(),
+                norm_hex_id(&change.object_ref.object_id),
+                recipient.as_deref().unwrap_or("").to_lowercase(),
+                token_type.clone(),
             );
             if !seen.insert(key) {
                 continue;
@@ -750,12 +778,15 @@ fn transfers_from_effect(
 
 fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::TransferEntry) {
     let transfers = details.transfers.get_or_insert_with(Vec::new);
-    // Merge by coin_object_id when present so arg-parsed amount and
-    // effect-parsed owner/type combine into one entry instead of two.
+    // Merge by normalized coin_object_id so arg-parsed amount and
+    // effect-parsed owner/type combine into one entry instead of two even
+    // when hex spellings differ (to_hex_literal vs verbatim).
     if let Some(coin_id) = entry.coin_object_id.clone()
-        && let Some(existing) = transfers
-            .iter_mut()
-            .find(|e| e.coin_object_id.as_deref() == Some(coin_id.as_str()))
+        && let Some(existing) = transfers.iter_mut().find(|e| {
+            e.coin_object_id
+                .as_deref()
+                .is_some_and(|have| norm_hex_id(have) == norm_hex_id(&coin_id))
+        })
     {
         if existing.recipient.is_none() {
             existing.recipient = entry.recipient;
@@ -831,9 +862,12 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
                 return true;
             }
 
-            object_inputs
-                .iter()
-                .any(|input| input.object_ref.object_id.contains(token_type.as_str()))
+            // NOTE: object inputs carry object ids, never token types, so an
+            // `object_id.contains(token_type)` check can never match. Asset
+            // relevance via object inputs is resolved from execution effects
+            // (see transfers_from_effect), not here.
+            let _ = object_inputs;
+            false
         }
         Transaction::PublishModule { .. }
         | Transaction::PublishPackage { .. }

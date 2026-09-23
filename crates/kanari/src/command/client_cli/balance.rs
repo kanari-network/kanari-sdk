@@ -52,23 +52,31 @@ impl Balance {
                     let amount = balance.get("balance").and_then(|a| a.as_u64()).unwrap_or(0);
 
                     // No fallback: decimals must come from API metadata.
-                    let decimals_opt = balance.get("decimals").and_then(|d| d.as_u64());
+                    // Clamp display: corrupt decimals (>18) would make pow overflow.
+                    let decimals_opt = balance
+                        .get("decimals")
+                        .and_then(|d| d.as_u64())
+                        .filter(|d| *d <= 18);
 
                     if self.detailed {
                         eprintln!("Token Type: {}", token_type);
                         match decimals_opt {
-                            Some(decimals) => {
-                                let divisor = 10u64.pow(decimals as u32);
-                                let whole = amount / divisor;
-                                let fraction = amount % divisor;
-                                eprintln!(
-                                    "  Balance: {}.{:0width$} ({})",
-                                    whole,
-                                    fraction,
-                                    token_type,
-                                    width = decimals as usize
-                                );
-                            }
+                            Some(decimals) => match 10u64.checked_pow(decimals as u32) {
+                                Some(divisor) => {
+                                    let whole = amount / divisor;
+                                    let fraction = amount % divisor;
+                                    eprintln!(
+                                        "  Balance: {}.{:0width$} ({})",
+                                        whole,
+                                        fraction,
+                                        token_type,
+                                        width = decimals as usize
+                                    );
+                                }
+                                None => {
+                                    eprintln!("  Balance: {} (raw, decimals overflow)", amount);
+                                }
+                            },
                             None => {
                                 eprintln!("  Balance: {} (raw, decimals unknown)", amount);
                             }
@@ -94,18 +102,25 @@ impl Balance {
                         eprintln!("------------------------------");
                     } else {
                         match decimals_opt {
-                            Some(decimals) => {
-                                let divisor = 10u64.pow(decimals as u32);
-                                let whole = amount / divisor;
-                                let fraction = amount % divisor;
-                                eprintln!(
-                                    "  {} {}.{:0width$}",
-                                    token_type,
-                                    whole,
-                                    fraction,
-                                    width = decimals as usize
-                                );
-                            }
+                            Some(decimals) => match 10u64.checked_pow(decimals as u32) {
+                                Some(divisor) => {
+                                    let whole = amount / divisor;
+                                    let fraction = amount % divisor;
+                                    eprintln!(
+                                        "  {} {}.{:0width$}",
+                                        token_type,
+                                        whole,
+                                        fraction,
+                                        width = decimals as usize
+                                    );
+                                }
+                                None => {
+                                    eprintln!(
+                                        "  {} {} (raw, decimals overflow)",
+                                        token_type, amount
+                                    );
+                                }
+                            },
                             None => {
                                 eprintln!("  {} {} (raw, decimals unknown)", token_type, amount);
                             }

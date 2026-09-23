@@ -74,8 +74,7 @@ fn collect_fungible_asset_holders(
     compute_coin_count: bool,
 ) -> anyhow::Result<Vec<FungibleAssetHolder>> {
     let token_type = CoinModule::normalize_token_type(token_type);
-    let coin_type = CoinModule::coin_type(&token_type);
-    let mut holders = Vec::new();
+    let mut balances: Vec<(AccountAddress, u64)> = Vec::new();
 
     for owner in state_guard.owner_addresses()? {
         if !is_public_asset_holder(&owner) {
@@ -86,12 +85,24 @@ fn collect_fungible_asset_holders(
         if balance == 0 {
             continue;
         }
+        balances.push((owner, balance));
+    }
 
+    balances.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    if let Some(limit) = limit {
+        balances.truncate(limit);
+    }
+
+    // Hydrate coin counts only for survivors so a limit=10 query for a
+    // rare token doesn't walk every owner's objects. Output identical to
+    // before: truncated-away holders never appeared in the response.
+    let mut holders = Vec::with_capacity(balances.len());
+    for (owner, balance) in balances {
         let coin_object_count = if compute_coin_count {
             let mut count = 0usize;
             for object_id in state_guard.get_owned_objects(&owner)? {
                 if let Some(object) = state_guard.get_object(&object_id)?
-                    && object.type_ == coin_type
+                    && CoinModule::is_coin_type_for(&object.type_, &token_type)
                 {
                     count += 1;
                 }
@@ -106,15 +117,6 @@ fn collect_fungible_asset_holders(
             balance,
             coin_object_count,
         });
-    }
-
-    holders.sort_by(|a, b| {
-        b.balance
-            .cmp(&a.balance)
-            .then_with(|| a.owner.cmp(&b.owner))
-    });
-    if let Some(limit) = limit {
-        holders.truncate(limit);
     }
     Ok(holders)
 }
@@ -206,10 +208,17 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
     if let Ok(Some(keys)) = state_guard.load_internal::<Vec<String>>(b"treasury_index") {
         for key in keys {
-            let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-            token_types.insert(token_type);
+            let token_type = key.strip_prefix("treasury:").unwrap_or(&key);
+            // Normalize so 0x02/0x2 spellings dedupe to one row.
+            token_types.insert(CoinModule::normalize_token_type(token_type));
         }
     }
+    // Global cache keys are normalized on write, but normalize defensively
+    // so legacy raw-spelling entries can't produce duplicate rows.
+    let token_types: BTreeSet<String> = token_types
+        .into_iter()
+        .map(|t| CoinModule::normalize_token_type(&t))
+        .collect();
 
     let vals: Vec<serde_json::Value> = token_types
         .into_iter()

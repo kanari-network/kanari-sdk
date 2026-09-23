@@ -66,7 +66,19 @@ async fn parse_human_amount(
         // Bare integer = whole coins (NOT mist). Use `mist:` for raw units.
         None => (s, ""),
     };
+    // Accept ".5" as "0.5"; empty whole is 0 only when a fraction is present.
+    let whole = if whole.is_empty() && !frac.is_empty() {
+        "0"
+    } else {
+        whole
+    };
     if frac.is_empty() && whole.parse::<u64>().is_err() {
+        anyhow::bail!(
+            "Invalid amount '{}'; use whole coins (e.g. \"1000\"), decimal (e.g. \"1.5\"), or mist:<integer>",
+            s
+        );
+    }
+    if !frac.is_empty() && !frac.bytes().all(|b| b.is_ascii_digit()) {
         anyhow::bail!(
             "Invalid amount '{}'; use whole coins (e.g. \"1000\"), decimal (e.g. \"1.5\"), or mist:<integer>",
             s
@@ -130,7 +142,9 @@ async fn coin_decimals(client: &RpcClient, owner_normalized: &str, coin_type: &s
             .split_once('<')
             .and_then(|(_, rest)| rest.strip_suffix('>'))
             .unwrap_or(&have);
-        let type_matches = have == want || entry_inner == want || have.contains(&want);
+        // Exact match only: substring matching (e.g. CO vs COIN) would
+        // resolve the wrong token's decimals and mis-scale funds.
+        let type_matches = have == want || entry_inner == want;
         if type_matches && let Some(d) = entry.get("decimals").and_then(|d| d.as_u64()) {
             return Ok(d as u8);
         }
@@ -380,7 +394,9 @@ async fn list_coins(
     owner_normalized: &str,
     coin_type: &str,
 ) -> Result<Vec<ListedCoin>> {
-    let wrapper = format!("0x2::coin::Coin<{}>", coin_type.trim());
+    // Normalize so `0x02::…` input matches canonically stored objects.
+    let inner = kanari_types::coin::CoinModule::normalize_token_type(coin_type.trim());
+    let wrapper = format!("0x2::coin::Coin<{}>", inner);
     let response = client
         .get_objects(kanari_rpc_api::GetObjectsRequest {
             owner: Some(owner_normalized.to_string()),

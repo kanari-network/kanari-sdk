@@ -303,12 +303,15 @@ pub struct OwnerInfo {
     pub owned_objects: Option<Vec<ObjectInfo>>,
 }
 
-/// Token balance info
+/// Token balance info.
+/// `decimals` is optional: `None` means on-chain metadata unknown —
+/// callers must show unknown, never invent 9/6/0.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenBalance {
     pub token_type: String,
     pub amount: u64,
-    pub decimals: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decimals: Option<u8>,
     pub symbol: String,
 }
 

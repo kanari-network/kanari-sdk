@@ -181,13 +181,24 @@ impl StateManager {
     }
 
     /// Build the database key for a token supply record.
+    /// Always canonical so `0x02`/`0x2` spellings share one record.
     pub(super) fn supply_key(token_type: &str) -> Vec<u8> {
+        let normalized = Self::normalize_token_type(token_type);
+        let mut key = b"supply:".to_vec();
+        key.extend_from_slice(normalized.as_bytes());
+        key
+    }
+
+    /// Raw-spelling key for backward compat with DBs written before
+    /// normalization. New writes always use [`Self::supply_key`].
+    fn supply_key_raw(token_type: &str) -> Vec<u8> {
         let mut key = b"supply:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         key
     }
 
     /// Load a persisted supply value from the store for the given token type.
+    /// Tries the canonical key first, then the raw spelling.
     pub(super) fn load_persisted_supply_from_store(
         store: &PersistentStore,
         token_type: &str,
@@ -196,7 +207,19 @@ impl StateManager {
         if let Some(cap) = store.load::<TreasuryCap>(&key)? {
             return Ok(Some(cap.total_supply));
         }
-        Ok(store.load::<u64>(&key)?)
+        if let Some(supply) = store.load::<u64>(&key)? {
+            return Ok(Some(supply));
+        }
+        let raw_key = Self::supply_key_raw(token_type);
+        if raw_key != key {
+            if let Some(cap) = store.load::<TreasuryCap>(&raw_key)? {
+                return Ok(Some(cap.total_supply));
+            }
+            if let Some(supply) = store.load::<u64>(&raw_key)? {
+                return Ok(Some(supply));
+            }
+        }
+        Ok(None)
     }
 
     /// Save the native total supply and update the supply record.
@@ -226,20 +249,31 @@ impl StateManager {
 
     /// Get the total issued supply for a token type.
     pub(super) fn issued_supply_for_token(&self, token_type: &str) -> Result<u64> {
-        if token_type == GAS_COIN {
+        let normalized = Self::normalize_token_type(token_type);
+        if normalized == GAS_COIN {
             return Ok(self.total_supply);
         }
 
-        let supply_key = Self::supply_key(token_type);
+        let supply_key = Self::supply_key(&normalized);
         if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
             return Ok(cap.total_supply);
         }
         if let Some(supply) = self.load_internal::<u64>(&supply_key)? {
             return Ok(supply);
         }
+        // Backward compat: DBs written with raw spelling.
+        let raw_key = Self::supply_key_raw(token_type);
+        if raw_key != supply_key {
+            if let Some(cap) = self.load_internal::<TreasuryCap>(&raw_key)? {
+                return Ok(cap.total_supply);
+            }
+            if let Some(supply) = self.load_internal::<u64>(&raw_key)? {
+                return Ok(supply);
+            }
+        }
         Ok(self
             .global_token_supplies
-            .get(token_type)
+            .get(&normalized)
             .copied()
             .unwrap_or(0))
     }
@@ -538,16 +572,22 @@ impl StateManager {
         token_type: &str,
     ) -> Result<Option<T>> {
         // Try canonical key first, then the raw spelling for DBs written
-        // before normalization was enforced.
+        // before normalization was enforced. A corrupt entry (key holds
+        // another type's bytes) is treated as unknown, never fatal: metadata
+        // is best-effort display data, and every caller already degrades to
+        // None. Storage errors still propagate via save paths.
         let normalized = Self::normalize_token_type(token_type);
         let key = metadata_key(prefix, &normalized);
-        if let Some(value) = self.load_internal::<T>(&key)? {
-            return Ok(Some(value));
+        match self.load_internal::<T>(&key) {
+            Ok(Some(value)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(_) => return Ok(None),
         }
         if normalized != token_type {
             let raw_key = metadata_key(prefix, token_type);
-            if let Some(value) = self.load_internal::<T>(&raw_key)? {
-                return Ok(Some(value));
+            match self.load_internal::<T>(&raw_key) {
+                Ok(value) => return Ok(value),
+                Err(_) => return Ok(None),
             }
         }
         Ok(None)
@@ -605,7 +645,11 @@ impl StateManager {
                 self.save_token_metadata_field(b"metadata_icon_url:", token_type, &url)?;
             }
         } else if data.len() > 32 {
-            self.save_token_metadata_field(b"metadata_decimals:", token_type, &data[32])?;
+            // Validate: Move caps decimals at 9; never persist a corrupt byte.
+            let decimals = data[32];
+            if decimals <= 9 {
+                self.save_token_metadata_field(b"metadata_decimals:", token_type, &decimals)?;
+            }
         }
         Ok(())
     }

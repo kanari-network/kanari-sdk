@@ -170,12 +170,18 @@ impl StateManager {
         tokens.extend(new_balances.keys().cloned());
 
         for token_type in tokens {
+            // Canonical key going forward; balance maps are normalized on
+            // write so lookups match. Legacy raw global entries, if any, are
+            // folded into the canonical entry once touched.
+            let normalized = Self::normalize_token_type(&token_type);
             let old_amount = old_balances
                 .get(&token_type)
+                .or_else(|| old_balances.get(&normalized))
                 .map(|x| x.value())
                 .unwrap_or(0);
             let new_amount = new_balances
                 .get(&token_type)
+                .or_else(|| new_balances.get(&normalized))
                 .map(|x| x.value())
                 .unwrap_or(0);
 
@@ -186,8 +192,12 @@ impl StateManager {
             changed = true;
             let current_supply = self
                 .global_token_supplies
-                .get(&token_type)
+                .get(&normalized)
                 .copied()
+                .or_else(|| {
+                    // Fold legacy raw-spelling entry exactly once.
+                    self.global_token_supplies.remove(&token_type)
+                })
                 .unwrap_or(0);
 
             let updated_supply = if new_amount >= old_amount {
@@ -197,10 +207,10 @@ impl StateManager {
             };
 
             if updated_supply == 0 {
-                self.global_token_supplies.remove(&token_type);
+                self.global_token_supplies.remove(&normalized);
             } else {
                 self.global_token_supplies
-                    .insert(token_type, updated_supply);
+                    .insert(normalized, updated_supply);
             }
         }
 
@@ -364,8 +374,8 @@ impl StateManager {
                     .store
                     .load::<(AccountAddress, TreasuryCap)>(key.as_bytes())
                 {
-                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-                    out.push((owner_addr, token_type, cap));
+                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key);
+                    out.push((owner_addr, Self::normalize_token_type(token_type), cap));
                 }
             }
         }
@@ -523,19 +533,20 @@ impl StateManager {
             self.save_internal(b"total_supply", &supply)?;
         }
 
-        // Apply treasury creations/updates
+        // Apply treasury creations/updates (canonical spelling going forward).
         for (owner, token_type, total_supply) in &changeset.treasuries {
+            let normalized = Self::normalize_token_type(token_type);
             let mut key = b"supply:".to_vec();
-            key.extend_from_slice(token_type.as_bytes());
+            key.extend_from_slice(normalized.as_bytes());
             self.save_internal(&key, total_supply)?;
 
             let mut key_owner = b"treasury:".to_vec();
-            key_owner.extend_from_slice(token_type.as_bytes());
+            key_owner.extend_from_slice(normalized.as_bytes());
             self.save_internal(&key_owner, owner)?;
 
             // Update treasury index
             let mut index: Vec<String> = self.load_internal(b"treasury_index")?.unwrap_or_default();
-            let key_str = format!("treasury:{}", token_type);
+            let key_str = format!("treasury:{}", normalized);
             if !index.contains(&key_str) {
                 index.push(key_str);
                 self.save_internal(b"treasury_index", &index)?;
@@ -721,10 +732,13 @@ impl StateManager {
                         let _ = self.save_internal(&key_url, &url);
                     }
                 } else if new_obj.data.len() > 32 {
+                    // Validate: Move caps decimals at 9; never persist a corrupt byte.
                     let decimals = new_obj.data[32];
-                    let mut key = b"metadata_decimals:".to_vec();
-                    key.extend_from_slice(canonical_token_type.as_bytes());
-                    let _ = self.save_internal(&key, &decimals);
+                    if decimals <= 9 {
+                        let mut key = b"metadata_decimals:".to_vec();
+                        key.extend_from_slice(canonical_token_type.as_bytes());
+                        let _ = self.save_internal(&key, &decimals);
+                    }
                 }
             }
         }
@@ -836,17 +850,21 @@ impl StateManager {
         prefix: &[u8],
         token_type: &str,
     ) -> Result<Option<T>> {
+        // Corrupt entries are unknown, never fatal (same contract as v1).
         let normalized = Self::normalize_token_type(token_type);
         let mut key = prefix.to_vec();
         key.extend_from_slice(normalized.as_bytes());
-        if let Some(value) = self.load_internal::<T>(&key)? {
-            return Ok(Some(value));
+        match self.load_internal::<T>(&key) {
+            Ok(Some(value)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(_) => return Ok(None),
         }
         if normalized != token_type {
             let mut raw_key = prefix.to_vec();
             raw_key.extend_from_slice(token_type.as_bytes());
-            if let Some(value) = self.load_internal::<T>(&raw_key)? {
-                return Ok(Some(value));
+            match self.load_internal::<T>(&raw_key) {
+                Ok(value) => return Ok(value),
+                Err(_) => return Ok(None),
             }
         }
         Ok(None)
