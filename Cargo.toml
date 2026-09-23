@@ -76,7 +76,7 @@ description = "Kanari Network SDK"                                              
 # ============================================================================
 tokio = { version = "1.53.1", features = ["full"] }
 rayon = "1.12.0"
-crossbeam-channel = "0.5.16"
+crossbeam-channel = "0.5.17"
 futures = "0.3.34"
 
 # ============================================================================
@@ -139,7 +139,7 @@ hmac = { version = "0.13.0" }                                                   
 ## Key Derivation & Password Hashing
 argon2 = { version = "0.6.0", default-features = true }                             # Password hashing
 bip39 = { version = "3.0.0", features = ["rand"] }                                  # Mnemonic phrases
-bip32 = "0.5.3"                                                                     # HD wallet derivation
+bip32 = { version = "0.6.0", features = ["alloc"] }                                # HD wallet derivation
 
 ## Encoding Utilities
 hex = "0.4.3"
@@ -170,8 +170,8 @@ zstd = "0.14.0"                                                                 
 # ============================================================================
 # Caching & Performance Optimization
 # ============================================================================
-moka = { version = "0.12.15", features = ["sync"] }                                 # Thread-safe caching
-lru = "0.18.4"                                                                      # LRU cache
+moka = { version = "0.12.16", features = ["sync"] }                                 # Thread-safe caching
+lru = "0.18.5"                                                                      # LRU cache
 dashmap = "6.2.1"                                                                   # Concurrent HashMap
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
 siphasher = "1.0.3"                                                                 # SipHash implementation
@@ -279,7 +279,7 @@ syn = { version = "3.0.6", features = ["full"] }
 # ============================================================================
 # Miscellaneous Utilities
 # ============================================================================
-uniffi = { version = "0.32.1" }
+uniffi = { version = "0.32.2" }
 
 # ============================================================================
 

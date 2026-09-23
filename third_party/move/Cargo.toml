@@ -29,7 +29,7 @@ members = [
 
 # Dependencies that should be kept in sync through the whole workspace
 [workspace.dependencies]
-aes-gcm = "0.11.0"
+aes-gcm = "0.11.1"
 anyhow = "1.0.104"
 arbitrary = { version = "1.4.2", features = ["derive", "derive_arbitrary"] }
 async-trait = "0.1.92"
@@ -45,8 +45,8 @@ codespan-reporting = "0.13.1"
 colored = "3.1.1"
 criterion = "0.8.2"
 criterion-cpu-time = { path = "tools/criterion-cpu-time" }
-crossbeam = "0.8.4"
-crossbeam-channel = "0.5.16"
+crossbeam = "0.8.5"
+crossbeam-channel = "0.5.17"
 crossterm = "0.29.0"
 curve25519-dalek = { version = "5.0.0", default-features = false }
 datatest-stable = "0.3.3"
@@ -64,7 +64,7 @@ blake2b_simd = "1.0.5"
 ethnum = "1.5.3"
 fail = "0.5.1"
 file_diff = "1.0.0"
-futures = "0.3.33"
+futures = "0.3.34"
 getrandom = "0.4.3"
 heck = "0.5.0"
 hex = "0.4.3"
@@ -104,7 +104,7 @@ proptest-derive = "0.8.0"
 quote = "1.0.47"
 rand = "0.10.3"
 rayon = "1.12.0"
-ref-cast = "1.0.26"
+ref-cast = "1.0.27"
 regex = "1.13.1"
 ripemd = "0.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -117,13 +117,13 @@ sha2 = "0.11.0"
 sha3 = "0.12.0"
 shell-words = "1.1.1"
 simplelog = "0.12.2"
-similar = "3.1.2"
+similar = "3.2.0"
 smallvec = "1.16.1"
 stacker = "0.1.25"
 static_assertions = "1.1.0"
 syn = { version = "3.0.6", features = ["derive"] }
 tempfile = "3.27.0"
-tera = "2.1.0"
+tera = "2.4.0"
 thiserror = "2.0.20"
 tiny-keccak = { version = "2.0.2", features = ["sha3"] }
 tokio = { version = "1.53.1", features = ["full"] }
