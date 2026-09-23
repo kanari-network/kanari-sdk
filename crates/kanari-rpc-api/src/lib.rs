@@ -509,6 +509,12 @@ pub struct TransactionStatus {
 /// A transaction can move multiple coins (batch transfers, splits, merges).
 /// `transfers` lists every movement the RPC layer could identify from
 /// transaction args plus execution effects.
+///
+/// `transfer_decimals` is the on-chain `CoinMetadata` decimals for
+/// `transfer_token_type` (e.g. 6 for THB, 9 for KANARI). Explorer must use
+/// it to scale `transfer_amount` (raw units) into display units:
+/// `display = raw / 10^decimals`. It is `None` only when metadata is
+/// not yet indexed for that token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -517,6 +523,8 @@ pub struct TransferEntry {
     pub transfer_amount: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_token_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_decimals: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coin_object_id: Option<String>,
 }
@@ -1044,7 +1052,10 @@ pub struct FungibleAssetInfo {
     pub token_type: String,
     pub name: String,
     pub symbol: String,
-    pub decimals: u8,
+    /// No fallback: `None` means on-chain metadata unknown.
+    /// Clients must show unknown, never assume 9/6/0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decimals: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

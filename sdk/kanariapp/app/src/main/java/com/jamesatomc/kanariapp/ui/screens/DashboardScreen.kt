@@ -308,7 +308,7 @@ fun WalletCard(
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        formatAmountExact(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9),
+                        formatAmountExactOrUnknown(t?.getEffectiveAmount() ?: 0L, t?.decimals),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -405,7 +405,7 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
             },
             trailingContent = {
                 Text(
-                    formatAmountExact(token.getEffectiveAmount(), token.decimals),
+                    formatAmountExactOrUnknown(token.getEffectiveAmount(), token.decimals),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
                     color = MaterialTheme.colorScheme.onSurface
                 )

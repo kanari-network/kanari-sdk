@@ -68,10 +68,20 @@ class AccountInfo extends Equatable {
   ];
 }
 
+/// No fallback: decimals มาจาก API on-chain metadata เท่านั้น
+/// null = unknown — UI ต้องโชว์ raw/unknown ห้ามเดา 9/6/0
+int? _jsonDecimals(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
 class TokenBalance extends Equatable {
   final String tokenType;
   final int amount;
-  final int decimals;
+  final int? decimals;
   final String symbol;
   final String? iconUrl;
   final String? name;
@@ -94,10 +104,7 @@ class TokenBalance extends Equatable {
     return TokenBalance(
       tokenType: tokenType,
       amount: _jsonInt(json['amount'] ?? json['balance']),
-      decimals: _jsonInt(
-        json['decimals'],
-        fallback: isKanari ? kanariDecimals : 9,
-      ),
+      decimals: _jsonDecimals(json['decimals']),
       symbol: _normalizeSymbol(json['symbol'], isKanari: isKanari),
       iconUrl: json['icon_url'] as String?,
       name: _normalizeName(json['name'], isKanari: isKanari),
@@ -151,7 +158,7 @@ class TokenInfo extends Equatable {
   final int objectLockedSupply;
   final int accountedSupply;
   final int untrackedSupply;
-  final int decimals;
+  final int? decimals;
   final String symbol;
   final String? iconUrl;
   final String? name;
@@ -195,10 +202,7 @@ class TokenInfo extends Equatable {
         fallback: totalSupply,
       ),
       untrackedSupply: _jsonInt(json['untracked_supply']),
-      decimals: _jsonInt(
-        json['decimals'],
-        fallback: isKanari ? kanariDecimals : 9,
-      ),
+      decimals: _jsonDecimals(json['decimals']),
       symbol: TokenBalance._normalizeSymbol(json['symbol'], isKanari: isKanari),
       iconUrl: json['icon_url'] as String?,
       name: TokenBalance._normalizeName(json['name'], isKanari: isKanari),

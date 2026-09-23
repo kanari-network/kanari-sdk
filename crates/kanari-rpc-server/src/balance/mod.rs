@@ -18,14 +18,14 @@ use serde_json;
 use std::collections::BTreeSet;
 use tracing::warn;
 
-fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
+/// No fallback: returns on-chain `CoinMetadata` decimals only.
+/// `GAS_COIN` (KANARI) is `Some(9)` as protocol constant, everything else
+/// is `None` when metadata is not indexed — callers must not invent 9/6/0.
+fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> Option<u8> {
     if token_type == GAS_COIN {
-        return 9;
+        return Some(9);
     }
-    if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
-        return decimals;
-    }
-    9
+    state_guard.get_token_decimals(token_type).ok().flatten()
 }
 
 fn extract_symbol(token_type: &str) -> String {
@@ -150,12 +150,15 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
 
     let target_token = CoinModule::normalize_token_type(&req_data.token_type);
     let final_balance = owner_info.balances.get(&target_token).copied().unwrap_or(0);
+    let state_guard = state.engine.state_read();
+    let decimals = get_token_decimals(&state_guard, &target_token);
 
     RpcResponse {
         jsonrpc: "2.0".into(),
         result: Some(serde_json::json!({
             "token_type": req_data.token_type,
-            "balance": final_balance
+            "balance": final_balance,
+            "decimals": decimals,
         })),
         error: None,
         id: request.id,

@@ -19,7 +19,7 @@ module james::thb {
     // ==========================================
     
     /// DAO wallet address for collecting transfer fees (0.1%)
-    const DAO_ADDRESS: address = @0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3;
+    const DAO_ADDRESS: address = @0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350;
     
     /// Transfer fee rate: 0.1% = 1/1000 (in basis points: 10 out of 10000)
     const FEE_RATE_NUMERATOR: u64 = 1;
@@ -39,7 +39,7 @@ module james::thb {
             b"THB",
             b"THB Token",
             b"",
-                        option::none<kanari_system::url::Url>(),
+            option::none<kanari_system::url::Url>(),
             ctx,
         );
         let sender = kanari_system::tx_context::sender(ctx);

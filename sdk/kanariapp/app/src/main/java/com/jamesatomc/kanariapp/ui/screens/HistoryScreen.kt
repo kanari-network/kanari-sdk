@@ -26,7 +26,7 @@ import com.jamesatomc.kanariapp.network.models.TransactionDetails
 import com.jamesatomc.kanariapp.ui.components.DetailRowShared
 import com.jamesatomc.kanariapp.ui.components.LoadingEmptyState
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
-import com.jamesatomc.kanariapp.ui.components.formatAmountExact
+import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,12 +111,13 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
             val firstTransfer = tx.transfers?.firstOrNull()
             val isTransfer = firstTransfer?.transferAmount != null
             val displayAmount = firstTransfer?.transferAmount ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L).toULong()
-            val displayDecimals = tx.decimals ?: 9
+            // No fallback: transfer_decimals/tx.decimals จาก API เท่านั้น
+            val displayDecimals: Int? = firstTransfer?.transferDecimals ?: tx.decimals
             val tokenSymbol = tx.symbol ?: firstTransfer?.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (isIncoming) "+" else "-"}${formatAmountExact(displayAmount.toLong(), displayDecimals)}",
+                    text = "${if (isIncoming) "+" else "-"}${formatAmountExactOrUnknown(displayAmount.toLong(), displayDecimals)}",
                     color = if (isIncoming) MaterialTheme.colorScheme.primary else if (isTransfer) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace,
@@ -158,7 +159,7 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             val symbol = tx.symbol ?: detailTransfer.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
             DetailRowShared(
                 label = "Transfer Amount",
-                value = formatAmountExact(amt.toLong(), tx.decimals ?: 9) + " " + symbol
+                value = formatAmountExactOrUnknown(amt.toLong(), detailTransfer.transferDecimals ?: tx.decimals) + " " + symbol
             )
         }
         detailTransfer?.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
@@ -175,6 +176,7 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
         DetailRowShared(label = "Nonce", value = tx.nonce?.toString() ?: "N/A")
         DetailRowShared(label = "Gas Limit", value = tx.gasLimit.toString())
         DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
+        // KANARI decimals = 9 protocol constant (not a fallback)
         tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatAmountExact(it, 9) + " KANARI") }
         tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
         tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }

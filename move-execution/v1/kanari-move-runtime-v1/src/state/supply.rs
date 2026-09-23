@@ -525,7 +525,10 @@ impl StateManager {
         token_type: &str,
         value: &T,
     ) -> Result<()> {
-        let key = metadata_key(prefix, token_type);
+        // Always key metadata by the canonical token type so lookups never
+        // miss due to `0x02` vs `0x2` style spellings.
+        let normalized = Self::normalize_token_type(token_type);
+        let key = metadata_key(prefix, &normalized);
         self.save_internal(&key, value)
     }
 
@@ -534,8 +537,20 @@ impl StateManager {
         prefix: &[u8],
         token_type: &str,
     ) -> Result<Option<T>> {
-        let key = metadata_key(prefix, token_type);
-        self.load_internal(&key)
+        // Try canonical key first, then the raw spelling for DBs written
+        // before normalization was enforced.
+        let normalized = Self::normalize_token_type(token_type);
+        let key = metadata_key(prefix, &normalized);
+        if let Some(value) = self.load_internal::<T>(&key)? {
+            return Ok(Some(value));
+        }
+        if normalized != token_type {
+            let raw_key = metadata_key(prefix, token_type);
+            if let Some(value) = self.load_internal::<T>(&raw_key)? {
+                return Ok(Some(value));
+            }
+        }
+        Ok(None)
     }
     /// Normalize a token type string to its canonical display form.
     pub(super) fn normalize_token_type(token_type: &str) -> String {
@@ -562,8 +577,10 @@ impl StateManager {
         struct ParsedCoinMetadata {
             id: AccountAddress,
             decimals: u8,
-            symbol: MoveString,
+            // On-chain order is `name` then `symbol`
+            // (see kanari_system::coin::CoinMetadata).
             name: MoveString,
+            symbol: MoveString,
             description: MoveString,
             icon_url: MoveOption<MoveUrl>,
         }

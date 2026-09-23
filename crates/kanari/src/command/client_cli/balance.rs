@@ -51,25 +51,28 @@ impl Balance {
 
                     let amount = balance.get("balance").and_then(|a| a.as_u64()).unwrap_or(0);
 
-                    let decimals = balance
-                        .get("decimals")
-                        .and_then(|d| d.as_u64())
-                        .unwrap_or(9);
-
-                    // Convert to human readable format
-                    let divisor = 10u64.pow(decimals as u32);
-                    let whole = amount / divisor;
-                    let fraction = amount % divisor;
+                    // No fallback: decimals must come from API metadata.
+                    let decimals_opt = balance.get("decimals").and_then(|d| d.as_u64());
 
                     if self.detailed {
                         eprintln!("Token Type: {}", token_type);
-                        eprintln!(
-                            "  Balance: {}.{:0width$} ({})",
-                            whole,
-                            fraction,
-                            token_type,
-                            width = decimals as usize
-                        );
+                        match decimals_opt {
+                            Some(decimals) => {
+                                let divisor = 10u64.pow(decimals as u32);
+                                let whole = amount / divisor;
+                                let fraction = amount % divisor;
+                                eprintln!(
+                                    "  Balance: {}.{:0width$} ({})",
+                                    whole,
+                                    fraction,
+                                    token_type,
+                                    width = decimals as usize
+                                );
+                            }
+                            None => {
+                                eprintln!("  Balance: {} (raw, decimals unknown)", amount);
+                            }
+                        }
                         eprintln!("  Raw Amount: {}", amount);
 
                         // Display metadata if available
@@ -90,13 +93,23 @@ impl Balance {
 
                         eprintln!("------------------------------");
                     } else {
-                        eprintln!(
-                            "  {} {}.{:0width$}",
-                            token_type,
-                            whole,
-                            fraction,
-                            width = decimals as usize
-                        );
+                        match decimals_opt {
+                            Some(decimals) => {
+                                let divisor = 10u64.pow(decimals as u32);
+                                let whole = amount / divisor;
+                                let fraction = amount % divisor;
+                                eprintln!(
+                                    "  {} {}.{:0width$}",
+                                    token_type,
+                                    whole,
+                                    fraction,
+                                    width = decimals as usize
+                                );
+                            }
+                            None => {
+                                eprintln!("  {} {} (raw, decimals unknown)", token_type, amount);
+                            }
+                        }
                     }
                 }
                 eprintln!("\nTotal tokens: {}", balances.len());

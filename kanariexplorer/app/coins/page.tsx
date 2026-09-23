@@ -90,7 +90,11 @@ function CoinsContent() {
           <div className="data-list">
             {tokens.map((token, index) => {
               const symbol = readString(token, "symbol", "UNK");
-              const decimals = readString(token, "decimals", "9");
+              // No fallback: decimals จาก API เท่านั้น
+              const tokenRecord = (token ?? {}) as Record<string, unknown>;
+              const decimals = tokenRecord["decimals"] != null && String(tokenRecord["decimals"]).trim() !== ""
+                ? String(tokenRecord["decimals"])
+                : null;
               const amount = address ? readString(token, "amount", readString(token, "balance", "0")) : pickSupply(token);
               const icon = getTokenIcon(token, symbol);
               const tokenType = readString(token, "token_type", readString(token, "token", symbol));

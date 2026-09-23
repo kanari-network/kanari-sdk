@@ -52,7 +52,7 @@ fn committed_failed_effect_is_not_reported_as_success() {
         1,
     );
 
-    apply_committed_effect(&mut details, Some(&effect));
+    apply_committed_effect(None, &mut details, Some(&effect));
 
     assert_eq!(details.status, "failed");
     assert!(!details.success);
@@ -924,7 +924,7 @@ fn transfers_from_effect_collects_every_coin_movement() {
     // Same coin repeated in another bucket must not duplicate.
     effect.object_changes = vec![coin_change("0xaaa", "0xbbb", "0x1::james::JAMES")];
 
-    let transfers = transfers_from_effect(&effect);
+    let transfers = transfers_from_effect(None, &effect);
     assert_eq!(transfers.len(), 2);
     assert_eq!(
         transfers[0].transfer_token_type.as_deref(),
@@ -955,13 +955,14 @@ fn enrich_merges_arg_amount_with_effect_owner_by_coin_id() {
             recipient: Some("0xbbb".to_string()),
             transfer_amount: Some(77),
             transfer_token_type: None,
+            transfer_decimals: None,
             coin_object_id: Some("0xaaa".to_string()),
         },
     );
 
     let mut effect = empty_success_effect();
     effect.transferred = vec![coin_change("0xaaa", "0xbbb", "0x1::james::JAMES")];
-    enrich_transfer_from_effect(&mut details, &effect);
+    enrich_transfer_from_effect(None, &mut details, &effect);
 
     // Merged into one entry, not appended as a second.
     let transfers = details.transfers.as_ref().unwrap();
@@ -993,6 +994,7 @@ fn multiple_transfers_are_all_preserved() {
             recipient: Some("0xbbb".to_string()),
             transfer_amount: Some(5),
             transfer_token_type: Some("0x1::james::JAMES".to_string()),
+            transfer_decimals: None,
             coin_object_id: None,
         },
     );
@@ -1002,6 +1004,7 @@ fn multiple_transfers_are_all_preserved() {
             recipient: Some("0xddd".to_string()),
             transfer_amount: Some(6),
             transfer_token_type: Some("0x2::kanari::KANARI".to_string()),
+            transfer_decimals: Some(9),
             coin_object_id: None,
         },
     );
@@ -1057,6 +1060,7 @@ proptest! {
                     recipient: Some(format!("0x{i}")),
                     transfer_amount: Some(amount + i as u64),
                     transfer_token_type: Some("0x1::james::JAMES".to_string()),
+                    transfer_decimals: None,
                     coin_object_id: Some(format!("0xcoin{i}")),
                 },
             );

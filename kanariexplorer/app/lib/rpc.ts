@@ -414,10 +414,12 @@ function asBalanceArray(value: unknown) {
   const account = asRecord(record.account);
   if (Array.isArray(account.balances)) return account.balances;
   if (account.balances && typeof account.balances === "object") {
+    // No fallback: legacy map shape carries no decimals — leave null
+    // so UI shows explicit unknown instead of inventing 9.
     return Object.entries(account.balances as Record<string, unknown>).map(([token_type, balance]) => ({
       balance: typeof balance === "number" || typeof balance === "string" ? balance : 0,
       amount: typeof balance === "number" || typeof balance === "string" ? balance : 0,
-      decimals: 9,
+      decimals: null,
       symbol: token_type.split("::").slice(-1)[0] || token_type,
       token_type,
     }));
@@ -429,7 +431,7 @@ function asBalanceArray(value: unknown) {
     return Object.entries(record.balances as Record<string, unknown>).map(([token_type, balance]) => ({
       balance: typeof balance === "number" || typeof balance === "string" ? balance : 0,
       amount: typeof balance === "number" || typeof balance === "string" ? balance : 0,
-      decimals: 9,
+      decimals: null,
       symbol: token_type.split("::").slice(-1)[0] || token_type,
       token_type,
     }));

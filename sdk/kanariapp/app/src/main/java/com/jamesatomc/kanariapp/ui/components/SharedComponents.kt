@@ -91,6 +91,15 @@ fun formatAmountExact(amount: Long, decimals: Int): String {
         .toPlainString()
 }
 
+/**
+ * No fallback: decimals must come from API metadata.
+ * Null → explicit unknown marker, never assumes 9/6/0.
+ */
+fun formatAmountExactOrUnknown(amount: Long, decimals: Int?): String {
+    if (decimals == null) return "$amount (raw, decimals unknown)"
+    return formatAmountExact(amount, decimals)
+}
+
 fun validateAddress(address: String): String? {
     val trimmed = address.trim()
     if (trimmed.isEmpty()) return "Recipient address required"

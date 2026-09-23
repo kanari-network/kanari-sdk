@@ -681,32 +681,35 @@ impl StateManager {
                 struct ParsedCoinMetadata {
                     _id: AccountAddress,
                     decimals: u8,
-                    symbol: MoveString,
+                    // On-chain order is `name` then `symbol`
+                    // (see kanari_system::coin::CoinMetadata).
                     name: MoveString,
+                    symbol: MoveString,
                     description: MoveString,
                     icon_url: MoveOption<MoveUrl>,
                 }
 
+                let canonical_token_type = Self::normalize_token_type(token_type);
                 if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(&new_obj.data) {
                     let mut key_dec = b"metadata_decimals:".to_vec();
-                    key_dec.extend_from_slice(token_type.as_bytes());
+                    key_dec.extend_from_slice(canonical_token_type.as_bytes());
                     let _ = self.save_internal(&key_dec, &meta.decimals);
 
                     if let Ok(name) = String::from_utf8(meta.name.bytes) {
                         let mut key_name = b"metadata_name:".to_vec();
-                        key_name.extend_from_slice(token_type.as_bytes());
+                        key_name.extend_from_slice(canonical_token_type.as_bytes());
                         let _ = self.save_internal(&key_name, &name);
                     }
 
                     if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
                         let mut key_sym = b"metadata_symbol:".to_vec();
-                        key_sym.extend_from_slice(token_type.as_bytes());
+                        key_sym.extend_from_slice(canonical_token_type.as_bytes());
                         let _ = self.save_internal(&key_sym, &symbol);
                     }
 
                     if let Ok(description) = String::from_utf8(meta.description.bytes) {
                         let mut key_desc = b"metadata_description:".to_vec();
-                        key_desc.extend_from_slice(token_type.as_bytes());
+                        key_desc.extend_from_slice(canonical_token_type.as_bytes());
                         let _ = self.save_internal(&key_desc, &description);
                     }
 
@@ -714,13 +717,13 @@ impl StateManager {
                         && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
                     {
                         let mut key_url = b"metadata_icon_url:".to_vec();
-                        key_url.extend_from_slice(token_type.as_bytes());
+                        key_url.extend_from_slice(canonical_token_type.as_bytes());
                         let _ = self.save_internal(&key_url, &url);
                     }
                 } else if new_obj.data.len() > 32 {
                     let decimals = new_obj.data[32];
                     let mut key = b"metadata_decimals:".to_vec();
-                    key.extend_from_slice(token_type.as_bytes());
+                    key.extend_from_slice(canonical_token_type.as_bytes());
                     let _ = self.save_internal(&key, &decimals);
                 }
             }
@@ -828,38 +831,49 @@ impl StateManager {
         count
     }
 
+    fn metadata_lookup<T: serde::de::DeserializeOwned>(
+        &self,
+        prefix: &[u8],
+        token_type: &str,
+    ) -> Result<Option<T>> {
+        let normalized = Self::normalize_token_type(token_type);
+        let mut key = prefix.to_vec();
+        key.extend_from_slice(normalized.as_bytes());
+        if let Some(value) = self.load_internal::<T>(&key)? {
+            return Ok(Some(value));
+        }
+        if normalized != token_type {
+            let mut raw_key = prefix.to_vec();
+            raw_key.extend_from_slice(token_type.as_bytes());
+            if let Some(value) = self.load_internal::<T>(&raw_key)? {
+                return Ok(Some(value));
+            }
+        }
+        Ok(None)
+    }
+
     /// Get token decimals for a specific token type
     pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {
-        let mut key = b"metadata_decimals:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<u8>(&key)
+        self.metadata_lookup(b"metadata_decimals:", token_type)
     }
 
     ///  Get token name for a specific token type
     pub fn get_token_name(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_name:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.metadata_lookup(b"metadata_name:", token_type)
     }
 
     ///  Get token symbol for a specific token type
     pub fn get_token_symbol(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_symbol:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.metadata_lookup(b"metadata_symbol:", token_type)
     }
 
     /// Get token description for a specific token type
     pub fn get_token_description(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_description:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.metadata_lookup(b"metadata_description:", token_type)
     }
 
     /// Get token icon URL for a specific token type
     pub fn get_token_icon_url(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_icon_url:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.metadata_lookup(b"metadata_icon_url:", token_type)
     }
 }

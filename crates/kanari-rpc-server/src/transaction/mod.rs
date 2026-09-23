@@ -671,7 +671,33 @@ fn token_transfer_details(
     Some((recipient, amount, None, coin_object_id))
 }
 
+fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str>) -> Option<u8> {
+    let token_type = token_type?;
+    let normalized = CoinModule::normalize_token_type(token_type);
+    if normalized == GAS_COIN {
+        return Some(9);
+    }
+    let state = state?;
+    // StateManager already falls back across normalized/raw keys; keep this
+    // lookup infallible so a missing index never breaks transaction display.
+    state
+        .engine
+        .state_read()
+        .get_token_decimals(&normalized)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            state
+                .engine
+                .state_read()
+                .get_token_decimals(token_type)
+                .ok()
+                .flatten()
+        })
+}
+
 fn transfers_from_effect(
+    state: Option<&RpcServerState>,
     effect: &kanari_types::transaction::TransactionEffects,
 ) -> Vec<kanari_rpc_api::TransferEntry> {
     // Collect every identifiable coin movement. Prefer `transferred`,
@@ -708,10 +734,12 @@ fn transfers_from_effect(
             }
             // Only report coin changes that actually have a new owner.
             if recipient.is_some() {
+                let transfer_decimals = lookup_token_decimals(state, Some(&token_type));
                 out.push(kanari_rpc_api::TransferEntry {
                     recipient,
                     transfer_amount: None,
                     transfer_token_type: Some(token_type),
+                    transfer_decimals,
                     coin_object_id: Some(change.object_ref.object_id.clone()),
                 });
             }
@@ -738,17 +766,31 @@ fn push_transfer_entry(details: &mut TransactionDetails, entry: kanari_rpc_api::
         if existing.transfer_token_type.is_none() {
             existing.transfer_token_type = entry.transfer_token_type;
         }
+        if existing.transfer_decimals.is_none() {
+            existing.transfer_decimals = entry.transfer_decimals;
+        }
         return;
     }
     transfers.push(entry);
 }
 
 fn enrich_transfer_from_effect(
+    state: Option<&RpcServerState>,
     details: &mut TransactionDetails,
     effect: &kanari_types::transaction::TransactionEffects,
 ) {
-    for entry in transfers_from_effect(effect) {
+    for entry in transfers_from_effect(state, effect) {
         push_transfer_entry(details, entry);
+    }
+    // Backfill decimals for arg-parsed entries whose token type was known
+    // but whose metadata lookup was deferred.
+    if let Some(transfers) = details.transfers.as_mut() {
+        for transfer in transfers.iter_mut() {
+            if transfer.transfer_decimals.is_none() {
+                transfer.transfer_decimals =
+                    lookup_token_decimals(state, transfer.transfer_token_type.as_deref());
+            }
+        }
     }
 }
 
@@ -998,6 +1040,7 @@ fn pending_status(record: &PendingTransactionRecord) -> &'static str {
 }
 
 fn apply_pending_preview_metadata(
+    state: Option<&RpcServerState>,
     record: &PendingTransactionRecord,
     details: &mut TransactionDetails,
 ) {
@@ -1007,11 +1050,12 @@ fn apply_pending_preview_metadata(
     }
     if let Some(effects) = &record.metadata.preview_effects {
         details.effects = Some(effects.clone());
-        enrich_transfer_from_effect(details, effects);
+        enrich_transfer_from_effect(state, details, effects);
     }
 }
 
 fn apply_committed_effect(
+    state: Option<&RpcServerState>,
     details: &mut TransactionDetails,
     effect: Option<&kanari_types::transaction::TransactionEffects>,
 ) {
@@ -1036,7 +1080,7 @@ fn apply_committed_effect(
             .saturating_mul(effective_gas_price(details.gas_price)),
     );
     details.effects = Some(effect.clone());
-    enrich_transfer_from_effect(details, effect);
+    enrich_transfer_from_effect(state, details, effect);
 }
 
 // =========================================================================
@@ -1184,12 +1228,14 @@ fn map_transaction_to_details(
             if let Some((recipient, amount, token_type, coin_object_id)) =
                 token_transfer_details(state, tx)
             {
+                let transfer_decimals = lookup_token_decimals(Some(state), token_type.as_deref());
                 push_transfer_entry(
                     &mut details,
                     kanari_rpc_api::TransferEntry {
                         recipient: Some(recipient),
                         transfer_amount: Some(amount),
                         transfer_token_type: token_type,
+                        transfer_decimals,
                         coin_object_id: Some(coin_object_id),
                     },
                 );
@@ -1207,6 +1253,7 @@ fn map_transaction_to_details(
                                 recipient: Some(recipient),
                                 transfer_amount: Some(amount),
                                 transfer_token_type: Some(GAS_COIN.to_string()),
+                                transfer_decimals: Some(9),
                                 coin_object_id: Some(coin_object_id),
                             },
                         );
@@ -2353,7 +2400,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             Some(height),
             Some(hex::encode(state_root)),
         );
-        apply_committed_effect(&mut details, effect);
+        apply_committed_effect(Some(state), &mut details, effect);
         return respond_with_serialize(request.id, details);
     }
     drop(chain);
@@ -2373,7 +2420,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         let effect = state
             .engine
             .get_committed_transaction_effect_from_history(&tx_hash_bytes);
-        apply_committed_effect(&mut details, effect.as_ref());
+        apply_committed_effect(Some(state), &mut details, effect.as_ref());
         return respond_with_serialize(request.id, details);
     }
 
@@ -2387,7 +2434,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             None,
             None,
         );
-        apply_pending_preview_metadata(&tx, &mut details);
+        apply_pending_preview_metadata(Some(state), &tx, &mut details);
         return respond_with_serialize(request.id, details);
     }
 
@@ -2419,7 +2466,7 @@ where
                 None,
                 None,
             );
-            apply_pending_preview_metadata(tx, &mut details);
+            apply_pending_preview_metadata(Some(state), tx, &mut details);
             details
         }) {
             break;
@@ -2450,7 +2497,11 @@ where
                     Some(checkpoint.sequence),
                     Some(hex::encode(&checkpoint.state_root)),
                 );
-                apply_committed_effect(&mut details, checkpoint.transaction_effects.get(index));
+                apply_committed_effect(
+                    Some(state),
+                    &mut details,
+                    checkpoint.transaction_effects.get(index),
+                );
                 if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                     break;
                 }
@@ -2475,7 +2526,7 @@ where
                 Some(height),
                 Some(hex::encode(state_root)),
             );
-            apply_committed_effect(&mut details, effect.as_ref());
+            apply_committed_effect(Some(state), &mut details, effect.as_ref());
             if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                 break;
             }

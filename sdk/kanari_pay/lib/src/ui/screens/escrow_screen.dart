@@ -131,7 +131,7 @@ class _EscrowScreenState extends State<EscrowScreen>
       optionsByType[token.tokenType] = _EscrowTokenOption(
         tokenType: token.tokenType,
         label:
-            '${token.symbol} (${token_utils.formatDisplayAmount(token.amount, token.decimals)})${isSpendable ? '' : ' - balance only'}',
+            '${token.symbol} (${token_utils.formatTokenAmount(token.amount, token.decimals)})${isSpendable ? '' : ' - balance only'}',
         isSpendable: isSpendable,
       );
     }
@@ -152,7 +152,9 @@ class _EscrowScreenState extends State<EscrowScreen>
     return options;
   }
 
-  int _getDecimalsForTokenType(String tokenType, [WalletState? walletState]) {
+  /// No fallback: returns null when decimals unknown — caller must block
+  /// formatting/sending instead of assuming 9/6/0.
+  int? _getDecimalsForTokenType(String tokenType, [WalletState? walletState]) {
     if (walletState != null) {
       for (final token in walletState.tokenBalances) {
         if (token.tokenType == tokenType) {
@@ -160,10 +162,11 @@ class _EscrowScreenState extends State<EscrowScreen>
         }
       }
     }
-    return token_utils.defaultDecimalsForTokenType(tokenType);
+    return null;
   }
 
-  String _toHumanAmount(int rawAmount, int decimals) {
+  String _toHumanAmount(int rawAmount, int? decimals) {
+    if (decimals == null) return '$rawAmount (raw, decimals unknown)';
     if (rawAmount == 0) return '0';
     return token_utils.formatDisplayAmount(
       rawAmount,
@@ -306,8 +309,11 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Seller address cannot be empty.');
       }
 
-      // Convert human-readable amount to raw amount based on token decimals
+      // No fallback: decimals must be known from API metadata
       final decimals = _getDecimalsForTokenType(tokenType, walletState);
+      if (decimals == null) {
+        throw Exception('Decimals unknown for $tokenType — refresh balance and try again.');
+      }
       final rawAmount = token_utils.baseUnitsFromDisplayString(
         _amountController.text.trim(),
         decimals,

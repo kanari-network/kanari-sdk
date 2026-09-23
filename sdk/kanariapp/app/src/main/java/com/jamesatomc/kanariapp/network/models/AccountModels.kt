@@ -23,12 +23,14 @@ data class BalancesResponse(
     val balances: List<TokenBalance> = emptyList()
 )
 
+// No fallback: decimals comes from API on-chain metadata only.
+// Null = unknown — UI must show raw/unknown, never assume 9/6/0.
 @Serializable
 data class TokenBalance(
     @SerialName("token_type") val tokenType: String,
     val amount: Long = 0,
     val balance: Long = 0,
-    val decimals: Int = 9,
+    val decimals: Int? = null,
     val symbol: String = "",
     @SerialName("icon_url") val iconUrl: String? = null,
     val name: String? = null,
@@ -46,7 +48,7 @@ data class TokenInfo(
     @SerialName("object_locked_supply") val objectLockedSupply: Long? = null,
     @SerialName("accounted_supply") val accountedSupply: Long? = null,
     @SerialName("untracked_supply") val untrackedSupply: Long? = null,
-    val decimals: Int = 9,
+    val decimals: Int? = null,
     val symbol: String = "",
     @SerialName("icon_url") val iconUrl: String? = null,
     val name: String? = null,
