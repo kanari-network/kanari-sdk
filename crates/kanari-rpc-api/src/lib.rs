@@ -1122,20 +1122,20 @@ pub mod methods {
     pub const GET_OWNER: &str = "kanari_getOwner";
     #[open_rpc_method(
         summary = "Get one token balance",
-        description = "Returns the balance of a specific token type for one owner.",
+        description = "Returns the balance of a specific token type for one owner. Includes on-chain CoinMetadata decimals when indexed, otherwise null. Clients must never assume a fallback decimals value.",
         params = [(
             "request",
             "Owner and token type payload.",
             true,
             object_schema(&[("owner", schema_string()), ("token_type", schema_string())])
         )],
-        result = ("balance", "Token balance payload.", schema_object()),
+        result = ("balance", "Token balance payload with raw balance and optional decimals.", schema_object()),
         tags = ["owner", "balance"]
     )]
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
     #[open_rpc_method(
         summary = "Get all balances",
-        description = "Returns all visible balances for one owner.",
+        description = "Returns all visible balances for one owner. Each entry carries on-chain CoinMetadata decimals when indexed, otherwise null.",
         params = [(
             "request",
             "Owner payload.",
@@ -1156,7 +1156,7 @@ pub mod methods {
     pub const LIST_TOKENS: &str = "kanari_listTokens";
     #[open_rpc_method(
         summary = "Get fungible asset",
-        description = "Returns metadata, supply, and holder count for one fungible asset token type.",
+        description = "Returns metadata, supply, and holder count for one fungible asset token type. Decimals is present only when on-chain CoinMetadata is indexed.",
         params = [(
             "request",
             "Fungible asset token type payload.",
@@ -1196,7 +1196,7 @@ pub mod methods {
                 ("limit", optional_schema(schema_integer()))
             ])
         )],
-        result = ("transactions", "Fungible asset transaction list.", schema_object()),
+        result = ("transactions", "Fungible asset transaction list. Each transfer carries transfer_decimals from on-chain CoinMetadata (null when unknown) and previous_owner when the effect records one; effect-derived entries have no transfer_amount. Clients must never assume fallback decimals.", schema_object()),
         tags = ["asset", "transaction"]
     )]
     pub const GET_FUNGIBLE_ASSET_TRANSACTIONS: &str = "kanari_getFungibleAssetTransactions";
@@ -1235,7 +1235,7 @@ pub mod methods {
             true,
             schema_string()
         )],
-        result = ("transaction", "Transaction details.", schema_object()),
+        result = ("transaction", "Transaction details. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_object()),
         tags = ["transaction"]
     )]
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
@@ -1248,7 +1248,7 @@ pub mod methods {
             false,
             schema_object()
         )],
-        result = ("transactions", "Transaction detail list.", schema_array(schema_object())),
+        result = ("transactions", "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_array(schema_object())),
         tags = ["transaction"]
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";

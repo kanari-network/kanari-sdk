@@ -49,7 +49,7 @@
     {
       "name": "kanari_getTokenBalance",
       "summary": "Get one token balance",
-      "description": "Returns the balance of a specific token type for one owner.",
+      "description": "Returns the balance of a specific token type for one owner. Includes on-chain CoinMetadata decimals when indexed, otherwise null. Clients must never assume a fallback decimals value.",
       "params": [
         {
           "name": "request",
@@ -75,7 +75,7 @@
       ],
       "result": {
         "name": "balance",
-        "description": "Token balance payload.",
+        "description": "Token balance payload with raw balance and optional decimals.",
         "required": true,
         "schema": {
           "type": "object"
@@ -93,7 +93,7 @@
     {
       "name": "kanari_getOwnerBalances",
       "summary": "Get all balances",
-      "description": "Returns all visible balances for one owner.",
+      "description": "Returns all visible balances for one owner. Each entry carries on-chain CoinMetadata decimals when indexed, otherwise null.",
       "params": [
         {
           "name": "request",
@@ -155,7 +155,7 @@
     {
       "name": "kanari_getFungibleAsset",
       "summary": "Get fungible asset",
-      "description": "Returns metadata, supply, and holder count for one fungible asset token type.",
+      "description": "Returns metadata, supply, and holder count for one fungible asset token type. Decimals is present only when on-chain CoinMetadata is indexed.",
       "params": [
         {
           "name": "request",
@@ -289,7 +289,7 @@
       ],
       "result": {
         "name": "transactions",
-        "description": "Fungible asset transaction list.",
+        "description": "Fungible asset transaction list. Each transfer carries transfer_decimals from on-chain CoinMetadata (null when unknown) and previous_owner when the effect records one; effect-derived entries have no transfer_amount. Clients must never assume fallback decimals.",
         "required": true,
         "schema": {
           "type": "object"
@@ -398,7 +398,7 @@
       ],
       "result": {
         "name": "transaction",
-        "description": "Transaction details.",
+        "description": "Transaction details. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
         "required": true,
         "schema": {
           "type": "object"
@@ -426,7 +426,7 @@
       ],
       "result": {
         "name": "transactions",
-        "description": "Transaction detail list.",
+        "description": "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
         "required": true,
         "schema": {
           "items": {

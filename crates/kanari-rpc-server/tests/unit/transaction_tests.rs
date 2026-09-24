@@ -3,10 +3,10 @@
 
 use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, enrich_transfer_from_effect, fresh_nonce, push_transfer_entry,
-    select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
-    transaction_error_with_reason, transfers_from_effect, validate_object_inputs_and_gas,
-    validate_object_inputs_match_state,
+    derive_transaction_state_flags, enrich_transfer_from_effect, fresh_nonce,
+    lookup_token_decimals, push_transfer_entry, select_native_coin_consolidation_step,
+    select_native_transfer_and_gas_payment, transaction_error_with_reason, transfers_from_effect,
+    validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -1036,6 +1036,15 @@ fn arg_backed_self_transfer_survives_noise_filter() {
     let transfers = details.transfers.as_ref().unwrap();
     assert_eq!(transfers.len(), 1);
     assert_eq!(transfers[0].transfer_amount, Some(77));
+}
+
+/// No-fallback contract: without state, only the KANARI protocol constant
+/// resolves; every other token is unknown (None), never an invented 9/6/0.
+#[test]
+fn lookup_token_decimals_never_invents_fallback() {
+    assert_eq!(lookup_token_decimals(None, Some(GAS_COIN)), Some(9));
+    assert_eq!(lookup_token_decimals(None, Some("0xabc::thb::THB")), None);
+    assert_eq!(lookup_token_decimals(None, None), None);
 }
 
 #[test]

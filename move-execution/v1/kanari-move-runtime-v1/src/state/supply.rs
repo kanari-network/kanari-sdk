@@ -649,24 +649,20 @@ impl StateManager {
     }
 
     /// Check whether supply invariant violations should fail fast.
+    ///
+    /// Fail-closed everywhere by default: a corrupt supply must never boot
+    /// or commit silently on any network. Explicit opt-out only via
+    /// `KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH=0/false/no/off` (for emergency
+    /// recovery of a legacy-corrupt DB, then re-enable).
     pub fn supply_invariant_fail_fast_enabled() -> bool {
         std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
             .map(|value| {
-                matches!(
+                !matches!(
                     value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
+                    "0" | "false" | "no" | "off"
                 )
             })
-            .unwrap_or_else(|_| {
-                matches!(
-                    std::env::var("KANARI_NETWORK")
-                        .unwrap_or_else(|_| "testnet".to_string())
-                        .trim()
-                        .to_ascii_lowercase()
-                        .as_str(),
-                    "mainnet"
-                )
-            })
+            .unwrap_or(true)
     }
 
     /// Log and optionally bail on a supply invariant violation.
