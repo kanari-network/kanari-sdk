@@ -1065,6 +1065,91 @@ fn lookup_token_decimals_never_invents_fallback() {
 }
 
 #[test]
+fn typeless_arg_entry_backfills_from_matching_effect_entry() {
+    // Committed entry-function calls (e.g. token::transfer_amount) carry the
+    // coin in object inputs: the source object is consumed, so the arg entry
+    // has (recipient, amount) but no token type, while the split coin in
+    // effects has the type under a different object id.
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(500_000),
+            transfer_token_type: None,
+            transfer_decimals: None,
+            previous_owner: None,
+            coin_object_id: Some("0xsource".to_string()),
+        },
+    );
+    let mut effect = empty_success_effect();
+    let mut split = coin_change("0xsplit", "0xbbb", "0xabc::thb::THB");
+    split.amount = Some(500_000);
+    effect.created = vec![split];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+
+    let transfers = details.transfers.as_ref().unwrap();
+    let arg_entry = transfers
+        .iter()
+        .find(|t| t.coin_object_id.as_deref() == Some("0xsource"))
+        .expect("arg entry survives");
+    assert_eq!(
+        arg_entry.transfer_token_type.as_deref(),
+        Some("0xabc::thb::THB")
+    );
+}
+
+#[test]
+fn ambiguous_backfill_never_mislabels_funds() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(500_000),
+            transfer_token_type: None,
+            transfer_decimals: None,
+            previous_owner: None,
+            coin_object_id: Some("0xsource".to_string()),
+        },
+    );
+    let mut effect = empty_success_effect();
+    let mut first = coin_change("0xsplit1", "0xbbb", "0xabc::thb::THB");
+    first.amount = Some(500_000);
+    let mut second = coin_change("0xsplit2", "0xbbb", "0xabc::other::OTH");
+    second.amount = Some(500_000);
+    effect.created = vec![first, second];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+
+    let transfers = details.transfers.as_ref().unwrap();
+    let arg_entry = transfers
+        .iter()
+        .find(|t| t.coin_object_id.as_deref() == Some("0xsource"))
+        .expect("arg entry survives");
+    assert_eq!(arg_entry.transfer_token_type, None);
+}
+
+#[test]
 fn multiple_transfers_are_all_preserved() {
     let mut details = base_transaction_details(
         "0xhash".to_string(),

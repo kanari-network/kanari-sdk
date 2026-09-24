@@ -187,6 +187,28 @@ class _TransactionTile extends StatelessWidget {
     final sender = transaction.senderAddress ?? transaction.sender;
     final outgoing =
         sender.trim().toLowerCase() == walletAddress.trim().toLowerCase();
+    // Show every transfer (not just the first): amount via API decimals only,
+    // no fallback — unknown decimals render as explicit raw marker.
+    final transfers = transaction.transfers ?? const [];
+    String? transferSummary() {
+      if (transfers.isEmpty) return null;
+      final parts = transfers.map((t) {
+        final amount = t.transferAmount == null
+            ? 'amount unknown'
+            : token_utils.formatTokenAmount(
+                t.transferAmount!,
+                t.transferDecimals,
+                fractionDigits: 6,
+              );
+        final symbol = (t.transferTokenType?.split('::').lastOrNull ?? '').trim();
+        return symbol.isEmpty ? amount : '$amount $symbol';
+      }).join(' | ');
+      final suffix =
+          transfers.length > 1 ? ' (${transfers.length} transfers)' : '';
+      return '$parts$suffix';
+    }
+
+    final summary = transferSummary();
 
     return Material(
       color: colors.surfaceContainerLowest,
@@ -232,6 +254,18 @@ class _TransactionTile extends StatelessWidget {
                         color: colors.onSurfaceVariant,
                       ),
                     ),
+                    if (summary != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        summary,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),

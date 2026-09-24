@@ -308,7 +308,8 @@ fun WalletCard(
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        formatAmountExactOrUnknown(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9),
+                        // No fallback: 0 ต้องการ decimals อยู่แล้ว ส่วน KANARI มาจาก API (9)
+                        if (t == null) "0" else formatAmountExactOrUnknown(t.getEffectiveAmount(), t.decimals),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,

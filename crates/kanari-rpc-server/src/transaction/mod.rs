@@ -854,6 +854,53 @@ fn enrich_transfer_from_effect(
                     lookup_token_decimals(state, transfer.transfer_token_type.as_deref());
             }
         }
+        // Backfill token type for arg-parsed entries that never resolved one:
+        // entry-function calls (e.g. `token::transfer_amount`) carry the coin
+        // in object inputs, not in args, so the source-object lookup can miss
+        // on committed txs while the split coin (different id) carries the
+        // type in effects. Match on (recipient, amount) and adopt the type
+        // only when exactly one donor matches, so same-amount ambiguity can
+        // never mislabel funds.
+        let donors: Vec<(String, u64, String, Option<u8>)> = transfers
+            .iter()
+            .filter_map(|t| {
+                match (
+                    t.recipient.as_deref(),
+                    t.transfer_amount,
+                    t.transfer_token_type.as_deref(),
+                ) {
+                    (Some(recipient), Some(amount), Some(token_type)) => Some((
+                        recipient.to_lowercase(),
+                        amount,
+                        token_type.to_string(),
+                        t.transfer_decimals,
+                    )),
+                    _ => None,
+                }
+            })
+            .collect();
+        for transfer in transfers.iter_mut() {
+            if transfer.transfer_amount.is_none() || transfer.transfer_token_type.is_some() {
+                continue;
+            }
+            let (Some(recipient), Some(amount)) =
+                (transfer.recipient.as_deref(), transfer.transfer_amount)
+            else {
+                continue;
+            };
+            let recipient_norm = recipient.to_lowercase();
+            let mut matches = donors
+                .iter()
+                .filter(|(r, a, _, _)| *r == recipient_norm && *a == amount);
+            if let Some((_, _, token_type, decimals)) = matches.next()
+                && matches.next().is_none()
+            {
+                transfer.transfer_token_type = Some(token_type.clone());
+                if transfer.transfer_decimals.is_none() {
+                    transfer.transfer_decimals = *decimals;
+                }
+            }
+        }
     }
 }
 

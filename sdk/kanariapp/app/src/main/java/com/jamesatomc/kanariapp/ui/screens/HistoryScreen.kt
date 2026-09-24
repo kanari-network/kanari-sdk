@@ -121,8 +121,10 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
             val firstTransfer = tx.transfers?.firstOrNull()
             val transferAmt = firstTransfer?.transferAmount
             val displayAmount = transferAmt?.toLong() ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L)
-            val displayDecimals = firstTransfer?.transferDecimals ?: tx.decimals ?: 9
+            // No fallback: decimals จาก API เท่านั้น null แสดง unknown
+            val displayDecimals: Int? = firstTransfer?.transferDecimals ?: tx.decimals
             val tokenSymbol = tx.symbol ?: firstTransfer?.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+            val extraCount = (tx.transfers?.size ?: 0).let { if (it > 1) " (+${it - 1})" else "" }
             val sign = if (isIncoming && transferAmt != null) "+" else "-"
 
             Column(horizontalAlignment = Alignment.End) {
@@ -136,7 +138,7 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
                     modifier = Modifier.padding(end = 12.dp)
                 )
                 Text(
-                    text = tokenSymbol,
+                    text = "$tokenSymbol$extraCount",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.padding(end = 12.dp)
@@ -164,18 +166,18 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
         
-        val detailTransfer = tx.transfers?.firstOrNull()
-        detailTransfer?.transferAmount?.let { amt ->
-            val symbol = tx.symbol ?: detailTransfer.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
-            DetailRowShared(
-                label = "Transfer Amount",
-                value = formatAmountExactOrUnknown(amt.toLong(), detailTransfer.transferDecimals ?: tx.decimals) + " " + symbol
-            )
-        }
-        detailTransfer?.transferTokenType?.let { DetailRowShared(label = "Token Type", value = it) }
-        detailTransfer?.recipient?.let { CopyableDetailRow(label = "Recipient", value = it) }
-        if ((tx.transfers?.size ?: 0) > 1) {
-            DetailRowShared(label = "Transfers", value = "${tx.transfers?.size} movements")
+        val allDetailTransfers = tx.transfers.orEmpty()
+        allDetailTransfers.forEachIndexed { index, detailTransfer ->
+            val labelSuffix = if (allDetailTransfers.size > 1) " ${index + 1}" else ""
+            detailTransfer.transferAmount?.let { amt ->
+                val symbol = tx.symbol ?: detailTransfer.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+                DetailRowShared(
+                    label = "Transfer Amount$labelSuffix",
+                    value = formatAmountExactOrUnknown(amt.toLong(), detailTransfer.transferDecimals ?: tx.decimals) + " " + symbol
+                )
+            }
+            detailTransfer.transferTokenType?.let { DetailRowShared(label = "Token Type$labelSuffix", value = it) }
+            detailTransfer.recipient?.let { CopyableDetailRow(label = "Recipient$labelSuffix", value = it) }
         }
 
         CopyableDetailRow(label = "Hash", value = tx.hash)
