@@ -519,10 +519,11 @@ pub struct TransactionStatus {
 /// `display = raw / 10^decimals`. It is `None` only when metadata is
 /// not yet indexed for that token.
 ///
-/// `transfer_amount` is `Some` only when the amount was parsed from
-/// transaction args. Effect-derived entries carry `None` (the effect records
-/// ownership changes, not deltas) — clients must render those as amount
-/// unknown, never as zero.
+/// `transfer_amount` is `Some` when parsed from transaction args or when the
+/// effect records the post-move coin balance (what the new owner holds, for
+/// `Created` / ownership-changing `Transferred` entries). It is `None` for
+/// history written before amounts were recorded — clients must render those
+/// as amount unknown, never as zero.
 ///
 /// `previous_owner` is the pre-execution owner when the effect records one;
 /// it lets clients distinguish a real ownership change from sender

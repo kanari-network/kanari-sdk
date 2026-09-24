@@ -892,6 +892,7 @@ fn coin_change(
         )),
         previous_owner: None,
         previous_version: Some(1),
+        amount: None,
     }
 }
 
@@ -933,6 +934,22 @@ fn transfers_from_effect_collects_every_coin_movement() {
     assert_eq!(
         transfers[1].transfer_token_type.as_deref(),
         Some("0x2::kanari::KANARI")
+    );
+}
+
+#[test]
+fn effect_carried_amount_flows_into_transfer() {
+    let mut effect = empty_success_effect();
+    let mut change = coin_change("0xaaa", "0xbbb", "0x1::james::JAMES");
+    // 100 THB in base units at decimals 6, recorded post-move on the coin.
+    change.amount = Some(100_000_000);
+    effect.transferred = vec![change];
+    let transfers = transfers_from_effect(None, &effect);
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers[0].transfer_amount, Some(100_000_000));
+    assert_eq!(
+        transfers[0].transfer_token_type.as_deref(),
+        Some("0x1::james::JAMES")
     );
 }
 

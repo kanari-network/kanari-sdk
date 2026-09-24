@@ -2250,3 +2250,39 @@ fn thb_metadata_decimals_six_end_to_end() -> Result<()> {
 
     Ok(())
 }
+
+/// Holders index: membership follows balance deltas incrementally, and reads
+/// fall back to scan until the index is built.
+#[test]
+fn token_holders_index_tracks_membership_incrementally() -> Result<()> {
+    use kanari_types::balance::BalanceRecord;
+
+    let token = "0xabc::thb::THB";
+    let alice = AccountAddress::from_hex_literal("0xa11ce")?;
+    let bob = AccountAddress::from_hex_literal("0xb0b")?;
+
+    let mut state = StateManager::new_in_memory();
+    // Startup builds the index; a repeat call is a no-op.
+    assert!(state.token_holder_index_ready()?);
+    assert!(!state.ensure_token_holders_index()?);
+    // Empty for unknown tokens once built.
+    assert!(state.token_holder_set(token)?.is_empty());
+
+    // Alice gains a balance through the normal save path.
+    let mut alice_state = OwnerState::new(alice);
+    alice_state.set_token_balance(token.to_string(), BalanceRecord::new(100_000_000));
+    state.save_owner_state(&alice_state)?;
+    assert!(state.token_holder_set(token)?.contains(&alice));
+
+    // Bob with zero balance is not a member.
+    let bob_state = OwnerState::new(bob);
+    state.save_owner_state(&bob_state)?;
+    assert!(!state.token_holder_set(token)?.contains(&bob));
+
+    // Alice drains to zero via an empty state: membership removed.
+    state.save_owner_state(&OwnerState::new(alice))?;
+    assert!(!state.token_holder_set(token)?.contains(&alice));
+    assert!(state.token_holder_set(token)?.is_empty());
+
+    Ok(())
+}

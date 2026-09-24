@@ -124,6 +124,7 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
             owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
             previous_owner: None,
             previous_version: None,
+            amount: None,
         },
         ObjectChange {
             change_type: ObjectChangeKind::Transferred,
@@ -133,6 +134,7 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
             owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
             previous_owner: Some(ObjectOwnerKind::Shared),
             previous_version: Some(1),
+            amount: None,
         },
     ]);
 

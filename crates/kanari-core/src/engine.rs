@@ -3237,10 +3237,19 @@ impl BlockchainEngine {
                 let previous_owner = existing.owner_kind();
                 let next_owner = created.owner_kind();
                 let previous_ref = existing.object_ref(object_id);
-                let change_type = if existing.owner != created.owner {
+                let moved = existing.owner != created.owner;
+                let change_type = if moved {
                     ObjectChangeKind::Transferred
                 } else {
                     ObjectChangeKind::Mutated
+                };
+                // Amount = post-move balance = what the new owner holds.
+                // Set only when the coin actually changed hands; a Mutated
+                // remainder is not a transferred amount.
+                let amount = if moved {
+                    CoinModule::coin_balance_from_object(&created.type_, &created.data)
+                } else {
+                    None
                 };
                 object_changes.push(ObjectChange {
                     change_type,
@@ -3250,6 +3259,7 @@ impl BlockchainEngine {
                     owner: Some(next_owner),
                     previous_owner: Some(previous_owner),
                     previous_version: Some(existing.version),
+                    amount,
                 });
             } else {
                 object_changes.push(ObjectChange {
@@ -3260,6 +3270,8 @@ impl BlockchainEngine {
                     owner: Some(created.owner_kind()),
                     previous_owner: None,
                     previous_version: None,
+                    // New coin: its balance is what the recipient received.
+                    amount: CoinModule::coin_balance_from_object(&created.type_, &created.data),
                 });
             }
         }
@@ -3285,6 +3297,7 @@ impl BlockchainEngine {
                 owner: None,
                 previous_owner,
                 previous_version,
+                amount: None,
             });
         }
 

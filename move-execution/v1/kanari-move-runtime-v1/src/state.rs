@@ -602,6 +602,15 @@ impl StateManager {
                 .context("Failed to persist wallet supply index")?;
         }
 
+        if state
+            .ensure_token_holders_index()
+            .context("Failed to initialize token holders index")?
+        {
+            state
+                .commit()
+                .context("Failed to persist token holders index")?;
+        }
+
         if let Err(e) = state.validate_supply_invariants() {
             Self::report_supply_invariant_violation("on startup", &e)?;
         }
@@ -1497,6 +1506,15 @@ impl StateManager {
         if update_supply_index && self.capture_supply_changed(owner_state, &old_balances)? {
             let supplies = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies)?;
+        }
+        if !update_supply_index {
+            // Supply cache gated off, but holder membership still follows
+            // owner_state (capture_supply_changed already covered the other branch).
+            self.update_holder_index_for_delta(
+                owner_state.address,
+                &old_balances,
+                &owner_state.token_balances,
+            )?;
         }
         Ok(())
     }

@@ -5,7 +5,7 @@
 
 use hex;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::coin::TreasuryCap;
+use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::object::IDRecord;
 use kanari_types::object::UIDRecord;
 use kanari_types::transaction::{
@@ -708,6 +708,14 @@ impl ChangeSet {
                 ObjectChangeKind::Mutated
             };
 
+            // New coins carry what the recipient received; mutated
+            // remainders carry no transferred amount.
+            let amount = match change_type {
+                ObjectChangeKind::Created => {
+                    CoinModule::coin_balance_from_object(&created.type_, &created.data)
+                }
+                _ => None,
+            };
             changes.push(ObjectChange {
                 change_type: change_type.clone(),
                 object_ref: created.object_ref(object_id),
@@ -726,6 +734,7 @@ impl ChangeSet {
                     ObjectChangeKind::Created => None,
                     _ => created.version.checked_sub(1),
                 },
+                amount,
             });
         }
 
@@ -738,6 +747,7 @@ impl ChangeSet {
                 owner: None,
                 previous_owner: None,
                 previous_version: None,
+                amount: None,
             });
         }
 

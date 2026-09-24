@@ -761,9 +761,9 @@ fn transfers_from_effect(
                 continue;
             }
             // Only report coin changes that actually have a new owner.
-            // Record previous_owner so clients can tell a real ownership
-            // change from sender change-back noise. Amounts are NOT
-            // inferred here: effects record ownership, not deltas.
+            // Amount comes from the effect itself (post-move coin balance =
+            // what the new owner holds); arg-parsed amounts still win at
+            // merge time. Entries without any amount stay unknown.
             if recipient.is_some() {
                 let transfer_decimals = lookup_token_decimals(state, Some(&token_type));
                 let previous_owner = match &change.previous_owner {
@@ -772,7 +772,7 @@ fn transfers_from_effect(
                 };
                 out.push(kanari_rpc_api::TransferEntry {
                     recipient,
-                    transfer_amount: None,
+                    transfer_amount: change.amount,
                     transfer_token_type: Some(token_type),
                     transfer_decimals,
                     previous_owner,
