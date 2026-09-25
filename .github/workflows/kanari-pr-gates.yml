@@ -1,0 +1,236 @@
+name: Kanari PR Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "move-lang-2027"
+      - "kanari-sdk"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-gates:
+    name: Rust fmt/clippy/tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-pr-gates-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pr-gates-cargo-
+
+      - name: rustfmt check
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: >
+          cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server
+          -p kanari-move-runtime-v1 -p kanari-core --lib -- -D warnings
+
+      - name: OpenRPC spec consistency
+        run: cargo run -p kanari-open-rpc-spec-builder -- test
+
+      - name: Unit tests (fast suites)
+        run: |
+          cargo test -p kanari-types --lib
+          cargo test -p kanari-rpc-api --lib
+          cargo test -p kanari-rpc-server --lib
+          cargo test -p kanari-move-runtime-v1 --lib
+
+      - name: Unit tests (kanari-core engine)
+        timeout-minutes: 30
+        run: cargo test -p kanari-core --lib
+
+      - name: Move Prover pipeline (kanari-system)
+        working-directory: crates/kanari-frameworks/packages/kanari-system
+        run: cargo run -p kanari -- move prove
+
+      - name: Move unit tests (kanari-system)
+        working-directory: crates/kanari-frameworks/packages/kanari-system
+        run: cargo run -p kanari -- move test
+
+  flutter-gates:
+    name: Flutter analyze/test (kanari_pay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: sdk/kanari_pay
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (native bridge)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo (shared with rust-gates)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-pr-gates-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pr-gates-cargo-
+
+      # flutter_rust_bridge resolves ioDirectory ('../../rust/target/release/')
+      # against the test working directory, so stage the cdylib at every
+      # candidate location AND pin it via FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR
+      # (absolute, CWD-independent — this is what the loader checks first).
+      - name: Build native bridge cdylib for Linux tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          cargo build --release -p rust
+          mkdir -p sdk/rust/target/release packages/kanari_flutter/rust/target/release native-test-libs
+          cp target/release/librust.so sdk/rust/target/release/librust.so
+          cp target/release/librust.so packages/kanari_flutter/rust/target/release/librust.so
+          cp target/release/librust.so native-test-libs/librust.so
+          ls -la sdk/rust/target/release/ packages/kanari_flutter/rust/target/release/ native-test-libs/
+          echo "FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR=${{ github.workspace }}/native-test-libs/" >> "$GITHUB_ENV"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Without this, package_config.json doesn't exist and every import
+      # (flutter/material, equatable, …) fails with uri_does_not_exist,
+      # cascading into hundreds of bogus errors.
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      # --no-fatal-warnings: pre-existing lint debt (e.g.
+      # override_on_non_overriding_member under newer analyzers) must not
+      # block CI; genuine errors (unresolved URIs, type errors) still fail.
+      - name: Analyze touched areas
+        run: >
+          flutter analyze --no-fatal-warnings lib/src/models/account.dart
+          lib/src/models/transaction.dart lib/src/core/token_utils.dart
+          lib/src/core/token_metadata.dart
+          lib/src/ui/screens/wallet_transactions_screen.dart
+          lib/src/ui/screens/escrow_screen.dart
+          lib/src/ui/screens/home_screen.dart
+          lib/src/ui/widgets/transfer_bottom_sheet.dart
+          lib/src/ui/widgets/deal_card.dart
+
+      - name: Flutter tests
+        run: flutter test test --reporter expanded
+
+      # Always runs: surfaces the failure cause (native lib present and
+      # loadable? which test failed?) without needing log archaeology.
+      - name: Diagnose test failure
+        if: always()
+        run: |
+          echo "--- bridge artifacts ---"
+          ls -la sdk/rust/target/release/ || true
+          find . -name "librust.so" 2>/dev/null || true
+          echo "--- shared deps ---"
+          ldd sdk/rust/target/release/librust.so || true
+
+  explorer-gates:
+    name: Explorer build (kanariexplorer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: kanariexplorer
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Production build
+        run: bun run build
+
+  android-gates:
+    name: Android unit tests (kanariapp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: sdk/kanariapp
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # android-actions/setup-android is broken with current cmdline-tools
+      # (it tries to install the long-removed 'tools' package), so install
+      # the SDK manually. compileSdk 37 is newer than any default platform,
+      # so install it explicitly or unit-test compilation fails.
+      - name: Install Android SDK
+        run: |
+          mkdir -p "$HOME/android-sdk/cmdline-tools"
+          curl -sS -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/cmdtools.zip -d "$HOME/android-sdk/cmdline-tools"
+          mv "$HOME/android-sdk/cmdline-tools/cmdline-tools" "$HOME/android-sdk/cmdline-tools/latest"
+          echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$HOME/android-sdk/platform-tools" >> "$GITHUB_PATH"
+
+      # compileSdk 37 is not on the stable channel (hence the failure
+      # above), so discover the exact package names across all channels
+      # instead of hardcoding them.
+      - name: Install Android API 37 platform
+        run: |
+          yes 2>/dev/null | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install "platform-tools"
+          PKG=""
+          CHANNEL=""
+          for ch in 0 1 2 3; do
+            PKG=$(sdkmanager --channel=$ch --list 2>/dev/null | grep -oE "platforms;android-[0-9.]+" | grep "^platforms;android-37" | head -1)
+            if [ -n "$PKG" ]; then CHANNEL=$ch; break; fi
+          done
+          if [ -z "$PKG" ]; then
+            echo "No android-37 platform found on any channel:"
+            sdkmanager --list 2>/dev/null | grep -E "platforms;android-" | tail -8
+            exit 1
+          fi
+          echo "Installing $PKG from channel $CHANNEL"
+          BT=$(sdkmanager --channel=$CHANNEL --list 2>/dev/null | grep -oE "build-tools;37[^ |;]*" | head -1)
+          if [ -n "$BT" ]; then
+            echo "Installing build-tools $BT"
+            sdkmanager --channel=$CHANNEL --install "$PKG" "$BT"
+          else
+            echo "No 37 build-tools found; installing platform only"
+            sdkmanager --channel=$CHANNEL --install "$PKG"
+          fi
+
+      - name: Unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest

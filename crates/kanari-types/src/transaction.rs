@@ -286,6 +286,19 @@ pub struct ObjectChange {
     pub owner: Option<ObjectOwnerKind>,
     pub previous_owner: Option<ObjectOwnerKind>,
     pub previous_version: Option<u64>,
+    /// Coin balance carried by this object after the change, in base units.
+    /// Set only for `Created` / `Transferred` coin objects (what the
+    /// recipient actually received). Always `None` for `Mutated` (the
+    /// balance there is a remainder, not a transferred amount) and for
+    /// non-coin objects. `None` also covers history written before this
+    /// field existed — clients must render those as amount unknown.
+    ///
+    /// NOTE: `default` without `skip_serializing_if` is load-bearing:
+    /// `ObjectChange` is BCS-persisted in checkpoints, and BCS is not
+    /// self-describing — skipping `None` on write would misalign every
+    /// subsequent field on read.
+    #[serde(default)]
+    pub amount: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

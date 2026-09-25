@@ -644,6 +644,36 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
     normalize_addr(tx.sender()) == owner
 }
 
+/// Post-enrichment owner check: matches when the owner sent the transaction
+/// or received any transfer in it. This is what makes incoming token
+/// transfers visible in the recipient's activity — the pre-filter
+/// ([`tx_matches_owner`]) cannot see recipients because entry-function calls
+/// carry the coin in object inputs, not in args.
+fn details_involve_owner(details: &TransactionDetails, owner_norm: Option<&str>) -> bool {
+    let Some(owner) = owner_norm else {
+        return true;
+    };
+
+    if normalize_addr(&details.sender) == owner {
+        return true;
+    }
+    if details
+        .sender_address
+        .as_deref()
+        .is_some_and(|sender| normalize_addr(sender) == owner)
+    {
+        return true;
+    }
+    details.transfers.as_ref().is_some_and(|transfers| {
+        transfers.iter().any(|entry| {
+            entry
+                .recipient
+                .as_deref()
+                .is_some_and(|recipient| normalize_addr(recipient) == owner)
+        })
+    })
+}
+
 fn token_transfer_details(
     state: &RpcServerState,
     tx: &Transaction,
@@ -761,9 +791,9 @@ fn transfers_from_effect(
                 continue;
             }
             // Only report coin changes that actually have a new owner.
-            // Record previous_owner so clients can tell a real ownership
-            // change from sender change-back noise. Amounts are NOT
-            // inferred here: effects record ownership, not deltas.
+            // Amount comes from the effect itself (post-move coin balance =
+            // what the new owner holds); arg-parsed amounts still win at
+            // merge time. Entries without any amount stay unknown.
             if recipient.is_some() {
                 let transfer_decimals = lookup_token_decimals(state, Some(&token_type));
                 let previous_owner = match &change.previous_owner {
@@ -772,7 +802,7 @@ fn transfers_from_effect(
                 };
                 out.push(kanari_rpc_api::TransferEntry {
                     recipient,
-                    transfer_amount: None,
+                    transfer_amount: change.amount,
                     transfer_token_type: Some(token_type),
                     transfer_decimals,
                     previous_owner,
@@ -852,6 +882,53 @@ fn enrich_transfer_from_effect(
             if transfer.transfer_decimals.is_none() {
                 transfer.transfer_decimals =
                     lookup_token_decimals(state, transfer.transfer_token_type.as_deref());
+            }
+        }
+        // Backfill token type for arg-parsed entries that never resolved one:
+        // entry-function calls (e.g. `token::transfer_amount`) carry the coin
+        // in object inputs, not in args, so the source-object lookup can miss
+        // on committed txs while the split coin (different id) carries the
+        // type in effects. Match on (recipient, amount) and adopt the type
+        // only when exactly one donor matches, so same-amount ambiguity can
+        // never mislabel funds.
+        let donors: Vec<(String, u64, String, Option<u8>)> = transfers
+            .iter()
+            .filter_map(|t| {
+                match (
+                    t.recipient.as_deref(),
+                    t.transfer_amount,
+                    t.transfer_token_type.as_deref(),
+                ) {
+                    (Some(recipient), Some(amount), Some(token_type)) => Some((
+                        recipient.to_lowercase(),
+                        amount,
+                        token_type.to_string(),
+                        t.transfer_decimals,
+                    )),
+                    _ => None,
+                }
+            })
+            .collect();
+        for transfer in transfers.iter_mut() {
+            if transfer.transfer_amount.is_none() || transfer.transfer_token_type.is_some() {
+                continue;
+            }
+            let (Some(recipient), Some(amount)) =
+                (transfer.recipient.as_deref(), transfer.transfer_amount)
+            else {
+                continue;
+            };
+            let recipient_norm = recipient.to_lowercase();
+            let mut matches = donors
+                .iter()
+                .filter(|(r, a, _, _)| *r == recipient_norm && *a == amount);
+            if let Some((_, _, token_type, decimals)) = matches.next()
+                && matches.next().is_none()
+            {
+                transfer.transfer_token_type = Some(token_type.clone());
+                if transfer.transfer_decimals.is_none() {
+                    transfer.transfer_decimals = *decimals;
+                }
             }
         }
     }
@@ -2509,34 +2586,37 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     internal_error_response(request.id, "Transaction not found")
 }
 
-fn collect_transaction_details<F>(
+fn collect_transaction_details<F, G>(
     state: &RpcServerState,
     limit: usize,
-    matches: F,
+    matches_tx: F,
+    matches_details: G,
     lock_context: &str,
 ) -> Vec<TransactionDetails>
 where
     F: Fn(&Transaction) -> bool,
+    G: Fn(&Transaction, &TransactionDetails) -> bool,
 {
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
     let pending = state
         .engine
-        .filter_pending_transaction_records(limit, |tx| matches(&tx.signed_tx.transaction));
+        .filter_pending_transaction_records(limit, |tx| matches_tx(&tx.signed_tx.transaction));
 
     for tx in &pending {
-        if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, {
-            let mut details = map_transaction_to_details(
-                state,
-                &tx.signed_tx.transaction,
-                &hex::encode(tx.signed_tx.transaction_hash()),
-                pending_status(tx),
-                None,
-                None,
-            );
-            apply_pending_preview_metadata(Some(state), tx, &mut details);
-            details
-        }) {
+        let mut details = map_transaction_to_details(
+            state,
+            &tx.signed_tx.transaction,
+            &hex::encode(tx.signed_tx.transaction_hash()),
+            pending_status(tx),
+            None,
+            None,
+        );
+        apply_pending_preview_metadata(Some(state), tx, &mut details);
+        if !matches_details(&tx.signed_tx.transaction, &details) {
+            continue;
+        }
+        if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
             break;
         }
     }
@@ -2553,7 +2633,7 @@ where
             }
 
             for (index, tx) in checkpoint.transactions.iter().enumerate().rev() {
-                if !matches(&tx.transaction) {
+                if !matches_tx(&tx.transaction) {
                     continue;
                 }
 
@@ -2570,6 +2650,9 @@ where
                     &mut details,
                     checkpoint.transaction_effects.get(index),
                 );
+                if !matches_details(&tx.transaction, &details) {
+                    continue;
+                }
                 if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                     break;
                 }
@@ -2580,7 +2663,7 @@ where
     if results.len() < limit {
         for (tx, height, state_root) in state
             .engine
-            .list_committed_transactions_from_history(limit, &matches)
+            .list_committed_transactions_from_history(limit, &matches_tx)
         {
             let tx_hash = tx.transaction_hash().to_vec();
             let effect = state
@@ -2595,6 +2678,9 @@ where
                 Some(hex::encode(state_root)),
             );
             apply_committed_effect(Some(state), &mut details, effect.as_ref());
+            if !matches_details(&tx.transaction, &details) {
+                continue;
+            }
             if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
                 break;
             }
@@ -2628,10 +2714,21 @@ pub async fn handle_get_all_transactions(
         })
         .map(|a| a.trim_start_matches("0x").to_lowercase());
 
+    // Pre-filter is deliberately wider than the old sender-only check when an
+    // owner is set: entry-function token transfers carry the coin in object
+    // inputs, so recipients are only known after enrichment. The post-filter
+    // below keeps results exact (sender or transfer recipient).
     let results = collect_transaction_details(
         state,
         limit,
-        |tx| tx_matches_owner(tx, owner_norm.as_deref()),
+        |tx| {
+            tx_matches_owner(tx, owner_norm.as_deref())
+                || (owner_norm.is_some() && matches!(tx, Transaction::ExecuteFunction { .. }))
+        },
+        |tx, details| {
+            tx_matches_owner(tx, owner_norm.as_deref())
+                || details_involve_owner(details, owner_norm.as_deref())
+        },
         "listing transactions",
     );
     respond_with_serialize(request.id, results)
@@ -2657,10 +2754,38 @@ pub async fn handle_get_fungible_asset_transactions(
         .as_deref()
         .map(|owner| owner.trim_start_matches("0x").to_lowercase());
 
+    // Incoming token transfers must be visible in the recipient's view even
+    // when the call goes through a router module that never mentions the
+    // token at tx level: the post-filter matches (token, recipient) pairs
+    // from enriched transfers. Ambiguous typeless entries never match.
     let results = collect_transaction_details(
         state,
         limit,
-        |tx| tx_mentions_token_type(tx, &token_type) && tx_matches_owner(tx, owner_norm.as_deref()),
+        |tx| {
+            if owner_norm.is_none() {
+                return tx_mentions_token_type(tx, &token_type);
+            }
+            (tx_mentions_token_type(tx, &token_type) && tx_matches_owner(tx, owner_norm.as_deref()))
+                || matches!(tx, Transaction::ExecuteFunction { .. })
+        },
+        |tx, details| {
+            if owner_norm.is_none() {
+                return tx_mentions_token_type(tx, &token_type);
+            }
+            let owner = owner_norm.as_deref();
+            (tx_mentions_token_type(tx, &token_type) && tx_matches_owner(tx, owner))
+                || details.transfers.as_ref().is_some_and(|transfers| {
+                    transfers.iter().any(|entry| {
+                        entry
+                            .transfer_token_type
+                            .as_deref()
+                            .is_some_and(|t| CoinModule::normalize_token_type(t) == token_type)
+                            && entry.recipient.as_deref().is_some_and(|recipient| {
+                                normalize_addr(recipient) == owner.unwrap_or_default()
+                            })
+                    })
+                })
+        },
         "listing asset transactions",
     );
 

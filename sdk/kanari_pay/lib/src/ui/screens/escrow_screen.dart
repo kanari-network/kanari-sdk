@@ -1152,6 +1152,10 @@ class _EscrowScreenState extends State<EscrowScreen>
                   deal: deal,
                   isSelected: isSelected,
                   colorScheme: colorScheme,
+                  decimals: _getDecimalsForTokenType(
+                    deal['coin_type'] as String? ?? '',
+                    context.read<WalletState>(),
+                  ),
                   onTap: () {
                     setState(() {
                       _selectedDealId = dealId;

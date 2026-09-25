@@ -1,0 +1,128 @@
+name: Kanari Nightly Soak
+
+# Bounded soak coverage for the paths unit tests cannot hold:
+# benchmark production soak (release), ignored long-run consensus tests,
+# and the full deterministic suites that are too slow for PR gates.
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: "Seconds for the benchmark production soak"
+        required: false
+        default: "600"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  soak-bench:
+    name: Benchmark production soak (release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KANARI_SOAK_SECONDS: ${{ github.event.inputs.soak_seconds || '600' }}
+      KANARI_SOAK_TXS: "1000"
+      KANARI_SOAK_MIN_TPS: "1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-soak-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-soak-cargo-
+
+      - name: Production soak (bounded)
+        run: cargo test --release -p kanari-benchmarks production_soak_test -- --ignored --test-threads=1
+
+  ignored-long-runs:
+    name: Ignored long-run consensus tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-soak-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-soak-cargo-
+
+      - name: Byzantine soak one-shot
+        run: >
+          cargo test -p kanari-core long_run_byzantine_native_blocks_cannot_advance_checkpoint
+          -- --ignored --test-threads=1
+
+      - name: Backend native ignored pair
+        run: >
+          cargo test -p kanari-core --lib -- --ignored
+          backend_native_burn_uses_prepared_gas_coin_and_reduces_supply
+          backend_native_transfer_partial_split_indexes_output_coin
+          --test-threads=1
+
+      - name: P2P malformed payload bound
+        run: >
+          cargo test -p kanari-node long_run_malformed_compressed_payloads_are_bounded
+          -- --ignored --test-threads=1
+
+  full-suites:
+    name: Full deterministic suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-soak-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-soak-cargo-
+
+      - name: fmt + clippy + spec
+        run: |
+          cargo fmt --check
+          cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server -p kanari-move-runtime-v1 -p kanari-core --lib -- -D warnings
+          cargo run -p kanari-open-rpc-spec-builder -- test
+
+      - name: Full test suites
+        run: |
+          cargo test -p kanari-types --lib
+          cargo test -p kanari-rpc-api --lib
+          cargo test -p kanari-rpc-server --lib
+          cargo test -p kanari-move-runtime-v1 --lib
+          cargo test -p kanari-core --lib

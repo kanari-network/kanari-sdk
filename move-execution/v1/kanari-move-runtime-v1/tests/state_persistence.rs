@@ -11,10 +11,56 @@ use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
 
 const GENESIS_SUPPLY: u64 = 11_000_000_000_000_000;
+
+/// Process-wide lock serializing tests that toggle the supply fail-fast
+/// switch. `supply_invariant_fail_fast_enabled` reads process env on every
+/// violation, so concurrent mutation would leak into sibling tests.
+fn fail_fast_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Holds the fail-fast env override for a deliberately supply-inconsistent
+/// fixture, restoring the previous value on drop (including on panic unwind).
+struct WithoutSupplyFailFast {
+    _lock: MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl WithoutSupplyFailFast {
+    fn acquire() -> Self {
+        let lock = fail_fast_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var_os("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH");
+        // SAFETY: the process-wide lock above is held for the whole guard
+        // lifetime, so no other test mutates process env concurrently.
+        // Readers elsewhere only take short owned snapshots.
+        unsafe {
+            std::env::set_var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH", "0");
+        }
+        Self {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
+impl Drop for WithoutSupplyFailFast {
+    fn drop(&mut self) {
+        // SAFETY: same lock still held; restores pre-test state.
+        unsafe {
+            match self.previous.take() {
+                Some(value) => std::env::set_var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH", value),
+                None => std::env::remove_var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH"),
+            }
+        }
+    }
+}
 
 fn owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
     let mut key = b"owned_objects:".to_vec();
@@ -162,6 +208,10 @@ fn restart_recovery_preserves_native_supply_invariants() -> Result<()> {
 
 #[test]
 fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
+    // This fixture funds owners without backing supply (visible exceeds
+    // total by design) to exercise index repair. Supply fail-fast is
+    // fail-closed by default, so opt out for this test only.
+    let _fail_fast = WithoutSupplyFailFast::acquire();
     let temp_dir = tempdir()?;
     let db_path: PathBuf = temp_dir.path().join("state-db");
     let alice = AccountAddress::from_hex_literal("0x1111")?;

@@ -5,6 +5,7 @@ pub mod build;
 pub mod call;
 pub mod docgen;
 pub mod new;
+pub mod prove;
 pub mod publish;
 pub mod test;
 pub mod verify;
@@ -36,6 +37,8 @@ pub enum MoveCommand {
     New(new::New),
     /// Run Move unit tests
     Test(test::Test),
+    /// Verify Move specifications (MSL) with the Move Prover
+    Prove(prove::Prove),
     /// Generate Move docs
     Docgen(docgen::Docgen),
     /// Publish Move modules on chain
@@ -113,6 +116,7 @@ impl MoveCommand {
                 p.execute_as(None, config, publish::PublishOperation::Upgrade)
             }
             MoveCommand::Verify(v) => v.execute(),
+            MoveCommand::Prove(p) => p.execute(None),
             MoveCommand::Call(c) => c.execute(),
         }
     }

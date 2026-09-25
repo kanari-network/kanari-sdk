@@ -329,23 +329,34 @@ function AccountContent() {
               const objectInputs = readArrayLength(transaction, "object_inputs");
               const objectChanges = readEffectArrayLength(transaction, "object_changes");
               const graphEdges = readEffectArrayLength(transaction, "causal_edges");
-              const firstTransfer = (() => {
+              const allTransfers = (() => {
                 const t = (transaction as Record<string, unknown>)["transfers"];
-                if (Array.isArray(t) && t.length > 0 && typeof t[0] === "object" && t[0] !== null) {
-                  return t[0] as Record<string, unknown>;
-                }
-                return null;
+                if (!Array.isArray(t)) return [];
+                return t.filter(
+                  (entry): entry is Record<string, unknown> =>
+                    typeof entry === "object" && entry !== null,
+                );
               })();
-              const transferToken = firstTransfer?.["transfer_token_type"] != null
-                ? String(firstTransfer["transfer_token_type"])
+              const firstTransfer = allTransfers.length > 0 ? allTransfers[0] : null;
+              const firstRecipient = firstTransfer?.["recipient"] != null
+                ? String(firstTransfer["recipient"])
                 : "";
-              const transferSymbol = transferToken.split("::").pop() || "";
-              const transferAmount = firstTransfer?.["transfer_amount"] != null
-                ? String(firstTransfer["transfer_amount"])
-                : "";
-              // No fallback: transfer_decimals จาก API เท่านั้น (เช่น THB = 6)
-              const transferDecimals = readDecimals(firstTransfer?.["transfer_decimals"]);
               const gasFee = readString(transaction, "gas_fee", "");
+              const transferEntries = allTransfers
+                .map((entry) => {
+                  const token = entry["transfer_token_type"] != null
+                    ? String(entry["transfer_token_type"])
+                    : "";
+                  const amount = entry["transfer_amount"] != null
+                    ? String(entry["transfer_amount"])
+                    : "";
+                  if (!amount) return null;
+                  return {
+                    // No fallback: transfer_decimals จาก API เท่านั้น (เช่น THB = 6)
+                    text: `${formatBalance(amount, readDecimals(entry["transfer_decimals"]))} ${token.split("::").pop() || ""}`.trim(),
+                  };
+                })
+                .filter((entry): entry is { text: string } => entry !== null);
               return (
                 <div className="data-row" key={`${hash}-${index}`}>
                   <div>
@@ -367,14 +378,30 @@ function AccountContent() {
                   </div>
                   <div>
                     <p className="tiny-label">Target</p>
-                    <span className="mono muted-text">{shortHash(readString(transaction, "module", "-"))}</span>
-                  </div>
-                  {transferAmount ? (
-                    <div>
-                      <p className="tiny-label">Transfer</p>
-                      <span className="mono muted-text">
-                        {formatBalance(transferAmount, transferDecimals)} {transferSymbol}
+                    {firstRecipient ? (
+                      <span className="copy-row copy-row--wrap">
+                        <Link
+                          className="text-link mono break-anywhere"
+                          href={`/account?address=${encodeURIComponent(firstRecipient)}`}
+                        >
+                          {shortHash(firstRecipient, 14, 10)}
+                        </Link>
+                        <CopyButton value={firstRecipient} label="Copy recipient address" />
                       </span>
+                    ) : (
+                      <span className="mono muted-text">{shortHash(readString(transaction, "module", "-"))}</span>
+                    )}
+                  </div>
+                  {transferEntries.length > 0 ? (
+                    <div>
+                      <p className="tiny-label">
+                        Transfer{transferEntries.length > 1 ? `s (${transferEntries.length})` : ""}
+                      </p>
+                      {transferEntries.map((entry, entryIndex) => (
+                        <div key={entryIndex} className="mono muted-text">
+                          {entry.text}
+                        </div>
+                      ))}
                     </div>
                   ) : null}
                   {gasFee ? (

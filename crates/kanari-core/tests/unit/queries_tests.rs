@@ -360,6 +360,7 @@ fn block_queries_include_checkpoint_object_changes() {
             owner: None,
             previous_owner: None,
             previous_version: None,
+            amount: None,
         }])
         .with_object_graph_edges(vec![ObjectGraphEdge {
             source_object_ref: ObjectRef::new("0xgas", Some(1), Some("0xdef".to_string())),

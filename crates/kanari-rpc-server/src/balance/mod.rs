@@ -76,7 +76,20 @@ fn collect_fungible_asset_holders(
     let token_type = CoinModule::normalize_token_type(token_type);
     let mut balances: Vec<(AccountAddress, u64)> = Vec::new();
 
-    for owner in state_guard.owner_addresses()? {
+    // Prefer the maintained per-token holders index: O(holders) balance
+    // lookups instead of a full owner-table scan. Falls back to the scan
+    // when the index hasn't been built yet (same results, slower).
+    let candidates: Vec<AccountAddress> = if state_guard.token_holder_index_ready().unwrap_or(false)
+    {
+        state_guard
+            .token_holder_set(&token_type)?
+            .into_iter()
+            .collect()
+    } else {
+        state_guard.owner_addresses()?
+    };
+
+    for owner in candidates {
         if !is_public_asset_holder(&owner) {
             continue;
         }

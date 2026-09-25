@@ -2170,3 +2170,119 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
 
     Ok(())
 }
+
+/// E2E for the THB decimals incident: on-chain `CoinMetadata` with decimals 6
+/// must round-trip through `persist_coin_metadata` as decimals 6 (not a
+/// fallback), with name/symbol in Move declaration order, resolvable under
+/// both `0x2` and `0x02` spellings, so that raw `100_000_000` displays as
+/// `100` THB and never as `100,000,000`.
+#[test]
+fn thb_metadata_decimals_six_end_to_end() -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct TestMoveString {
+        bytes: Vec<u8>,
+    }
+    #[derive(serde::Serialize)]
+    struct TestMoveUrl {
+        url: TestMoveString,
+    }
+    #[derive(serde::Serialize)]
+    struct TestMoveOption {
+        vec: Vec<TestMoveUrl>,
+    }
+    // Field order mirrors kanari_system::coin::CoinMetadata:
+    // id, decimals, name, symbol, description, icon_url.
+    #[derive(serde::Serialize)]
+    struct TestCoinMetadata {
+        id: AccountAddress,
+        decimals: u8,
+        name: TestMoveString,
+        symbol: TestMoveString,
+        description: TestMoveString,
+        icon_url: TestMoveOption,
+    }
+
+    let token_type = "0xabc::thb::THB";
+    let data = bcs::to_bytes(&TestCoinMetadata {
+        id: AccountAddress::from_hex_literal("0xdead")?,
+        decimals: 6,
+        name: TestMoveString {
+            bytes: b"THB Token".to_vec(),
+        },
+        symbol: TestMoveString {
+            bytes: b"THB".to_vec(),
+        },
+        description: TestMoveString { bytes: vec![] },
+        icon_url: TestMoveOption { vec: vec![] },
+    })?;
+
+    let mut state = StateManager::new_in_memory();
+    state.persist_coin_metadata(token_type, &data)?;
+
+    // Decimals must be exactly 6 — no silent 9 fallback.
+    assert_eq!(state.get_token_decimals(token_type)?, Some(6));
+    // Name/symbol must not be swapped (parser order matches Move).
+    assert_eq!(
+        state.get_token_name(token_type)?.as_deref(),
+        Some("THB Token")
+    );
+    assert_eq!(state.get_token_symbol(token_type)?.as_deref(), Some("THB"));
+    // Raw-spelling lookup hits the canonical record.
+    assert_eq!(state.get_token_decimals("0x000abc::thb::THB")?, Some(6));
+
+    // Display math: 100 THB in base units renders as 100, not 100,000,000.
+    let raw: u64 = 100_000_000;
+    let decimals = state.get_token_decimals(token_type)?.unwrap_or_else(|| {
+        panic!("THB decimals must be indexed");
+    });
+    assert_eq!(decimals, 6);
+    let scale = 10u64
+        .checked_pow(decimals as u32)
+        .expect("decimals overflow");
+    assert_eq!(raw / scale, 100);
+    assert_eq!(raw % scale, 0);
+
+    // Corrupt trailing byte never persists as bogus decimals.
+    let mut corrupt = vec![0u8; 33];
+    corrupt[32] = 255;
+    state.persist_coin_metadata("0xabc::corrupt::C", &corrupt)?;
+    assert_eq!(state.get_token_decimals("0xabc::corrupt::C")?, None);
+
+    Ok(())
+}
+
+/// Holders index: membership follows balance deltas incrementally, and reads
+/// fall back to scan until the index is built.
+#[test]
+fn token_holders_index_tracks_membership_incrementally() -> Result<()> {
+    use kanari_types::balance::BalanceRecord;
+
+    let token = "0xabc::thb::THB";
+    let alice = AccountAddress::from_hex_literal("0xa11ce")?;
+    let bob = AccountAddress::from_hex_literal("0xb0b")?;
+
+    let mut state = StateManager::new_in_memory();
+    // Startup builds the index; a repeat call is a no-op.
+    assert!(state.token_holder_index_ready()?);
+    assert!(!state.ensure_token_holders_index()?);
+    // Empty for unknown tokens once built.
+    assert!(state.token_holder_set(token)?.is_empty());
+
+    // Alice gains a balance through the normal save path.
+    let mut alice_state = OwnerState::new(alice);
+    alice_state.set_token_balance(token.to_string(), BalanceRecord::new(100_000_000));
+    state.save_owner_state(&alice_state)?;
+    assert!(state.token_holder_set(token)?.contains(&alice));
+
+    // Bob with zero balance is not a member.
+    let bob_state = OwnerState::new(bob);
+    state.save_owner_state(&bob_state)?;
+    assert!(!state.token_holder_set(token)?.contains(&bob));
+
+    // Alice drains to zero via an empty state: membership removed.
+    state.save_owner_state(&OwnerState::new(alice))?;
+    assert!(!state.token_holder_set(token)?.contains(&alice));
+    assert!(state.token_holder_set(token)?.is_empty());
+
+    Ok(())
+}

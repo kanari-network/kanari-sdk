@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/token_utils.dart' as token_utils;
 import 'app_ui.dart';
 
 /// Reusable widget สำหรับแสดง Deal card
@@ -11,12 +12,17 @@ class DealCard extends StatelessWidget {
   final VoidCallback? onTap;
   final ColorScheme colorScheme;
 
+  /// No fallback: on-chain decimals for the deal's coin type when known,
+  /// otherwise null and the amount renders as explicit raw.
+  final int? decimals;
+
   const DealCard({
     super.key,
     required this.deal,
     this.isSelected = false,
     this.onTap,
     required this.colorScheme,
+    this.decimals,
   });
 
   String _truncate(String value, int length) {
@@ -85,8 +91,12 @@ class DealCard extends StatelessWidget {
                 const SizedBox(height: AppUiTokens.contentSpacing),
                 AppDetailRow(label: 'ID', value: _truncate(dealId, 20)),
                 const SizedBox(height: AppUiTokens.compactSpacing),
-                // No fallback: deal carries no decimals — show raw explicitly
-                AppDetailRow(label: 'Amount', value: '$amount (raw) $coinName'),
+                // No fallback: unknown decimals render as explicit raw.
+                AppDetailRow(
+                  label: 'Amount',
+                  value:
+                      '${token_utils.formatTokenAmount(amount, decimals)} $coinName',
+                ),
                 const SizedBox(height: AppUiTokens.compactSpacing),
                 AppDetailRow(label: 'Buyer', value: _truncate(buyer, 20)),
                 const SizedBox(height: AppUiTokens.compactSpacing),

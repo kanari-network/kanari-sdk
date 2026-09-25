@@ -844,19 +844,16 @@ dependencies = [
 
 [[package]]
 name = "bip32"
-version = "0.5.3"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db40d3dfbeab4e031d78c844642fa0caa0b0db11ce1607ac9d2986dff1405c69"
+checksum = "0271a2fe2a6f05231419e878b5f50152a5a6dbcc60c18855d924892ecc85a33a"
 dependencies = [
  "bs58",
- "hmac 0.12.1",
- "k256 0.13.4",
- "once_cell",
- "pbkdf2",
- "rand_core 0.6.4",
- "ripemd 0.1.3",
- "secp256k1 0.27.0",
- "sha2 0.10.9",
+ "hmac 0.13.0",
+ "k256",
+ "ripemd",
+ "secp256k1",
+ "sha2 0.11.0",
  "subtle",
  "zeroize",
 ]
@@ -1118,7 +1115,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1361,7 +1358,7 @@ version = "0.1.0"
 dependencies = [
  "dag",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -1674,7 +1671,7 @@ dependencies = [
  "serde_yaml",
  "tabled",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-core",
@@ -1758,7 +1755,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2736,7 +2733,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
- "equivalent",
  "foldhash 0.2.0",
 ]
 
@@ -3329,7 +3325,7 @@ dependencies = [
  "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "walkdir",
  "windows-link",
 ]
@@ -3410,18 +3406,6 @@ dependencies = [
 
 [[package]]
 name = "k256"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e3919bbaa2945715f0bb6d3934a173d1e9a59ac23767fbaaef277265a7411b"
-dependencies = [
- "cfg-if",
- "ecdsa 0.16.9",
- "elliptic-curve 0.13.8",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "k256"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93f50113171a713f4a4231ef82eb26703607139b35dcb56241f0ceab2ae1f7d8"
@@ -3437,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3459,6 +3443,7 @@ dependencies = [
  "move-coverage",
  "move-docgen",
  "move-package",
+ "move-prover",
  "move-stdlib-natives",
  "move-unit-test",
  "move-vm-runtime",
@@ -3468,12 +3453,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
  "tokio",
 ]
 
 [[package]]
 name = "kanari-auth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3491,14 +3477,14 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "uuid",
  "zeroize",
 ]
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "ed25519-dalek 3.0.0",
@@ -3513,7 +3499,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3522,7 +3508,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3558,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -3583,7 +3569,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "jsonwebtoken",
- "k256 0.14.0",
+ "k256",
  "kanari-common",
  "lazy_static",
  "log",
@@ -3594,7 +3580,7 @@ dependencies = [
  "rand 0.10.3",
  "rayon",
  "rsa",
- "secp256k1 0.33.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -3603,7 +3589,7 @@ dependencies = [
  "slh-dsa",
  "subtle",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "toml",
  "zeroize",
  "zstd",
@@ -3611,7 +3597,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3621,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-faucet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3634,14 +3620,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3661,7 +3647,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-indexer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3676,7 +3662,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3687,7 +3673,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3719,7 +3705,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3759,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3768,7 +3754,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3777,7 +3763,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3786,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3798,7 +3784,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3809,20 +3795,20 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
  "kanari-types",
  "reqwest",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3833,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3859,7 +3845,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ark-std",
  "base64 0.23.1",
@@ -3868,7 +3854,7 @@ dependencies = [
  "ethnum",
  "hex",
  "jsonwebtoken",
- "k256 0.14.0",
+ "k256",
  "kanari-crypto",
  "log",
  "move-core-types",
@@ -3879,7 +3865,7 @@ dependencies = [
  "primitive-types",
  "rand 0.10.3",
  "rsa",
- "secp256k1 0.33.1",
+ "secp256k1",
  "serde_json",
  "sha2 0.11.0",
  "sha3 0.12.0",
@@ -3888,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3900,7 +3886,7 @@ dependencies = [
  "serde_json",
  "sha3 0.12.0",
  "smt",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -3994,7 +3980,7 @@ dependencies = [
  "prost",
  "rand 0.10.3",
  "rw-stream-sink",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "unsigned-varint",
  "web-time",
@@ -4017,7 +4003,7 @@ dependencies = [
  "libp2p-swarm",
  "prost",
  "prost-codec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "web-time",
 ]
@@ -4069,7 +4055,7 @@ dependencies = [
  "prost",
  "prost-codec",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -4086,7 +4072,7 @@ dependencies = [
  "prost",
  "rand 0.10.3",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "zeroize",
 ]
@@ -4112,7 +4098,7 @@ dependencies = [
  "rand 0.10.3",
  "sha2 0.11.0",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "uint",
  "web-time",
@@ -4136,7 +4122,7 @@ dependencies = [
  "rand 0.10.3",
  "snow",
  "static_assertions",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "x25519-dalek",
  "zeroize",
@@ -4177,7 +4163,7 @@ dependencies = [
  "prost-codec",
  "rand 0.10.3",
  "static_assertions",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "web-time",
 ]
@@ -4241,7 +4227,7 @@ checksum = "308e4033fd1ac9312c827405d3bf568ae335a7d8248071dc7c75c8c0b64977f9"
 dependencies = [
  "futures",
  "libp2p-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "yamux",
 ]
@@ -4325,9 +4311,9 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.18.4"
+version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff9840bcc50b71349309900da0ce7279aa336ae71d73250b07998932c7d97c25"
+checksum = "ef9ac18847474e638e3702b76c65d4eb93428471a74778ef0f1be711717f89b5"
 dependencies = [
  "hashbrown 0.17.1",
 ]
@@ -4623,7 +4609,7 @@ dependencies = [
  "ref-cast",
  "serde",
  "serde_bytes",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4899,7 +4885,7 @@ dependencies = [
  "move-core-types",
  "move-vm-runtime",
  "move-vm-types",
- "ripemd 0.2.0",
+ "ripemd",
  "sha2 0.11.0",
  "sha3 0.12.0",
  "smallvec",
@@ -5147,7 +5133,7 @@ dependencies = [
  "log",
  "netlink-packet-core",
  "netlink-sys",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5547,16 +5533,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "pbkdf2"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
-dependencies = [
- "digest 0.10.7",
- "hmac 0.12.1",
-]
-
-[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5893,7 +5869,7 @@ dependencies = [
  "memchr",
  "parking_lot",
  "protobuf",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5934,7 +5910,7 @@ dependencies = [
  "asynchronous-codec",
  "bytes",
  "prost",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "unsigned-varint",
 ]
 
@@ -6016,7 +5992,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -6039,7 +6015,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -6236,7 +6212,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
 dependencies = [
  "libredox",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6366,15 +6342,6 @@ dependencies = [
 
 [[package]]
 name = "ripemd"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
-dependencies = [
- "digest 0.10.7",
-]
-
-[[package]]
-name = "ripemd"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dd4211456b4172d7e44261920c25acf07367c4f04bb5f5d54fc21b090d9b159"
@@ -6431,7 +6398,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
 dependencies = [
  "hashbrown 0.16.1",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6464,7 +6431,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -6507,7 +6474,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -6769,30 +6736,12 @@ dependencies = [
 
 [[package]]
 name = "secp256k1"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25996b82292a7a57ed3508f052cfff8640d38d32018784acd714758b43da9c8f"
-dependencies = [
- "secp256k1-sys 0.8.2",
-]
-
-[[package]]
-name = "secp256k1"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7f404a8dab7a7a5a631e741d8699aa9c8e1d689fc26ccf897c7187565490b69"
 dependencies = [
  "rand 0.9.5",
- "secp256k1-sys 0.14.1",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4473013577ec77b4ee3668179ef1186df3146e2cf2d927bd200974c6fe60fd99"
-dependencies = [
- "cc",
+ "secp256k1-sys",
 ]
 
 [[package]]
@@ -7200,9 +7149,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.1"
+version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 
 [[package]]
 name = "smawk"
@@ -7212,7 +7161,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -7507,11 +7456,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -7527,9 +7476,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7942,9 +7891,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "uniffi"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edf78ecfb9bb8d7c4f8da11e8eb2ab6304e8ec0adb3ab32d8fc77c21a5bb0b86"
+checksum = "76407f5f396a2c949a069eff4a9fca9ce462410eb872bffef4c2b7b89804a77a"
 dependencies = [
  "anyhow",
  "camino",
@@ -7959,9 +7908,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_bindgen"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdea7c4574723928bef87dfc04b203d96321d0bf34ab295a56379e633be579f3"
+checksum = "3df3ced8f0eda3de99f6d50820e8628f443da8e4f447f477d1403ceba29dacbd"
 dependencies = [
  "anyhow",
  "askama",
@@ -7985,9 +7934,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_build"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfe2d9769b6c0c15d7c7832d53eaa595c683bb80a30512614a67268ce16132f9"
+checksum = "925be5c36297fff0d416fa2f03585ace718b6e6c635466754128d00f0862d5f1"
 dependencies = [
  "anyhow",
  "camino",
@@ -7996,9 +7945,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_core"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8b1c62ee415b805f063c82e8ef6bbcaa1b87f8eed360cf217537b7724e05601"
+checksum = "f7530ae8efeaaa488622865966763fe0294832779fff80508c36d69c6a874a6a"
 dependencies = [
  "anyhow",
  "bytes",
@@ -8008,9 +7957,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_internal_macros"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c79d4a3129d6c2c15e367d3954886a0533dd3e85d445ce4d93379f62c6949d7b"
+checksum = "0f4bad017164375d99450d70495014810d15a84ba9da6ed14b9628b1424223ba"
 dependencies = [
  "anyhow",
  "indexmap 2.14.2",
@@ -8021,9 +7970,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_macros"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f6a9826a83f1140b2ec67c7944f562e1ef616e6eaf40e76247adccbd5b8a091"
+checksum = "5b855a58da153739ce6e863f6e296edc3716a093768c4d3d957f17f5e4317c60"
 dependencies = [
  "camino",
  "fs-err",
@@ -8038,9 +7987,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_meta"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf233eb014b595e8997c98df4ac6863b486a4ac6d54bd00230c7700753d7ef13"
+checksum = "af0c88664a9cb9559856f5a250283c9708923b303170e2e5c7db8f4ad65e9459"
 dependencies = [
  "anyhow",
  "siphasher",
@@ -8050,9 +7999,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_pipeline"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55179706fbb6e7a23e729780d2c6165e6afe1ce725fa63754bcf217b440afc04"
+checksum = "d00f5c044b4a3dca0b1226c92ddaeea626f337470e22180dd182160c87a06b0b"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -8063,9 +8012,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_udl"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "421a9add7a19c5a264a2aba760514125ef3840a8b246ec88237fc91e3f2f79b1"
+checksum = "55dfd9c778d6b39cb5acd541d9ff63431974035d2bad83c897b766a6ee3152ac"
 dependencies = [
  "anyhow",
  "textwrap",
@@ -8218,7 +8167,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "kanari-crypto",
 ]

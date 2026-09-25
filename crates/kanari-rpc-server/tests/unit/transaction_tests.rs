@@ -3,16 +3,17 @@
 
 use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, enrich_transfer_from_effect, fresh_nonce, push_transfer_entry,
-    select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
-    transaction_error_with_reason, transfers_from_effect, validate_object_inputs_and_gas,
-    validate_object_inputs_match_state,
+    derive_transaction_state_flags, details_involve_owner, enrich_transfer_from_effect,
+    fresh_nonce, lookup_token_decimals, push_transfer_entry, select_native_coin_consolidation_step,
+    select_native_transfer_and_gas_payment, transaction_error_with_reason, transfers_from_effect,
+    tx_matches_owner, validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
+use kanari_types::transaction::Transaction;
 use proptest::prelude::*;
 use std::collections::HashSet;
 
@@ -892,6 +893,7 @@ fn coin_change(
         )),
         previous_owner: None,
         previous_version: Some(1),
+        amount: None,
     }
 }
 
@@ -933,6 +935,22 @@ fn transfers_from_effect_collects_every_coin_movement() {
     assert_eq!(
         transfers[1].transfer_token_type.as_deref(),
         Some("0x2::kanari::KANARI")
+    );
+}
+
+#[test]
+fn effect_carried_amount_flows_into_transfer() {
+    let mut effect = empty_success_effect();
+    let mut change = coin_change("0xaaa", "0xbbb", "0x1::james::JAMES");
+    // 100 THB in base units at decimals 6, recorded post-move on the coin.
+    change.amount = Some(100_000_000);
+    effect.transferred = vec![change];
+    let transfers = transfers_from_effect(None, &effect);
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers[0].transfer_amount, Some(100_000_000));
+    assert_eq!(
+        transfers[0].transfer_token_type.as_deref(),
+        Some("0x1::james::JAMES")
     );
 }
 
@@ -1036,6 +1054,158 @@ fn arg_backed_self_transfer_survives_noise_filter() {
     let transfers = details.transfers.as_ref().unwrap();
     assert_eq!(transfers.len(), 1);
     assert_eq!(transfers[0].transfer_amount, Some(77));
+}
+
+/// No-fallback contract: without state, only the KANARI protocol constant
+/// resolves; every other token is unknown (None), never an invented 9/6/0.
+#[test]
+fn lookup_token_decimals_never_invents_fallback() {
+    assert_eq!(lookup_token_decimals(None, Some(GAS_COIN)), Some(9));
+    assert_eq!(lookup_token_decimals(None, Some("0xabc::thb::THB")), None);
+    assert_eq!(lookup_token_decimals(None, None), None);
+}
+
+#[test]
+fn typeless_arg_entry_backfills_from_matching_effect_entry() {
+    // Committed entry-function calls (e.g. token::transfer_amount) carry the
+    // coin in object inputs: the source object is consumed, so the arg entry
+    // has (recipient, amount) but no token type, while the split coin in
+    // effects has the type under a different object id.
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(500_000),
+            transfer_token_type: None,
+            transfer_decimals: None,
+            previous_owner: None,
+            coin_object_id: Some("0xsource".to_string()),
+        },
+    );
+    let mut effect = empty_success_effect();
+    let mut split = coin_change("0xsplit", "0xbbb", "0xabc::thb::THB");
+    split.amount = Some(500_000);
+    effect.created = vec![split];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+
+    let transfers = details.transfers.as_ref().unwrap();
+    let arg_entry = transfers
+        .iter()
+        .find(|t| t.coin_object_id.as_deref() == Some("0xsource"))
+        .expect("arg entry survives");
+    assert_eq!(
+        arg_entry.transfer_token_type.as_deref(),
+        Some("0xabc::thb::THB")
+    );
+}
+
+#[test]
+fn ambiguous_backfill_never_mislabels_funds() {
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "pending".to_string(),
+        None,
+        "transfer",
+        "0xsender".to_string(),
+        "0xsender".to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some("0xbbb".to_string()),
+            transfer_amount: Some(500_000),
+            transfer_token_type: None,
+            transfer_decimals: None,
+            previous_owner: None,
+            coin_object_id: Some("0xsource".to_string()),
+        },
+    );
+    let mut effect = empty_success_effect();
+    let mut first = coin_change("0xsplit1", "0xbbb", "0xabc::thb::THB");
+    first.amount = Some(500_000);
+    let mut second = coin_change("0xsplit2", "0xbbb", "0xabc::other::OTH");
+    second.amount = Some(500_000);
+    effect.created = vec![first, second];
+    enrich_transfer_from_effect(None, &mut details, &effect);
+
+    let transfers = details.transfers.as_ref().unwrap();
+    let arg_entry = transfers
+        .iter()
+        .find(|t| t.coin_object_id.as_deref() == Some("0xsource"))
+        .expect("arg entry survives");
+    assert_eq!(arg_entry.transfer_token_type, None);
+}
+
+#[test]
+fn recipient_sees_incoming_token_transfer_in_activity() {
+    // Regression: entry-function token transfers carry the coin in object
+    // inputs, so tx_matches_owner (sender-only) misses the recipient. The
+    // enriched details must still match the recipient's activity filter.
+    // Full-length addresses: normalize_addr pads/validates like production.
+    let sender = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    let recipient = "0x2222222222222222222222222222222222222222222222222222222222222222";
+    let stranger = "0x3333333333333333333333333333333333333333333333333333333333333333";
+    let mut details = base_transaction_details(
+        "0xhash".to_string(),
+        "committed".to_string(),
+        None,
+        "transfer",
+        sender.to_string(),
+        sender.to_string(),
+        1,
+        100_000,
+        1,
+    );
+    push_transfer_entry(
+        &mut details,
+        kanari_rpc_api::TransferEntry {
+            recipient: Some(recipient.to_string()),
+            transfer_amount: Some(500_000),
+            transfer_token_type: Some("0xabc::thb::THB".to_string()),
+            transfer_decimals: Some(6),
+            previous_owner: Some(sender.to_string()),
+            coin_object_id: Some("0xsplit".to_string()),
+        },
+    );
+    let owner_norm = recipient.trim_start_matches("0x");
+    // Entry-function token call (not a native transfer): sender-only filter misses.
+    let entry_tx = Transaction::ExecuteFunction {
+        sender: sender.to_string(),
+        module: "0xabc::thb".to_string(),
+        function: "transfer_amount".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![],
+        gas_payment: None,
+        gas_limit: 100_000,
+        gas_price: 1,
+        nonce: 1,
+    };
+    assert!(!tx_matches_owner(&entry_tx, Some(owner_norm)));
+    assert!(details_involve_owner(&details, Some(owner_norm)));
+    assert!(details_involve_owner(
+        &details,
+        Some(sender.trim_start_matches("0x"))
+    ));
+    assert!(!details_involve_owner(
+        &details,
+        Some(stranger.trim_start_matches("0x"))
+    ));
+    assert!(details_involve_owner(&details, None));
 }
 
 #[test]

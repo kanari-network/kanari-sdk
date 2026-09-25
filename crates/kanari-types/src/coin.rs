@@ -186,6 +186,25 @@ impl CoinModule {
         Some(u64::from_le_bytes(amount.try_into().ok()?))
     }
 
+    /// Extract the coin balance from an object, gated on the object actually
+    /// being a canonical `0x2::coin::Coin<T>`. Returns `None` for any other
+    /// type (never misreads a DeFi object that happens to share the layout)
+    /// or for short/corrupt data.
+    pub fn coin_balance_from_object(object_type: &str, data: &[u8]) -> Option<u64> {
+        let tag = TypeTag::from_str(object_type).ok()?;
+        let TypeTag::Struct(st) = tag else {
+            return None;
+        };
+        if st.module.as_str() != Self::COIN_MODULE || st.name.as_str() != Self::COIN_STRUCT {
+            return None;
+        }
+        let expected = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).ok()?;
+        if st.address != expected {
+            return None;
+        }
+        Self::read_balance(data)
+    }
+
     /// Legacy nested coin path accepted for older indexed objects.
     pub fn legacy_nested_coin_type(token_type: &str) -> String {
         format!(
