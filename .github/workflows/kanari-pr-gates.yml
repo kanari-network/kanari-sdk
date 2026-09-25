@@ -95,17 +95,19 @@ jobs:
             ${{ runner.os }}-pr-gates-cargo-
 
       # flutter_rust_bridge resolves ioDirectory ('../../rust/target/release/')
-      # against the test working directory (sdk/kanari_pay), so the cdylib
-      # must land in sdk/rust/target/release/. The package-relative copy is
-      # belt-and-suspenders for other resolution orders.
+      # against the test working directory, so stage the cdylib at every
+      # candidate location AND pin it via FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR
+      # (absolute, CWD-independent — this is what the loader checks first).
       - name: Build native bridge cdylib for Linux tests
         working-directory: ${{ github.workspace }}
         run: |
           cargo build --release -p rust
-          mkdir -p sdk/rust/target/release packages/kanari_flutter/rust/target/release
+          mkdir -p sdk/rust/target/release packages/kanari_flutter/rust/target/release native-test-libs
           cp target/release/librust.so sdk/rust/target/release/librust.so
           cp target/release/librust.so packages/kanari_flutter/rust/target/release/librust.so
-          ls -la sdk/rust/target/release/ packages/kanari_flutter/rust/target/release/
+          cp target/release/librust.so native-test-libs/librust.so
+          ls -la sdk/rust/target/release/ packages/kanari_flutter/rust/target/release/ native-test-libs/
+          echo "FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR=${{ github.workspace }}/native-test-libs/" >> "$GITHUB_ENV"
 
       - name: Install Flutter
         uses: subosito/flutter-action@v2
