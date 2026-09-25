@@ -1265,14 +1265,18 @@ pub mod methods {
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     #[open_rpc_method(
         summary = "List transactions",
-        description = "Returns recent committed and pending transactions, with optional filtering.",
+        description = "Returns committed and pending transactions, newest first, with optional filtering. `limit` caps one page (default 50, max 500); pass the hash of the last received row back as `cursor` to fetch the next older page. Pages continue until history is exhausted, so the full history is walkable at any depth.",
         params = [(
             "request",
-            "Optional list options such as limit or owner filter.",
+            "Optional list options: limit (rows per page), owner filter, and cursor (hash of the last row from the previous page, with or without 0x).",
             false,
-            schema_object()
+            object_schema(&[
+                ("limit", optional_schema(schema_integer())),
+                ("owner", optional_schema(schema_string())),
+                ("cursor", optional_schema(schema_string())),
+            ])
         )],
-        result = ("transactions", "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_array(schema_object())),
+        result = ("transactions", "Transaction detail list, newest first. A page shorter than `limit` means the walk reached the end. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_array(schema_object())),
         tags = ["transaction"]
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";

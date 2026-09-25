@@ -2586,9 +2586,17 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     internal_error_response(request.id, "Transaction not found")
 }
 
+/// Collects one page of transaction details, newest first.
+///
+/// `cursor` is the hash of the last row from the previous page: the walk
+/// resumes strictly after it, so consecutive pages never repeat a row and
+/// rows newer than the cursor (arrived between pages) are simply skipped.
+/// A cursor that no longer exists in history yields an empty page instead of
+/// replaying from the top.
 fn collect_transaction_details<F, G>(
     state: &RpcServerState,
     limit: usize,
+    cursor: Option<&[u8]>,
     matches_tx: F,
     matches_details: G,
     lock_context: &str,
@@ -2599,9 +2607,22 @@ where
 {
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
-    let pending = state
-        .engine
-        .filter_pending_transaction_records(limit, |tx| matches_tx(&tx.signed_tx.transaction));
+    if let Some(cursor) = cursor {
+        // The cursor row itself must never reappear, even if it moves from
+        // the pending pool into a checkpoint between the two page requests.
+        seen_hashes.insert(format!("0x{}", hex::encode(cursor)));
+    }
+    // Until the cursor is seen every candidate (all of them are newer) is
+    // skipped; without a cursor the page starts at the newest transaction.
+    // The pending pool reports its own cursor state: rows it returns are
+    // already after the cursor when it is still pending, and an unset flag
+    // means the cursor has committed (the pool is entirely newer than it).
+    let (pending, cursor_passed) = state.engine.filter_pending_transaction_records(
+        limit,
+        cursor,
+        |tx| matches_tx(&tx.signed_tx.transaction),
+    );
+    let mut cursor_passed = cursor.is_none() || cursor_passed;
 
     for tx in &pending {
         let mut details = map_transaction_to_details(
@@ -2633,6 +2654,12 @@ where
             }
 
             for (index, tx) in checkpoint.transactions.iter().enumerate().rev() {
+                if !cursor_passed {
+                    if cursor == Some(tx.transaction_hash()) {
+                        cursor_passed = true;
+                    }
+                    continue;
+                }
                 if !matches_tx(&tx.transaction) {
                     continue;
                 }
@@ -2661,10 +2688,15 @@ where
     }
 
     if results.len() < limit {
+        // The engine walks the same newest-to-oldest order and skips down to
+        // the cursor itself, so deep history is paged without replaying rows
+        // from earlier pages (and without depending on the retained window).
         for (tx, height, state_root) in state
             .engine
-            .list_committed_transactions_from_history(limit, &matches_tx)
+            .list_committed_transactions_from_history(limit, cursor, &matches_tx)
         {
+            // The engine only returns rows strictly after the cursor, so no
+            // further cursor bookkeeping is needed in this final phase.
             let tx_hash = tx.transaction_hash().to_vec();
             let effect = state
                 .engine
@@ -2714,6 +2746,38 @@ pub async fn handle_get_all_transactions(
         })
         .map(|a| a.trim_start_matches("0x").to_lowercase());
 
+    // Optional resume point: the hash of the last row the client already has
+    // (with or without 0x). The page then starts strictly after it, so the
+    // caller can walk the whole history `limit` rows at a time.
+    let cursor = match request
+        .params
+        .as_object()
+        .and_then(|params| params.get("cursor"))
+    {
+        None => None,
+        Some(value) => {
+            let Some(raw) = value.as_str() else {
+                return invalid_params_response(
+                    request.id,
+                    "Invalid cursor: expected a transaction hash string",
+                );
+            };
+            let stripped = raw
+                .strip_prefix("0x")
+                .or_else(|| raw.strip_prefix("0X"))
+                .unwrap_or(raw);
+            match hex::decode(stripped) {
+                Ok(bytes) if !bytes.is_empty() => Some(bytes),
+                _ => {
+                    return invalid_params_response(
+                        request.id,
+                        "Invalid cursor: expected a hex transaction hash",
+                    );
+                }
+            }
+        }
+    };
+
     // Pre-filter is deliberately wider than the old sender-only check when an
     // owner is set: entry-function token transfers carry the coin in object
     // inputs, so recipients are only known after enrichment. The post-filter
@@ -2721,6 +2785,7 @@ pub async fn handle_get_all_transactions(
     let results = collect_transaction_details(
         state,
         limit,
+        cursor.as_deref(),
         |tx| {
             tx_matches_owner(tx, owner_norm.as_deref())
                 || (owner_norm.is_some() && matches!(tx, Transaction::ExecuteFunction { .. }))
@@ -2761,6 +2826,7 @@ pub async fn handle_get_fungible_asset_transactions(
     let results = collect_transaction_details(
         state,
         limit,
+        None,
         |tx| {
             if owner_norm.is_none() {
                 return tx_mentions_token_type(tx, &token_type);

@@ -437,20 +437,55 @@
     {
       "name": "kanari_getAllTransactions",
       "summary": "List transactions",
-      "description": "Returns recent committed and pending transactions, with optional filtering.",
+      "description": "Returns committed and pending transactions, newest first, with optional filtering. `limit` caps one page (default 50, max 500); pass the hash of the last received row back as `cursor` to fetch the next older page. Pages continue until history is exhausted, so the full history is walkable at any depth.",
       "params": [
         {
           "name": "request",
-          "description": "Optional list options such as limit or owner filter.",
+          "description": "Optional list options: limit (rows per page), owner filter, and cursor (hash of the last row from the previous page, with or without 0x).",
           "required": false,
           "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "oneOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [],
             "type": "object"
           }
         }
       ],
       "result": {
         "name": "transactions",
-        "description": "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
+        "description": "Transaction detail list, newest first. A page shorter than `limit` means the walk reached the end. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
         "required": true,
         "schema": {
           "items": {

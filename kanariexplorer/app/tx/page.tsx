@@ -27,6 +27,13 @@ function readTransactionHash(transaction: unknown, fallback: string) {
   ));
 }
 
+function transactionKey(transaction: unknown) {
+  const hash = readString(transaction, "hash", readString(transaction, "tx_hash", readString(transaction, "transaction_hash", "")));
+  return hash.toLowerCase();
+}
+
+const TX_PAGE_SIZE = 50;
+
 function readObject(source: unknown, key: string) {
   if (typeof source !== "object" || source === null || Array.isArray(source)) return null;
   const value = (source as Record<string, unknown>)[key];
@@ -66,14 +73,22 @@ function TxContent() {
   const [search, setSearch] = useState(searchParams.get("hash") ?? "");
   const [transactions, setTransactions] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const searchRef = useRef(search);
+  const transactionsRef = useRef<unknown[]>([]);
+  const listQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
     searchRef.current = search;
   }, [search]);
+
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
 
   async function fetchTransactions(query = search) {
     setLoading(true);
@@ -82,16 +97,56 @@ function TxContent() {
       searchRef.current = query;
       if (trimmed.length > 40) {
         const transaction = await getTransaction(trimmed);
+        listQueryRef.current = trimmed;
         setTransactions(transaction ? [transaction] : []);
+        setHasMore(false);
       } else {
-        const response = await getAllTransactions(50, trimmed || undefined);
+        const queryChanged = listQueryRef.current !== trimmed;
+        listQueryRef.current = trimmed;
+        const response = await getAllTransactions(TX_PAGE_SIZE, trimmed || undefined);
         const nextTransactions = asArray(response);
-        setTransactions((current) => (nextTransactions.length > 0 || trimmed ? nextTransactions : current));
+        setTransactions((current) => {
+          if (queryChanged || current.length === 0) return nextTransactions;
+          const seen = new Set(current.map(transactionKey));
+          return [...nextTransactions.filter((transaction) => !seen.has(transactionKey(transaction))), ...current];
+        });
+        if (queryChanged) setHasMore(nextTransactions.length >= TX_PAGE_SIZE);
       }
     } catch {
       if (query.trim()) setTransactions([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadOlder() {
+    if (loadingMore) return;
+    const current = transactionsRef.current;
+    const last = current[current.length - 1];
+    const cursor = last ? readTransactionHash(last, "") : "";
+    if (!cursor) {
+      setHasMore(false);
+      return;
+    }
+    const queryAtStart = listQueryRef.current;
+    setLoadingMore(true);
+    try {
+      const trimmed = searchRef.current.trim();
+      const page = asArray(await getAllTransactions(TX_PAGE_SIZE, trimmed || undefined, cursor));
+      if (listQueryRef.current !== queryAtStart) return;
+      const known = new Set(current.map(transactionKey));
+      const freshRows = page.filter((transaction) => !known.has(transactionKey(transaction)));
+      if (freshRows.length > 0) {
+        setTransactions((existing) => {
+          const knownExisting = new Set(existing.map(transactionKey));
+          return [...existing, ...freshRows.filter((transaction) => !knownExisting.has(transactionKey(transaction)))];
+        });
+      }
+      setHasMore(page.length >= TX_PAGE_SIZE && freshRows.length > 0);
+    } catch {
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -134,7 +189,14 @@ function TxContent() {
         <SearchForm value={search} onChange={setSearch} onSubmit={() => fetchTransactions()} placeholder="Filter by hash or address" buttonLabel="Filter" />
       </PageHeader>
 
-      <PanelTransactions transactions={transactions} loading={loading} onOpen={openTransaction} />
+      <PanelTransactions
+        transactions={transactions}
+        loading={loading}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onOpen={openTransaction}
+        onLoadOlder={() => void loadOlder()}
+      />
       <RawDetails label="Developer: latest transaction JSON" value={transactions} />
 
       <TransactionDetailsModal open={modalOpen} loading={modalLoading} transaction={selectedTransaction} onClose={() => setModalOpen(false)} />
@@ -145,11 +207,17 @@ function TxContent() {
 function PanelTransactions({
   transactions,
   loading,
+  hasMore,
+  loadingMore,
   onOpen,
+  onLoadOlder,
 }: {
   transactions: unknown[];
   loading: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
   onOpen: (hash: string) => void;
+  onLoadOlder: () => void;
 }) {
   return (
     <section className="panel">
@@ -244,6 +312,13 @@ function PanelTransactions({
               </div>
             );
           })}
+        </div>
+      ) : null}
+      {hasMore && transactions.length > 0 ? (
+        <div className="hero-actions explorer-page-actions">
+          <button className="button" type="button" disabled={loadingMore} onClick={onLoadOlder}>
+            {loadingMore ? "Loading older transactions..." : `Load older transactions (${transactions.length} shown)`}
+          </button>
         </div>
       ) : null}
     </section>

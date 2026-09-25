@@ -566,10 +566,11 @@ function dedupeTransactions<T>(transactions: T[]): T[] {
   });
 }
 
-// ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit และการกรองด้วย Account)
-export async function getAllTransactions(limit: number = 50, account?: string) {
-  const params: { limit: number; owner?: string } = { limit };
+// ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit, การกรองด้วย Account และ cursor ของหน้าก่อนหน้า)
+export async function getAllTransactions(limit: number = 50, account?: string, cursor?: string) {
+  const params: { limit: number; owner?: string; cursor?: string } = { limit };
   if (account) params.owner = account;
+  if (cursor) params.cursor = cursor;
   const response = await callRpc(RPC_METHODS.GET_ALL_TRANSACTIONS, params);
   if (Array.isArray(response)) return dedupeTransactions(response.map(normalizeTransaction));
 

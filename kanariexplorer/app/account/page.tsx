@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
@@ -106,6 +106,13 @@ function readTransactionHash(transaction: unknown, fallback: string) {
   ));
 }
 
+function transactionKey(transaction: unknown) {
+  const hash = readString(transaction, "hash", readString(transaction, "tx_hash", readString(transaction, "transaction_hash", "")));
+  return hash.toLowerCase();
+}
+
+const TX_PAGE_SIZE = 50;
+
 function readObject(source: unknown, key: string) {
   if (typeof source !== "object" || source === null || Array.isArray(source)) return null;
   const value = (source as Record<string, unknown>)[key];
@@ -150,9 +157,17 @@ function AccountContent() {
   const [objects, setObjects] = useState<unknown[]>([]);
   const [activeTab, setActiveTab] = useState<AccountTab>("coins");
   const [loading, setLoading] = useState(false);
+  const [hasMoreActivity, setHasMoreActivity] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const transactionsRef = useRef<unknown[]>([]);
+  const loadedAddressRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
 
   async function loadAccount(target = address) {
     const trimmed = target.trim();
@@ -163,19 +178,52 @@ function AccountContent() {
       const [accountData, balanceData, transactionData, nftData, objectData, registryData] = await Promise.all([
         getAccount(trimmed).catch(() => null),
         getAllBalances(trimmed).catch(() => []),
-        getAllTransactions(50, trimmed).catch(() => []),
+        getAllTransactions(TX_PAGE_SIZE, trimmed).catch(() => []),
         getOwnedNfts(trimmed).catch(() => []),
         getOwnedObjects(trimmed).catch(() => []),
         getTokens().catch(() => []),
       ]);
+      const nextTransactions = asArray(transactionData);
       setAccount(accountData);
       setBalances(asArray(balanceData));
       setTokenRegistry(asArray(registryData));
-      setTransactions(asArray(transactionData));
+      setTransactions(nextTransactions);
+      setHasMoreActivity(nextTransactions.length >= TX_PAGE_SIZE);
+      loadedAddressRef.current = trimmed;
       setNfts(asArray(nftData));
       setObjects(dedupeObjects([...asArray(objectData), ...readArrayField(accountData, "owned_objects")]));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadOlderActivity() {
+    if (loadingMore) return;
+    const current = transactionsRef.current;
+    const last = current[current.length - 1];
+    const cursor = last ? readTransactionHash(last, "") : "";
+    const owner = loadedAddressRef.current;
+    if (!cursor || !owner) {
+      setHasMoreActivity(false);
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const page = asArray(await getAllTransactions(TX_PAGE_SIZE, owner, cursor));
+      if (loadedAddressRef.current !== owner) return;
+      const known = new Set(current.map(transactionKey));
+      const freshRows = page.filter((transaction) => !known.has(transactionKey(transaction)));
+      if (freshRows.length > 0) {
+        setTransactions((existing) => {
+          const knownExisting = new Set(existing.map(transactionKey));
+          return [...existing, ...freshRows.filter((transaction) => !knownExisting.has(transactionKey(transaction)))];
+        });
+      }
+      setHasMoreActivity(page.length >= TX_PAGE_SIZE && freshRows.length > 0);
+    } catch {
+      setHasMoreActivity(false);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -426,6 +474,13 @@ function AccountContent() {
               );
             })}
           </div>
+          {hasMoreActivity && transactions.length > 0 ? (
+            <div className="hero-actions explorer-page-actions">
+              <button className="button" type="button" disabled={loadingMore} onClick={() => void loadOlderActivity()}>
+                {loadingMore ? "Loading older transactions..." : `Load older transactions (${transactions.length} shown)`}
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

@@ -519,6 +519,117 @@ async fn submitted_transaction_hash_is_queryable() {
 }
 
 #[tokio::test]
+async fn transaction_cursor_walks_pages_without_repeats_or_gaps() {
+    let guard = test_guard().await;
+    let engine = build_test_engine();
+
+    let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
+    let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
+    let sender_tagged = sender.tagged_address();
+    let recipient_address =
+        move_core_types::account_address::AccountAddress::from_hex_literal(&recipient.address)
+            .invariant("recipient account address")
+            .to_hex_literal();
+
+    let mut submitted_hashes = Vec::new();
+    let mut signed_batch = Vec::new();
+    for nonce in 1..=3u64 {
+        let transaction = Transaction::new_transfer_with_object_ref_and_gas(
+            sender_tagged.clone(),
+            // Distinct coin objects so the mempool never sees a conflict.
+            kanari_types::transaction::ObjectRef::new(
+                format!("0xaaa{nonce}"),
+                Some(1),
+                Some("0xtest".to_string()),
+            ),
+            recipient_address.clone(),
+            1,
+            nonce,
+            1_000_000,
+            1,
+        );
+        let mut signed_tx = SignedTransaction::new(transaction);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .invariant("sign transaction");
+        submitted_hashes.push(format!("0x{}", hex::encode(signed_tx.transaction_hash())));
+        signed_batch.push(signed_tx);
+    }
+    engine
+        .submit_transactions_batch(signed_batch)
+        .invariant("submit pending batch");
+
+    let app = create_router(RpcServerState::new(engine));
+
+    let page_one = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2 }),
+        30,
+    )
+    .await;
+    let page_one = page_one.as_array().invariant("page one array");
+    assert_eq!(page_one.len(), 2, "full page while older rows remain");
+    let cursor = page_one[1]["hash"]
+        .as_str()
+        .invariant("cursor hash")
+        .to_string();
+
+    let page_two = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": cursor }),
+        31,
+    )
+    .await;
+    let page_two = page_two.as_array().invariant("page two array");
+    assert_eq!(page_two.len(), 1, "remainder after the cursor");
+
+    let mut seen: Vec<String> = Vec::new();
+    for row in page_one.iter().chain(page_two.iter()) {
+        let hash = row["hash"].as_str().invariant("row hash").to_string();
+        assert!(!seen.contains(&hash), "row repeated across pages: {hash}");
+        seen.push(hash);
+    }
+    assert_eq!(seen.len(), submitted_hashes.len(), "no row was skipped");
+    for expected in &submitted_hashes {
+        assert!(seen.contains(expected), "missing transaction {expected}");
+    }
+
+    let page_three = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": page_two[0]["hash"].as_str().invariant("cursor hash") }),
+        32,
+    )
+    .await;
+    assert!(
+        page_three
+            .as_array()
+            .invariant("page three array")
+            .is_empty(),
+        "walk stops once the cursor reaches the oldest row"
+    );
+
+    let invalid = rpc_call_response(
+        app,
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": "not-a-hash" }),
+        33,
+    )
+    .await;
+    assert!(
+        invalid["error"]["message"]
+            .as_str()
+            .map(|message| message.contains("cursor"))
+            .unwrap_or(false),
+        "malformed cursor must be rejected as invalid params: {invalid}"
+    );
+
+    drop(guard);
+}
+
+#[tokio::test]
 async fn submit_transaction_can_execute_immediately() {
     let guard = test_guard().await;
     let mut engine = BlockchainEngine::new_in_memory().invariant("in-memory engine");
