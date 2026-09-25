@@ -113,9 +113,15 @@ jobs:
           channel: stable
           cache: true
 
+      # Without this, package_config.json doesn't exist and every import
+      # (flutter/material, equatable, …) fails with uri_does_not_exist,
+      # cascading into hundreds of bogus errors.
+      - name: Resolve dependencies
+        run: flutter pub get
+
       - name: Analyze touched areas
         run: >
-          dart analyze lib/src/models/account.dart
+          flutter analyze lib/src/models/account.dart
           lib/src/models/transaction.dart lib/src/core/token_utils.dart
           lib/src/core/token_metadata.dart
           lib/src/ui/screens/wallet_transactions_screen.dart
@@ -180,10 +186,33 @@ jobs:
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$HOME/android-sdk/platform-tools" >> "$GITHUB_PATH"
 
+      # compileSdk 37 is not on the stable channel (hence the failure
+      # above), so discover the exact package names across all channels
+      # instead of hardcoding them.
       - name: Install Android API 37 platform
         run: |
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager --install "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+          yes 2>/dev/null | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install "platform-tools"
+          PKG=""
+          CHANNEL=""
+          for ch in 0 1 2 3; do
+            PKG=$(sdkmanager --channel=$ch --list 2>/dev/null | grep -oE "platforms;android-[0-9.]+" | grep "^platforms;android-37" | head -1)
+            if [ -n "$PKG" ]; then CHANNEL=$ch; break; fi
+          done
+          if [ -z "$PKG" ]; then
+            echo "No android-37 platform found on any channel:"
+            sdkmanager --list 2>/dev/null | grep -E "platforms;android-" | tail -8
+            exit 1
+          fi
+          echo "Installing $PKG from channel $CHANNEL"
+          BT=$(sdkmanager --channel=$CHANNEL --list 2>/dev/null | grep -oE "build-tools;37[^ |;]*" | head -1)
+          if [ -n "$BT" ]; then
+            echo "Installing build-tools $BT"
+            sdkmanager --channel=$CHANNEL --install "$PKG" "$BT"
+          else
+            echo "No 37 build-tools found; installing platform only"
+            sdkmanager --channel=$CHANNEL --install "$PKG"
+          fi
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest
