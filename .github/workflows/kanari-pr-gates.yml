@@ -134,7 +134,18 @@ jobs:
           lib/src/ui/widgets/deal_card.dart
 
       - name: Flutter tests
-        run: flutter test test --reporter compact
+        run: flutter test test --reporter expanded
+
+      # Always runs: surfaces the failure cause (native lib present and
+      # loadable? which test failed?) without needing log archaeology.
+      - name: Diagnose test failure
+        if: always()
+        run: |
+          echo "--- bridge artifacts ---"
+          ls -la sdk/rust/target/release/ || true
+          find . -name "librust.so" 2>/dev/null || true
+          echo "--- shared deps ---"
+          ldd sdk/rust/target/release/librust.so || true
 
   explorer-gates:
     name: Explorer build (kanariexplorer)
