@@ -838,7 +838,12 @@ proptest! {
 
     #[test]
     fn native_transfer_multihop_conserves_objects_and_supply(
-        hop_amounts in prop::collection::vec(1u64..200_000u64, 1..8),
+        // Floor at the minimum native gas charge (100 Mist): this property
+        // asserts every hop succeeds, and the harness always pays gas from
+        // the sender's smallest coin. Amounts below 100 would strand a dust
+        // fragment that later legitimately fails gas validation — that
+        // rejection path is covered by gas-specific tests, not here.
+        hop_amounts in prop::collection::vec(100u64..200_000u64, 1..8),
     ) {
         // Coins ping-pong between three parties. After every hop:
         // - every indexed object must exist with a matching owner (no orphans),
