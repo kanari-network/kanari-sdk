@@ -192,19 +192,23 @@ class _TransactionTile extends StatelessWidget {
     final transfers = transaction.transfers ?? const [];
     String? transferSummary() {
       if (transfers.isEmpty) return null;
-      final parts = transfers.map((t) {
-        final amount = t.transferAmount == null
-            ? 'amount unknown'
-            : token_utils.formatTokenAmount(
-                t.transferAmount!,
-                t.transferDecimals,
-                fractionDigits: 6,
-              );
-        final symbol = (t.transferTokenType?.split('::').lastOrNull ?? '').trim();
-        return symbol.isEmpty ? amount : '$amount $symbol';
-      }).join(' | ');
-      final suffix =
-          transfers.length > 1 ? ' (${transfers.length} transfers)' : '';
+      final parts = transfers
+          .map((t) {
+            final amount = t.transferAmount == null
+                ? 'amount unknown'
+                : token_utils.formatTokenAmount(
+                    t.transferAmount!,
+                    t.transferDecimals,
+                    fractionDigits: 6,
+                  );
+            final symbol = (t.transferTokenType?.split('::').lastOrNull ?? '')
+                .trim();
+            return symbol.isEmpty ? amount : '$amount $symbol';
+          })
+          .join(' | ');
+      final suffix = transfers.length > 1
+          ? ' (${transfers.length} transfers)'
+          : '';
       return '$parts$suffix';
     }
 
@@ -381,33 +385,33 @@ class _TransactionDetailsSheet extends StatelessWidget {
                 _DetailRow(label: 'Function', value: transaction.function!),
               if (transaction.transfers != null &&
                   transaction.transfers!.isNotEmpty)
-                ...transaction.transfers!.asMap().entries.map(
-                  (entry) {
-                    final t = entry.value;
-                    // No fallback: transfer_decimals จาก API เท่านั้น
-                    final formattedAmount = t.transferAmount != null
-                        ? token_utils.formatTokenAmount(
-                            t.transferAmount!,
-                            t.transferDecimals,
-                            fractionDigits: 6,
-                          )
-                        : null;
-                    final parts = [
-                      if (t.recipient != null) t.recipient!,
-                      if (formattedAmount != null) formattedAmount,
-                      if (t.transferTokenType != null) t.transferTokenType!,
-                    ].join(' · ');
-                    return _DetailRow(
-                      label: transaction.transfers!.length > 1
-                          ? 'Transfer ${entry.key + 1}'
-                          : 'Transfer',
-                      value: parts.isEmpty ? '-' : parts,
-                      copyable: t.recipient != null,
-                      copyValue: t.recipient,
-                      compactLongValue: true,
-                    );
-                  },
-                ),
+                ...transaction.transfers!.asMap().entries.map((entry) {
+                  final t = entry.value;
+                  // No fallback: transfer_decimals จาก API เท่านั้น
+                  final formattedAmount = t.transferAmount != null
+                      ? token_utils.formatTokenAmount(
+                          t.transferAmount!,
+                          t.transferDecimals,
+                          fractionDigits: 6,
+                        )
+                      : null;
+                  // whereType drops nulls without `!` or collection-if,
+                  // satisfying use_null_aware_elements on any SDK.
+                  final parts = [
+                    t.recipient,
+                    formattedAmount,
+                    t.transferTokenType,
+                  ].whereType<String>().join(' · ');
+                  return _DetailRow(
+                    label: transaction.transfers!.length > 1
+                        ? 'Transfer ${entry.key + 1}'
+                        : 'Transfer',
+                    value: parts.isEmpty ? '-' : parts,
+                    copyable: t.recipient != null,
+                    copyValue: t.recipient,
+                    compactLongValue: true,
+                  );
+                }),
             ],
           ),
         ),
