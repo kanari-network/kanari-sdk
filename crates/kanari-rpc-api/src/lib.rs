@@ -1044,12 +1044,28 @@ pub struct GetFungibleAssetRequest {
     pub token_type: String,
 }
 
+/// Cursor for paginating the holder list, which is ordered by
+/// `(balance DESC, owner ASC)`.
+///
+/// A page returns holders strictly after this position, so advancing with
+/// the returned `next_cursor` never repeats or skips entries even when
+/// balances change between calls (entries that moved are repositioned, but
+/// no entry is silently dropped from the iteration contract below).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetHolderCursor {
+    pub balance: u64,
+    pub owner: String,
+}
+
 /// Get fungible asset holder list request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetFungibleAssetHoldersRequest {
     pub token_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// Resume after this position. `None` starts from the top holder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<FungibleAssetHolderCursor>,
 }
 
 /// Get transactions that involve a fungible asset.
@@ -1096,6 +1112,9 @@ pub struct FungibleAssetHolder {
 pub struct FungibleAssetHoldersResponse {
     pub token_type: String,
     pub holders: Vec<FungibleAssetHolder>,
+    /// Cursor for the next page. `None` means this was the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<FungibleAssetHolderCursor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1177,10 +1196,14 @@ pub mod methods {
             true,
             object_schema(&[
                 ("token_type", schema_string()),
-                ("limit", optional_schema(schema_integer()))
+                ("limit", optional_schema(schema_integer())),
+                ("cursor", optional_schema(object_schema(&[
+                    ("balance", schema_integer()),
+                    ("owner", schema_string()),
+                ])))
             ])
         )],
-        result = ("holders", "Fungible asset holders.", schema_object()),
+        result = ("holders", "Fungible asset holders with optional next_cursor.", schema_object()),
         tags = ["asset", "balance"]
     )]
     pub const GET_FUNGIBLE_ASSET_HOLDERS: &str = "kanari_getFungibleAssetHolders";

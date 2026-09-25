@@ -310,10 +310,38 @@ export async function getFungibleAsset(token_type: string) {
   return callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET, { token_type });
 }
 
-export async function getFungibleAssetHolders(token_type: string, limit: number = 100) {
-  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_HOLDERS, { token_type, limit });
-  const holders = readField(response, "holders");
-  return Array.isArray(holders) ? holders : asArray(response);
+export type FungibleAssetHolderCursor = {
+  balance: number | string;
+  owner: string;
+};
+
+export type FungibleAssetHoldersPage = {
+  holders: unknown[];
+  nextCursor: FungibleAssetHolderCursor | null;
+};
+
+function readHolderCursor(value: unknown): FungibleAssetHolderCursor | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const owner = typeof record.owner === "string" ? record.owner : "";
+  const balance = record.balance;
+  if (!owner || (typeof balance !== "number" && typeof balance !== "string")) return null;
+  return { balance, owner };
+}
+
+export async function getFungibleAssetHolders(
+  token_type: string,
+  limit: number = 100,
+  cursor?: FungibleAssetHolderCursor | null,
+): Promise<FungibleAssetHoldersPage> {
+  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_HOLDERS, {
+    token_type,
+    limit,
+    cursor: cursor ?? null,
+  });
+  const rawHolders = readField(response, "holders");
+  const holders = Array.isArray(rawHolders) ? rawHolders : asArray(response);
+  return { holders, nextCursor: readHolderCursor(readField(response, "next_cursor")) };
 }
 
 export async function getFungibleAssetTransactions(token_type: string, limit: number = 50, owner?: string) {

@@ -204,6 +204,30 @@
           "schema": {
             "additionalProperties": false,
             "properties": {
+              "cursor": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "balance": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "owner": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "balance",
+                      "owner"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "limit": {
                 "oneOf": [
                   {
@@ -228,7 +252,7 @@
       ],
       "result": {
         "name": "holders",
-        "description": "Fungible asset holders.",
+        "description": "Fungible asset holders with optional next_cursor.",
         "required": true,
         "schema": {
           "type": "object"
