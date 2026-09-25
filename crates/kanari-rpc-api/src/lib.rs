@@ -1281,6 +1281,19 @@ pub mod methods {
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     #[open_rpc_method(
+        summary = "Count transactions",
+        description = "Returns how many committed and pending transactions match the same owner filter as kanari_getAllTransactions, walking the full newest-to-oldest history. Use it to size numbered pagination (total pages = ceil(count / page size)).",
+        params = [(
+            "request",
+            "Optional filter options: owner filter only (no limit or cursor).",
+            false,
+            object_schema(&[("owner", optional_schema(schema_string()))])
+        )],
+        result = ("count", "Number of matching transactions.", schema_integer()),
+        tags = ["transaction"]
+    )]
+    pub const COUNT_TRANSACTIONS: &str = "kanari_countTransactions";
+    #[open_rpc_method(
         summary = "Submit transaction",
         description = "Submits a transfer or burn transaction to the mempool.",
         params = [("transaction", "Signed transaction payload.", true, schema_object())],

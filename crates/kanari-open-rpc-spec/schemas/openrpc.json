@@ -501,6 +501,49 @@
       ]
     },
     {
+      "name": "kanari_countTransactions",
+      "summary": "Count transactions",
+      "description": "Returns how many committed and pending transactions match the same owner filter as kanari_getAllTransactions, walking the full newest-to-oldest history. Use it to size numbered pagination (total pages = ceil(count / page size)).",
+      "params": [
+        {
+          "name": "request",
+          "description": "Optional filter options: owner filter only (no limit or cursor).",
+          "required": false,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "owner": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "count",
+        "description": "Number of matching transactions.",
+        "required": true,
+        "schema": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
       "name": "kanari_submitObjectTransfer",
       "summary": "Submit transaction",
       "description": "Submits a transfer or burn transaction to the mempool.",

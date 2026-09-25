@@ -37,6 +37,7 @@ export const RPC_METHODS = {
   GET_FULL_BLOCK: "kanari_getFullBlock",
   GET_TRANSACTION: "kanari_getTransaction",
   GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
+  COUNT_TRANSACTIONS: "kanari_countTransactions",
   GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
   GET_STATS: "kanari_getStats",
   GET_SMT_STATUS: "kanari_getSmtStatus",
@@ -584,6 +585,33 @@ export async function getAllTransactions(limit: number = 50, account?: string, c
   if (Array.isArray(data)) return dedupeTransactions(data.map(normalizeTransaction));
 
   return normalizeTransaction(response);
+}
+
+// นับจำนวนธุรกรรมที่ filter ตรง (ใช้คำนวณจำนวนหน้า) — เดิน history ทั้งหมดฝั่ง server
+export async function countTransactions(owner?: string): Promise<number | null> {
+  const params: { owner?: string } = {};
+  if (owner) params.owner = owner;
+  try {
+    const response = await callRpc(RPC_METHODS.COUNT_TRANSACTIONS, params);
+    if (typeof response === "number") return response;
+    const count = readField(response, "count");
+    return typeof count === "number" ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+// จำนวนรวมแบบไม่กรอง (O(1) จาก stats: committed ตลอดอายุ chain + pending ตอนนี้)
+export async function countAllTransactions(): Promise<number | null> {
+  try {
+    const stats = await getStats();
+    const committed = Number(readField(stats, "total_transactions") ?? NaN);
+    const pending = Number(readField(stats, "pending_transactions") ?? 0);
+    if (!Number.isFinite(committed)) return null;
+    return committed + (Number.isFinite(pending) ? pending : 0);
+  } catch {
+    return null;
+  }
 }
 
 // ค้นหาธุรกรรมแบบเจาะจงด้วย Hash

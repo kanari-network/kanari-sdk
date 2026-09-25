@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
+import PaginationBar from "../components/PaginationBar";
 import {
   asArray,
   CopyButton,
@@ -17,7 +18,8 @@ import {
   StatusPill,
   stripHexPrefix,
 } from "../components/ExplorerUI";
-import { getAllTransactions, getTransaction } from "../lib/rpc";
+import { countAllTransactions, countTransactions, getAllTransactions, getTransaction } from "../lib/rpc";
+import { useTxPager, type TxPager } from "../lib/useTxPager";
 
 function readTransactionHash(transaction: unknown, fallback: string) {
   return stripHexPrefix(readString(
@@ -26,13 +28,6 @@ function readTransactionHash(transaction: unknown, fallback: string) {
     readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
   ));
 }
-
-function transactionKey(transaction: unknown) {
-  const hash = readString(transaction, "hash", readString(transaction, "tx_hash", readString(transaction, "transaction_hash", "")));
-  return hash.toLowerCase();
-}
-
-const TX_PAGE_SIZE = 50;
 
 function readObject(source: unknown, key: string) {
   if (typeof source !== "object" || source === null || Array.isArray(source)) return null;
@@ -70,83 +65,51 @@ function summarizePublishedModules(functions: string[]) {
 
 function TxContent() {
   const searchParams = useSearchParams();
+  const initialQuery = (searchParams.get("hash") ?? "").trim();
   const [search, setSearch] = useState(searchParams.get("hash") ?? "");
-  const [transactions, setTransactions] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [mode, setMode] = useState<"list" | "hash">(initialQuery.length > 40 ? "hash" : "list");
+  const [listOwner, setListOwner] = useState<string | undefined>(
+    initialQuery.length > 40 || !initialQuery ? undefined : initialQuery,
+  );
+  const [hashRows, setHashRows] = useState<unknown[]>([]);
+  const [hashLoading, setHashLoading] = useState(initialQuery.length > 40);
+  const [reloadTick, setReloadTick] = useState(0);
   const [selectedTransaction, setSelectedTransaction] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
-  const searchRef = useRef(search);
-  const transactionsRef = useRef<unknown[]>([]);
-  const listQueryRef = useRef<string | null>(null);
+  const paramsEffectRef = useRef(false);
 
-  useEffect(() => {
-    searchRef.current = search;
-  }, [search]);
+  const pager = useTxPager({
+    owner: listOwner,
+    enabled: mode === "list",
+    fetchPage: (pageSize, cursor, owner) =>
+      getAllTransactions(pageSize, owner, cursor).then((response) => asArray(response)),
+    fetchCount: (owner) => (owner ? countTransactions(owner) : countAllTransactions()),
+    refreshMs: 10000,
+    resetToken: reloadTick,
+  });
 
-  useEffect(() => {
-    transactionsRef.current = transactions;
-  }, [transactions]);
-
-  async function fetchTransactions(query = search) {
-    setLoading(true);
+  async function loadHash(query: string) {
+    setHashLoading(true);
     try {
-      const trimmed = query.trim();
-      searchRef.current = query;
-      if (trimmed.length > 40) {
-        const transaction = await getTransaction(trimmed);
-        listQueryRef.current = trimmed;
-        setTransactions(transaction ? [transaction] : []);
-        setHasMore(false);
-      } else {
-        const queryChanged = listQueryRef.current !== trimmed;
-        listQueryRef.current = trimmed;
-        const response = await getAllTransactions(TX_PAGE_SIZE, trimmed || undefined);
-        const nextTransactions = asArray(response);
-        setTransactions((current) => {
-          if (queryChanged || current.length === 0) return nextTransactions;
-          const seen = new Set(current.map(transactionKey));
-          return [...nextTransactions.filter((transaction) => !seen.has(transactionKey(transaction))), ...current];
-        });
-        if (queryChanged) setHasMore(nextTransactions.length >= TX_PAGE_SIZE);
-      }
+      const transaction = await getTransaction(query);
+      setHashRows(transaction ? [transaction] : []);
     } catch {
-      if (query.trim()) setTransactions([]);
+      setHashRows([]);
     } finally {
-      setLoading(false);
+      setHashLoading(false);
     }
   }
 
-  async function loadOlder() {
-    if (loadingMore) return;
-    const current = transactionsRef.current;
-    const last = current[current.length - 1];
-    const cursor = last ? readTransactionHash(last, "") : "";
-    if (!cursor) {
-      setHasMore(false);
-      return;
-    }
-    const queryAtStart = listQueryRef.current;
-    setLoadingMore(true);
-    try {
-      const trimmed = searchRef.current.trim();
-      const page = asArray(await getAllTransactions(TX_PAGE_SIZE, trimmed || undefined, cursor));
-      if (listQueryRef.current !== queryAtStart) return;
-      const known = new Set(current.map(transactionKey));
-      const freshRows = page.filter((transaction) => !known.has(transactionKey(transaction)));
-      if (freshRows.length > 0) {
-        setTransactions((existing) => {
-          const knownExisting = new Set(existing.map(transactionKey));
-          return [...existing, ...freshRows.filter((transaction) => !knownExisting.has(transactionKey(transaction)))];
-        });
-      }
-      setHasMore(page.length >= TX_PAGE_SIZE && freshRows.length > 0);
-    } catch {
-      setHasMore(false);
-    } finally {
-      setLoadingMore(false);
+  function submitSearch() {
+    const query = search.trim();
+    if (query.length > 40) {
+      setMode("hash");
+      void loadHash(query);
+    } else {
+      setMode("list");
+      setListOwner(query || undefined);
+      setReloadTick((tick) => tick + 1);
     }
   }
 
@@ -164,19 +127,25 @@ function TxContent() {
   }
 
   useEffect(() => {
-    const initialQuery = searchParams.get("hash") ?? "";
-    const timeout = window.setTimeout(() => {
-      void fetchTransactions(initialQuery);
-    }, 0);
-    const interval = window.setInterval(() => {
-      void fetchTransactions(searchRef.current);
-    }, 10000);
-    return () => {
-      window.clearTimeout(timeout);
-      window.clearInterval(interval);
-    };
+    const query = (searchParams.get("hash") ?? "").trim();
+    if (!paramsEffectRef.current) {
+      paramsEffectRef.current = true;
+      if (query.length > 40) void loadHash(query);
+      return;
+    }
+    if (query.length > 40) {
+      setMode("hash");
+      void loadHash(query);
+    } else {
+      setMode("list");
+      setListOwner(query || undefined);
+      setReloadTick((tick) => tick + 1);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
+
+  const rows = mode === "hash" ? hashRows : pager.rows;
+  const listLoading = mode === "hash" ? hashLoading : pager.loading || pager.navigating;
 
   return (
     <div className="explorer-wrap">
@@ -186,18 +155,16 @@ function TxContent() {
         accent="Explorer."
         description="Search transaction hashes, inspect sender activity, and watch the latest Kanari operations refresh in near real time."
       >
-        <SearchForm value={search} onChange={setSearch} onSubmit={() => fetchTransactions()} placeholder="Filter by hash or address" buttonLabel="Filter" />
+        <SearchForm value={search} onChange={setSearch} onSubmit={submitSearch} placeholder="Filter by hash or address" buttonLabel="Filter" />
       </PageHeader>
 
       <PanelTransactions
-        transactions={transactions}
-        loading={loading}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
+        transactions={rows}
+        loading={listLoading}
+        pager={mode === "list" ? pager : null}
         onOpen={openTransaction}
-        onLoadOlder={() => void loadOlder()}
       />
-      <RawDetails label="Developer: latest transaction JSON" value={transactions} />
+      <RawDetails label="Developer: latest transaction JSON" value={rows} />
 
       <TransactionDetailsModal open={modalOpen} loading={modalLoading} transaction={selectedTransaction} onClose={() => setModalOpen(false)} />
     </div>
@@ -207,24 +174,30 @@ function TxContent() {
 function PanelTransactions({
   transactions,
   loading,
-  hasMore,
-  loadingMore,
+  pager,
   onOpen,
-  onLoadOlder,
 }: {
   transactions: unknown[];
   loading: boolean;
-  hasMore: boolean;
-  loadingMore: boolean;
+  pager: TxPager | null;
   onOpen: (hash: string) => void;
-  onLoadOlder: () => void;
 }) {
+  const total = pager?.total ?? null;
+  const pageIndex = pager?.pageIndex ?? 0;
+  const totalPages =
+    pager?.totalPages ?? (pager ? (pager.canNext ? pageIndex + 2 : pageIndex + 1) : 1);
+  const rangeStart = pager ? pageIndex * pager.pageSize + 1 : 1;
+  const rangeEnd = rangeStart + transactions.length - 1;
+  const subtitle =
+    total != null && transactions.length > 0
+      ? `Showing ${rangeStart.toLocaleString()}-${rangeEnd.toLocaleString()} of ${total.toLocaleString()} transactions`
+      : `Showing ${transactions.length} operations`;
   return (
     <section className="panel">
       <div className="panel-head">
         <div>
           <h2 className="panel-title">Latest Transactions</h2>
-          <p className="panel-subtitle">Showing {transactions.length} operations</p>
+          <p className="panel-subtitle">{subtitle}</p>
         </div>
         <StatusPill label={loading ? "Syncing" : "Live"} state={loading ? "warn" : "ok"} />
       </div>
@@ -314,12 +287,15 @@ function PanelTransactions({
           })}
         </div>
       ) : null}
-      {hasMore && transactions.length > 0 ? (
-        <div className="hero-actions explorer-page-actions">
-          <button className="button" type="button" disabled={loadingMore} onClick={onLoadOlder}>
-            {loadingMore ? "Loading older transactions..." : `Load older transactions (${transactions.length} shown)`}
-          </button>
-        </div>
+      {pager && transactions.length > 0 ? (
+        <PaginationBar
+          pageIndex={pageIndex}
+          totalPages={totalPages}
+          pageSize={pager.pageSize}
+          disabled={pager.navigating}
+          onPage={(index) => pager.goToPage(index)}
+          onPageSize={(size) => pager.changePageSize(size)}
+        />
       ) : null}
     </section>
   );

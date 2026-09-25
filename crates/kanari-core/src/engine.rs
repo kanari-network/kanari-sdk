@@ -1439,7 +1439,9 @@ impl BlockchainEngine {
         let Some(store) = self.persistent_store.as_ref() else {
             return Vec::new();
         };
-        let mut results = Vec::with_capacity(limit);
+        // Callers pass large limits (e.g. usize::MAX when counting), so the
+        // preallocation must stay bounded by real row counts.
+        let mut results = Vec::with_capacity(limit.min(4096));
         let mut seen_hashes = HashSet::new();
         let mut cursor_passed = cursor_hash.is_none();
 

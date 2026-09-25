@@ -1191,3 +1191,14 @@ html.dark .graph-change-card--mutated > .graph-change-card__top > .graph-change-
   .not-found-card > p:not(.section-kicker) { font-size: 15px; }
   .not-found-card i { right: -190px; }
 }
+
+/* Transaction pagination: numbered pages + page-size selector */
+.pagination-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 24px; border-top: 1px solid var(--line); }
+.pagination-pages { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pagination-page, .pagination-arrow { min-width: 34px; height: 34px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s ease, border-color .2s ease; }
+.pagination-page:hover:not(:disabled), .pagination-arrow:hover:not(:disabled) { border-color: var(--ink); }
+.pagination-page--active { background: var(--ink); border-color: var(--ink); color: var(--inverted-text); }
+.pagination-page:disabled, .pagination-arrow:disabled { opacity: .4; cursor: default; }
+.pagination-gap { min-width: 20px; text-align: center; color: var(--muted); font-size: 13px; }
+.pagination-size { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.pagination-size select { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 700; cursor: pointer; }
