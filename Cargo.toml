@@ -174,13 +174,13 @@ moka = { version = "0.12.16", features = ["sync"] }                             
 lru = "0.18.5"                                                                      # LRU cache
 dashmap = "6.2.1"                                                                   # Concurrent HashMap
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
-siphasher = "1.0.3"                                                                 # SipHash implementation
+siphasher = "1.0.4"                                                                 # SipHash implementation
 
 # ============================================================================
 # Error Handling & Result Types
 # ============================================================================
 anyhow = "1.0.104"
-thiserror = { version = "2.0.20", default-features = true }
+thiserror = { version = "2.0.21", default-features = true }
 better_any = { version = "0.2.1", features = ["derive"] }
 
 # ============================================================================
@@ -201,7 +201,7 @@ dirs = "7.0.0"                                                                  
 walkdir = "2.5.0"                                                                   # Directory traversal
 num_cpus = "1.17.0"                                                                 # CPU core detection
 regex = "1.13.1"                                                                    # Regular expressions for validation
-smallvec = "1.16.1"                                                                 # Stack-allocated vectors
+smallvec = "1.16.2"                                                                 # Stack-allocated vectors
 lazy_static = { version = "1.5.0", default-features = true }
 once_cell = "1.21.4"
 
