@@ -691,7 +691,7 @@ async fn transaction_count_matches_full_cursor_walk() {
             app.clone(),
             methods::GET_ALL_TRANSACTIONS,
             params,
-            41 + walked as u64,
+            41 + walked,
         )
         .await;
         let page = page.as_array().invariant("walk page");

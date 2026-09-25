@@ -261,7 +261,7 @@ function AccountContent() {
           ["coins", `Coins ${balances.length}`],
           ["nfts", `NFTs ${nfts.length}`],
           ["objects", `Objects ${objects.length}`],
-          ["activity", `Activity ${activityRows.length}`],
+          ["activity", `Activity ${activityPager.total ?? activityRows.length}`],
         ].map(([id, label]) => (
           <button className={`tab ${activeTab === id ? "tab--active" : ""}`} key={id} type="button" onClick={() => setActiveTab(id as AccountTab)}>
             {label}

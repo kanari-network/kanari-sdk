@@ -2618,11 +2618,12 @@ fn walk_transaction_details<F, G>(
     // The pending pool reports its own cursor state: rows it returns are
     // already after the cursor when it is still pending, and an unset flag
     // means the cursor has committed (the pool is entirely newer than it).
-    let (pending, cursor_passed) = state.engine.filter_pending_transaction_records(
-        limit,
-        cursor,
-        |tx| matches_tx(&tx.signed_tx.transaction),
-    );
+    let (pending, cursor_passed) =
+        state
+            .engine
+            .filter_pending_transaction_records(limit, cursor, |tx| {
+                matches_tx(&tx.signed_tx.transaction)
+            });
     let mut cursor_passed = cursor.is_none() || cursor_passed;
 
     for tx in &pending {
@@ -2681,8 +2682,7 @@ fn walk_transaction_details<F, G>(
                 if !matches_details(&tx.transaction, &details) {
                     continue;
                 }
-                if !emit_unique_tx_details(&mut emitted, &mut seen_hashes, limit, details, on_row)
-                {
+                if !emit_unique_tx_details(&mut emitted, &mut seen_hashes, limit, details, on_row) {
                     break;
                 }
             }
@@ -2693,9 +2693,10 @@ fn walk_transaction_details<F, G>(
         // The engine walks the same newest-to-oldest order and skips down to
         // the cursor itself, so deep history is paged without replaying rows
         // from earlier pages (and without depending on the retained window).
-        for (tx, height, state_root) in state
-            .engine
-            .list_committed_transactions_from_history(limit, cursor, &matches_tx)
+        for (tx, height, state_root) in
+            state
+                .engine
+                .list_committed_transactions_from_history(limit, cursor, &matches_tx)
         {
             // The engine only returns rows strictly after the cursor, so no
             // further cursor bookkeeping is needed in this final phase.
