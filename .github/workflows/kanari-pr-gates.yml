@@ -1,0 +1,189 @@
+name: Kanari PR Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "move-lang-2027"
+      - "kanari-sdk"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-gates:
+    name: Rust fmt/clippy/tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-pr-gates-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pr-gates-cargo-
+
+      - name: rustfmt check
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: >
+          cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server
+          -p kanari-move-runtime-v1 -p kanari-core --lib -- -D warnings
+
+      - name: OpenRPC spec consistency
+        run: cargo run -p kanari-open-rpc-spec-builder -- test
+
+      - name: Unit tests (fast suites)
+        run: |
+          cargo test -p kanari-types --lib
+          cargo test -p kanari-rpc-api --lib
+          cargo test -p kanari-rpc-server --lib
+          cargo test -p kanari-move-runtime-v1 --lib
+
+      - name: Unit tests (kanari-core engine)
+        timeout-minutes: 30
+        run: cargo test -p kanari-core --lib
+
+      - name: Move Prover pipeline (kanari-system)
+        working-directory: crates/kanari-frameworks/packages/kanari-system
+        run: cargo run -p kanari -- move prove
+
+      - name: Move unit tests (kanari-system)
+        working-directory: crates/kanari-frameworks/packages/kanari-system
+        run: cargo run -p kanari -- move test
+
+  flutter-gates:
+    name: Flutter analyze/test (kanari_pay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: sdk/kanari_pay
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (native bridge)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo (shared with rust-gates)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-pr-gates-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pr-gates-cargo-
+
+      # flutter_rust_bridge resolves ioDirectory ('../../rust/target/release/')
+      # against the test working directory (sdk/kanari_pay), so the cdylib
+      # must land in sdk/rust/target/release/. The package-relative copy is
+      # belt-and-suspenders for other resolution orders.
+      - name: Build native bridge cdylib for Linux tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          cargo build --release -p rust
+          mkdir -p sdk/rust/target/release packages/kanari_flutter/rust/target/release
+          cp target/release/librust.so sdk/rust/target/release/librust.so
+          cp target/release/librust.so packages/kanari_flutter/rust/target/release/librust.so
+          ls -la sdk/rust/target/release/ packages/kanari_flutter/rust/target/release/
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Analyze touched areas
+        run: >
+          dart analyze lib/src/models/account.dart
+          lib/src/models/transaction.dart lib/src/core/token_utils.dart
+          lib/src/core/token_metadata.dart
+          lib/src/ui/screens/wallet_transactions_screen.dart
+          lib/src/ui/screens/escrow_screen.dart
+          lib/src/ui/screens/home_screen.dart
+          lib/src/ui/widgets/transfer_bottom_sheet.dart
+          lib/src/ui/widgets/deal_card.dart
+
+      - name: Flutter tests
+        run: flutter test test --reporter compact
+
+  explorer-gates:
+    name: Explorer build (kanariexplorer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: kanariexplorer
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Production build
+        run: bun run build
+
+  android-gates:
+    name: Android unit tests (kanariapp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: sdk/kanariapp
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # android-actions/setup-android is broken with current cmdline-tools
+      # (it tries to install the long-removed 'tools' package), so install
+      # the SDK manually. compileSdk 37 is newer than any default platform,
+      # so install it explicitly or unit-test compilation fails.
+      - name: Install Android SDK
+        run: |
+          mkdir -p "$HOME/android-sdk/cmdline-tools"
+          curl -sS -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/cmdtools.zip -d "$HOME/android-sdk/cmdline-tools"
+          mv "$HOME/android-sdk/cmdline-tools/cmdline-tools" "$HOME/android-sdk/cmdline-tools/latest"
+          echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$HOME/android-sdk/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Android API 37 platform
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest

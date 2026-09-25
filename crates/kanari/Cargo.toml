@@ -54,11 +54,15 @@ move-package = { workspace = true }
 move-coverage = { workspace = true }
 move-vm-test-utils = { workspace = true }
 move-unit-test = { workspace = true }
+move-prover = { workspace = true }
 
 bcs = { workspace = true }
 move-stdlib-natives = { workspace = true }
 kanari-system-natives = { workspace = true }
 rpassword = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [features]
 default = []

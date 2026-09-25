@@ -130,5 +130,122 @@ module kanari_system::coin_tests {
         transfer::public_transfer(c, @0x1);
         cleanup(cap, meta);
     }
+
+    // --- Decimals bound (THB incident: metadata decimals must be <= 9) ---
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 6)]
+    fun test_create_currency_rejects_decimals_ten() {
+        // EINVALID_DECIMALS in coin module.
+        let ctx = tx_context::dummy();
+        let (cap, meta) = coin::create_currency(
+            TEST {},
+            10,
+            b"T",
+            b"T",
+            b"",
+            option::none(),
+            &mut ctx
+        );
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 6)]
+    fun test_create_currency_rejects_decimals_255() {
+        // Upper u8 bound must also abort, never persist as metadata.
+        let ctx = tx_context::dummy();
+        let (cap, meta) = coin::create_currency(
+            TEST {},
+            255,
+            b"T",
+            b"T",
+            b"",
+            option::none(),
+            &mut ctx
+        );
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    fun test_create_currency_accepts_decimals_nine() {
+        // Boundary: 9 is legal (native KANARI itself uses 9).
+        let ctx = tx_context::dummy();
+        let (cap, meta) = coin::create_currency(
+            TEST {},
+            9,
+            b"T",
+            b"T",
+            b"",
+            option::none(),
+            &mut ctx
+        );
+        cleanup(cap, meta);
+    }
+
+    // --- Supply edges ---
+
+    #[test]
+    #[expected_failure]
+    fun test_mint_past_u64_max_traps() {
+        // Minting past u64::MAX cannot succeed: the `+` traps before any
+        // state changes, so no assertion code applies (bare expected_failure).
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let full = coin::mint(&mut cap, 18446744073709551615, &mut ctx);
+        let extra = coin::mint(&mut cap, 1, &mut ctx);
+        transfer::public_transfer(full, @0x1);
+        transfer::public_transfer(extra, @0x1);
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    fun test_mint_burn_full_conservation() {
+        // Mint then burn everything: supply returns to exactly zero.
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let c = coin::mint(&mut cap, 12345, &mut ctx);
+        let burned = coin::burn(&mut cap, c);
+        assert!(burned == 12345, 0);
+        assert!(coin::total_supply(&cap) == 0, 1);
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 3)]
+    fun test_burn_zero_fails() {
+        // Burning an empty coin must abort, never touch supply.
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let z = coin::zero(&mut ctx);
+        let burned = coin::burn(&mut cap, z);
+        assert!(burned == 0, 0);
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 2)]
+    fun test_split_more_than_balance_fails() {
+        // ENotEnough in coin module.
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let c = coin::mint(&mut cap, 100, &mut ctx);
+        let over = coin::split(&mut c, 101, &mut ctx);
+        transfer::public_transfer(c, @0x1);
+        transfer::public_transfer(over, @0x1);
+        cleanup(cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 3)]
+    fun test_split_zero_fails() {
+        let ctx = tx_context::dummy();
+        let (cap, meta) = setup(&mut ctx);
+        let c = coin::mint(&mut cap, 100, &mut ctx);
+        let part = coin::split(&mut c, 0, &mut ctx);
+        transfer::public_transfer(c, @0x1);
+        transfer::public_transfer(part, @0x1);
+        cleanup(cap, meta);
+    }
 }
 

@@ -1547,7 +1547,9 @@ impl<'env> Docgen<'env> {
                 ))
                 .unwrap_or("");
             let newl_at = source_before.rfind('\n').unwrap_or(0);
-            let mut indent = source_before.len() - newl_at - 1;
+            // Empty prefix (item at byte 0) would underflow below; saturate
+            // to zero indent instead of panicking.
+            let mut indent = source_before.len().saturating_sub(newl_at + 1);
             if indent >= 4 && source_before.ends_with("spec ") {
                 // Special case for `spec define` and similar constructs.
                 indent -= 4;
