@@ -37,6 +37,7 @@ export const RPC_METHODS = {
   GET_FULL_BLOCK: "kanari_getFullBlock",
   GET_TRANSACTION: "kanari_getTransaction",
   GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
+  COUNT_TRANSACTIONS: "kanari_countTransactions",
   GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
   GET_STATS: "kanari_getStats",
   GET_SMT_STATUS: "kanari_getSmtStatus",
@@ -310,10 +311,38 @@ export async function getFungibleAsset(token_type: string) {
   return callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET, { token_type });
 }
 
-export async function getFungibleAssetHolders(token_type: string, limit: number = 100) {
-  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_HOLDERS, { token_type, limit });
-  const holders = readField(response, "holders");
-  return Array.isArray(holders) ? holders : asArray(response);
+export type FungibleAssetHolderCursor = {
+  balance: number | string;
+  owner: string;
+};
+
+export type FungibleAssetHoldersPage = {
+  holders: unknown[];
+  nextCursor: FungibleAssetHolderCursor | null;
+};
+
+function readHolderCursor(value: unknown): FungibleAssetHolderCursor | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const owner = typeof record.owner === "string" ? record.owner : "";
+  const balance = record.balance;
+  if (!owner || (typeof balance !== "number" && typeof balance !== "string")) return null;
+  return { balance, owner };
+}
+
+export async function getFungibleAssetHolders(
+  token_type: string,
+  limit: number = 100,
+  cursor?: FungibleAssetHolderCursor | null,
+): Promise<FungibleAssetHoldersPage> {
+  const response = await callRpc(RPC_METHODS.GET_FUNGIBLE_ASSET_HOLDERS, {
+    token_type,
+    limit,
+    cursor: cursor ?? null,
+  });
+  const rawHolders = readField(response, "holders");
+  const holders = Array.isArray(rawHolders) ? rawHolders : asArray(response);
+  return { holders, nextCursor: readHolderCursor(readField(response, "next_cursor")) };
 }
 
 export async function getFungibleAssetTransactions(token_type: string, limit: number = 50, owner?: string) {
@@ -538,10 +567,11 @@ function dedupeTransactions<T>(transactions: T[]): T[] {
   });
 }
 
-// ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit และการกรองด้วย Account)
-export async function getAllTransactions(limit: number = 50, account?: string) {
-  const params: { limit: number; owner?: string } = { limit };
+// ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit, การกรองด้วย Account และ cursor ของหน้าก่อนหน้า)
+export async function getAllTransactions(limit: number = 50, account?: string, cursor?: string) {
+  const params: { limit: number; owner?: string; cursor?: string } = { limit };
   if (account) params.owner = account;
+  if (cursor) params.cursor = cursor;
   const response = await callRpc(RPC_METHODS.GET_ALL_TRANSACTIONS, params);
   if (Array.isArray(response)) return dedupeTransactions(response.map(normalizeTransaction));
 
@@ -555,6 +585,33 @@ export async function getAllTransactions(limit: number = 50, account?: string) {
   if (Array.isArray(data)) return dedupeTransactions(data.map(normalizeTransaction));
 
   return normalizeTransaction(response);
+}
+
+// นับจำนวนธุรกรรมที่ filter ตรง (ใช้คำนวณจำนวนหน้า) — เดิน history ทั้งหมดฝั่ง server
+export async function countTransactions(owner?: string): Promise<number | null> {
+  const params: { owner?: string } = {};
+  if (owner) params.owner = owner;
+  try {
+    const response = await callRpc(RPC_METHODS.COUNT_TRANSACTIONS, params);
+    if (typeof response === "number") return response;
+    const count = readField(response, "count");
+    return typeof count === "number" ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+// จำนวนรวมแบบไม่กรอง (O(1) จาก stats: committed ตลอดอายุ chain + pending ตอนนี้)
+export async function countAllTransactions(): Promise<number | null> {
+  try {
+    const stats = await getStats();
+    const committed = Number(readField(stats, "total_transactions") ?? NaN);
+    const pending = Number(readField(stats, "pending_transactions") ?? 0);
+    if (!Number.isFinite(committed)) return null;
+    return committed + (Number.isFinite(pending) ? pending : 0);
+  } catch {
+    return null;
+  }
 }
 
 // ค้นหาธุรกรรมแบบเจาะจงด้วย Hash

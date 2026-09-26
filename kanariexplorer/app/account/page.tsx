@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
 import { NftArtwork } from "../components/NftArtwork";
+import PaginationBar from "../components/PaginationBar";
 import {
   asArray,
   CopyButton,
@@ -19,7 +20,8 @@ import {
   StatusPill,
   stripHexPrefix,
 } from "../components/ExplorerUI";
-import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTokens, getTransaction } from "../lib/rpc";
+import { countTransactions, getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTokens, getTransaction } from "../lib/rpc";
+import { useTxPager, type TxPager } from "../lib/useTxPager";
 
 type AccountTab = "coins" | "nfts" | "objects" | "activity";
 
@@ -145,7 +147,6 @@ function AccountContent() {
   const [account, setAccount] = useState<unknown>(null);
   const [balances, setBalances] = useState<unknown[]>([]);
   const [tokenRegistry, setTokenRegistry] = useState<unknown[]>([]);
-  const [transactions, setTransactions] = useState<unknown[]>([]);
   const [nfts, setNfts] = useState<unknown[]>([]);
   const [objects, setObjects] = useState<unknown[]>([]);
   const [activeTab, setActiveTab] = useState<AccountTab>("coins");
@@ -153,17 +154,31 @@ function AccountContent() {
   const [selectedTransaction, setSelectedTransaction] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [activityOwner, setActivityOwner] = useState<string | null>(null);
+  const [activityTick, setActivityTick] = useState(0);
+
+  const activityPager = useTxPager({
+    owner: activityOwner ?? undefined,
+    enabled: activityOwner !== null,
+    fetchPage: (pageSize, cursor, owner) =>
+      getAllTransactions(pageSize, owner, cursor).then((response) => asArray(response)),
+    fetchCount: (owner) => countTransactions(owner),
+    resetToken: activityTick,
+  });
 
   async function loadAccount(target = address) {
     const trimmed = target.trim();
     if (!trimmed) return;
 
+    // Activity list is paged by the cursor pager; start its (re)load now so
+    // it fetches in parallel with the rest of the account state.
+    setActivityOwner(trimmed);
+    setActivityTick((tick) => tick + 1);
     setLoading(true);
     try {
-      const [accountData, balanceData, transactionData, nftData, objectData, registryData] = await Promise.all([
+      const [accountData, balanceData, nftData, objectData, registryData] = await Promise.all([
         getAccount(trimmed).catch(() => null),
         getAllBalances(trimmed).catch(() => []),
-        getAllTransactions(50, trimmed).catch(() => []),
         getOwnedNfts(trimmed).catch(() => []),
         getOwnedObjects(trimmed).catch(() => []),
         getTokens().catch(() => []),
@@ -171,7 +186,6 @@ function AccountContent() {
       setAccount(accountData);
       setBalances(asArray(balanceData));
       setTokenRegistry(asArray(registryData));
-      setTransactions(asArray(transactionData));
       setNfts(asArray(nftData));
       setObjects(dedupeObjects([...asArray(objectData), ...readArrayField(accountData, "owned_objects")]));
     } finally {
@@ -202,6 +216,17 @@ function AccountContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  const activityRows = activityPager.rows;
+  const activityTotalPages =
+    activityPager.totalPages ??
+    (activityPager.canNext ? activityPager.pageIndex + 2 : activityPager.pageIndex + 1);
+  const activityRangeStart = activityPager.pageIndex * activityPager.pageSize + 1;
+  const activityRangeEnd = activityRangeStart + activityRows.length - 1;
+  const activitySubtitle =
+    activityPager.total != null && activityRows.length > 0
+      ? `Showing ${activityRangeStart.toLocaleString()}-${activityRangeEnd.toLocaleString()} of ${activityPager.total.toLocaleString()} transactions`
+      : `Showing ${activityRows.length} transactions`;
 
   return (
     <div className="explorer-wrap">
@@ -236,7 +261,7 @@ function AccountContent() {
           ["coins", `Coins ${balances.length}`],
           ["nfts", `NFTs ${nfts.length}`],
           ["objects", `Objects ${objects.length}`],
-          ["activity", `Activity ${transactions.length}`],
+          ["activity", `Activity ${activityPager.total ?? activityRows.length}`],
         ].map(([id, label]) => (
           <button className={`tab ${activeTab === id ? "tab--active" : ""}`} key={id} type="button" onClick={() => setActiveTab(id as AccountTab)}>
             {label}
@@ -317,11 +342,21 @@ function AccountContent() {
       {!loading && activeTab === "activity" ? (
         <section className="panel">
           <div className="panel-head">
-            <h2 className="panel-title">Account Activity</h2>
+            <div>
+              <h2 className="panel-title">Account Activity</h2>
+              <p className="panel-subtitle">{activitySubtitle}</p>
+            </div>
+            <StatusPill label={activityPager.loading || activityPager.navigating ? "Syncing" : "Live"} state={activityPager.loading || activityPager.navigating ? "warn" : "ok"} />
           </div>
-          {transactions.length === 0 ? <EmptyState label="No transactions found." /> : null}
+          {activityRows.length === 0 ? (
+            activityPager.loading ? (
+              <EmptyState loading label="Loading activity..." />
+            ) : (
+              <EmptyState label="No transactions found." />
+            )
+          ) : null}
           <div className="data-list">
-            {transactions.map((transaction, index) => {
+            {activityRows.map((transaction, index) => {
               const fallbackHash = `transaction-${index}`;
               const hash = readTransactionHash(transaction, fallbackHash);
               const canOpen = hash !== fallbackHash;
@@ -426,6 +461,16 @@ function AccountContent() {
               );
             })}
           </div>
+          {activityRows.length > 0 ? (
+            <PaginationBar
+              pageIndex={activityPager.pageIndex}
+              totalPages={activityTotalPages}
+              pageSize={activityPager.pageSize}
+              disabled={activityPager.navigating}
+              onPage={(index) => activityPager.goToPage(index)}
+              onPageSize={(size) => activityPager.changePageSize(size)}
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -525,7 +570,7 @@ function AccountContent() {
         </section>
       ) : null}
 
-      <RawDetails label="Developer: raw account state" value={{ account, balances, nfts, objects, transactions }} />
+      <RawDetails label="Developer: raw account state" value={{ account, balances, nfts, objects, transactions: activityRows }} />
       <TransactionDetailsModal open={modalOpen} loading={modalLoading} transaction={selectedTransaction} onClose={() => setModalOpen(false)} />
     </div>
   );

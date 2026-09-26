@@ -363,6 +363,9 @@ async fn handle_rpc(
         methods::GET_ALL_TRANSACTIONS => {
             transaction::handle_get_all_transactions(&state, &request).await
         }
+        methods::COUNT_TRANSACTIONS => {
+            transaction::handle_count_transactions(&state, &request).await
+        }
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::GET_SMT_STATUS => handle_get_smt_status(&state, &request).await,

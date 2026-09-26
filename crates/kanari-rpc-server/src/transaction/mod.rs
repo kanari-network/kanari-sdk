@@ -985,13 +985,14 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
     }
 }
 
-fn push_unique_tx_details(
-    results: &mut Vec<TransactionDetails>,
+fn emit_unique_tx_details(
+    emitted: &mut usize,
     seen_hashes: &mut HashSet<String>,
     limit: usize,
     details: TransactionDetails,
+    on_row: &mut dyn FnMut(TransactionDetails) -> bool,
 ) -> bool {
-    if results.len() >= limit {
+    if *emitted >= limit {
         return false;
     }
 
@@ -999,8 +1000,8 @@ fn push_unique_tx_details(
         return true;
     }
 
-    results.push(details);
-    true
+    *emitted += 1;
+    on_row(details)
 }
 
 fn parse_hex_address(id: u64, raw: &str, field: &str) -> Result<Address, Box<RpcResponse>> {
@@ -2586,22 +2587,44 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     internal_error_response(request.id, "Transaction not found")
 }
 
-fn collect_transaction_details<F, G>(
+/// Collects one page of transaction details, newest first.
+///
+/// `cursor` is the hash of the last row from the previous page: the walk
+/// resumes strictly after it, so consecutive pages never repeat a row and
+/// rows newer than the cursor (arrived between pages) are simply skipped.
+/// A cursor that no longer exists in history yields an empty page instead of
+/// replaying from the top.
+fn walk_transaction_details<F, G>(
     state: &RpcServerState,
     limit: usize,
+    cursor: Option<&[u8]>,
     matches_tx: F,
     matches_details: G,
     lock_context: &str,
-) -> Vec<TransactionDetails>
-where
+    on_row: &mut dyn FnMut(TransactionDetails) -> bool,
+) where
     F: Fn(&Transaction) -> bool,
     G: Fn(&Transaction, &TransactionDetails) -> bool,
 {
-    let mut results: Vec<TransactionDetails> = Vec::new();
+    let mut emitted: usize = 0;
     let mut seen_hashes = HashSet::new();
-    let pending = state
-        .engine
-        .filter_pending_transaction_records(limit, |tx| matches_tx(&tx.signed_tx.transaction));
+    if let Some(cursor) = cursor {
+        // The cursor row itself must never reappear, even if it moves from
+        // the pending pool into a checkpoint between the two page requests.
+        seen_hashes.insert(format!("0x{}", hex::encode(cursor)));
+    }
+    // Until the cursor is seen every candidate (all of them are newer) is
+    // skipped; without a cursor the page starts at the newest transaction.
+    // The pending pool reports its own cursor state: rows it returns are
+    // already after the cursor when it is still pending, and an unset flag
+    // means the cursor has committed (the pool is entirely newer than it).
+    let (pending, cursor_passed) =
+        state
+            .engine
+            .filter_pending_transaction_records(limit, cursor, |tx| {
+                matches_tx(&tx.signed_tx.transaction)
+            });
+    let mut cursor_passed = cursor.is_none() || cursor_passed;
 
     for tx in &pending {
         let mut details = map_transaction_to_details(
@@ -2616,23 +2639,29 @@ where
         if !matches_details(&tx.signed_tx.transaction, &details) {
             continue;
         }
-        if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
+        if !emit_unique_tx_details(&mut emitted, &mut seen_hashes, limit, details, on_row) {
             break;
         }
     }
 
-    if results.len() < limit {
+    if emitted < limit {
         let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
             error!("blockchain lock poisoned while {lock_context}; recovering");
             p.into_inner()
         });
 
         for checkpoint in chain.dag_checkpoints.iter().rev() {
-            if results.len() >= limit {
+            if emitted >= limit {
                 break;
             }
 
             for (index, tx) in checkpoint.transactions.iter().enumerate().rev() {
+                if !cursor_passed {
+                    if cursor == Some(tx.transaction_hash()) {
+                        cursor_passed = true;
+                    }
+                    continue;
+                }
                 if !matches_tx(&tx.transaction) {
                     continue;
                 }
@@ -2653,18 +2682,24 @@ where
                 if !matches_details(&tx.transaction, &details) {
                     continue;
                 }
-                if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
+                if !emit_unique_tx_details(&mut emitted, &mut seen_hashes, limit, details, on_row) {
                     break;
                 }
             }
         }
     }
 
-    if results.len() < limit {
-        for (tx, height, state_root) in state
-            .engine
-            .list_committed_transactions_from_history(limit, &matches_tx)
+    if emitted < limit {
+        // The engine walks the same newest-to-oldest order and skips down to
+        // the cursor itself, so deep history is paged without replaying rows
+        // from earlier pages (and without depending on the retained window).
+        for (tx, height, state_root) in
+            state
+                .engine
+                .list_committed_transactions_from_history(limit, cursor, &matches_tx)
         {
+            // The engine only returns rows strictly after the cursor, so no
+            // further cursor bookkeeping is needed in this final phase.
             let tx_hash = tx.transaction_hash().to_vec();
             let effect = state
                 .engine
@@ -2681,17 +2716,109 @@ where
             if !matches_details(&tx.transaction, &details) {
                 continue;
             }
-            if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, details) {
+            if !emit_unique_tx_details(&mut emitted, &mut seen_hashes, limit, details, on_row) {
                 break;
             }
         }
     }
+}
 
+fn collect_transaction_details<F, G>(
+    state: &RpcServerState,
+    limit: usize,
+    cursor: Option<&[u8]>,
+    matches_tx: F,
+    matches_details: G,
+    lock_context: &str,
+) -> Vec<TransactionDetails>
+where
+    F: Fn(&Transaction) -> bool,
+    G: Fn(&Transaction, &TransactionDetails) -> bool,
+{
+    let mut results: Vec<TransactionDetails> = Vec::new();
+    walk_transaction_details(
+        state,
+        limit,
+        cursor,
+        matches_tx,
+        matches_details,
+        lock_context,
+        &mut |details| {
+            results.push(details);
+            true
+        },
+    );
     results
 }
 
+/// Walks the full newest-to-oldest stream (pending first, then committed
+/// history) and counts every distinct row the same filters would return
+/// across all pages, without materialising the rows themselves.
+fn count_transaction_details<F, G>(
+    state: &RpcServerState,
+    matches_tx: F,
+    matches_details: G,
+    lock_context: &str,
+) -> u64
+where
+    F: Fn(&Transaction) -> bool,
+    G: Fn(&Transaction, &TransactionDetails) -> bool,
+{
+    let mut count: u64 = 0;
+    walk_transaction_details(
+        state,
+        usize::MAX,
+        None,
+        matches_tx,
+        matches_details,
+        lock_context,
+        &mut |_| {
+            count += 1;
+            true
+        },
+    );
+    count
+}
+
+/// Owner filter shared by the list and count handlers: normalized without
+/// the 0x prefix, lowercased.
+fn parse_owner_norm(params: &serde_json::Value) -> Option<String> {
+    params
+        .as_str()
+        .or_else(|| {
+            params
+                .as_object()
+                .and_then(|obj| obj.get("owner").and_then(|v| v.as_str()))
+        })
+        .map(|a| a.trim_start_matches("0x").to_lowercase())
+}
+
+/// Handle request to count all transactions matching the list filters
+pub async fn handle_count_transactions(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let owner_norm = parse_owner_norm(&request.params);
+
+    // Same pre-filter / post-filter pair as kanari_getAllTransactions, so
+    // the count equals the number of rows a cursor walk would eventually
+    // produce for identical filters.
+    let count = count_transaction_details(
+        state,
+        |tx| {
+            tx_matches_owner(tx, owner_norm.as_deref())
+                || (owner_norm.is_some() && matches!(tx, Transaction::ExecuteFunction { .. }))
+        },
+        |tx, details| {
+            tx_matches_owner(tx, owner_norm.as_deref())
+                || details_involve_owner(details, owner_norm.as_deref())
+        },
+        "counting transactions",
+    );
+    respond_with_serialize(request.id, count)
+}
+
 /// Handle request to list all transactions (committed + pending)
-/// Optimized: Fetches latest transactions first and implements pagination (Limit)
 pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
@@ -2703,16 +2830,39 @@ pub async fn handle_get_all_transactions(
         .unwrap_or(50)
         .min(500) as usize;
 
-    let owner_norm = request
+    let owner_norm = parse_owner_norm(&request.params);
+
+    // Optional resume point: the hash of the last row the client already has
+    // (with or without 0x). The page then starts strictly after it, so the
+    // caller can walk the whole history `limit` rows at a time.
+    let cursor = match request
         .params
-        .as_str()
-        .or_else(|| {
-            request
-                .params
-                .as_object()
-                .and_then(|obj| obj.get("owner").and_then(|v| v.as_str()))
-        })
-        .map(|a| a.trim_start_matches("0x").to_lowercase());
+        .as_object()
+        .and_then(|params| params.get("cursor"))
+    {
+        None => None,
+        Some(value) => {
+            let Some(raw) = value.as_str() else {
+                return invalid_params_response(
+                    request.id,
+                    "Invalid cursor: expected a transaction hash string",
+                );
+            };
+            let stripped = raw
+                .strip_prefix("0x")
+                .or_else(|| raw.strip_prefix("0X"))
+                .unwrap_or(raw);
+            match hex::decode(stripped) {
+                Ok(bytes) if !bytes.is_empty() => Some(bytes),
+                _ => {
+                    return invalid_params_response(
+                        request.id,
+                        "Invalid cursor: expected a hex transaction hash",
+                    );
+                }
+            }
+        }
+    };
 
     // Pre-filter is deliberately wider than the old sender-only check when an
     // owner is set: entry-function token transfers carry the coin in object
@@ -2721,6 +2871,7 @@ pub async fn handle_get_all_transactions(
     let results = collect_transaction_details(
         state,
         limit,
+        cursor.as_deref(),
         |tx| {
             tx_matches_owner(tx, owner_norm.as_deref())
                 || (owner_norm.is_some() && matches!(tx, Transaction::ExecuteFunction { .. }))
@@ -2761,6 +2912,7 @@ pub async fn handle_get_fungible_asset_transactions(
     let results = collect_transaction_details(
         state,
         limit,
+        None,
         |tx| {
             if owner_norm.is_none() {
                 return tx_mentions_token_type(tx, &token_type);
