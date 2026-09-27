@@ -1421,9 +1421,16 @@ impl BlockchainEngine {
     }
 
     /// Lists committed transactions from history, applying a predicate filter.
+    ///
+    /// `cursor_hash` resumes the newest-to-oldest walk after a known
+    /// transaction: everything from the top down to and including the cursor
+    /// is skipped, so a later page never repeats rows an earlier page already
+    /// returned. When the cursor is absent from history the walk yields
+    /// nothing instead of replaying from the top.
     pub fn list_committed_transactions_from_history<F>(
         &self,
         limit: usize,
+        cursor_hash: Option<&[u8]>,
         mut matches: F,
     ) -> Vec<(SignedTransaction, u64, Vec<u8>)>
     where
@@ -1432,8 +1439,11 @@ impl BlockchainEngine {
         let Some(store) = self.persistent_store.as_ref() else {
             return Vec::new();
         };
-        let mut results = Vec::with_capacity(limit);
+        // Callers pass large limits (e.g. usize::MAX when counting), so the
+        // preallocation must stay bounded by real row counts.
+        let mut results = Vec::with_capacity(limit.min(4096));
         let mut seen_hashes = HashSet::new();
+        let mut cursor_passed = cursor_hash.is_none();
 
         if let Ok(Some(recent_hashes)) =
             store.load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())
@@ -1441,6 +1451,16 @@ impl BlockchainEngine {
             for tx_hash in recent_hashes.iter().rev() {
                 if results.len() >= limit {
                     break;
+                }
+                if !cursor_passed {
+                    if cursor_hash == Some(tx_hash.as_slice()) {
+                        cursor_passed = true;
+                    }
+                    // Record everything already walked (including the cursor
+                    // itself) so the checkpoint phases below never replay a
+                    // row once the flag flips.
+                    seen_hashes.insert(tx_hash.clone());
+                    continue;
                 }
                 let Some((tx, location)) =
                     Self::load_transaction_by_hash_from_index(store, tx_hash)
@@ -1478,6 +1498,13 @@ impl BlockchainEngine {
                 if results.len() >= limit {
                     break;
                 }
+                if !cursor_passed {
+                    if cursor_hash == Some(tx.transaction_hash()) {
+                        cursor_passed = true;
+                    }
+                    seen_hashes.insert(tx.transaction_hash().to_vec());
+                    continue;
+                }
                 if !seen_hashes.insert(tx.transaction_hash().to_vec()) {
                     continue;
                 }
@@ -1500,6 +1527,13 @@ impl BlockchainEngine {
                     }
 
                     let tx_hash = tx.transaction_hash().to_vec();
+                    if !cursor_passed {
+                        if cursor_hash == Some(tx_hash.as_slice()) {
+                            cursor_passed = true;
+                        }
+                        seen_hashes.insert(tx_hash);
+                        continue;
+                    }
                     if !seen_hashes.insert(tx_hash) {
                         continue;
                     }
@@ -1563,22 +1597,42 @@ impl BlockchainEngine {
     }
 
     /// Filters pending transaction records by a predicate, returning up to `limit` matches.
+    /// Returns the newest `limit` pending transactions matching `predicate`,
+    /// optionally resuming after `cursor_hash`.
+    ///
+    /// The second element reports whether the cursor was passed, and rows are
+    /// then strictly after it. Cursor detection runs before the predicate so
+    /// the cursor row is found even if the filter would reject it. When the
+    /// cursor is still pending the scan skips down to it; when it has already
+    /// committed, the whole pool is newer than it, so nothing is returned and
+    /// the flag stays `false`.
     pub fn filter_pending_transaction_records<F>(
         &self,
         limit: usize,
+        cursor_hash: Option<&[u8]>,
         mut predicate: F,
-    ) -> Vec<PendingTransactionRecord>
+    ) -> (Vec<PendingTransactionRecord>, bool)
     where
         F: FnMut(&PendingTransactionRecord) -> bool,
     {
-        self.mempool_read()
-            .pending_txs
-            .iter()
-            .rev()
-            .filter(|record| predicate(record))
-            .take(limit)
-            .cloned()
-            .collect()
+        let mut cursor_passed = cursor_hash.is_none();
+        let mut results = Vec::with_capacity(limit.min(1024));
+        let mempool = self.mempool_read();
+        for record in mempool.pending_txs.iter().rev() {
+            if results.len() >= limit {
+                break;
+            }
+            if !cursor_passed {
+                if cursor_hash == Some(record.signed_tx.transaction_hash()) {
+                    cursor_passed = true;
+                }
+                continue;
+            }
+            if predicate(record) {
+                results.push(record.clone());
+            }
+        }
+        (results, cursor_passed)
     }
 
     /// Returns a snapshot of all pending signed transactions in the mempool.

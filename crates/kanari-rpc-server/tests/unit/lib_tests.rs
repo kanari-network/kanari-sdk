@@ -519,6 +519,233 @@ async fn submitted_transaction_hash_is_queryable() {
 }
 
 #[tokio::test]
+async fn transaction_cursor_walks_pages_without_repeats_or_gaps() {
+    let guard = test_guard().await;
+    let engine = build_test_engine();
+
+    let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
+    let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
+    let sender_tagged = sender.tagged_address();
+    let recipient_address =
+        move_core_types::account_address::AccountAddress::from_hex_literal(&recipient.address)
+            .invariant("recipient account address")
+            .to_hex_literal();
+
+    let mut submitted_hashes = Vec::new();
+    let mut signed_batch = Vec::new();
+    for nonce in 1..=3u64 {
+        let transaction = Transaction::new_transfer_with_object_ref_and_gas(
+            sender_tagged.clone(),
+            // Distinct coin objects so the mempool never sees a conflict.
+            kanari_types::transaction::ObjectRef::new(
+                format!("0xaaa{nonce}"),
+                Some(1),
+                Some("0xtest".to_string()),
+            ),
+            recipient_address.clone(),
+            1,
+            nonce,
+            1_000_000,
+            1,
+        );
+        let mut signed_tx = SignedTransaction::new(transaction);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .invariant("sign transaction");
+        submitted_hashes.push(format!("0x{}", hex::encode(signed_tx.transaction_hash())));
+        signed_batch.push(signed_tx);
+    }
+    engine
+        .submit_transactions_batch(signed_batch)
+        .invariant("submit pending batch");
+
+    let app = create_router(RpcServerState::new(engine));
+
+    let page_one = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2 }),
+        30,
+    )
+    .await;
+    let page_one = page_one.as_array().invariant("page one array");
+    assert_eq!(page_one.len(), 2, "full page while older rows remain");
+    let cursor = page_one[1]["hash"]
+        .as_str()
+        .invariant("cursor hash")
+        .to_string();
+
+    let page_two = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": cursor }),
+        31,
+    )
+    .await;
+    let page_two = page_two.as_array().invariant("page two array");
+    assert_eq!(page_two.len(), 1, "remainder after the cursor");
+
+    let mut seen: Vec<String> = Vec::new();
+    for row in page_one.iter().chain(page_two.iter()) {
+        let hash = row["hash"].as_str().invariant("row hash").to_string();
+        assert!(!seen.contains(&hash), "row repeated across pages: {hash}");
+        seen.push(hash);
+    }
+    assert_eq!(seen.len(), submitted_hashes.len(), "no row was skipped");
+    for expected in &submitted_hashes {
+        assert!(seen.contains(expected), "missing transaction {expected}");
+    }
+
+    let page_three = rpc_call(
+        app.clone(),
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": page_two[0]["hash"].as_str().invariant("cursor hash") }),
+        32,
+    )
+    .await;
+    assert!(
+        page_three
+            .as_array()
+            .invariant("page three array")
+            .is_empty(),
+        "walk stops once the cursor reaches the oldest row"
+    );
+
+    let invalid = rpc_call_response(
+        app,
+        methods::GET_ALL_TRANSACTIONS,
+        serde_json::json!({ "limit": 2, "cursor": "not-a-hash" }),
+        33,
+    )
+    .await;
+    assert!(
+        invalid["error"]["message"]
+            .as_str()
+            .map(|message| message.contains("cursor"))
+            .unwrap_or(false),
+        "malformed cursor must be rejected as invalid params: {invalid}"
+    );
+
+    drop(guard);
+}
+
+#[tokio::test]
+async fn transaction_count_matches_full_cursor_walk() {
+    let guard = test_guard().await;
+    let engine = build_test_engine();
+
+    let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
+    let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
+    let sender_tagged = sender.tagged_address();
+    let recipient_address =
+        move_core_types::account_address::AccountAddress::from_hex_literal(&recipient.address)
+            .invariant("recipient account address")
+            .to_hex_literal();
+
+    let mut signed_batch = Vec::new();
+    for nonce in 1..=3u64 {
+        let transaction = Transaction::new_transfer_with_object_ref_and_gas(
+            sender_tagged.clone(),
+            kanari_types::transaction::ObjectRef::new(
+                format!("0xaaa{nonce}"),
+                Some(1),
+                Some("0xtest".to_string()),
+            ),
+            recipient_address.clone(),
+            1,
+            nonce,
+            1_000_000,
+            1,
+        );
+        let mut signed_tx = SignedTransaction::new(transaction);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .invariant("sign transaction");
+        signed_batch.push(signed_tx);
+    }
+    engine
+        .submit_transactions_batch(signed_batch)
+        .invariant("submit pending batch");
+
+    let app = create_router(RpcServerState::new(engine));
+
+    // Unfiltered: the count equals a full cursor walk over the same rows.
+    let count = rpc_call(
+        app.clone(),
+        methods::COUNT_TRANSACTIONS,
+        serde_json::json!({}),
+        40,
+    )
+    .await;
+    let count = count.as_u64().invariant("unfiltered count");
+    assert_eq!(count, 3, "every pending transaction is counted once");
+
+    let mut walked = 0u64;
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut params = serde_json::json!({ "limit": 2 });
+        if let Some(cursor) = &cursor {
+            params["cursor"] = serde_json::json!(cursor);
+        }
+        let page = rpc_call(
+            app.clone(),
+            methods::GET_ALL_TRANSACTIONS,
+            params,
+            41 + walked,
+        )
+        .await;
+        let page = page.as_array().invariant("walk page");
+        walked += page.len() as u64;
+        if page.len() < 2 {
+            break;
+        }
+        cursor = Some(page[1]["hash"].as_str().invariant("row hash").to_string());
+    }
+    assert_eq!(count, walked, "count must match the paged walk exactly");
+
+    // Owner filters: count tracks whatever the list handler would return.
+    for owner in [sender.address.clone(), recipient.address.clone()] {
+        let count = rpc_call(
+            app.clone(),
+            methods::COUNT_TRANSACTIONS,
+            serde_json::json!({ "owner": owner }),
+            60,
+        )
+        .await;
+        let count = count.as_u64().invariant("owner count");
+        let list = rpc_call(
+            app.clone(),
+            methods::GET_ALL_TRANSACTIONS,
+            serde_json::json!({ "limit": 500, "owner": owner }),
+            61,
+        )
+        .await;
+        let list = list.as_array().invariant("owner list");
+        assert_eq!(
+            count,
+            list.len() as u64,
+            "count must match the filtered list length for {owner}"
+        );
+    }
+
+    let unrelated = "0xdead00000000000000000000000000000000000000000000000000000000beef";
+    let count = rpc_call(
+        app.clone(),
+        methods::COUNT_TRANSACTIONS,
+        serde_json::json!({ "owner": unrelated }),
+        62,
+    )
+    .await;
+    assert_eq!(
+        count.as_u64().invariant("unrelated count"),
+        0,
+        "an owner with no activity counts zero"
+    );
+
+    drop(guard);
+}
+
+#[tokio::test]
 async fn submit_transaction_can_execute_immediately() {
     let guard = test_guard().await;
     let mut engine = BlockchainEngine::new_in_memory().invariant("in-memory engine");

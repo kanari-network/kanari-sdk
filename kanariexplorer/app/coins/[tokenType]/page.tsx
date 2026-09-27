@@ -19,6 +19,7 @@ import {
   shortHash,
 } from "../../components/ExplorerUI";
 import {
+  FungibleAssetHolderCursor,
   getFungibleAsset,
   getFungibleAssetHolders,
   getFungibleAssetTransactions,
@@ -55,6 +56,8 @@ function FungibleAssetContent() {
   const tokenType = useMemo(() => decodeTokenParam(params.tokenType), [params.tokenType]);
   const [asset, setAsset] = useState<unknown>(null);
   const [holders, setHolders] = useState<unknown[]>([]);
+  const [holdersCursor, setHoldersCursor] = useState<FungibleAssetHolderCursor | null>(null);
+  const [holdersLoadingMore, setHoldersLoadingMore] = useState(false);
   const [transactions, setTransactions] = useState<unknown[]>([]);
   const [activeTab, setActiveTab] = useState<AssetTab>("info");
   const [loading, setLoading] = useState(true);
@@ -68,19 +71,21 @@ function FungibleAssetContent() {
       setLoading(true);
       setError("");
       try {
-        const [assetInfo, holderList, txList] = await Promise.all([
+        const [assetInfo, holderPage, txList] = await Promise.all([
           getFungibleAsset(tokenType),
           getFungibleAssetHolders(tokenType, 100),
           getFungibleAssetTransactions(tokenType, 50),
         ]);
         if (cancelled) return;
         setAsset(assetInfo);
-        setHolders(holderList);
+        setHolders(holderPage.holders);
+        setHoldersCursor(holderPage.nextCursor);
         setTransactions(txList);
       } catch (err) {
         if (cancelled) return;
         setAsset(null);
         setHolders([]);
+        setHoldersCursor(null);
         setTransactions([]);
         setError(err instanceof Error ? err.message : "Failed to fetch fungible asset");
       } finally {
@@ -93,6 +98,20 @@ function FungibleAssetContent() {
       cancelled = true;
     };
   }, [tokenType]);
+
+  async function loadMoreHolders() {
+    if (!tokenType || !holdersCursor || holdersLoadingMore) return;
+    setHoldersLoadingMore(true);
+    try {
+      const page = await getFungibleAssetHolders(tokenType, 100, holdersCursor);
+      setHolders((current) => [...current, ...page.holders]);
+      setHoldersCursor(page.nextCursor);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch more holders");
+    } finally {
+      setHoldersLoadingMore(false);
+    }
+  }
 
   const symbol = readString(asset, "symbol", tokenType.split("::").slice(-1)[0] || "ASSET");
   // No fallback: decimals จาก API เท่านั้น
@@ -156,7 +175,17 @@ function FungibleAssetContent() {
       </div>
 
       {activeTab === "info" ? <AssetInfoPanel asset={asset} tokenType={tokenType} decimals={decimals} /> : null}
-      {activeTab === "holders" ? <AssetHoldersPanel holders={holders} decimals={decimals} symbol={symbol} loading={loading} /> : null}
+      {activeTab === "holders" ? (
+        <AssetHoldersPanel
+          holders={holders}
+          decimals={decimals}
+          symbol={symbol}
+          loading={loading}
+          hasMore={holdersCursor !== null}
+          loadingMore={holdersLoadingMore}
+          onLoadMore={() => void loadMoreHolders()}
+        />
+      ) : null}
       {activeTab === "transactions" ? <AssetTransactionsPanel transactions={transactions} loading={loading} /> : null}
 
       <RawDetails label="Developer: raw fungible asset data" value={{ asset, holders, transactions }} />
@@ -198,11 +227,17 @@ function AssetHoldersPanel({
   decimals,
   symbol,
   loading,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   holders: unknown[];
   decimals: string | null;
   symbol: string;
   loading: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   return (
     <Panel title="Holders" subtitle="Wallets with current positive asset balance." action={<StatusPill label={loading ? "Syncing" : "Ready"} state={loading ? "warn" : "ok"} />}>
@@ -234,6 +269,13 @@ function AssetHoldersPanel({
               </div>
             );
           })}
+        </div>
+      ) : null}
+      {hasMore ? (
+        <div className="hero-actions explorer-page-actions">
+          <button className="button" type="button" disabled={loadingMore} onClick={onLoadMore}>
+            {loadingMore ? "Loading more holders..." : `Load more holders (${holders.length} shown)`}
+          </button>
         </div>
       ) : null}
     </Panel>

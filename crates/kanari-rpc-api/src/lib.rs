@@ -1044,12 +1044,28 @@ pub struct GetFungibleAssetRequest {
     pub token_type: String,
 }
 
+/// Cursor for paginating the holder list, which is ordered by
+/// `(balance DESC, owner ASC)`.
+///
+/// A page returns holders strictly after this position, so advancing with
+/// the returned `next_cursor` never repeats or skips entries even when
+/// balances change between calls (entries that moved are repositioned, but
+/// no entry is silently dropped from the iteration contract below).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FungibleAssetHolderCursor {
+    pub balance: u64,
+    pub owner: String,
+}
+
 /// Get fungible asset holder list request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetFungibleAssetHoldersRequest {
     pub token_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// Resume after this position. `None` starts from the top holder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<FungibleAssetHolderCursor>,
 }
 
 /// Get transactions that involve a fungible asset.
@@ -1096,6 +1112,9 @@ pub struct FungibleAssetHolder {
 pub struct FungibleAssetHoldersResponse {
     pub token_type: String,
     pub holders: Vec<FungibleAssetHolder>,
+    /// Cursor for the next page. `None` means this was the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<FungibleAssetHolderCursor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1177,10 +1196,14 @@ pub mod methods {
             true,
             object_schema(&[
                 ("token_type", schema_string()),
-                ("limit", optional_schema(schema_integer()))
+                ("limit", optional_schema(schema_integer())),
+                ("cursor", optional_schema(object_schema(&[
+                    ("balance", schema_integer()),
+                    ("owner", schema_string()),
+                ])))
             ])
         )],
-        result = ("holders", "Fungible asset holders.", schema_object()),
+        result = ("holders", "Fungible asset holders with optional next_cursor.", schema_object()),
         tags = ["asset", "balance"]
     )]
     pub const GET_FUNGIBLE_ASSET_HOLDERS: &str = "kanari_getFungibleAssetHolders";
@@ -1242,17 +1265,34 @@ pub mod methods {
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     #[open_rpc_method(
         summary = "List transactions",
-        description = "Returns recent committed and pending transactions, with optional filtering.",
+        description = "Returns committed and pending transactions, newest first, with optional filtering. `limit` caps one page (default 50, max 500); pass the hash of the last received row back as `cursor` to fetch the next older page. Pages continue until history is exhausted, so the full history is walkable at any depth.",
         params = [(
             "request",
-            "Optional list options such as limit or owner filter.",
+            "Optional list options: limit (rows per page), owner filter, and cursor (hash of the last row from the previous page, with or without 0x).",
             false,
-            schema_object()
+            object_schema(&[
+                ("limit", optional_schema(schema_integer())),
+                ("owner", optional_schema(schema_string())),
+                ("cursor", optional_schema(schema_string())),
+            ])
         )],
-        result = ("transactions", "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_array(schema_object())),
+        result = ("transactions", "Transaction detail list, newest first. A page shorter than `limit` means the walk reached the end. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.", schema_array(schema_object())),
         tags = ["transaction"]
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
+    #[open_rpc_method(
+        summary = "Count transactions",
+        description = "Returns how many committed and pending transactions match the same owner filter as kanari_getAllTransactions, walking the full newest-to-oldest history. Use it to size numbered pagination (total pages = ceil(count / page size)).",
+        params = [(
+            "request",
+            "Optional filter options: owner filter only (no limit or cursor).",
+            false,
+            object_schema(&[("owner", optional_schema(schema_string()))])
+        )],
+        result = ("count", "Number of matching transactions.", schema_integer()),
+        tags = ["transaction"]
+    )]
+    pub const COUNT_TRANSACTIONS: &str = "kanari_countTransactions";
     #[open_rpc_method(
         summary = "Submit transaction",
         description = "Submits a transfer or burn transaction to the mempool.",

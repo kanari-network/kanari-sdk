@@ -7,9 +7,9 @@ use super::{
 };
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{
-    FungibleAssetHolder, FungibleAssetHoldersResponse, FungibleAssetInfo,
-    GetFungibleAssetHoldersRequest, GetFungibleAssetRequest, GetOwnerBalancesRequest,
-    GetTokenBalanceRequest,
+    FungibleAssetHolder, FungibleAssetHolderCursor, FungibleAssetHoldersResponse,
+    FungibleAssetInfo, GetFungibleAssetHoldersRequest, GetFungibleAssetRequest,
+    GetOwnerBalancesRequest, GetTokenBalanceRequest,
 };
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
@@ -67,12 +67,27 @@ fn build_balance_json(
     })
 }
 
+/// A page of holders plus the cursor resuming after it (`None` on last page).
+type HolderPage = (Vec<FungibleAssetHolder>, Option<FungibleAssetHolderCursor>);
+
+/// Returns `true` when `(balance, owner_hex)` sorts strictly after `cursor`
+/// under the holder ordering (balance DESC, owner ASC). The same comparison
+/// backs both sorting and slicing, so pages never repeat or skip entries.
+fn holder_after_cursor(balance: u64, owner_hex: &str, cursor: &FungibleAssetHolderCursor) -> bool {
+    balance < cursor.balance || (balance == cursor.balance && owner_hex > cursor.owner.as_str())
+}
+
 fn collect_fungible_asset_holders(
     state_guard: &StateManager,
     token_type: &str,
     limit: Option<usize>,
+    cursor: Option<&FungibleAssetHolderCursor>,
     compute_coin_count: bool,
-) -> anyhow::Result<Vec<FungibleAssetHolder>> {
+) -> anyhow::Result<HolderPage> {
+    if limit == Some(0) {
+        return Ok((Vec::new(), None));
+    }
+
     let token_type = CoinModule::normalize_token_type(token_type);
     let mut balances: Vec<(AccountAddress, u64)> = Vec::new();
 
@@ -98,13 +113,31 @@ fn collect_fungible_asset_holders(
         if balance == 0 {
             continue;
         }
+        if let Some(cursor) = cursor
+            && !holder_after_cursor(balance, &owner.to_hex_literal(), cursor)
+        {
+            continue;
+        }
         balances.push((owner, balance));
     }
 
     balances.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    if let Some(limit) = limit {
-        balances.truncate(limit);
+    // Fetch one extra to know whether another page exists.
+    let fetch = limit.map(|limit| limit.saturating_add(1));
+    if let Some(fetch) = fetch {
+        balances.truncate(fetch);
     }
+    let next_cursor = match limit {
+        Some(limit) if balances.len() > limit => {
+            let (owner, balance) = balances[limit - 1];
+            balances.truncate(limit);
+            Some(FungibleAssetHolderCursor {
+                balance,
+                owner: owner.to_hex_literal(),
+            })
+        }
+        _ => None,
+    };
 
     // Hydrate coin counts only for survivors so a limit=10 query for a
     // rare token doesn't walk every owner's objects. Output identical to
@@ -131,7 +164,7 @@ fn collect_fungible_asset_holders(
             coin_object_count,
         });
     }
-    Ok(holders)
+    Ok((holders, next_cursor))
 }
 
 fn is_public_asset_holder(owner: &AccountAddress) -> bool {
@@ -295,12 +328,13 @@ pub async fn handle_get_fungible_asset(
         Ok(summary) => summary,
         Err(e) => return internal_error_response(request.id, e.to_string()),
     };
-    let holders_count = match collect_fungible_asset_holders(&state_guard, &token_type, None, false)
-        .map(|h| h.len())
-    {
-        Ok(count) => count,
-        Err(e) => return internal_error_response(request.id, e.to_string()),
-    };
+    let holders_count =
+        match collect_fungible_asset_holders(&state_guard, &token_type, None, None, false)
+            .map(|(holders, _)| holders.len())
+        {
+            Ok(count) => count,
+            Err(e) => return internal_error_response(request.id, e.to_string()),
+        };
 
     let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
     let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
@@ -346,17 +380,23 @@ pub async fn handle_get_fungible_asset_holders(
     let state_guard = state.engine.state_read();
     let token_type = CoinModule::normalize_token_type(&req_data.token_type);
     let holder_limit = req_data.limit.unwrap_or(100).min(500);
-    let holders =
-        match collect_fungible_asset_holders(&state_guard, &token_type, Some(holder_limit), true) {
-            Ok(holders) => holders,
-            Err(e) => return internal_error_response(request.id, e.to_string()),
-        };
+    let (holders, next_cursor) = match collect_fungible_asset_holders(
+        &state_guard,
+        &token_type,
+        Some(holder_limit),
+        req_data.cursor.as_ref(),
+        true,
+    ) {
+        Ok(page) => page,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
 
     respond_with_serialize(
         request.id,
         FungibleAssetHoldersResponse {
             token_type,
             holders,
+            next_cursor,
         },
     )
 }
@@ -378,5 +418,25 @@ mod tests {
         .expect("valid wallet address");
 
         assert!(is_public_asset_holder(&owner));
+    }
+
+    fn holder_cursor(balance: u64, owner: &str) -> FungibleAssetHolderCursor {
+        FungibleAssetHolderCursor {
+            balance,
+            owner: owner.to_string(),
+        }
+    }
+
+    #[test]
+    fn holder_cursor_orders_by_balance_desc_then_owner_asc() {
+        let cursor = holder_cursor(100, "0xbbb");
+        // Lower balance sorts after, whatever the owner.
+        assert!(holder_after_cursor(99, "0xaaa", &cursor));
+        // Higher balance never sorts after.
+        assert!(!holder_after_cursor(101, "0xzzz", &cursor));
+        // Equal balance: only lexicographically greater owners continue.
+        assert!(holder_after_cursor(100, "0xccc", &cursor));
+        assert!(!holder_after_cursor(100, "0xbbb", &cursor));
+        assert!(!holder_after_cursor(100, "0xaaa", &cursor));
     }
 }

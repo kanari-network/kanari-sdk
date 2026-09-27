@@ -1841,10 +1841,54 @@ fn committed_transaction_history_survives_metadata_stripping() {
         engine.persist_blockchain_snapshot(&chain).unwrap();
     }
 
-    let latest = engine.list_committed_transactions_from_history(10, |_| true);
+    let latest = engine.list_committed_transactions_from_history(10, None, |_| true);
     assert_eq!(latest.len(), 1);
     assert_eq!(latest[0].1, 1);
     assert_eq!(latest[0].0.transaction_hash(), tx_hash.as_slice());
+
+    // Page two resumes strictly after the newest transaction, which leaves
+    // the older checkpoint as its only row.
+    let second = signed_transfer_from(&sender, 1);
+    let second_hash = second.transaction_hash().to_vec();
+    {
+        let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
+        let parent_hash = chain.latest_checkpoint().hash().unwrap();
+        let checkpoint = Checkpoint::new(
+            2,
+            vec![[8u8; 32]],
+            vec![second],
+            vec![8u8; 32],
+            43,
+            parent_hash,
+        );
+        chain
+            .add_checkpoint_with_validation(checkpoint, false)
+            .unwrap();
+        engine.persist_blockchain_snapshot(&chain).unwrap();
+    }
+
+    let newest_page = engine.list_committed_transactions_from_history(1, None, |_| true);
+    assert_eq!(newest_page.len(), 1);
+    assert_eq!(newest_page[0].0.transaction_hash(), second_hash.as_slice());
+
+    let older_page =
+        engine.list_committed_transactions_from_history(10, Some(second_hash.as_slice()), |_| true);
+    assert_eq!(older_page.len(), 1);
+    assert_eq!(older_page[0].0.transaction_hash(), tx_hash.as_slice());
+
+    // A cursor on the oldest row means the walk is exhausted, and a cursor
+    // that no longer exists in history yields nothing instead of replaying
+    // the list from the top.
+    assert!(
+        engine
+            .list_committed_transactions_from_history(10, Some(tx_hash.as_slice()), |_| true)
+            .is_empty()
+    );
+    assert!(
+        engine
+            .list_committed_transactions_from_history(10, Some(&[0xab; 32]), |_| true)
+            .is_empty()
+    );
 
     let found = engine
         .get_committed_transaction_from_history(&tx_hash)

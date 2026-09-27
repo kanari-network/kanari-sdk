@@ -204,6 +204,30 @@
           "schema": {
             "additionalProperties": false,
             "properties": {
+              "cursor": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "balance": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "owner": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "balance",
+                      "owner"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "limit": {
                 "oneOf": [
                   {
@@ -228,7 +252,7 @@
       ],
       "result": {
         "name": "holders",
-        "description": "Fungible asset holders.",
+        "description": "Fungible asset holders with optional next_cursor.",
         "required": true,
         "schema": {
           "type": "object"
@@ -413,26 +437,104 @@
     {
       "name": "kanari_getAllTransactions",
       "summary": "List transactions",
-      "description": "Returns recent committed and pending transactions, with optional filtering.",
+      "description": "Returns committed and pending transactions, newest first, with optional filtering. `limit` caps one page (default 50, max 500); pass the hash of the last received row back as `cursor` to fetch the next older page. Pages continue until history is exhausted, so the full history is walkable at any depth.",
       "params": [
         {
           "name": "request",
-          "description": "Optional list options such as limit or owner filter.",
+          "description": "Optional list options: limit (rows per page), owner filter, and cursor (hash of the last row from the previous page, with or without 0x).",
           "required": false,
           "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "oneOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [],
             "type": "object"
           }
         }
       ],
       "result": {
         "name": "transactions",
-        "description": "Transaction detail list. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
+        "description": "Transaction detail list, newest first. A page shorter than `limit` means the walk reached the end. Transfers carry transfer_decimals from on-chain CoinMetadata (null when unknown), previous_owner when recorded, and transfer_amount only when parsed from args. No fallback decimals are ever invented.",
         "required": true,
         "schema": {
           "items": {
             "type": "object"
           },
           "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "kanari_countTransactions",
+      "summary": "Count transactions",
+      "description": "Returns how many committed and pending transactions match the same owner filter as kanari_getAllTransactions, walking the full newest-to-oldest history. Use it to size numbered pagination (total pages = ceil(count / page size)).",
+      "params": [
+        {
+          "name": "request",
+          "description": "Optional filter options: owner filter only (no limit or cursor).",
+          "required": false,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "owner": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "count",
+        "description": "Number of matching transactions.",
+        "required": true,
+        "schema": {
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "tags": [
