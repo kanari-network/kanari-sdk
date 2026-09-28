@@ -3443,7 +3443,6 @@ dependencies = [
  "move-coverage",
  "move-docgen",
  "move-package",
- "move-prover",
  "move-stdlib-natives",
  "move-unit-test",
  "move-vm-runtime",
