@@ -65,7 +65,7 @@ jobs:
         working-directory: crates/kanari-frameworks/packages/move-stdlib
         run: cargo run -p kanari -- move build
 
-      - name: Move Build (move-stdlib)
+      - name: Move unit tests (move-stdlib)
         working-directory: crates/kanari-frameworks/packages/move-stdlib
         run: cargo run -p kanari -- move test
 
