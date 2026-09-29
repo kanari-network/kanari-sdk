@@ -3,7 +3,9 @@
 
 pub mod build;
 pub mod call;
+pub mod coverage;
 pub mod docgen;
+pub mod info;
 pub mod new;
 pub mod publish;
 pub mod test;
@@ -46,6 +48,10 @@ pub enum MoveCommand {
     Verify(verify::Verify),
     /// Call Move function on blockchain
     Call(call::Call),
+    /// Print address information
+    Info(info::Info),
+    /// Inspect test coverage for this package
+    Coverage(coverage::Coverage),
 }
 
 impl MoveCommand {
@@ -114,6 +120,14 @@ impl MoveCommand {
             }
             MoveCommand::Verify(v) => v.execute(),
             MoveCommand::Call(c) => c.execute(),
+            MoveCommand::Info(i) => {
+                let config = i.build_config.clone();
+                i.execute(None, config)
+            }
+            MoveCommand::Coverage(c) => {
+                let config = c.build_config.clone();
+                c.execute(None, config)
+            }
         }
     }
 }

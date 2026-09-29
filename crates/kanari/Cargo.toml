@@ -52,6 +52,7 @@ move-command-line-common = { workspace = true }
 move-docgen = { workspace = true }
 move-package = { workspace = true }
 move-coverage = { workspace = true }
+move-disassembler = { workspace = true }
 move-vm-test-utils = { workspace = true }
 move-unit-test = { workspace = true }
 
