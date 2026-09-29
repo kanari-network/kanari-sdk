@@ -13,7 +13,10 @@ all-features = false
 targets = []
 
 [advisories]
-db-path = "~/.cargo/advisory-db"
+# Dedicated clone dir: `cargo audit` uses `~/.cargo/advisory-db` by default,
+# and git refuses to clone into a non-empty dir, so the two tools must not
+# share a path (see `supply-chain` job in `security-gates.yml`).
+db-path = "~/.cargo/advisory-deny-db"
 db-urls = ["https://github.com/RustSec/advisory-db"]
 # Vulnerabilities always fail the gate (no opt-out in cargo-deny >= 0.18).
 # Fail on yanked crate versions.
@@ -67,31 +70,69 @@ confidence-threshold = 0.8
 # no executable code under the license.)
 exceptions = [
     # roaring-bitmap impl detail, file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "bitmaps@2.1.0" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "bitmaps@2.1.0" },
     # CLI color helper, file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "colored@3.1.1" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "colored@3.1.1" },
     # immutable-collections dep, file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "im@15.1.0" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "im@15.1.0" },
     # path helper pulled in via dirs, file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "option-ext@0.2.0" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "option-ext@0.2.0" },
     # UEFI type definitions only, no linked logic under LGPL.
-    { allow = ["MIT", "Apache-2.0", "LGPL-2.1-or-later"], crate = "r-efi@5.3.0" },
-    { allow = ["MIT", "Apache-2.0", "LGPL-2.1-or-later"], crate = "r-efi@6.0.0" },
+    { allow = [
+        "MIT",
+        "Apache-2.0",
+        "LGPL-2.1-or-later",
+    ], crate = "r-efi@5.3.0" },
+    { allow = [
+        "MIT",
+        "Apache-2.0",
+        "LGPL-2.1-or-later",
+    ], crate = "r-efi@6.0.0" },
     # im impl detail, file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "sized-chunks@0.6.5" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "sized-chunks@0.6.5" },
     # Build-time FFI scaffolding pulled in via flutter_rust_bridge,
     # file-level copyleft only.
-    { allow = ["MPL-2.0"], crate = "uniffi@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_bindgen@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_build@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_core@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_internal_macros@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_macros@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_meta@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_pipeline@0.32.2" },
-    { allow = ["MPL-2.0"], crate = "uniffi_udl@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_bindgen@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_build@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_core@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_internal_macros@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_macros@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_meta@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_pipeline@0.32.2" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_udl@0.32.2" },
     # Mozilla CA bundle data only, no executable code under CDLA.
-    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs@1.0.9" },
+    { allow = [
+        "CDLA-Permissive-2.0",
+    ], crate = "webpki-root-certs@1.0.9" },
 ]
 
 [sources]

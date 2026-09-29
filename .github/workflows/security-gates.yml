@@ -94,9 +94,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/advisory-deny-db
             ~/.cargo/advisory-db
             target
-          key: ${{ runner.os }}-supply-chain-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # NOTE: key bumped to v2 to abandon the poisoned cache entry from
+          # the run where deny and audit shared ~/.cargo/advisory-db.
+          key: ${{ runner.os }}-supply-chain-cargo-v2-${{ hashFiles('**/Cargo.lock') }}
 
       - name: cargo-deny check (default features = what we ship)
         run: cargo deny check
