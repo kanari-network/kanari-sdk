@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - "move-lang-2027"
       - "kanari-sdk"
   workflow_dispatch:
     inputs:
@@ -71,6 +72,37 @@ jobs:
 
       - name: Kanari crypto deterministic compatibility gate
         run: cargo test -p kanari-crypto --all-features --test compatibility_test -- --test-threads=1
+
+  supply-chain:
+    name: Supply-chain audit (deny + audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny and cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/advisory-db
+            target
+          key: ${{ runner.os }}-supply-chain-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo-deny check (default features = what we ship)
+        run: cargo deny check
+
+      - name: cargo audit (RUSTSEC advisories)
+        run: cargo audit
 
   four-node-chaos:
     name: Four-node RPC chaos

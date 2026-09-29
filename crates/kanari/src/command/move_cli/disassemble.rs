@@ -4,9 +4,12 @@
 #![allow(clippy::print_stdout)]
 use super::reroot_path;
 use clap::*;
+#[cfg(feature = "interactive-disassemble")]
 use move_compiler::compiled_unit::NamedCompiledModule;
 use move_disassembler::disassembler::Disassembler;
-use move_package::{BuildConfig, compilation::compiled_package::CompiledUnitWithSource};
+use move_package::BuildConfig;
+#[cfg(feature = "interactive-disassemble")]
+use move_package::compilation::compiled_package::CompiledUnitWithSource;
 use std::path::PathBuf;
 
 /// Disassemble the Move bytecode pointed to
@@ -57,18 +60,7 @@ impl Disassemble {
                 // Once we find the compiled bytecode we're interested in, startup the bytecode
                 // viewer, run the disassembler, or display the debug output, depending on args.
                 if interactive {
-                    let CompiledUnitWithSource {
-                        unit:
-                            NamedCompiledModule {
-                                module, source_map, ..
-                            },
-                        source_path,
-                    } = unit;
-                    move_bytecode_viewer::start_viewer_in_memory(
-                        module.clone(),
-                        source_map.clone(),
-                        source_path,
-                    )
+                    run_interactive(unit)?
                 } else {
                     println!("{}", Disassembler::from_unit(&unit.unit).disassemble()?);
                     if debug {
@@ -79,4 +71,32 @@ impl Disassemble {
         }
         Ok(())
     }
+}
+
+/// Launch the fullscreen bytecode-to-source explorer.
+///
+/// Gated behind the `interactive-disassemble` cargo feature so default builds
+/// do not link the unmaintained `tui` 0.19 UI stack.
+#[cfg(feature = "interactive-disassemble")]
+fn run_interactive(
+    unit: &move_package::compilation::compiled_package::CompiledUnitWithSource,
+) -> anyhow::Result<()> {
+    let CompiledUnitWithSource {
+        unit: NamedCompiledModule {
+            module, source_map, ..
+        },
+        source_path,
+    } = unit;
+    move_bytecode_viewer::start_viewer_in_memory(module.clone(), source_map.clone(), source_path);
+    Ok(())
+}
+
+#[cfg(not(feature = "interactive-disassemble"))]
+fn run_interactive(
+    _unit: &move_package::compilation::compiled_package::CompiledUnitWithSource,
+) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "interactive mode was not compiled in: rebuild kanari with \
+        `--features interactive-disassemble` to enable it"
+    )
 }

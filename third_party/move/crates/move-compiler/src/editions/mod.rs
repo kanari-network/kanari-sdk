@@ -154,6 +154,9 @@ const DEVELOPMENT_FEATURES: &[FeatureGate] = &[FeatureGate::CleverAssertions, Fe
 
 const E2024_MIGRATION_FEATURES: &[FeatureGate] = &[FeatureGate::Move2024Migration];
 
+// Stable 2024 freezes the 2024.beta feature set (no extra features on top of beta).
+const E2024_FEATURES: &[FeatureGate] = &[];
+
 impl Edition {
     pub const LEGACY: Self = Self {
         edition: symbol!("legacy"),
@@ -171,6 +174,10 @@ impl Edition {
         edition: symbol!("2024"),
         release: Some(symbol!("migration")),
     };
+    pub const E2024: Self = Self {
+        edition: symbol!("2024"),
+        release: None,
+    };
     pub const DEVELOPMENT: Self = Self {
         edition: symbol!("development"),
         release: None,
@@ -183,9 +190,15 @@ impl Edition {
         Self::E2024_ALPHA,
         Self::E2024_BETA,
         Self::E2024_MIGRATION,
+        Self::E2024,
         Self::DEVELOPMENT,
     ];
-    pub const VALID: &'static [Self] = &[Self::LEGACY, Self::E2024_ALPHA, Self::E2024_BETA];
+    pub const VALID: &'static [Self] = &[
+        Self::LEGACY,
+        Self::E2024_ALPHA,
+        Self::E2024_BETA,
+        Self::E2024,
+    ];
 
     pub fn supports(&self, feature: FeatureGate) -> bool {
         SUPPORTED_FEATURES.get(self).unwrap().contains(&feature)
@@ -198,6 +211,7 @@ impl Edition {
             Self::E2024_ALPHA => Some(Self::E2024_BETA),
             Self::E2024_BETA => Some(Self::LEGACY),
             Self::E2024_MIGRATION => Some(Self::E2024_BETA),
+            Self::E2024 => Some(Self::E2024_BETA),
             Self::DEVELOPMENT => Some(Self::E2024_ALPHA),
             _ => self.unknown_edition_panic(),
         }
@@ -221,6 +235,11 @@ impl Edition {
             Self::E2024_MIGRATION => {
                 let mut features = self.prev().unwrap().features();
                 features.extend(E2024_MIGRATION_FEATURES);
+                features
+            }
+            Self::E2024 => {
+                let mut features = self.prev().unwrap().features();
+                features.extend(E2024_FEATURES);
                 features
             }
             Self::DEVELOPMENT => {
