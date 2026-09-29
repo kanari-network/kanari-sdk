@@ -8,6 +8,7 @@ pub mod disassemble;
 pub mod docgen;
 pub mod errmap;
 pub mod info;
+pub mod migrate;
 pub mod new;
 pub mod publish;
 pub mod test;
@@ -58,6 +59,8 @@ pub enum MoveCommand {
     Errmap(errmap::Errmap),
     /// Disassemble Move bytecode
     Disassemble(disassemble::Disassemble),
+    /// Migrate Move package to 2024 edition
+    Migrate(migrate::Migrate),
 }
 
 impl MoveCommand {
@@ -141,6 +144,10 @@ impl MoveCommand {
             MoveCommand::Disassemble(d) => {
                 let config = d.build_config.clone();
                 d.execute(None, config)
+            }
+            MoveCommand::Migrate(m) => {
+                let config = m.build_config.clone();
+                m.execute(None, config)
             }
         }
     }
