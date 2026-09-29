@@ -1,0 +1,21 @@
+# cargo-audit configuration: RUSTSEC advisory gate for kanari-sdk.
+# Enforced in CI (`security-gates.yml` → `supply-chain` job).
+# See https://github.com/RustSec/rustsec/blob/main/cargo-audit/audit.toml.example
+#
+# Policy: vulnerabilities fail the gate. Every `ignore` entry must carry a
+# justification and must be revisited when upstream ships a fix. Warnings
+# (unmaintained/unsound/notice) are reported but do not fail; the strict
+# per-crate policy for those lives in `deny.toml`.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 (rsa 0.9.10, Marvin timing sidechannel, medium 5.9,
+    # unpatched upstream as of 2026-09): NOT REACHABLE here. The `rsa` crate
+    # is used for RS256 PKCS#1 v1.5 *public-key signature verification only*
+    # (kanari-crypto `verify_rs256_prehash_native`, with bounds checks and a
+    # 2048-bit minimum). No RSA private-key decryption or signing exists in
+    # production paths — private-key ops appear in unit tests only — so there
+    # is no timing oracle for key recovery. Do NOT add private-key RSA ops
+    # without revisiting this. Revisit when RustCrypto/RSA#626 lands.
+    "RUSTSEC-2023-0071",
+]
