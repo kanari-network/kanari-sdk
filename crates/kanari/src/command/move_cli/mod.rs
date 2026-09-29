@@ -4,7 +4,9 @@
 pub mod build;
 pub mod call;
 pub mod coverage;
+pub mod disassemble;
 pub mod docgen;
+pub mod errmap;
 pub mod info;
 pub mod new;
 pub mod publish;
@@ -52,6 +54,10 @@ pub enum MoveCommand {
     Info(info::Info),
     /// Inspect test coverage for this package
     Coverage(coverage::Coverage),
+    /// Generate error map for the package
+    Errmap(errmap::Errmap),
+    /// Disassemble Move bytecode
+    Disassemble(disassemble::Disassemble),
 }
 
 impl MoveCommand {
@@ -127,6 +133,14 @@ impl MoveCommand {
             MoveCommand::Coverage(c) => {
                 let config = c.build_config.clone();
                 c.execute(None, config)
+            }
+            MoveCommand::Errmap(e) => {
+                let config = e.build_config.clone();
+                e.execute(None, config)
+            }
+            MoveCommand::Disassemble(d) => {
+                let config = d.build_config.clone();
+                d.execute(None, config)
             }
         }
     }

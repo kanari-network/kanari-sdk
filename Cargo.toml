@@ -334,6 +334,9 @@ move-symbol-pool = { path = "third_party/move/crates/move-symbol-pool" }
 move-abstract-stack = { path = "third_party/move/crates/move-abstract-stack" }
 move-docgen = { path = "third_party/move/crates/move-docgen" }
 move-errmapgen = { path = "third_party/move/crates/move-errmapgen" }
+move-bytecode-viewer = { path = "third_party/move/crates/move-bytecode-viewer" }
+tui = "0.19.0"
+crossterm = "0.29.0"
 move-stdlib = { path = "third_party/move/crates/move-stdlib" }
 move-stdlib-natives = { path = "third_party/move/crates/move-stdlib-natives" }
 
