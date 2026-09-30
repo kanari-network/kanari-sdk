@@ -995,6 +995,12 @@ fn exp(context: &mut Context, code: &mut IR::BytecodeBlock, e: H::Exp) {
             code.push(sp(loc, B::FreezeRef));
         }
 
+        // A reborrow is a compile-time loan adjustment only. At runtime the reference is already
+        // on the stack, so there is no instruction to emit.
+        E::Reborrow(_, er) => {
+            exp(context, code, *er);
+        }
+
         E::Dereference(er) => {
             exp(context, code, *er);
             code.push(sp(loc, B::ReadRef));

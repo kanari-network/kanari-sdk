@@ -1,0 +1,35 @@
+warning[W09002]: unused variable
+  ┌─ tests/move_2024/typing/reborrow_invalid.move:5:13
+  │
+5 │         let x = &mut *r;
+  │             ^ Unused local variable 'x'. Consider removing or prefixing with an underscore: '_x'
+  │
+  = This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+error[E07001]: referential transparency violated
+  ┌─ tests/move_2024/typing/reborrow_invalid.move:5:17
+  │
+4 │         let r = &v;
+  │                 -- Immutable because of this position
+5 │         let x = &mut *r;
+  │                 ^^^^^^^ Invalid mutable reborrow from an immutable reference
+
+warning[W09002]: unused variable
+   ┌─ tests/move_2024/typing/reborrow_invalid.move:10:13
+   │
+10 │         let x = &*v;
+   │             ^ Unused local variable 'x'. Consider removing or prefixing with an underscore: '_x'
+   │
+   = This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+error[E04007]: incompatible types
+   ┌─ tests/move_2024/typing/reborrow_invalid.move:10:17
+   │
+ 9 │     fun deref_nonref(v: vector<u64>) {
+   │                         ----------- Given: 'vector<u64>'
+10 │         let x = &*v;
+   │                 ^^^
+   │                 │
+   │                 Invalid dereference.
+   │                 Expected: '&_'
+

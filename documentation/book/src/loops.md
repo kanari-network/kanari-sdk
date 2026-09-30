@@ -1,6 +1,207 @@
 # Loops
 
-Loops allow you to execute code repeatedly. Move provides `while` and `loop` constructs for iteration.
+Loops allow you to execute code repeatedly. Move provides `while`, `loop`, and — from the Move 2024
+edition onwards — `for` constructs for iteration.
+
+## For Loop
+
+`for` walks a `vector`, taking each element out and binding it to a pattern. It is available from
+the Move 2024 edition onwards, so the package's `Move.toml` needs:
+
+```toml
+[package]
+name = "my_package"
+edition = "2024"
+```
+
+```move
+public fun sum(numbers: vector<u64>): u64 {
+    let mut total: u64 = 0;
+
+    for n in numbers {
+        total = total + n;
+    };
+
+    total
+}
+```
+
+The loop variable can be a destructuring pattern, and `_` discards the element:
+
+```move
+public struct Entry has drop { id: u64, weight: u64 }
+
+public fun total_weight(entries: vector<Entry>): u64 {
+    let mut total: u64 = 0;
+
+    for Entry { id: _, weight } in entries {
+        total = total + weight;
+    };
+
+    total
+}
+```
+
+`break` and `continue` work as they do in `while` and `loop`.
+
+### Three Ways to Iterate
+
+The iterable decides what the loop variable is bound to and whether the vector survives the loop.
+This matches Rust.
+
+| Loop | Loop variable | The vector afterwards |
+| --- | --- | --- |
+| `for x in v` | `x: T`, moved out of `v` | consumed, left empty |
+| `for x in &v` | `x: &T` | borrowed, unchanged |
+| `for x in &mut v` | `x: &mut T` | borrowed, elements can be written |
+
+Taking the vector by value is what lets `for` work on a type without `copy`:
+
+```move
+public struct Entry has drop { id: u64, weight: u64 }
+
+public fun total_weight(entries: vector<Entry>): u64 {
+    let mut total: u64 = 0;
+
+    for e in entries {
+        total = total + e.weight;
+    };
+
+    total
+}
+```
+
+Borrowing leaves the vector in place and binds each element by reference, so the body reads
+through the loop variable. The `&` on the iterable is what asks for this:
+
+```move
+public fun total_weight(entries: vector<Entry>): u64 {
+    let mut total: u64 = 0;
+
+    for e in &entries {
+        total = total + e.weight;
+    };
+
+    total
+}
+```
+
+Same result as the version above it, except that `entries` is still there afterwards.
+
+### Borrowing a Field
+
+The most useful form is borrowing a vector that lives inside a struct. Passing the field itself
+does not work, because reading a field through a reference is an implicit copy and `vector<Entry>`
+only has `copy` when `Entry` does:
+
+```move
+// Does not compile: `h.entries` through `&Registry` is an implicit copy.
+for e in h.entries { };
+```
+
+Borrowing the field does:
+
+```move
+public fun total_weight(registry: &Registry): u64 {
+    let mut total: u64 = 0;
+
+    for e in &registry.entries {
+        total = total + e.weight;
+    };
+
+    total
+}
+```
+
+With `&mut` the body can write through the element, which is how a vector of structs is updated
+in place:
+
+```move
+public fun bump_all(registry: &mut Registry) {
+    for e in &mut registry.entries {
+        e.weight = e.weight + 1;
+    };
+}
+```
+
+The target of a `&mut` borrow has to be a `mut` local, exactly as with a borrow written by hand.
+
+### What `for` Expands To
+
+`for` is not a separate instruction. The compiler rewrites it before typing, into a `while` loop,
+which is why it costs no more than the equivalent `while`.
+
+Iterating by value reverses the vector once and then pops from the back, so that the elements come
+out in their original order at O(n) total:
+
+```move
+// for n in numbers { total = total + n; }
+let mut __for_iterable = numbers;
+vector::reverse(&mut __for_iterable);
+while (!vector::is_empty(&__for_iterable)) {
+    {
+        let n = vector::pop_back(&mut __for_iterable);
+        total = total + n;
+    };
+};
+```
+
+Iterating by reference removes nothing, so it just walks the vector by index:
+
+```move
+// for n in &numbers { total = total + *n; }
+let __for_iterable = &numbers;
+let __for_length = vector::length(__for_iterable);
+let mut __for_index = 0u64;
+while (__for_index < __for_length) {
+    {
+        let n = vector::borrow(__for_iterable, __for_index);
+        total = total + *n;
+    };
+    __for_index = __for_index + 1u64;
+};
+```
+
+Removing the front element on every iteration would also preserve the order, but it shifts the
+tail each time and costs O(n²), which matters when the length of the vector is chosen by whoever
+submits the transaction.
+
+### Limitations
+
+Which of the three forms applies is decided by whether the iterable is written with a leading `&`
+or `&mut`, because the compiler does this rewrite before it has resolved any types.
+
+A `&vector<T>` that arrived as a parameter cannot be borrowed again -- `&` and `&mut` applied to a
+reference are both rejected as an "Invalid borrow", and there is no automatic dereference at a call
+site. It is iterated through an explicit reborrow `&*v` (or `&mut *v` for a `&mut` parameter),
+which makes a fresh reference to the same vector without moving or copying anything:
+
+```move
+public fun total_weight(entries: &vector<Entry>): u64 {
+    let mut total: u64 = 0;
+
+    for e in &*entries {
+        total = total + e.weight;
+    };
+
+    total
+}
+
+public fun bump_all(entries: &mut vector<Entry>) {
+    for e in &mut *entries {
+        e.weight = e.weight + 1;
+    };
+}
+```
+
+Reborrows need no `copy`, so the non-`copy` `Entry` above is fine. See [References](references.md) for
+the rules: `&*r` aliases a `&T` and narrows a `&mut T`, `&mut *r` consumes a `&mut T`, and anything
+else is rejected.
+
+The other consequence is that leaving a `for` over a vector by value early with `break` or `return`
+stops the removal, so any elements not yet visited are dropped along with the vector. That is fine
+for a type with `copy`, but Move cannot drop a `vector` of a type that still has elements in it, so
+early exit over such a type fails at the drop.
 
 ## While Loop
 

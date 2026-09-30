@@ -531,7 +531,8 @@ fn value(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
         | E::UnaryExp(_, base_exp)
         | E::Borrow(_, base_exp, _)
         | E::Cast(base_exp, _)
-        | E::TempBorrow(_, base_exp) => value_report!(base_exp),
+        | E::TempBorrow(_, base_exp)
+        | E::Reborrow(_, base_exp) => value_report!(base_exp),
 
         E::BorrowLocal(_, _) => None,
 
@@ -738,6 +739,7 @@ fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
         | E::ExpList(_)
         | E::Borrow(_, _, _)
         | E::TempBorrow(_, _)
+        | E::Reborrow(_, _)
         | E::Cast(_, _)
         | E::Annotate(_, _)
         | E::BorrowLocal(_, _)

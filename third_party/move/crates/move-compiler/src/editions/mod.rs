@@ -50,6 +50,8 @@ pub enum FeatureGate {
     CleverAssertions,
     NoParensCast,
     TypeHoles,
+    ForLoop,
+    Reborrow,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, PartialOrd, Ord, Default)]
@@ -148,6 +150,12 @@ const E2024_BETA_FEATURES: &[FeatureGate] = &[
     FeatureGate::SyntaxMethods,
     FeatureGate::AutoborrowEq,
     FeatureGate::NoParensCast,
+    // 'for' desugars using `let mut` and the implicit `std::vector` alias, so it
+    // implies LetMut, Move2024Keywords and Move2024Paths.
+    FeatureGate::ForLoop,
+    // Explicit reborrows `&*r` and `&mut *r`. Needed for `for` over a reference, and useful
+    // wherever a fresh borrow of a referent is wanted without moving or copying it.
+    FeatureGate::Reborrow,
 ];
 
 const DEVELOPMENT_FEATURES: &[FeatureGate] = &[FeatureGate::CleverAssertions, FeatureGate::Enums];
@@ -291,6 +299,8 @@ impl FeatureGate {
             FeatureGate::CleverAssertions => "Clever `assert!`, `abort`, and `#[error]` are",
             FeatureGate::NoParensCast => "'as' without parentheses is",
             FeatureGate::TypeHoles => "'_' placeholders for type inference are",
+            FeatureGate::ForLoop => "'for' loops are",
+            FeatureGate::Reborrow => "reborrows ('&*r' and '&mut *r') are",
         }
     }
 }

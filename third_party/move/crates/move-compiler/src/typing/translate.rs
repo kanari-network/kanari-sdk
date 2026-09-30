@@ -574,7 +574,10 @@ mod check_valid_constant {
                 exp(context, er);
                 "'abort' expressions are"
             }
-            E::Dereference(er) | E::Borrow(_, er, _) | E::TempBorrow(_, er) => {
+            E::Dereference(er)
+            | E::Borrow(_, er, _)
+            | E::TempBorrow(_, er)
+            | E::Reborrow(_, er) => {
                 exp(context, er);
                 REFERENCE_CASE
             }
@@ -3082,12 +3085,64 @@ fn process_exp_dotted(
     }
 }
 
+// An explicit reborrow `&*r` or `&mut *r`.
+//
+// The inner reference is typed directly and a fresh reference to the same referent is produced.
+// Nothing is moved or copied, so unlike a dereference this demands no ability, and unlike a
+// borrow its base is itself a reference. The borrow checker (see `borrow_state::reborrow`) treats
+// the result as derived from the original reference.
+fn reborrow(context: &mut Context, mut_: bool, eloc: Loc, inner: Box<N::Exp>) -> Box<T::Exp> {
+    use T::UnannotatedExp_ as TE;
+    let rime = exp(context, inner);
+    let unfolded = core::unfold_type(&context.subst, rime.ty.clone());
+    let (ref_mut, target) = match unfolded.value {
+        // In `Type_::Ref` the flag is mutability: `true` is `&mut T`, `false` is `&T`.
+        Type_::Ref(ref_mut, target) => (ref_mut, *target),
+        _ => {
+            // Not a reference, so `*r` is not a reborrow but an invalid dereference.
+            let tvar = core::make_tvar(context, eloc);
+            let ref_ty = sp(eloc, Type_::Ref(false, Box::new(tvar)));
+            subtype(
+                context,
+                eloc,
+                || "Invalid dereference.",
+                rime.ty.clone(),
+                ref_ty,
+            );
+            return make_error_exp(context, eloc);
+        }
+    };
+    if mut_ && !ref_mut {
+        context.env.add_diag(diag!(
+            ReferenceSafety::RefTrans,
+            (eloc, "Invalid mutable reborrow from an immutable reference"),
+            (unfolded.loc, "Immutable because of this position"),
+        ));
+        return make_error_exp(context, eloc);
+    }
+    let ty = sp(eloc, Type_::Ref(mut_, Box::new(target)));
+    Box::new(T::exp(ty, sp(eloc, TE::Reborrow(mut_, rime))))
+}
+
 fn exp_dotted_usage(
     context: &mut Context,
     usage: DottedUsage,
     eloc: Loc,
     ndotted: N::ExpDotted,
 ) -> Box<T::Exp> {
+    // An explicit reborrow `&*r` or `&mut *r` never reaches the ordinary dotted-path logic below,
+    // which would read the inner `*r` as a dereference (demanding `copy`) and then reject the
+    // outer `&` as borrowing a reference. Ungated editions keep the old meaning, where `&*r` on a
+    // `copy` referent borrows a temporary copy.
+    if let DottedUsage::Borrow(mut_) = usage
+        && context
+            .env
+            .supports_feature(context.current_package(), FeatureGate::Reborrow)
+        && let sp!(_, N::ExpDotted_::Exp(ne)) = &ndotted
+        && let N::Exp_::Dereference(inner) = &ne.value
+    {
+        return reborrow(context, mut_, eloc, inner.clone());
+    }
     let constraint_verb = match &ndotted.value {
         N::ExpDotted_::Exp(_) => None,
         _ if matches!(usage, DottedUsage::Borrow(_)) => Some("borrow"),
@@ -3108,6 +3163,16 @@ fn exp_dotted_expression(
     eloc: Loc,
     ndotted: N::ExpDotted,
 ) -> Box<T::Exp> {
+    // See `exp_dotted_usage` for why reborrows are intercepted here.
+    if let DottedUsage::Borrow(mut_) = usage
+        && context
+            .env
+            .supports_feature(context.current_package(), FeatureGate::Reborrow)
+        && let sp!(_, N::ExpDotted_::Exp(ne)) = &ndotted
+        && let N::Exp_::Dereference(inner) = &ne.value
+    {
+        return reborrow(context, mut_, eloc, inner.clone());
+    }
     let edotted = process_exp_dotted(context, constraint_verb, ndotted);
     if matches!(usage, DottedUsage::Borrow(_)) && edotted.accessors.is_empty() {
         context.add_base_type_constraint(eloc, "Invalid borrow", edotted.base.ty.clone());

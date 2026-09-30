@@ -469,6 +469,7 @@ fn exp(context: &mut Context, e: &T::Exp) {
         }
         E::Borrow(_, e, _) => exp(context, e),
         E::TempBorrow(_, e) => exp(context, e),
+        E::Reborrow(_, e) => exp(context, e),
         E::Cast(e, ty) => {
             exp(context, e);
             type_(context, ty)

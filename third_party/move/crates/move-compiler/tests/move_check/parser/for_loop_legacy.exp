@@ -1,0 +1,32 @@
+warning[W09001]: unused alias
+  ┌─ tests/move_check/parser/for_loop_legacy.move:2:14
+  │
+2 │     use std::vector;
+  │              ^^^^^^ Unused 'use' of alias 'vector'. Consider removing it
+  │
+  = This alias does not shadow the built-in type 'vector' in type annotations.
+  = This warning can be suppressed with '#[allow(unused_use)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+warning[W09002]: unused variable
+  ┌─ tests/move_check/parser/for_loop_legacy.move:8:13
+  │
+8 │         let v = vector[1u64, 2];
+  │             ^ Unused local variable 'v'. Consider removing or prefixing with an underscore: '_v'
+  │
+  = This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+error[E03009]: unbound variable
+  ┌─ tests/move_check/parser/for_loop_legacy.move:9:9
+  │
+9 │         for x in v { }
+  │         ^^^ Unbound variable 'for'
+
+error[E01002]: unexpected token
+  ┌─ tests/move_check/parser/for_loop_legacy.move:9:13
+  │
+9 │         for x in v { }
+  │             ^
+  │             │
+  │             Unexpected 'x'
+  │             Expected ';'
+

@@ -2542,6 +2542,12 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
         }
         PE::While(pb, ploop) => EE::While(None, exp(context, pb), exp(context, ploop)),
         PE::Loop(ploop) => EE::Loop(None, exp(context, ploop)),
+        PE::For(pbinds, piter, pbody) => {
+            return exp(
+                context,
+                Box::new(desugar_for_loop(loc, pbinds, piter, pbody)),
+            );
+        }
         PE::Block(seq) => EE::Block(None, sequence(context, loc, seq)),
         PE::Lambda(plambda, pty_opt, pe) => {
             let elambda_opt = lambda_bind_list(context, plambda);
@@ -2693,6 +2699,274 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
     Box::new(sp(loc, e_))
 }
 
+//**************************************************************************************************
+// 'for' loop
+//**************************************************************************************************
+
+// Locals introduced by the desugaring below. No user code ever shares a scope with them, so
+// these cannot capture, or be captured by, anything the programmer wrote.
+const FOR_ITERABLE: &str = "__for_iterable";
+const FOR_INDEX: &str = "__for_index";
+const FOR_LENGTH: &str = "__for_length";
+
+// How a `for` loop consumes its iterable, read off the syntax of the iterable alone.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ForMode {
+    // `for x in v` — `v: vector<T>` is taken by value, each element is moved into the body, and
+    // the vector is left empty.
+    Value,
+    // `for x in &v` — `v: vector<T>` is borrowed, each element is bound by `&T`.
+    Ref,
+    // `for x in &mut v` — `v: vector<T>` is mutably borrowed, each element is bound by `&mut T`
+    // so the body can write through it.
+    MutRef,
+}
+
+// A Rust-style loop
+//
+//     for <binds> in <iterable> { <body> }
+//
+// is rewritten into plain Move. Which of the three rewrites below applies is decided by whether
+// the iterable is written with a leading `&` or `&mut`, mirroring Rust's `for`:
+//
+//     // for x in v { <body> }          x: T,  v is consumed
+//     {
+//         let mut __for_iterable = v;
+//         vector::reverse(&mut __for_iterable);
+//         while (!vector::is_empty(&__for_iterable)) {
+//             {
+//                 let <binds> = vector::pop_back(&mut __for_iterable);
+//                 <body>
+//             };
+//         }
+//     }
+//
+//     // for x in &v { <body> }         x: &T,     v is only read
+//     // for x in &mut v { <body> }     x: &mut T, v can be written through
+//     {
+//         let __for_iterable = &v;
+//         let __for_length = vector::length(__for_iterable);
+//         let mut __for_index = 0u64;
+//         while (__for_index < __for_length) {
+//             {
+//                 let <binds> = vector::borrow(__for_iterable, __for_index);
+//                 <body>
+//             };
+//             __for_index = __for_index + 1u64;
+//         }
+//     }
+//
+// The result is an ordinary parser expression, translated as usual, so no pass after expansion
+// has to know that `for` exists. Name resolution, typing, the borrow checker and codegen all
+// see only the `while` loop above.
+//
+// Deciding from the syntax rather than from the type is what keeps this in one pass. The element
+// type is not known here, but a leading `&` or `&mut` already says everything the rewrite needs,
+// and the borrow the programmer wrote is exactly the borrow the loop should be driven by.
+//
+// `&mut T` is passed straight to `vector::borrow_mut`; Move inserts the reborrow of the local, so
+// neither `&mut *__for_iterable` nor a `mut` on the reference itself is needed. Likewise
+// `vector::length` accepts the `&mut vector<T>` of the mutable form and narrows it to `&`.
+//
+// Taking the iterable by value is what lets `for` move an element of a type without `copy` out of
+// the collection, the way Rust's `for x in v` does. Reversing up front is what makes that cheap:
+// `pop_back` is O(1) but yields elements back to front, so the one O(n) reversal in front of it
+// turns the whole loop into O(n) while still visiting the elements in their original order.
+// Repeatedly removing index 0 would also preserve the order, but it shifts the tail on every
+// iteration and costs O(n^2), which is not acceptable when the loop length is chosen by whoever
+// supplies the transaction.
+//
+// The body is nested in a block of its own so that locals it declares cannot shadow the generated
+// ones, which the loop condition and the `pop_back` or `borrow` still have to refer to.
+fn desugar_for_loop(
+    loc: Loc,
+    pbinds: P::BindList,
+    piterable: Box<P::Exp>,
+    pbody: Box<P::Exp>,
+) -> P::Exp {
+    use P::Bind_ as PB;
+    use P::Exp_ as PE;
+    use P::SequenceItem_ as PS;
+
+    // A leading '&' or '&mut' on the iterable selects the borrowing form. The borrow is kept
+    // intact and bound to a local, so it drives the loop.
+    let mode = match piterable.value {
+        PE::Borrow(mut_, _) if mut_ => ForMode::MutRef,
+        PE::Borrow(_, _) => ForMode::Ref,
+        _ => ForMode::Value,
+    };
+
+    // A reference to one of the generated locals.
+    fn local(loc: Loc, name: &'static str) -> P::Exp {
+        sp(
+            loc,
+            PE::Name(sp(
+                loc,
+                P::NameAccessChain_::single(sp(loc, Symbol::from(name))),
+            )),
+        )
+    }
+
+    // A borrow of the generated iterable local. Only the by-value form needs one, and only
+    // mutably, since it is the only form that takes elements back out of the vector.
+    fn borrow_iterable(loc: Loc) -> P::Exp {
+        sp(loc, PE::Borrow(true, Box::new(local(loc, FOR_ITERABLE))))
+    }
+
+    // A call to a `std::vector` member. Left as a name access chain so that it goes through
+    // ordinary name resolution, which is what supplies the implicit `use std::vector` alias.
+    fn vector_call(loc: Loc, member: &'static str, args: Vec<P::Exp>) -> P::Exp {
+        sp(
+            loc,
+            PE::Call(
+                sp(
+                    loc,
+                    P::NameAccessChain_::Path(P::NamePath {
+                        root: P::RootPathEntry {
+                            name: sp(loc, P::LeadingNameAccess_::Name(sp(loc, symbol!("vector")))),
+                            tyargs: None,
+                            is_macro: None,
+                        },
+                        entries: vec![P::PathEntry {
+                            name: sp(loc, Symbol::from(member)),
+                            tyargs: None,
+                            is_macro: None,
+                        }],
+                    }),
+                ),
+                sp(loc, args),
+            ),
+        )
+    }
+
+    fn u64_value(loc: Loc, n: &'static str) -> P::Exp {
+        sp(loc, PE::Value(sp(loc, P::Value_::Num(Symbol::from(n)))))
+    }
+
+    // `let <name> = <e>;`, with `mut` when the loop assigns to it.
+    fn bind_one(loc: Loc, name: &'static str, mutable: bool, e: P::Exp) -> P::SequenceItem {
+        let var = sp(
+            loc,
+            PB::Var(mutable.then_some(loc), P::Var(sp(loc, Symbol::from(name)))),
+        );
+        sp(loc, PS::Bind(sp(loc, vec![var]), None, Box::new(e)))
+    }
+
+    // A statement wrapping a block, for a loop body that is a single nested block.
+    fn stmt(loc: Loc, e: P::Exp) -> P::SequenceItem {
+        sp(loc, PS::Seq(Box::new(e)))
+    }
+
+    // `let <binds> = <element>; <body>`, wrapped in a block. A body that was written without
+    // braces still needs the braces, both to hold the binding and to get a scope of its own.
+    let element = match mode {
+        ForMode::Value => vector_call(loc, "pop_back", vec![borrow_iterable(loc)]),
+        ForMode::Ref => vector_call(
+            loc,
+            "borrow",
+            vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)],
+        ),
+        ForMode::MutRef => vector_call(
+            loc,
+            "borrow_mut",
+            vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)],
+        ),
+    };
+    let (uses, mut items, last_semicolon, tail) = match *pbody {
+        sp!(_, PE::Block(seq)) => seq,
+        unbraced => (vec![], vec![stmt(loc, unbraced)], None, Box::new(None)),
+    };
+    items.insert(0, sp(loc, PS::Bind(pbinds, None, Box::new(element))));
+    let body = sp(loc, PE::Block((uses, items, last_semicolon, tail)));
+
+    // The iterable is bound to a local before the loop so that it is evaluated exactly once.
+    let bind_iterable = bind_one(
+        loc,
+        FOR_ITERABLE,
+        /* mutable */ mode == ForMode::Value,
+        *piterable,
+    );
+
+    let (prologue, condition, body_statements) = match mode {
+        // Reverse, then pop from the back, to visit the elements in order at O(n) total.
+        ForMode::Value => (
+            vec![stmt(
+                loc,
+                vector_call(loc, "reverse", vec![borrow_iterable(loc)]),
+            )],
+            sp(
+                loc,
+                PE::UnaryExp(
+                    sp(loc, P::UnaryOp_::Not),
+                    Box::new(vector_call(
+                        loc,
+                        "is_empty",
+                        vec![sp(
+                            loc,
+                            PE::Borrow(false, Box::new(local(loc, FOR_ITERABLE))),
+                        )],
+                    )),
+                ),
+            ),
+            vec![stmt(loc, body)],
+        ),
+        // Borrowed, so nothing is removed: walk the elements by index and advance.
+        ForMode::Ref | ForMode::MutRef => {
+            let length = vector_call(loc, "length", vec![local(loc, FOR_ITERABLE)]);
+            let index = local(loc, FOR_INDEX);
+            let increment = sp(
+                loc,
+                PE::Assign(
+                    Box::new(index.clone()),
+                    Box::new(sp(
+                        loc,
+                        PE::BinopExp(
+                            Box::new(index),
+                            sp(loc, P::BinOp_::Add),
+                            Box::new(u64_value(loc, "1u64")),
+                        ),
+                    )),
+                ),
+            );
+            (
+                vec![
+                    bind_one(loc, FOR_LENGTH, /* mutable */ false, length),
+                    bind_one(
+                        loc,
+                        FOR_INDEX,
+                        /* mutable */ true,
+                        u64_value(loc, "0u64"),
+                    ),
+                ],
+                sp(
+                    loc,
+                    PE::BinopExp(
+                        Box::new(local(loc, FOR_INDEX)),
+                        sp(loc, P::BinOp_::Lt),
+                        Box::new(local(loc, FOR_LENGTH)),
+                    ),
+                ),
+                vec![stmt(loc, body), stmt(loc, increment)],
+            )
+        }
+    };
+
+    let loop_ = sp(
+        loc,
+        PE::While(
+            Box::new(condition),
+            Box::new(sp(
+                loc,
+                PE::Block((vec![], body_statements, None, Box::new(None))),
+            )),
+        ),
+    );
+
+    let mut items = vec![bind_iterable];
+    items.extend(prologue);
+    sp(loc, PE::Block((vec![], items, None, Box::new(Some(loop_)))))
+}
+
 fn exp_cast(context: &mut Context, in_parens: bool, plhs: Box<P::Exp>, pty: P::Type) -> E::Exp_ {
     use E::Exp_ as EE;
     use P::Exp_ as PE;
@@ -2715,6 +2989,7 @@ fn exp_cast(context: &mut Context, in_parens: bool, plhs: Box<P::Exp>, pty: P::T
             PE::IfElse(_, _, _)
             | PE::While(_, _)
             | PE::Loop(_)
+            | PE::For(_, _, _)
             | PE::Labeled(_, _)
             | PE::Lambda(_, _, _)
             | PE::Quant(_, _, _, _, _)

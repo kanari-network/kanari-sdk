@@ -142,6 +142,7 @@ fn exp(state: &mut LivenessState, parent_e: &Exp) {
         | E::Dereference(e)
         | E::UnaryExp(_, e)
         | E::Borrow(_, e, _, _)
+        | E::Reborrow(_, e)
         | E::Cast(e, _) => exp(state, e),
 
         E::BinopExp(e1, _, e2) => {
@@ -353,6 +354,7 @@ mod last_usage {
             | E::Dereference(e)
             | E::UnaryExp(_, e)
             | E::Borrow(_, e, _, _)
+            | E::Reborrow(_, e)
             | E::Cast(e, _) => exp(context, e),
 
             E::BinopExp(e1, _, e2) => {
