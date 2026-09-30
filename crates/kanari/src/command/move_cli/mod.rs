@@ -3,9 +3,13 @@
 
 pub mod build;
 pub mod call;
+pub mod coverage;
+pub mod disassemble;
 pub mod docgen;
+pub mod errmap;
+pub mod info;
+pub mod migrate;
 pub mod new;
-pub mod prove;
 pub mod publish;
 pub mod test;
 pub mod verify;
@@ -37,8 +41,6 @@ pub enum MoveCommand {
     New(new::New),
     /// Run Move unit tests
     Test(test::Test),
-    /// Verify Move specifications (MSL) with the Move Prover
-    Prove(prove::Prove),
     /// Generate Move docs
     Docgen(docgen::Docgen),
     /// Publish Move modules on chain
@@ -49,6 +51,16 @@ pub enum MoveCommand {
     Verify(verify::Verify),
     /// Call Move function on blockchain
     Call(call::Call),
+    /// Print address information
+    Info(info::Info),
+    /// Inspect test coverage for this package
+    Coverage(coverage::Coverage),
+    /// Generate error map for the package
+    Errmap(errmap::Errmap),
+    /// Disassemble Move bytecode
+    Disassemble(disassemble::Disassemble),
+    /// Migrate Move package to 2024 edition
+    Migrate(migrate::Migrate),
 }
 
 impl MoveCommand {
@@ -116,8 +128,27 @@ impl MoveCommand {
                 p.execute_as(None, config, publish::PublishOperation::Upgrade)
             }
             MoveCommand::Verify(v) => v.execute(),
-            MoveCommand::Prove(p) => p.execute(None),
             MoveCommand::Call(c) => c.execute(),
+            MoveCommand::Info(i) => {
+                let config = i.build_config.clone();
+                i.execute(None, config)
+            }
+            MoveCommand::Coverage(c) => {
+                let config = c.build_config.clone();
+                c.execute(None, config)
+            }
+            MoveCommand::Errmap(e) => {
+                let config = e.build_config.clone();
+                e.execute(None, config)
+            }
+            MoveCommand::Disassemble(d) => {
+                let config = d.build_config.clone();
+                d.execute(None, config)
+            }
+            MoveCommand::Migrate(m) => {
+                let config = m.build_config.clone();
+                m.execute(None, config)
+            }
         }
     }
 }

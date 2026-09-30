@@ -382,6 +382,7 @@ pub trait SimpleAbsInt: Sized {
             E::Freeze(e)
             | E::Dereference(e)
             | E::Borrow(_, e, _, _)
+            | E::Reborrow(_, e)
             | E::Cast(e, _)
             | E::UnaryExp(_, e) => {
                 self.exp(context, state, e);

@@ -52,9 +52,13 @@ move-command-line-common = { workspace = true }
 move-docgen = { workspace = true }
 move-package = { workspace = true }
 move-coverage = { workspace = true }
+move-disassembler = { workspace = true }
+move-errmapgen = { workspace = true }
+# Optional: pulls in `tui`/`crossterm` (unmaintained UI stack) for
+# `kanari move disassemble --interactive`. Off by default.
+move-bytecode-viewer = { workspace = true, optional = true }
 move-vm-test-utils = { workspace = true }
 move-unit-test = { workspace = true }
-move-prover = { workspace = true }
 
 bcs = { workspace = true }
 move-stdlib-natives = { workspace = true }
@@ -66,6 +70,9 @@ tempfile = { workspace = true }
 
 [features]
 default = []
+# Enables `kanari move disassemble --interactive` (TUI bytecode explorer).
+# Kept opt-in because it pulls in the unmaintained `tui` 0.19 crate.
+interactive-disassemble = ["dep:move-bytecode-viewer"]
 
 [[bin]]
 name = "kanari"

@@ -394,6 +394,7 @@ fn exp(context: &mut Context, parent_e: &Exp) {
         | E::Dereference(e)
         | E::UnaryExp(_, e)
         | E::Borrow(_, e, _, _)
+        | E::Reborrow(_, e)
         | E::Cast(e, _) => exp(context, e),
 
         E::BinopExp(e1, _, e2) => {

@@ -24,6 +24,9 @@ struct Context<'env, 'lexer, 'input> {
     env: &'env mut CompilationEnv,
     tokens: &'lexer mut Lexer<'input>,
     stop_set: TokenSet,
+    // Set while parsing the iterable of a `for` loop, where a '{' opens the loop body rather
+    // than a struct pack. Consumed by the next name parsed, see `parse_name_exp`.
+    forbid_pack_on_next_name: bool,
 }
 
 impl<'env, 'lexer, 'input> Context<'env, 'lexer, 'input> {
@@ -38,6 +41,7 @@ impl<'env, 'lexer, 'input> Context<'env, 'lexer, 'input> {
             env,
             tokens,
             stop_set,
+            forbid_pack_on_next_name: false,
         }
     }
 
@@ -1767,6 +1771,11 @@ fn is_control_exp(context: &mut Context, tok: Tok) -> bool {
             .env
             .supports_feature(context.current_package, FeatureGate::Move2024Keywords)
         && context.env.edition(context.current_package) != Edition::E2024_MIGRATION)
+        || (matches!(tok, Tok::For)
+            && context
+                .env
+                .supports_feature(context.current_package, FeatureGate::ForLoop)
+            && context.env.edition(context.current_package) != Edition::E2024_MIGRATION)
 }
 
 // An identifier with a leading ', used to label blocks and control flow
@@ -1878,6 +1887,19 @@ fn parse_control_exp(context: &mut Context) -> Result<(Exp, bool), Box<Diagnosti
             let (eloop, ends_in_block) = parse_exp_or_sequence(context)?;
             (Exp_::Loop(Box::new(eloop)), ends_in_block)
         }
+        Tok::For => {
+            context.tokens.advance()?;
+            let pbinds = parse_bind_list(context)?;
+            consume_identifier(context.tokens, "in")?;
+            context.forbid_pack_on_next_name = true;
+            let piter = parse_exp(context);
+            // Reset even on error, so the flag cannot leak into the body or the rest of the
+            // enclosing block.
+            context.forbid_pack_on_next_name = false;
+            let piter = Box::new(piter?);
+            let (pbody, ends_in_block) = parse_exp_or_sequence(context)?;
+            (Exp_::For(pbinds, piter, Box::new(pbody)), ends_in_block)
+        }
         Tok::Return => {
             context.tokens.advance()?;
             let label = match context.tokens.peek() {
@@ -1952,6 +1974,9 @@ fn parse_control_exp(context: &mut Context) -> Result<(Exp, bool), Box<Diagnosti
 //          | <NameAccessChain> "!" <OptionalTypeArgs> "(" Comma<Exp> ")"
 //          | <NameAccessChain> <OptionalTypeArgs>
 fn parse_name_exp(context: &mut Context) -> Result<Exp_, Box<Diagnostic>> {
+    // A '{' after the iterable of a `for` loop opens the body, not a pack. The flag applies to
+    // this name only, so a pack nested inside a call or an index is still recognized.
+    let forbid_pack = std::mem::take(&mut context.forbid_pack_on_next_name);
     let name = parse_name_access_chain(
         context,
         /* macros */ true,
@@ -1967,7 +1992,7 @@ fn parse_name_exp(context: &mut Context) -> Result<Exp_, Box<Diagnostic>> {
         }
 
         // Pack: "{" Comma<ExpField> "}"
-        Tok::LBrace => {
+        Tok::LBrace if !forbid_pack => {
             let fs = parse_comma_list(
                 context,
                 Tok::LBrace,

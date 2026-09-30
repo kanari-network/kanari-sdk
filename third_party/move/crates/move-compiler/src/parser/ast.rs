@@ -554,6 +554,8 @@ pub enum Exp_ {
     While(Box<Exp>, Box<Exp>),
     // loop eloop
     Loop(Box<Exp>),
+    // for bl in e { body }
+    For(BindList, Box<Exp>, Box<Exp>),
 
     // 'label: e
     Labeled(BlockLabel, Box<Exp>),
@@ -1977,6 +1979,13 @@ impl AstDebug for Exp_ {
             E::Loop(e) => {
                 w.write("loop ");
                 e.ast_debug(w);
+            }
+            E::For(binds, iter, body) => {
+                w.write("for ");
+                binds.ast_debug(w);
+                w.write(" in ");
+                iter.ast_debug(w);
+                body.ast_debug(w);
             }
             E::Labeled(name, e) => {
                 w.write(format!("'{name}: "));

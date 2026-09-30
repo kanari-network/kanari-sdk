@@ -113,7 +113,9 @@ fn optimize_exp(consts: &UniqueMap<ConstantName, Value>, e: &mut Exp) -> bool {
 
         E::ModuleCall(mcall) => mcall.arguments.iter_mut().any(optimize_exp),
 
-        E::Freeze(e) | E::Dereference(e) | E::Borrow(_, e, _, _) => optimize_exp(e),
+        E::Freeze(e) | E::Dereference(e) | E::Borrow(_, e, _, _) | E::Reborrow(_, e) => {
+            optimize_exp(e)
+        }
 
         E::Pack(_, _, fields) => fields.iter_mut().any(|(_, _, e)| optimize_exp(e)),
 

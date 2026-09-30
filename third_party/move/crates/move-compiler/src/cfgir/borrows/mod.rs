@@ -289,6 +289,12 @@ fn exp(context: &mut Context, parent_e: &Exp) -> Values {
             context.add_diags(diags);
             vec![value]
         }
+        E::Reborrow(mut_, e) => {
+            let evalue = assert_single_value(exp(context, e));
+            let (diags, value) = context.borrow_state.reborrow(*eloc, *mut_, evalue);
+            context.add_diags(diags);
+            vec![value]
+        }
         E::Dereference(e) => {
             let evalue = assert_single_value(exp(context, e));
             let (errors, value) = context.borrow_state.dereference(*eloc, evalue);

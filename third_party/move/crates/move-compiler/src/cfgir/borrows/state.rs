@@ -718,6 +718,52 @@ impl BorrowState {
         (diags, Value::Ref(frozen_id))
     }
 
+    pub fn reborrow(&mut self, loc: Loc, mut_: bool, rvalue: Value) -> (Diagnostics, Value) {
+        let id = match rvalue {
+            Value::NonRef => {
+                assert!(
+                    self.prev_had_errors,
+                    "ICE borrow checking failed {:#?}",
+                    loc
+                );
+                return (Diagnostics::new(), Value::NonRef);
+            }
+            Value::Ref(id) => id,
+        };
+
+        let parent_mut = self.borrows.is_mutable(id);
+        let new_id = self.declare_new_ref(loc, mut_);
+        let diags = if !mut_ && !parent_mut {
+            // `&*r` from `r: &T`: a shared alias. Both references stay live, exactly like a copy
+            // of the reference.
+            self.add_copy(loc, id, new_id);
+            Diagnostics::new()
+        } else {
+            // `&*r` from `r: &mut T`, or `&mut *r` from `r: &mut T`: the fresh reference takes
+            // over the loan. Check access and link it to the parent, the same way `freeze` and
+            // argument passing treat a consumed `&mut`.
+            let diags = if mut_ {
+                self.writable(loc, || "Invalid mutable reborrow.".into(), id)
+            } else {
+                self.readable(
+                    loc,
+                    ReferenceSafety::MutOwns,
+                    || "Invalid reborrow.".into(),
+                    id,
+                    None,
+                )
+            };
+            self.add_borrow(loc, id, new_id);
+            diags
+        };
+        // The input was moved or copied for this expression. Either way its node no longer belongs
+        // to a local -- a move detached it, a copy made it a dead temporary -- so release it now
+        // that the fresh reference carries the loan forward. This is what `freeze`, field borrows,
+        // and calls all do.
+        self.release(id);
+        (diags, Value::Ref(new_id))
+    }
+
     pub fn dereference(&mut self, loc: Loc, rvalue: Value) -> (Diagnostics, Value) {
         let id = match rvalue {
             Value::NonRef => {

@@ -50,6 +50,8 @@ pub enum FeatureGate {
     CleverAssertions,
     NoParensCast,
     TypeHoles,
+    ForLoop,
+    Reborrow,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, PartialOrd, Ord, Default)]
@@ -148,11 +150,20 @@ const E2024_BETA_FEATURES: &[FeatureGate] = &[
     FeatureGate::SyntaxMethods,
     FeatureGate::AutoborrowEq,
     FeatureGate::NoParensCast,
+    // 'for' desugars using `let mut` and the implicit `std::vector` alias, so it
+    // implies LetMut, Move2024Keywords and Move2024Paths.
+    FeatureGate::ForLoop,
+    // Explicit reborrows `&*r` and `&mut *r`. Needed for `for` over a reference, and useful
+    // wherever a fresh borrow of a referent is wanted without moving or copying it.
+    FeatureGate::Reborrow,
 ];
 
 const DEVELOPMENT_FEATURES: &[FeatureGate] = &[FeatureGate::CleverAssertions, FeatureGate::Enums];
 
 const E2024_MIGRATION_FEATURES: &[FeatureGate] = &[FeatureGate::Move2024Migration];
+
+// Stable 2024 freezes the 2024.beta feature set (no extra features on top of beta).
+const E2024_FEATURES: &[FeatureGate] = &[];
 
 impl Edition {
     pub const LEGACY: Self = Self {
@@ -171,6 +182,10 @@ impl Edition {
         edition: symbol!("2024"),
         release: Some(symbol!("migration")),
     };
+    pub const E2024: Self = Self {
+        edition: symbol!("2024"),
+        release: None,
+    };
     pub const DEVELOPMENT: Self = Self {
         edition: symbol!("development"),
         release: None,
@@ -183,9 +198,15 @@ impl Edition {
         Self::E2024_ALPHA,
         Self::E2024_BETA,
         Self::E2024_MIGRATION,
+        Self::E2024,
         Self::DEVELOPMENT,
     ];
-    pub const VALID: &'static [Self] = &[Self::LEGACY, Self::E2024_ALPHA, Self::E2024_BETA];
+    pub const VALID: &'static [Self] = &[
+        Self::LEGACY,
+        Self::E2024_ALPHA,
+        Self::E2024_BETA,
+        Self::E2024,
+    ];
 
     pub fn supports(&self, feature: FeatureGate) -> bool {
         SUPPORTED_FEATURES.get(self).unwrap().contains(&feature)
@@ -198,6 +219,7 @@ impl Edition {
             Self::E2024_ALPHA => Some(Self::E2024_BETA),
             Self::E2024_BETA => Some(Self::LEGACY),
             Self::E2024_MIGRATION => Some(Self::E2024_BETA),
+            Self::E2024 => Some(Self::E2024_BETA),
             Self::DEVELOPMENT => Some(Self::E2024_ALPHA),
             _ => self.unknown_edition_panic(),
         }
@@ -221,6 +243,11 @@ impl Edition {
             Self::E2024_MIGRATION => {
                 let mut features = self.prev().unwrap().features();
                 features.extend(E2024_MIGRATION_FEATURES);
+                features
+            }
+            Self::E2024 => {
+                let mut features = self.prev().unwrap().features();
+                features.extend(E2024_FEATURES);
                 features
             }
             Self::DEVELOPMENT => {
@@ -272,6 +299,8 @@ impl FeatureGate {
             FeatureGate::CleverAssertions => "Clever `assert!`, `abort`, and `#[error]` are",
             FeatureGate::NoParensCast => "'as' without parentheses is",
             FeatureGate::TypeHoles => "'_' placeholders for type inference are",
+            FeatureGate::ForLoop => "'for' loops are",
+            FeatureGate::Reborrow => "reborrows ('&*r' and '&mut *r') are",
         }
     }
 }

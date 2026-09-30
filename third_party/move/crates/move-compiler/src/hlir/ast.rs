@@ -401,6 +401,9 @@ pub enum UnannotatedExp_ {
 
     Borrow(bool, Box<Exp>, Field, FromUnpack),
     BorrowLocal(bool, Var),
+    // An explicit reborrow `&*r` or `&mut *r`. The base is itself a reference, and the borrow
+    // checker treats the result as a fresh reference derived from it.
+    Reborrow(bool, Box<Exp>),
 
     Cast(Box<Exp>, BuiltinTypeName),
 
@@ -1541,6 +1544,14 @@ impl AstDebug for UnannotatedExp_ {
                     w.write("mut ");
                 }
                 v.ast_debug(w);
+            }
+            E::Reborrow(mut_, e) => {
+                w.write("&");
+                if *mut_ {
+                    w.write("mut ");
+                }
+                w.write("*");
+                e.ast_debug(w);
             }
             E::Cast(e, bt) => {
                 w.write("(");

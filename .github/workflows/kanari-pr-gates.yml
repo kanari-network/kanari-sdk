@@ -61,9 +61,17 @@ jobs:
         timeout-minutes: 30
         run: cargo test -p kanari-core --lib
 
-      - name: Move Prover pipeline (kanari-system)
+      - name: Move Build (move-stdlib)
+        working-directory: crates/kanari-frameworks/packages/move-stdlib
+        run: cargo run -p kanari -- move build
+
+      - name: Move unit tests (move-stdlib)
+        working-directory: crates/kanari-frameworks/packages/move-stdlib
+        run: cargo run -p kanari -- move test
+
+      - name: Move Build (kanari-system)
         working-directory: crates/kanari-frameworks/packages/kanari-system
-        run: cargo run -p kanari -- move prove
+        run: cargo run -p kanari -- move build
 
       - name: Move unit tests (kanari-system)
         working-directory: crates/kanari-frameworks/packages/kanari-system

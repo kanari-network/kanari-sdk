@@ -1766,6 +1766,10 @@ fn value(
             make_exp(HE::BorrowLocal(mut_, tmp))
         }
         E::BorrowLocal(mut_, var) => make_exp(HE::BorrowLocal(mut_, translate_var(var))),
+        E::Reborrow(mut_, base_exp) => {
+            let exp = value(context, block, None, *base_exp);
+            make_exp(HE::Reborrow(mut_, Box::new(exp)))
+        }
         E::Cast(base, rhs_ty) => {
             use N::BuiltinTypeName_ as BT;
             let new_base = value(context, block, None, *base);
@@ -2194,6 +2198,7 @@ fn statement(context: &mut Context, block: &mut Block, e: T::Exp) {
         | E::ExpList(_)
         | E::Borrow(_, _, _)
         | E::TempBorrow(_, _)
+        | E::Reborrow(_, _)
         | E::Cast(_, _)
         | E::Annotate(_, _)
         | E::BorrowLocal(_, _)

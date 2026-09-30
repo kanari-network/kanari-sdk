@@ -302,6 +302,44 @@ for_each(&nums, |x| {
 });
 ```
 
+### Reborrowing
+
+A borrow of a reference, `&*r` or `&mut *r`, makes a fresh reference to the same referent without
+moving or copying anything. It is available from the Move 2024 edition onwards.
+
+```move
+public fun total(items: &vector<u64>): u64 {
+    // `&` on a reference is rejected, so the reborrow is spelled `&*items`.
+    let view = &*items;
+    let mut sum = 0u64;
+    let mut i = 0u64;
+    while (i < vector::length(view)) {
+        sum = sum + *vector::borrow(view, i);
+        i = i + 1;
+    };
+    sum
+}
+```
+
+The borrow checker treats the result as derived from the original reference:
+
+- `&*r` where `r: &T` is a shared alias. `r` stays usable, exactly like a copy of the reference.
+- `&*r` where `r: &mut T` narrows to a `&T`, like a `freeze`.
+- `&mut *r` where `r: &mut T` is a fresh mutable reference, and `r` is consumed the way passing
+  it to a function would consume it.
+- `&mut *r` where `r: &T` is rejected, as is `&*r` where `r` is not a reference at all.
+
+Unlike a dereference, a reborrow never demands `copy` of the referent, so it works on any type:
+
+```move
+struct Entry has drop { weight: u64 }
+
+public fun total(entries: &vector<Entry>): u64 {
+    let view = &*entries; // fine without `copy` on `Entry`
+    // ...
+}
+```
+
 ## Best Practices
 
 ### 1. Prefer References Over Copies

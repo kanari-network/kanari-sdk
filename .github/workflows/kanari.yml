@@ -3,6 +3,7 @@ name: Build and Release Kanari Binaries
 on:
   push:
     branches:
+      - "move-lang-2027"
       - "kanari-sdk"
     tags:
       - "v*"

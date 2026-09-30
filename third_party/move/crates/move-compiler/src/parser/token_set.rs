@@ -93,6 +93,7 @@ const EXP_STARTS: &[Tok] = &[
     Tok::Loop,
     Tok::Return,
     Tok::While,
+    Tok::For,
     Tok::BlockLabel,
 ];
 

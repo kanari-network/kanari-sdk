@@ -229,6 +229,9 @@ pub enum UnannotatedExp_ {
     Borrow(bool, Box<Exp>, Field),
     TempBorrow(bool, Box<Exp>),
     BorrowLocal(bool, Var),
+    // An explicit reborrow `&*r` or `&mut *r`: a fresh reference derived from the reference `r`
+    // without demanding `copy` of the referent. Unlike `Borrow`, the base is itself a reference.
+    Reborrow(bool, Box<Exp>),
 
     Cast(Box<Exp>, Box<Type>),
     Annotate(Box<Exp>, Box<Type>),
@@ -804,6 +807,14 @@ impl AstDebug for UnannotatedExp_ {
                     w.write("mut ");
                 }
                 v.ast_debug(w);
+            }
+            E::Reborrow(mut_, e) => {
+                w.write("&");
+                if *mut_ {
+                    w.write("mut ");
+                }
+                w.write("*");
+                e.ast_debug(w);
             }
             E::Cast(e, ty) => {
                 w.write("(");

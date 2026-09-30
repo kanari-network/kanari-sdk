@@ -220,6 +220,7 @@ pub trait TypingVisitorContext {
             }
             E::Borrow(_, e, _) => self.visit_exp(e),
             E::TempBorrow(_, e) => self.visit_exp(e),
+            E::Reborrow(_, e) => self.visit_exp(e),
             E::Cast(e, _) => self.visit_exp(e),
             E::Annotate(e, _) => self.visit_exp(e),
             E::Unit { .. }
