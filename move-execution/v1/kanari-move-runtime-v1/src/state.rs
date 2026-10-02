@@ -191,15 +191,6 @@ pub struct StateManager {
     /// In-memory cache for tracking total token supplies in real-time
     pub global_token_supplies: BTreeMap<String, u64>,
 
-    /// Protocol-owned gas fee pool for non-native settlement coins.
-    ///
-    /// Keyed by canonical coin type. Native KANARI fees keep flowing through
-    /// the DAO owner ledger (`owner_deltas`); every other whitelisted coin
-    /// accumulates here so the DAO does not need a funded `Coin<T>` object
-    /// per fee payment. Included in supply accounting as protocol-locked
-    /// funds (see `token_supply_summary`).
-    pub dao_token_fees: BTreeMap<String, u64>,
-
     // SMT for state root calculation (Optional: requires DB backend)
     pub smt: Option<Arc<smt::SparseMerkleTree>>,
     pub events: Vec<Event>,
@@ -447,10 +438,6 @@ impl StateManager {
             .load::<BTreeMap<String, u64>>(b"global_token_supplies")
             .context("Failed to load global_token_supplies")?
             .unwrap_or_default();
-        let dao_token_fees = store
-            .load::<BTreeMap<String, u64>>(b"dao_token_fees")
-            .context("Failed to load dao_token_fees")?
-            .unwrap_or_default();
         let mut access_versions = store
             .load::<BTreeMap<Vec<u8>, u64>>(ACCESS_VERSIONS_KEY)
             .context("Failed to load state access versions")?
@@ -508,7 +495,6 @@ impl StateManager {
             overlay: BTreeMap::new(),
             total_supply: recovered_total_supply,
             global_token_supplies,
-            dao_token_fees,
             smt,
             events: Vec::new(),
             access_versions,
@@ -563,11 +549,6 @@ impl StateManager {
                     .store
                     .load::<BTreeMap<String, u64>>(b"global_token_supplies")
                     .context("Failed to reload global token supplies after genesis initialization")?
-                    .unwrap_or_default();
-                state.dao_token_fees = state
-                    .store
-                    .load::<BTreeMap<String, u64>>(b"dao_token_fees")
-                    .context("Failed to reload dao token fees after genesis initialization")?
                     .unwrap_or_default();
             } else {
                 state

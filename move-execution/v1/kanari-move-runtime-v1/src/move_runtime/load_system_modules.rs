@@ -614,29 +614,6 @@ impl super::MoveRuntime {
     }
 }
 
-/// Public API: Load and sort system modules from a directory
-pub(crate) fn load_system_modules_from_dir(modules_dir: &Path) -> Result<Vec<DiscoveredModule>> {
-    ensure_production_build_artifacts(modules_dir)?;
-
-    let system_addr = KanariAddress::kanari_system_account_address();
-    let move_system_addr = AccountAddress::from_hex_literal(system_addr.to_hex_literal().as_str())?;
-
-    // Discover all modules in the directory
-    let discovered_modules = discover_modules_in_dir(modules_dir, move_system_addr);
-
-    if discovered_modules.is_empty() {
-        return Err(anyhow!(
-            "No valid framework modules found in {}",
-            modules_dir.display()
-        ));
-    }
-
-    // Sort modules in topological order (dependencies first)
-    let sorted_modules = topo_sort_modules(discovered_modules)?;
-
-    Ok(sorted_modules)
-}
-
 pub(crate) fn load_embedded_kanari_system_modules() -> Result<Vec<DiscoveredModule>> {
     let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
     topo_sort_modules(discover_embedded_modules(

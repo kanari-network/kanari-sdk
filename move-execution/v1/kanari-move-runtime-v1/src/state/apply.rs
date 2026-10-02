@@ -728,24 +728,6 @@ impl StateManager {
             self.save_native_total_supply(next_total_supply)?;
         }
 
-        // Accumulate non-native gas fees into the DAO protocol fee pool.
-        // Native KANARI fees already flowed through owner deltas above; other
-        // coins settle here so the DAO needs no per-coin `Coin<T>` object.
-        if !changeset.token_gas_credits.is_empty() {
-            for (coin_type, amount) in &changeset.token_gas_credits {
-                let normalized = Self::normalize_token_type(coin_type);
-                if normalized == GAS_COIN {
-                    continue;
-                }
-                let fee = self.dao_token_fees.entry(normalized).or_insert(0);
-                *fee = fee
-                    .checked_add(*amount)
-                    .require("DAO token fee pool overflow")?;
-            }
-            let fees = self.dao_token_fees.clone();
-            self.save_internal(b"dao_token_fees", &fees)?;
-        }
-
         // Apply treasury creations/updates (canonical spelling going forward;
         // readers fall back to raw keys for legacy DBs).
         for (owner, token_type, total_supply) in &changeset.treasuries {

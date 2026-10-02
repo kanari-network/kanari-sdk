@@ -133,11 +133,9 @@ pub struct ChangeSet {
     /// Canonical token type, e.g. `0x2::kanari::KANARI`.
     #[serde(default)]
     pub gas_coin_type: Option<String>,
-    /// Non-native gas fees keyed by canonical coin type. While native KANARI
-    /// fees flow through `owner_deltas` + `native_gas_credits` (the DAO holds
-    /// a native ledger balance), other coins settle at the object level: the
-    /// sender's `Coin<T>` object is debited and the DAO's protocol fee pool
-    /// (see `StateManager::dao_token_fees`) is credited by the same amount.
+    /// Non-native gas fees keyed by canonical coin type. The sender's gas
+    /// object is debited and an equal DAO-owned `Coin<T>` output is recorded in
+    /// `created_objects` for the same transaction.
     #[serde(default)]
     pub token_gas_credits: BTreeMap<String, u64>,
     pub events: Vec<Event>,
@@ -455,12 +453,11 @@ impl ChangeSet {
         }
     }
 
-    /// Collect gas fees to the DAO in any whitelisted coin.
+    /// Record gas fees collected for the DAO in any supported coin.
     ///
     /// Native KANARI keeps the legacy ledger path (owner delta + native gas
-    /// credits). Other coins skip owner deltas — the sender debit happens at
-    /// the `Coin<T>` object level in `StateManager::apply_changeset` — and
-    /// accumulate in `token_gas_credits` for the DAO protocol fee pool.
+    /// credits). For other coins, `token_gas_credits` records the sender's
+    /// object debit; the engine adds an equal DAO-owned `Coin<T>` output.
     pub fn collect_gas_for_coin(
         &mut self,
         dao_address: AccountAddress,

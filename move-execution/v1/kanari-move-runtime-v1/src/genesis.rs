@@ -3,9 +3,9 @@
 
 //! Genesis initialization for Kanari blockchain
 //!
-//! This module executes the actual framework bytecode to initialize genesis state.
-//! It loads compiled .mv files from disk, publishes all modules in dependency order,
-//! and calls kanari::init() to mint initial coin supply through Move VM.
+//! This module executes the framework bytecode embedded in the node binary to
+//! initialize genesis state. It publishes modules in dependency order and calls
+//! framework initializers through the Move VM.
 
 use crate::move_runtime::{MoveRuntime, load_system_modules};
 use crate::state::StateManager;
@@ -19,16 +19,7 @@ use std::format;
 pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     log::info!("=== Executing framework modules for genesis ===");
 
-    // Find the framework bytecode directory
-    let bytecode_dir = load_system_modules::find_kanari_system_modules_dir();
-
-    if bytecode_dir.exists() {
-        log::info!("Loading framework modules from: {}", bytecode_dir.display());
-    } else {
-        log::warn!(
-            "Framework bytecode artifacts not found on disk; using embedded framework bytecode"
-        );
-    }
+    log::info!("Loading the system framework bundle embedded in this node binary");
 
     // Build an in-memory runtime and preload framework/system natives.
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()
@@ -38,12 +29,8 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     let system_addr = KanariAddress::kanari_system_account_address();
 
     // Discover framework modules and publish them in dependency order.
-    let sorted_modules = if bytecode_dir.exists() {
-        load_system_modules::load_system_modules_from_dir(&bytecode_dir)
-    } else {
-        load_system_modules::load_embedded_kanari_system_modules()
-    }
-    .context("Failed to load system modules")?;
+    let sorted_modules = load_system_modules::load_embedded_kanari_system_modules()
+        .context("Failed to load embedded system modules")?;
 
     log::info!("Discovered {} framework modules", sorted_modules.len());
     log::info!(

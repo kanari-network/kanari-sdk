@@ -2086,6 +2086,18 @@ fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
 fn gas_application_credits_dao_ledger_without_creating_coin() {
     let sender = AccountAddress::random();
     let mut changeset = ChangeSet::new();
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.to_hex_literal(),
+        module: "0x2::coin".to_string(),
+        function: "transfer".to_string(),
+        type_args: Vec::new(),
+        args: Vec::new(),
+        object_inputs: Vec::new(),
+        gas_payment: None,
+        gas_limit: 10,
+        gas_price: 1,
+        nonce: 0,
+    };
 
     BlockchainEngine::apply_gas_and_sequence(
         &mut changeset,
@@ -2093,6 +2105,7 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
         10,
         10,
         kanari_types::gas_coin::GAS_COIN,
+        &tx,
     )
     .unwrap();
 
@@ -3152,6 +3165,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
 
     let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
     let sponsor_tagged = sponsor.tagged_address();
+    let mut total_dao_gas_fees = 0u64;
 
     for (leg, nonce) in [0u64, 1u64].iter().enumerate() {
         // Fresh refs every leg: the shared cap version advances on each mint,
@@ -3222,6 +3236,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
             )
             .unwrap();
         assert!(changeset.success, "{:?}", changeset.error_message);
+        total_dao_gas_fees = total_dao_gas_fees.saturating_add(changeset.gas_used);
         {
             let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
             state.apply_changeset(&changeset).unwrap();
@@ -3234,7 +3249,38 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
                 .unwrap(),
             50_000_000 * (leg as u64 + 1)
         );
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(
+                    AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
+                        .unwrap(),
+                    USD_COIN,
+                )
+                .unwrap(),
+            total_dao_gas_fees
+        );
+        let dao_address = AccountAddress::from_hex_literal(
+            kanari_types::address::Address::DAO_ADDRESS,
+        )
+        .unwrap();
+        let usd_coin_type = kanari_types::coin::CoinModule::coin_type(USD_COIN);
+        let dao_usd_coins = state
+            .query_objects(None, None, Some(&usd_coin_type), None, None)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, coin)| {
+                coin.owner_kind
+                    == ObjectOwnerKind::AddressOwner(dao_address.to_hex_literal())
+            })
+            .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
+            .sum::<u64>();
+        assert_eq!(dao_usd_coins, total_dao_gas_fees);
     }
+
+    let dao_info = engine
+        .get_owner_info(kanari_types::address::Address::DAO_ADDRESS)
+        .expect("DAO fee account should be queryable");
+    assert_eq!(dao_info.balances.get(USD_COIN), Some(&total_dao_gas_fees));
 }
 
 /// Gas settlement accepts only the two protocol gas coins.

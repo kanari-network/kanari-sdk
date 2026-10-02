@@ -2905,7 +2905,14 @@ impl BlockchainEngine {
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
         changeset.mark_failed(error_message);
-        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, base_units, &gas_coin)?;
+        Self::apply_gas_and_sequence(
+            &mut changeset,
+            sender_addr,
+            gas_cost,
+            base_units,
+            &gas_coin,
+            tx,
+        )?;
         let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
@@ -2938,13 +2945,36 @@ impl BlockchainEngine {
         gas_cost: u64,
         gas_used: u64,
         gas_coin: &str,
+        tx: &Transaction,
     ) -> Result<()> {
-        // Multi-coin path: no native ledger movement. The sender's `Coin<T>`
-        // object is debited in `StateManager::apply_changeset` and the DAO
-        // protocol fee pool is credited there by the same amount.
+        // Non-native fees debit the sender's gas object and create an equal
+        // DAO-owned Coin<T> output in the same transaction effects.
         if gas_coin != GAS_COIN {
             let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
             changeset.collect_gas_for_coin(dao_addr, gas_coin, gas_cost);
+            if gas_cost > 0 {
+                let normalized_coin = CoinModule::normalize_token_type(gas_coin);
+                let coin_type = CoinModule::coin_type(&normalized_coin);
+                let mut seed = b"KANARI::DAO::GAS_FEE_COIN::".to_vec();
+                seed.extend_from_slice(tx.hash().as_slice());
+                seed.extend_from_slice(normalized_coin.as_bytes());
+                let hash = kanari_crypto::hash_data_blake3(&seed);
+                let mut coin_id_bytes = [0u8; AccountAddress::LENGTH];
+                coin_id_bytes.copy_from_slice(&hash);
+                let coin_id = AccountAddress::new(coin_id_bytes);
+                let uid = kanari_types::object::UIDRecord::new(coin_id);
+                let mut data = coin_id.to_vec();
+                data.extend_from_slice(&gas_cost.to_le_bytes());
+                changeset.add_created_object(
+                    dao_addr,
+                    coin_type,
+                    data,
+                    1,
+                    Some(uid),
+                    None,
+                    Some(coin_id.to_hex_literal()),
+                );
+            }
             changeset.set_gas_used(gas_used);
             return Ok(());
         }
@@ -3177,6 +3207,7 @@ impl BlockchainEngine {
                     base_gas_cost.min(balance),
                     gas_meter.gas_used,
                     &gas_coin,
+                    tx,
                 )?;
                 Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                 return Ok(changeset);
@@ -3198,6 +3229,7 @@ impl BlockchainEngine {
                         base_gas_cost.min(object_balance),
                         gas_meter.gas_used,
                         &gas_coin,
+                        tx,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -3322,6 +3354,7 @@ impl BlockchainEngine {
                         base_gas_cost,
                         gas_meter.gas_used,
                         &gas_coin,
+                        tx,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -3350,6 +3383,7 @@ impl BlockchainEngine {
                         base_gas_cost,
                         gas_meter.gas_used,
                         &gas_coin,
+                        tx,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -3416,6 +3450,7 @@ impl BlockchainEngine {
             charged_gas_cost,
             charged_gas_units,
             &gas_coin,
+            tx,
         )?;
         let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
