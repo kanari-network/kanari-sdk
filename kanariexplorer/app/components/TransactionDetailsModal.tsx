@@ -1,4 +1,4 @@
-import { describeTransactionLifecycle, EmptyState, formatBalance, RawDetails, readAddress, readString, shortHash, StatusPill, stripHexPrefix } from "./ExplorerUI";
+import { describeTransactionLifecycle, EmptyState, formatBalance, formatGasFee, RawDetails, readAddress, readString, shortHash, StatusPill, stripHexPrefix } from "./ExplorerUI";
 import ObjectGraphView from "./ObjectGraphView";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
@@ -276,7 +276,11 @@ export default function TransactionDetailsModal({
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />
                 <DetailItem label="Gas Price" value={readFirstString(transaction, ["gas_price"])} mono />
                 <DetailItem label="Gas Used" value={readFirstString(transaction, ["gas_used"])} mono />
-                <DetailItem label="Gas Fee Charged" value={readFirstString(transaction, ["gas_fee"])} mono />
+                <DetailItem
+                  label="Gas Fee Charged"
+                  value={formatGasFee(transaction, readFirstString(transaction, ["gas_fee"], ""))}
+                  mono
+                />
                 <DetailItem label="Object Inputs" value={objectInputs > 0 ? String(objectInputs) : "-"} mono />
                 <DetailItem label="Gas Objects" value={gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-"} mono />
                 <DetailItem label="Object Changes" value={effectObjectChanges > 0 ? String(effectObjectChanges) : "-"} mono />

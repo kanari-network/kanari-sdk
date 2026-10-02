@@ -105,8 +105,9 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                 runtime.persist_created_objects(&changeset)?;
                 runtime.persist_deleted_objects(&changeset)?;
 
-                // Run `kanari::init()` after publishing the main kanari module.
-                // It must run before the system clock prologue commits.
+                // Run `kanari::init()` after publishing the main kanari module,
+                // then `usd::init()` to mint the USD stablecoin genesis supply.
+                // Both must run before the system clock prologue commits.
                 if *module_name == "kanari.mv" {
                     execute_framework_init(
                         &runtime,
@@ -114,6 +115,15 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                         system_addr,
                         "kanari",
                         b"KANARI::GENESIS::INIT::KANARI",
+                    )?;
+                }
+                if *module_name == "usd.mv" {
+                    execute_framework_init(
+                        &runtime,
+                        state,
+                        system_addr,
+                        "usd",
+                        b"KANARI::GENESIS::INIT::USD",
                     )?;
                 }
             }

@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 pub const USD_SCALE: u64 = 1_000_000;
 /// Fixed-point price scale (matches MIST 1e9 granularity).
 pub const PRICE_SCALE: u64 = 1_000_000_000;
-/// Default USD price per gas unit: $0.00002 (20 micro-USD).
-pub const DEFAULT_USD_PER_GAS_UNIT_MICROS: u64 = 20;
+/// Default USD price per gas unit: $0.000001 (1 micro-USD).
+pub const DEFAULT_USD_PER_GAS_UNIT_MICROS: u64 = 1;
 /// Fully qualified gas-market module path.
 pub const GAS_MARKET_MODULE: &str = "0x2::gas_market";
 
@@ -61,14 +61,24 @@ impl Default for GasPriceTable {
             version: 1,
             usd_per_gas_unit_micros: DEFAULT_USD_PER_GAS_UNIT_MICROS,
             max_staleness_versions: 600,
-            entries: vec![GasCoinEntry {
-                coin_type: GAS_COIN.to_string(),
-                decimals: GasModule::KANARI_DECIMALS as u8,
-                active: true,
-                // Default $2.00/KANARI seed; the feeder overwrites on-chain.
-                price_usd_micros: 2_000_000,
-                price_version: 1,
-            }],
+            entries: vec![
+                GasCoinEntry {
+                    coin_type: GAS_COIN.to_string(),
+                    decimals: GasModule::KANARI_DECIMALS as u8,
+                    active: true,
+                    // Default $2.00/KANARI seed; the feeder overwrites on-chain.
+                    price_usd_micros: 2_000_000,
+                    price_version: 1,
+                },
+                GasCoinEntry {
+                    coin_type: crate::usd_coin::USD_COIN.to_string(),
+                    decimals: crate::usd_coin::UsdModule::USD_DECIMALS as u8,
+                    active: true,
+                    // Stablecoin peg; the feeder overwrites on-chain.
+                    price_usd_micros: 1_000_000,
+                    price_version: 1,
+                },
+            ],
         }
     }
 }
@@ -219,7 +229,7 @@ pub fn format_usd_micros(micros: u64) -> String {
 
 /// Auto-select settlement coin: "ถ้ากระเป๋ามีเหรียญไหน ก็ใช้เหรียญนั้นเป็น gas".
 ///
-/// Preference order: native KANARI first (no oracle risk), then stablecoins
+/// Preference order: USD first, then native KANARI, then other stablecoins
 /// (6 decimals), then highest USD value affordable. Returns the coin type and
 /// the max-cost quote in that coin.
 pub fn select_gas_coin(
@@ -228,6 +238,17 @@ pub fn select_gas_coin(
     table: &GasPriceTable,
     transfer_needs: &BTreeMap<String, u64>,
 ) -> Option<(String, u64)> {
+    if let Some((coin, balance)) = balances.iter().find(|(coin, _)| {
+        CoinModule::normalize_token_type(coin) == crate::usd_coin::USD_COIN
+    }) && table.is_supported(coin)
+    {
+        let quote = table.quote_in_token(gas_limit, coin).ok()?;
+        let need = quote.saturating_add(transfer_needs.get(coin).copied().unwrap_or(0));
+        if *balance >= need {
+            return Some((coin.clone(), quote));
+        }
+    }
+
     let mut stables: Vec<(&String, &u64)> = Vec::new();
     let mut others: Vec<(&String, &u64)> = Vec::new();
 
@@ -302,8 +323,16 @@ mod tests {
     fn default_table_quotes_kanari() {
         let table = GasPriceTable::default();
         assert!(table.is_supported(GAS_COIN));
+        assert!(table.is_supported(crate::usd_coin::USD_COIN));
         assert!(!table.is_supported("0x2::usdc::USDC"));
-        assert_eq!(table.quote_in_token(100, GAS_COIN).unwrap(), 1_000_000);
+        assert_eq!(table.usd_per_gas_unit_micros, 1);
+        assert_eq!(table.quote_in_token(100, GAS_COIN).unwrap(), 50_000);
+        assert_eq!(
+            table
+                .quote_in_token(100_000, crate::usd_coin::USD_COIN)
+                .unwrap(),
+            100_000
+        );
     }
 
     #[test]
@@ -318,12 +347,24 @@ mod tests {
     }
 
     #[test]
-    fn selects_kanari_first_when_affordable() {
+    fn selects_usd_first_when_available() {
+        let table = GasPriceTable::default();
+        let balances = BTreeMap::from([
+            (GAS_COIN.to_string(), 10_000_000),
+            (crate::usd_coin::USD_COIN.to_string(), 10_000_000),
+        ]);
+        let (coin, quote) = select_gas_coin(&balances, 100, &table, &BTreeMap::new()).unwrap();
+        assert_eq!(coin, crate::usd_coin::USD_COIN);
+        assert_eq!(quote, 100);
+    }
+
+    #[test]
+    fn falls_back_to_kanari_when_usd_is_unavailable() {
         let table = GasPriceTable::default();
         let balances = BTreeMap::from([(GAS_COIN.to_string(), 10_000_000)]);
         let (coin, quote) = select_gas_coin(&balances, 100, &table, &BTreeMap::new()).unwrap();
         assert_eq!(coin, GAS_COIN);
-        assert_eq!(quote, 1_000_000);
+        assert_eq!(quote, 50_000);
     }
 
     #[test]

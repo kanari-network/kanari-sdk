@@ -388,7 +388,7 @@ impl MoveRuntime {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives(natives)?;
         if !cfg!(miri) {
-            runtime.load_system_modules()?;
+            runtime.load_system_modules(false)?;
         }
         Ok(runtime)
     }
@@ -397,7 +397,7 @@ impl MoveRuntime {
     pub fn new_with_kanari_natives_in_memory() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_in_memory(natives)?;
-        runtime.load_system_modules()?;
+        runtime.load_system_modules(true)?;
         Ok(runtime)
     }
 
@@ -405,7 +405,7 @@ impl MoveRuntime {
     pub fn new_with_kanari_natives_and_store(store: Arc<PersistentStore>) -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_and_store(natives, store)?;
-        runtime.load_system_modules()?;
+        runtime.load_system_modules(false)?;
         Ok(runtime)
     }
 
@@ -421,7 +421,7 @@ impl MoveRuntime {
             // `zeros()` so assertions stay gas-agnostic.
             kanari_system_natives::all_natives(
                 sys_addr,
-                kanari_system_natives::GasParameters::production(),
+                kanari_system_natives::GasParameters::zeros(),
             ),
         ]
     }
@@ -627,9 +627,9 @@ impl MoveRuntime {
         Ok(())
     }
 
-    fn load_system_modules(&self) -> Result<()> {
-        self.load_move_stdlib()?;
-        self.load_kanari_system()?;
+    fn load_system_modules(&self, use_embedded: bool) -> Result<()> {
+        self.load_move_stdlib(use_embedded)?;
+        self.load_kanari_system(use_embedded)?;
         Ok(())
     }
 

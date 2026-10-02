@@ -1233,6 +1233,62 @@
       ]
     },
     {
+      "name": "kanari_requestUsdFaucet",
+      "summary": "Claim 100 USD from the web faucet",
+      "description": "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Faucet claim payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "faucet_result",
+        "description": "Faucet claim result.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "faucet"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getUsdFaucetStatus",
+      "summary": "Get USD faucet status",
+      "description": "Returns the web faucet configuration and whether it is enabled.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Empty payload.",
+          "required": false,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "faucet_status",
+        "description": "Faucet status payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "faucet"
+        }
+      ]
+    },
+    {
       "name": "kanari_viewFunction",
       "summary": "View function",
       "description": "Executes a read-only Move function without submitting a transaction.",

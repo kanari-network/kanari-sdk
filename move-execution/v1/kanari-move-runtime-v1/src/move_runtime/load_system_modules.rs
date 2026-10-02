@@ -485,9 +485,9 @@ fn verbose_startup_enabled() -> bool {
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
-    pub(crate) fn load_move_stdlib(&self) -> Result<()> {
+    pub(crate) fn load_move_stdlib(&self, use_embedded: bool) -> Result<()> {
         let modules_dir = find_move_stdlib_modules_dir();
-        if modules_dir.exists() {
+        if !use_embedded && modules_dir.exists() {
             ensure_production_build_artifacts(&modules_dir)?;
         }
 
@@ -499,7 +499,7 @@ impl super::MoveRuntime {
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
 
         let mut count = 0;
-        let modules = if modules_dir.exists() {
+        let modules = if !use_embedded && modules_dir.exists() {
             topo_sort_modules(discover_modules_in_dir(&modules_dir, std_addr))?
         } else {
             warn!(
@@ -542,9 +542,9 @@ impl super::MoveRuntime {
     }
 
     /// Load Kanari system modules (0x2::*)
-    pub(crate) fn load_kanari_system(&self) -> Result<()> {
+    pub(crate) fn load_kanari_system(&self, use_embedded: bool) -> Result<()> {
         let modules_dir = find_kanari_system_modules_dir();
-        if modules_dir.exists() {
+        if !use_embedded && modules_dir.exists() {
             ensure_production_build_artifacts(&modules_dir)?;
         }
 
@@ -555,7 +555,7 @@ impl super::MoveRuntime {
         let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
         let mut count = 0;
 
-        let modules = if modules_dir.exists() {
+        let modules = if !use_embedded && modules_dir.exists() {
             topo_sort_modules(discover_modules_in_dir(&modules_dir, system_addr))?
         } else {
             warn!(
@@ -583,7 +583,7 @@ impl super::MoveRuntime {
 
         let stdlib_dir = find_move_stdlib_modules_dir();
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
-        let stdlib_modules = if stdlib_dir.exists() {
+        let stdlib_modules = if !use_embedded && stdlib_dir.exists() {
             topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?
         } else {
             topo_sort_modules(discover_embedded_modules(

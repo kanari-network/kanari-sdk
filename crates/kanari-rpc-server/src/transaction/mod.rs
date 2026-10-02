@@ -35,6 +35,9 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
 
+/// In-node USD faucet: web claims mint 100 USD as two 50 USD objects.
+pub mod faucet;
+
 // Extract function names from module bytecode (returns None on error)
 fn extract_functions_from_bytes(bytes: &[u8]) -> Option<Vec<String>> {
     CompiledModule::deserialize_with_defaults(bytes)
@@ -386,8 +389,8 @@ fn node_gas_price_table() -> kanari_types::gas_market::GasPriceTable {
     kanari_types::gas_market::GasPriceTable::from_env_or_default()
 }
 
-/// Auto-select gas payment: native KANARI first (legacy path), otherwise the
-/// best whitelisted coin the wallet can afford ("à¸¡à¸µà¹€à¸«à¸£à¸µà¸¢à¸à¹„à¸«à¸™à¹ƒà¸Šà¹‰à¹€à¸«à¸£à¸µà¸¢à¸à¸™à¸±à¹‰à¸™").
+/// Auto-select gas payment: USD first, then native KANARI, then the best
+/// remaining whitelisted coin the wallet can afford.
 ///
 /// Returns the payment plus the effective per-unit price in settlement-token
 /// base units, which callers must echo into the built transaction's
@@ -427,18 +430,6 @@ fn select_gas_payment_with_table(
     table: &kanari_types::gas_market::GasPriceTable,
 ) -> anyhow::Result<(GasPayment, u64)> {
     let native_required = gas_limit.saturating_mul(effective_gas_price(gas_price));
-    if let Ok(payment) = select_native_gas_payment(
-        owned_objects,
-        sender,
-        native_required,
-        gas_limit,
-        gas_price,
-        exclude_object_ids,
-        pending_access_keys,
-    ) {
-        return Ok((payment, gas_price));
-    }
-
     let excluded: HashSet<String> = exclude_object_ids
         .iter()
         .map(|id| normalize_addr(id))

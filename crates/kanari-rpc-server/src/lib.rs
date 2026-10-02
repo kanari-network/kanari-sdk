@@ -68,6 +68,7 @@ use crate::{
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
+        faucet::{handle_faucet_usd_status, handle_request_usd_faucet},
         handle_build_call_function, handle_build_native_coin_consolidation,
         handle_build_native_transfer, handle_build_publish_module, handle_build_publish_package,
         handle_build_token_transfer, handle_call_function, handle_get_fungible_asset_transactions,
@@ -408,6 +409,10 @@ async fn handle_rpc(
         methods::BUILD_TOKEN_TRANSFER => handle_build_token_transfer(&state, &request).await,
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
+
+        // Web USD faucet: fixed 100 USD claim as two 50 USD objects.
+        methods::REQUEST_USD_FAUCET => handle_request_usd_faucet(&state, &request).await,
+        methods::GET_USD_FAUCET_STATUS => handle_faucet_usd_status(&request).await,
 
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,

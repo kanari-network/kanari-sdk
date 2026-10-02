@@ -12,6 +12,7 @@ import {
   describeTransactionLifecycle,
   EmptyState,
   formatBalance,
+  formatGasFee,
   PageHeader,
   RawDetails,
   readString,
@@ -442,8 +443,7 @@ function AccountContent() {
                   {gasFee ? (
                     <div>
                       <p className="tiny-label">Gas Fee</p>
-                      {/* KANARI decimals = 9 protocol constant (not a fallback) */}
-                      <span className="mono muted-text">{formatBalance(gasFee, "9")} KANARI</span>
+                      <span className="mono muted-text">{formatGasFee(transaction, gasFee)}</span>
                     </div>
                   ) : null}
                   <div>

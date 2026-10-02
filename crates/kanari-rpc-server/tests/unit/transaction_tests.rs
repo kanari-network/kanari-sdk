@@ -1342,22 +1342,39 @@ fn coin_object_info(object_id: &str, token_type: &str, balance: u64) -> kanari_r
 fn usdc_price_table() -> kanari_types::gas_market::GasPriceTable {
     kanari_types::gas_market::GasPriceTable {
         version: 7,
-        usd_per_gas_unit_micros: 20,
+        usd_per_gas_unit_micros: 1,
         max_staleness_versions: 600,
-        entries: vec![kanari_types::gas_market::GasCoinEntry {
-            coin_type: "0x2::usdc::USDC".to_string(),
-            decimals: 6,
-            active: true,
-            price_usd_micros: 1_000_000,
-            price_version: 7,
-        }],
+        entries: vec![
+            kanari_types::gas_market::GasCoinEntry {
+                coin_type: kanari_types::gas_coin::GAS_COIN.to_string(),
+                decimals: 9,
+                active: true,
+                price_usd_micros: 2_000_000,
+                price_version: 7,
+            },
+            kanari_types::gas_market::GasCoinEntry {
+                coin_type: kanari_types::usd_coin::USD_COIN.to_string(),
+                decimals: 6,
+                active: true,
+                price_usd_micros: 1_000_000,
+                price_version: 7,
+            },
+            kanari_types::gas_market::GasCoinEntry {
+                coin_type: "0x2::usdc::USDC".to_string(),
+                decimals: 6,
+                active: true,
+                price_usd_micros: 1_000_000,
+                price_version: 7,
+            },
+        ],
     }
 }
 
 #[test]
-fn auto_gas_prefers_native_kanari_when_available() {
+fn auto_gas_prefers_usd_when_available() {
     let owned = vec![
         coin_object_info("0x1", kanari_types::gas_coin::GAS_COIN, 1_000_000_000),
+        coin_object_info("0x3", kanari_types::usd_coin::USD_COIN, 5_000_000),
         coin_object_info("0x2", "0x2::usdc::USDC", 50_000_000),
     ];
     let (payment, price) = select_gas_payment_with_table(
@@ -1371,8 +1388,8 @@ fn auto_gas_prefers_native_kanari_when_available() {
         &usdc_price_table(),
     )
     .unwrap();
-    assert!(payment.is_native_payment());
-    assert_eq!(price, 1000);
+    assert_eq!(payment.gas_coin_type(), kanari_types::usd_coin::USD_COIN);
+    assert_eq!(price, 1);
 }
 
 #[test]
@@ -1389,11 +1406,11 @@ fn auto_gas_falls_back_to_whitelisted_coin_without_kanari() {
         &usdc_price_table(),
     )
     .unwrap();
-    // Quote: 100_000 units * $0.00002 = $2.00 = 2_000_000 USDC base units.
+    // Quote: 100_000 units * $0.000001 = $0.10 = 100_000 USDC base units.
     assert_eq!(payment.gas_coin_type(), "0x2::usdc::USDC");
     assert_eq!(payment.budget, 100_000);
-    assert_eq!(price, 20);
-    assert_eq!(payment.price, 20);
+    assert_eq!(price, 1);
+    assert_eq!(payment.price, 1);
     assert_eq!(payment.price_version, Some(7));
 }
 

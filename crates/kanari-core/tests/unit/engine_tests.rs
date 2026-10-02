@@ -3103,6 +3103,140 @@ fn gas_payment_object_must_be_native_kanari_coin() {
     assert!(err.to_string().contains("must be Coin<"));
 }
 
+#[test]
+fn genesis_registers_usd_with_shared_mint_authority() {
+    use kanari_types::usd_coin::USD_COIN;
+
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    // No fixed supply and no dev allocation: minting is permissionless.
+    let dev = AccountAddress::from_hex_literal(KanariAddress::DEV_ADDRESS).unwrap();
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(dev, USD_COIN)
+            .unwrap_or(0),
+        0
+    );
+    assert_eq!(state.get_token_decimals(USD_COIN).unwrap(), Some(6));
+    assert_eq!(
+        state.get_token_symbol(USD_COIN).unwrap().as_deref(),
+        Some("USD")
+    );
+    // The TreasuryCap is a shared object, so anyone can call `usd::mint`.
+    let caps = state
+        .query_objects(
+            None,
+            None,
+            Some(&format!("0x2::coin::TreasuryCap<{}>", USD_COIN)),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(caps.len(), 1);
+    assert!(matches!(
+        caps[0].1.owner_kind,
+        kanari_types::transaction::ObjectOwnerKind::Shared
+    ));
+}
+
+/// Permissionless USD mint through the shared TreasuryCap: anyone holding
+/// gas can mint straight to any recipient (the web-faucet claim path).
+#[test]
+fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
+    use kanari_types::usd_coin::{USD_COIN, UsdModule};
+
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sponsor.address, "0xgas", 10_000_000);
+
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    let sponsor_tagged = sponsor.tagged_address();
+
+    for (leg, nonce) in [0u64, 1u64].iter().enumerate() {
+        // Fresh refs every leg: the shared cap version advances on each mint,
+        // and the gas coin balance drops by the previous leg's fee.
+        let (cap_id, cap_version, cap_digest, gas_ref) = {
+            let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+            let caps = state
+                .query_objects(
+                    None,
+                    None,
+                    Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
+                    None,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(caps.len(), 1);
+            let stored = state.get_object(&caps[0].0).unwrap().unwrap();
+            let digest =
+                |data: &[u8]| format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(data)));
+            let gas_stored = state.get_object("0xgas").unwrap().unwrap();
+            (
+                caps[0].0.clone(),
+                stored.version,
+                digest(&stored.data),
+                ObjectRef::new(
+                    "0xgas".to_string(),
+                    Some(gas_stored.version),
+                    Some(digest(&gas_stored.data)),
+                ),
+            )
+        };
+        let cap_id_bytes = AccountAddress::from_hex_literal(&cap_id).unwrap().to_vec();
+        let tx = Transaction::ExecuteFunction {
+            sender: sponsor_tagged.clone(),
+            module: UsdModule::module_path(),
+            function: "mint".to_string(),
+            type_args: vec![],
+            args: vec![
+                cap_id_bytes,
+                bcs::to_bytes(&50_000_000u64).unwrap(),
+                recipient_addr.to_vec(),
+            ],
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new(cap_id.clone(), Some(cap_version), Some(cap_digest)),
+                owner: Some(ObjectOwnerKind::Shared),
+                mutable: true,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![gas_ref],
+                owner: sponsor.address.clone(),
+                budget: 100_000,
+                price: 1,
+                coin_type: None,
+                price_version: None,
+            }),
+            gas_limit: 100_000,
+            gas_price: 1,
+            nonce: *nonce,
+        };
+        let changeset = engine
+            .execute_transaction_with_runtime_internal(
+                &tx,
+                &engine.runtime_pool[0],
+                &engine.state,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(changeset.success, "{:?}", changeset.error_message);
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            state.apply_changeset(&changeset).unwrap();
+        }
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let recipient_account = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(recipient_account, USD_COIN)
+                .unwrap(),
+            50_000_000 * (leg as u64 + 1)
+        );
+    }
+}
+
 /// Multi-coin gas must use the wallet-declared settlement coin end to end.
 const CUSTOM_GAS_COIN: &str = "0x2::james::JAMES";
 
