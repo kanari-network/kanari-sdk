@@ -163,6 +163,28 @@ impl CoinModule {
         format!("{}::{}", Address::KANARI_SYSTEM_ADDRESS, Self::COIN_MODULE)
     }
 
+    /// Extract the `T` of a canonical `0x2::coin::Coin<T>` object type.
+    ///
+    /// Returns `None` for any other type (never misreads a DeFi object that
+    /// happens to share the layout) or for non-system coin addresses.
+    pub fn token_type_of_coin_object(object_type: &str) -> Option<String> {
+        let tag = TypeTag::from_str(object_type).ok()?;
+        let TypeTag::Struct(st) = tag else {
+            return None;
+        };
+        if st.module.as_str() != Self::COIN_MODULE || st.name.as_str() != Self::COIN_STRUCT {
+            return None;
+        }
+        if st.type_params.len() != 1 {
+            return None;
+        }
+        let expected = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).ok()?;
+        if st.address != expected {
+            return None;
+        }
+        Some(st.type_params[0].to_string())
+    }
+
     /// Fully qualified `Coin<T>` object type for a token type.
     pub fn coin_type(token_type: &str) -> String {
         format!(
@@ -309,6 +331,27 @@ mod tests {
         let mut bytes = vec![0u8; 40];
         bytes[32..40].copy_from_slice(&42u64.to_le_bytes());
         assert_eq!(CoinModule::read_balance(&bytes), Some(42));
+    }
+
+    #[test]
+    fn coin_object_token_type_extraction_is_gated() {
+        assert_eq!(
+            CoinModule::token_type_of_coin_object("0x2::coin::Coin<0x2::kanari::KANARI>"),
+            Some("0x2::kanari::KANARI".to_string())
+        );
+        assert_eq!(
+            CoinModule::token_type_of_coin_object("0x2::coin::Coin<0x2::james::JAMES>"),
+            Some("0x2::james::JAMES".to_string())
+        );
+        assert_eq!(
+            CoinModule::token_type_of_coin_object("0x2::coin::TreasuryCap<0x2::kanari::KANARI>"),
+            None
+        );
+        assert_eq!(
+            CoinModule::token_type_of_coin_object("0x3::coin::Coin<0x2::kanari::KANARI>"),
+            None
+        );
+        assert_eq!(CoinModule::token_type_of_coin_object("not-a-type"), None);
     }
 
     #[test]

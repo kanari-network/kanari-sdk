@@ -535,6 +535,18 @@ class KanariClient(private val environment: KanariEnvironment) {
         writeString(out, gp.owner)
         writeU64(out, gp.budget)
         writeU64(out, gp.price)
+        if (gp.coinType != null) {
+            out.write(1)
+            writeString(out, gp.coinType)
+        } else {
+            out.write(0)
+        }
+        if (gp.priceVersion != null) {
+            out.write(1)
+            writeU64(out, gp.priceVersion)
+        } else {
+            out.write(0)
+        }
     }
 
     private fun writeString(out: ByteArrayOutputStream, s: String) {

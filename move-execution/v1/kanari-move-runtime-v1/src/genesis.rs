@@ -106,62 +106,15 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                 runtime.persist_deleted_objects(&changeset)?;
 
                 // Run `kanari::init()` after publishing the main kanari module.
+                // It must run before the system clock prologue commits.
                 if *module_name == "kanari.mv" {
-                    log::info!("   Executing kanari::init() via Move VM...");
-
-                    use move_core_types::account_address::AccountAddress as MoveAccountAddress;
-
-                    let move_system_addr = MoveAccountAddress::from_hex_literal(
-                        system_addr.to_hex_literal().as_str(),
-                    )?;
-
-                    let witness_bytes = Vec::new();
-                    let init_tx_hash = hash_data_blake3(b"KANARI::GENESIS::INIT::KANARI").to_vec();
-
-                    match runtime.execute_init_function_with_context(
-                        move_system_addr,
+                    execute_framework_init(
+                        &runtime,
+                        state,
+                        system_addr,
                         "kanari",
-                        vec![witness_bytes],
-                        Some(0),
-                        Some(init_tx_hash),
-                    ) {
-                        Ok(init_changeset) => {
-                            log::info!(
-                                "   ✓ kanari::init() executed ({} objects created, {} events)",
-                                init_changeset.created_objects.len(),
-                                init_changeset.events.len()
-                            );
-
-                            // Log created objects for genesis diagnostics.
-                            for (obj_id, obj) in &init_changeset.created_objects {
-                                log::info!(
-                                    "      Created object: {} (type: {}, owner: {})",
-                                    obj_id,
-                                    obj.type_,
-                                    obj.owner.to_hex_literal()
-                                );
-                            }
-
-                            // Log emitted events for genesis diagnostics.
-                            if !init_changeset.events.is_empty() {
-                                for event in &init_changeset.events {
-                                    log::info!(
-                                        "      Event: type={}, seq={}",
-                                        event.type_tag,
-                                        event.sequence_number
-                                    );
-                                }
-                            }
-
-                            state.apply_changeset(&init_changeset)?;
-                            runtime.persist_created_objects(&init_changeset)?;
-                            runtime.persist_deleted_objects(&init_changeset)?;
-                        }
-                        Err(e) => {
-                            log::error!("   ❌ Failed to execute kanari::init(): {:?}", e);
-                            return Err(e).context("kanari::init() execution failed");
-                        }
-                    }
+                        b"KANARI::GENESIS::INIT::KANARI",
+                    )?;
                 }
             }
             Err(e) => {
@@ -182,4 +135,70 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     state.commit()?;
 
     Ok(())
+}
+
+/// Execute a framework module's `init(witness, ctx)` once at genesis.
+///
+/// `module_name` is both the published module and the witness type name
+/// (e.g. `kanari`); `tx_hash_seed` domain-separates the init pseudo
+/// transaction hash so replay tooling can attribute each init separately.
+fn execute_framework_init(
+    runtime: &MoveRuntime,
+    state: &mut StateManager,
+    system_addr: move_core_types::account_address::AccountAddress,
+    module_name: &str,
+    tx_hash_seed: &[u8],
+) -> Result<()> {
+    log::info!("   Executing {module_name}::init() via Move VM...");
+
+    let move_system_addr = system_addr;
+
+    let witness_bytes = Vec::new();
+    let init_tx_hash = hash_data_blake3(tx_hash_seed).to_vec();
+
+    match runtime.execute_init_function_with_context(
+        move_system_addr,
+        module_name,
+        vec![witness_bytes],
+        Some(0),
+        Some(init_tx_hash),
+    ) {
+        Ok(init_changeset) => {
+            log::info!(
+                "   ✓ {module_name}::init() executed ({} objects created, {} events)",
+                init_changeset.created_objects.len(),
+                init_changeset.events.len()
+            );
+
+            // Log created objects for genesis diagnostics.
+            for (obj_id, obj) in &init_changeset.created_objects {
+                log::info!(
+                    "      Created object: {} (type: {}, owner: {})",
+                    obj_id,
+                    obj.type_,
+                    obj.owner.to_hex_literal()
+                );
+            }
+
+            // Log emitted events for genesis diagnostics.
+            if !init_changeset.events.is_empty() {
+                for event in &init_changeset.events {
+                    log::info!(
+                        "      Event: type={}, seq={}",
+                        event.type_tag,
+                        event.sequence_number
+                    );
+                }
+            }
+
+            state.apply_changeset(&init_changeset)?;
+            runtime.persist_created_objects(&init_changeset)?;
+            runtime.persist_deleted_objects(&init_changeset)?;
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("   ❌ Failed to execute {module_name}::init(): {:?}", e);
+            Err(e).context(format!("{module_name}::init() execution failed"))
+        }
+    }
 }

@@ -4,9 +4,10 @@
 use super::{
     apply_committed_effect, base_transaction_details, classify_transaction_error_data,
     derive_transaction_state_flags, details_involve_owner, enrich_transfer_from_effect,
-    fresh_nonce, lookup_token_decimals, push_transfer_entry, select_native_coin_consolidation_step,
-    select_native_transfer_and_gas_payment, transaction_error_with_reason, transfers_from_effect,
-    tx_matches_owner, validate_object_inputs_and_gas, validate_object_inputs_match_state,
+    fresh_nonce, lookup_token_decimals, push_transfer_entry, select_gas_payment_with_table,
+    select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
+    transaction_error_with_reason, transfers_from_effect, tx_matches_owner,
+    validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -155,6 +156,8 @@ fn gas_payment_ref_metadata_must_be_complete() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
+        coin_type: None,
+        price_version: None,
     };
 
     let err = validate_object_inputs_and_gas(43, &[], Some(&gas_payment))
@@ -285,6 +288,8 @@ fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
+        coin_type: None,
+        price_version: None,
     };
 
     let err = validate_object_inputs_and_gas(46, &[input], Some(&gas_payment))
@@ -322,6 +327,8 @@ fn equivalent_hex_gas_overlap_is_rejected_at_rpc_boundary() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
+        coin_type: None,
+        price_version: None,
     };
 
     let err = validate_object_inputs_and_gas(49, &[input], Some(&gas_payment))
@@ -346,6 +353,8 @@ fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
+        coin_type: None,
+        price_version: None,
     };
 
     let err = validate_object_inputs_and_gas(47, &[], Some(&gas_payment))
@@ -427,6 +436,8 @@ proptest! {
             owner: "0xa".to_string(),
             budget: 1,
             price: 1,
+            coin_type: None,
+            price_version: None,
         };
 
         let error = validate_object_inputs_and_gas(51, &[input], Some(&gas_payment))
@@ -477,6 +488,8 @@ proptest! {
             owner: "0xa".to_string(),
             budget: 1,
             price: 1,
+            coin_type: None,
+            price_version: None,
         };
 
         let result = validate_object_inputs_and_gas(52, &[input], Some(&gas_payment));
@@ -1306,4 +1319,97 @@ proptest! {
         prop_assert_eq!(transfers[0].recipient.as_deref(), Some("0x0"));
         prop_assert_eq!(transfers[0].transfer_amount, Some(amount));
     }
+}
+
+fn coin_object_info(object_id: &str, token_type: &str, balance: u64) -> kanari_rpc_api::ObjectInfo {
+    let mut data = vec![0u8; 40];
+    if let Ok(addr) = move_core_types::account_address::AccountAddress::from_hex_literal(object_id)
+    {
+        data[..32].copy_from_slice(addr.as_ref());
+    }
+    data[32..40].copy_from_slice(&balance.to_le_bytes());
+    kanari_rpc_api::ObjectInfo {
+        id: object_id.to_string(),
+        owner: "0xa".to_string(),
+        owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string()),
+        type_: kanari_types::coin::CoinModule::coin_type(token_type),
+        data,
+        version: 1,
+        digest: Some("digest".to_string()),
+    }
+}
+
+fn usdc_price_table() -> kanari_types::gas_market::GasPriceTable {
+    kanari_types::gas_market::GasPriceTable {
+        version: 7,
+        usd_per_gas_unit_micros: 20,
+        max_staleness_versions: 600,
+        entries: vec![kanari_types::gas_market::GasCoinEntry {
+            coin_type: "0x2::usdc::USDC".to_string(),
+            decimals: 6,
+            active: true,
+            price_usd_micros: 1_000_000,
+            price_version: 7,
+        }],
+    }
+}
+
+#[test]
+fn auto_gas_prefers_native_kanari_when_available() {
+    let owned = vec![
+        coin_object_info("0x1", kanari_types::gas_coin::GAS_COIN, 1_000_000_000),
+        coin_object_info("0x2", "0x2::usdc::USDC", 50_000_000),
+    ];
+    let (payment, price) = select_gas_payment_with_table(
+        &owned,
+        "0xa",
+        100_000,
+        1000,
+        &[],
+        &std::collections::HashSet::new(),
+        &std::collections::BTreeMap::new(),
+        &usdc_price_table(),
+    )
+    .unwrap();
+    assert!(payment.is_native_payment());
+    assert_eq!(price, 1000);
+}
+
+#[test]
+fn auto_gas_falls_back_to_whitelisted_coin_without_kanari() {
+    let owned = vec![coin_object_info("0x2", "0x2::usdc::USDC", 5_000_000)];
+    let (payment, price) = select_gas_payment_with_table(
+        &owned,
+        "0xa",
+        100_000,
+        1000,
+        &[],
+        &std::collections::HashSet::new(),
+        &std::collections::BTreeMap::new(),
+        &usdc_price_table(),
+    )
+    .unwrap();
+    // Quote: 100_000 units * $0.00002 = $2.00 = 2_000_000 USDC base units.
+    assert_eq!(payment.gas_coin_type(), "0x2::usdc::USDC");
+    assert_eq!(payment.budget, 100_000);
+    assert_eq!(price, 20);
+    assert_eq!(payment.price, 20);
+    assert_eq!(payment.price_version, Some(7));
+}
+
+#[test]
+fn auto_gas_fails_when_no_coin_covers_max_cost() {
+    let owned = vec![coin_object_info("0x2", "0x2::usdc::USDC", 1)];
+    let err = select_gas_payment_with_table(
+        &owned,
+        "0xa",
+        100_000,
+        1000,
+        &[],
+        &std::collections::HashSet::new(),
+        &std::collections::BTreeMap::new(),
+        &usdc_price_table(),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("No spendable gas coin"));
 }

@@ -135,6 +135,8 @@ fn signed_native_burn_with_gas_object(
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         });
     }
     let mut signed_tx = SignedTransaction::new(tx);
@@ -452,6 +454,8 @@ fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
             owner: owner.to_string(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         });
     }
 
@@ -812,6 +816,8 @@ proptest! {
                 owner: sender.address.clone(),
                 budget: 100_000,
                 price: 1,
+                coin_type: None,
+                price_version: None,
             });
         }
         let mut burn_tx = SignedTransaction::new(burn_tx);
@@ -841,7 +847,7 @@ proptest! {
         // Floor at the minimum native gas charge (100 Mist): this property
         // asserts every hop succeeds, and the harness always pays gas from
         // the sender's smallest coin. Amounts below 100 would strand a dust
-        // fragment that later legitimately fails gas validation — that
+        // fragment that later legitimately fails gas validation â€” that
         // rejection path is covered by gas-specific tests, not here.
         hop_amounts in prop::collection::vec(100u64..200_000u64, 1..8),
     ) {
@@ -2081,7 +2087,14 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
     let sender = AccountAddress::random();
     let mut changeset = ChangeSet::new();
 
-    BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
+    BlockchainEngine::apply_gas_and_sequence(
+        &mut changeset,
+        sender,
+        10,
+        10,
+        kanari_types::gas_coin::GAS_COIN,
+    )
+    .unwrap();
 
     let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
     assert_eq!(sender_owner_delta.balance_delta, -10);
@@ -2333,6 +2346,8 @@ fn mixed_success_and_failure_speculative_wave_matches_strict_serial() {
             owner: invalid_sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3001,6 +3016,8 @@ fn non_native_execute_function_requires_full_object_ref_metadata() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3070,6 +3087,8 @@ fn gas_payment_object_must_be_native_kanari_coin() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3082,6 +3101,166 @@ fn gas_payment_object_must_be_native_kanari_coin() {
 
     let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
     assert!(err.to_string().contains("must be Coin<"));
+}
+
+/// Multi-coin gas must use the wallet-declared settlement coin end to end.
+const CUSTOM_GAS_COIN: &str = "0x2::james::JAMES";
+
+#[test]
+fn custom_coin_settles_failed_tx_gas_without_touching_native_ledger() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin_type(
+        &engine,
+        &sender.address,
+        "0xbbbb",
+        1_000_000,
+        CUSTOM_GAS_COIN,
+    );
+
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.tagged_address(),
+        module: "0x2::module_that_does_not_exist".to_string(),
+        function: "missing".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![native_coin_object_ref("0xbbbb", 1_000_000)],
+            owner: sender.address.clone(),
+            budget: 100_000,
+            price: 5,
+            coin_type: Some(CUSTOM_GAS_COIN.to_string()),
+            price_version: None,
+        }),
+        gas_limit: 100_000,
+        gas_price: 5,
+        nonce: 0,
+    };
+
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+    assert!(!changeset.success);
+    // Failed Move execution charges the full gas limit at the quoted
+    // token-per-unit price (no v3.1 KANARI discount off the native path).
+    let expected_fee = 100_000u64.saturating_mul(5);
+    assert_eq!(changeset.gas_used, 100_000);
+    assert!(changeset.owner_deltas.is_empty());
+    assert_eq!(
+        changeset.token_gas_credits.get(CUSTOM_GAS_COIN),
+        Some(&expected_fee)
+    );
+
+    {
+        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+        state.apply_changeset(&changeset).unwrap();
+    }
+
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let gas_object = state.get_object("0xbbbb").unwrap().unwrap();
+    assert_eq!(
+        CoinModule::read_balance(&gas_object.data),
+        Some(1_000_000 - expected_fee)
+    );
+    assert_eq!(
+        state.dao_token_fees.get(CUSTOM_GAS_COIN),
+        Some(&expected_fee)
+    );
+    let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(sender_addr, CUSTOM_GAS_COIN)
+            .unwrap(),
+        1_000_000 - expected_fee
+    );
+    // Native ledger untouched: no KANARI moved anywhere.
+    assert_eq!(
+        state.resolve_owner_native_balance(sender_addr).unwrap_or(0),
+        0
+    );
+}
+
+#[test]
+fn native_transfer_can_pay_gas_in_custom_coin() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+    fund_sender_with_coin_type(
+        &engine,
+        &sender.address,
+        "0xbbbb",
+        1_000_000,
+        CUSTOM_GAS_COIN,
+    );
+
+    let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address.clone(),
+        100,
+        0,
+        100_000,
+        5,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref("0xbbbb", 1_000_000)];
+        gas_payment.coin_type = Some(CUSTOM_GAS_COIN.to_string());
+    }
+
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+    assert!(changeset.success, "{:?}", changeset.error_message);
+    // Transfer fast-path charges base units at the quoted token price.
+    let expected_fee = kanari_types::gas::GasOperation::Transfer.gas_units() * 5;
+    assert_eq!(
+        changeset.token_gas_credits.get(CUSTOM_GAS_COIN),
+        Some(&expected_fee)
+    );
+
+    {
+        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+        state.apply_changeset(&changeset).unwrap();
+    }
+
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let gas_object = state.get_object("0xbbbb").unwrap().unwrap();
+    assert_eq!(
+        CoinModule::read_balance(&gas_object.data),
+        Some(1_000_000 - expected_fee)
+    );
+    assert_eq!(
+        state.dao_token_fees.get(CUSTOM_GAS_COIN),
+        Some(&expected_fee)
+    );
+    // KANARI transfer itself still settled natively.
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    assert_eq!(
+        state
+            .resolve_owner_native_balance(recipient_addr)
+            .unwrap_or(0),
+        100
+    );
 }
 
 #[test]
@@ -3133,6 +3312,8 @@ fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,

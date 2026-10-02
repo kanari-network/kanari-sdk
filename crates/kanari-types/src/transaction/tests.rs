@@ -209,6 +209,8 @@ fn upgrade_transactions_have_upgrade_type_labels() {
         owner: "0x1".to_string(),
         budget: 100_000,
         price: 1,
+        coin_type: None,
+        price_version: None,
     };
     let module_tx = Transaction::UpgradeModule {
         sender: "0x1".to_string(),
@@ -399,6 +401,8 @@ fn object_access_identity_unifies_read_write_and_gas_roles() {
             owner: "0x1".to_string(),
             budget: 100,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100,
         gas_price: 1,

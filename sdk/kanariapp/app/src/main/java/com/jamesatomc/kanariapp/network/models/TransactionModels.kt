@@ -219,7 +219,10 @@ data class GasPayment(
     @SerialName("payment_objects") val paymentObjects: List<ObjectRef>,
     val owner: String,
     @Serializable(with = LenientULongSerializer::class) val budget: ULong,
-    @Serializable(with = LenientULongSerializer::class) val price: ULong
+    @Serializable(with = LenientULongSerializer::class) val price: ULong,
+    @SerialName("coin_type") val coinType: String? = null,
+    @Serializable(with = LenientULongSerializer::class)
+    @SerialName("price_version") val priceVersion: ULong? = null
 )
 
 @Serializable

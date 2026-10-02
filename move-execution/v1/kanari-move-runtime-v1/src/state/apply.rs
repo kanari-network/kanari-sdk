@@ -728,6 +728,24 @@ impl StateManager {
             self.save_native_total_supply(next_total_supply)?;
         }
 
+        // Accumulate non-native gas fees into the DAO protocol fee pool.
+        // Native KANARI fees already flowed through owner deltas above; other
+        // coins settle here so the DAO needs no per-coin `Coin<T>` object.
+        if !changeset.token_gas_credits.is_empty() {
+            for (coin_type, amount) in &changeset.token_gas_credits {
+                let normalized = Self::normalize_token_type(coin_type);
+                if normalized == GAS_COIN {
+                    continue;
+                }
+                let fee = self.dao_token_fees.entry(normalized).or_insert(0);
+                *fee = fee
+                    .checked_add(*amount)
+                    .require("DAO token fee pool overflow")?;
+            }
+            let fees = self.dao_token_fees.clone();
+            self.save_internal(b"dao_token_fees", &fees)?;
+        }
+
         // Apply treasury creations/updates (canonical spelling going forward;
         // readers fall back to raw keys for legacy DBs).
         for (owner, token_type, total_supply) in &changeset.treasuries {
@@ -1053,15 +1071,32 @@ impl StateManager {
 
         // A separate gas coin is normally not passed into the Move function, so
         // it will not appear in `created_objects`. Debit the explicitly declared
-        // gas object here instead of charging whichever native coin happened to
+        // gas object here instead of charging whichever coin happened to
         // be mutated first by the transfer. In particular, a transfer coin whose
         // entire balance was split has amount zero and must never receive gas.
+        //
+        // Multi-coin gas: the expected coin comes from the changeset settlement
+        // type (native KANARI by default). Native fees keep the ledger-backed
+        // debit; other coins debit the `Coin<T>` object directly while the DAO
+        // fee pool (not an owner ledger) receives the credit.
+        let gas_coin_normalized = Self::normalize_token_type(changeset.gas_coin_type());
+        let is_native_gas = gas_coin_normalized == GAS_COIN;
+        let sender_token_debit = |owner: &AccountAddress| -> Result<u64> {
+            if is_native_gas {
+                return owner_native_gas_debit(owner, true);
+            }
+            Ok(changeset
+                .token_gas_credits
+                .get(&gas_coin_normalized)
+                .copied()
+                .unwrap_or(0))
+        };
         for gas_ref in &changeset.gas_object_refs {
             let canonical_gas_id = Self::canonical_owned_object_id(&gas_ref.object_id);
             if let Some(owner) = created_object_owners_by_id.get(&canonical_gas_id) {
-                let sender_native_debit = owner_native_gas_debit(owner, true)?;
+                let sender_debit = sender_token_debit(owner)?;
                 let already_adjusted = native_object_gas_adjusted.get(owner).copied().unwrap_or(0);
-                if sender_native_debit > 0 && already_adjusted >= sender_native_debit {
+                if sender_debit > 0 && already_adjusted >= sender_debit {
                     continue;
                 }
             }
@@ -1070,12 +1105,12 @@ impl StateManager {
             else {
                 continue;
             };
-            let sender_native_debit = owner_native_gas_debit(&existing.owner, true)?;
+            let sender_debit = sender_token_debit(&existing.owner)?;
             let already_adjusted = native_object_gas_adjusted
                 .get(&existing.owner)
                 .copied()
                 .unwrap_or(0);
-            let remaining_debit = sender_native_debit.saturating_sub(already_adjusted);
+            let remaining_debit = sender_debit.saturating_sub(already_adjusted);
             if remaining_debit == 0 {
                 continue;
             }
@@ -1084,17 +1119,18 @@ impl StateManager {
             else {
                 continue;
             };
-            if Self::normalize_token_type(&token_type) != GAS_COIN {
+            if Self::normalize_token_type(&token_type) != gas_coin_normalized {
                 continue;
             }
             ensure!(
                 object_amount >= remaining_debit,
-                "Insufficient native gas coin balance: balance={}, debit={}",
+                "Insufficient gas coin balance for {}: balance={}, debit={}",
+                gas_coin_normalized,
                 object_amount,
                 remaining_debit
             );
-            let struct_tag = StructTag::from_str(&existing.type_name)
-                .context("Invalid native gas coin object type")?;
+            let struct_tag =
+                StructTag::from_str(&existing.type_name).context("Invalid gas coin object type")?;
             let mut next_data = existing.data.clone();
             ensure!(
                 Self::write_balance_to_object_bytes(
@@ -1102,7 +1138,7 @@ impl StateManager {
                     &struct_tag,
                     object_amount - remaining_debit,
                 ),
-                "Failed to write adjusted native gas coin balance"
+                "Failed to write adjusted gas coin balance"
             );
             let next_object = StoredObject {
                 id: canonical_gas_id.clone(),
@@ -1144,7 +1180,7 @@ impl StateManager {
                     .checked_add(amount)
                     .require("Native object balance snapshot overflow")?;
             }
-            native_object_gas_adjusted.insert(existing.owner, sender_native_debit);
+            native_object_gas_adjusted.insert(existing.owner, sender_debit);
         }
         let gas_objects_at = std::time::Instant::now();
 

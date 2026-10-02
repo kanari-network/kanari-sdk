@@ -113,6 +113,8 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
             owner: owner.to_hex_literal(),
             budget: 100,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
     );
     cs.set_explicit_object_changes(vec![
@@ -224,6 +226,8 @@ fn object_backed_native_gas_debits_do_not_lock_entire_owner() {
         owner: owner.to_hex_literal(),
         budget: 10,
         price: 1,
+        coin_type: None,
+        price_version: None,
     });
     left.gas_object_refs
         .push(ObjectRef::new("0x100".to_string(), Some(1), None));
@@ -235,6 +239,8 @@ fn object_backed_native_gas_debits_do_not_lock_entire_owner() {
         owner: owner.to_hex_literal(),
         budget: 10,
         price: 1,
+        coin_type: None,
+        price_version: None,
     });
     right
         .gas_object_refs

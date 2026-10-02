@@ -129,6 +129,17 @@ pub struct ChangeSet {
     /// represented by Coin objects.
     #[serde(default)]
     pub native_gas_credits: BTreeMap<AccountAddress, u64>,
+    /// Settlement coin for this transaction's gas (`None` = native KANARI).
+    /// Canonical token type, e.g. `0x2::kanari::KANARI`.
+    #[serde(default)]
+    pub gas_coin_type: Option<String>,
+    /// Non-native gas fees keyed by canonical coin type. While native KANARI
+    /// fees flow through `owner_deltas` + `native_gas_credits` (the DAO holds
+    /// a native ledger balance), other coins settle at the object level: the
+    /// sender's `Coin<T>` object is debited and the DAO's protocol fee pool
+    /// (see `StateManager::dao_token_fees`) is credited by the same amount.
+    #[serde(default)]
+    pub token_gas_credits: BTreeMap<String, u64>,
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
@@ -354,6 +365,8 @@ impl ChangeSet {
         Self {
             owner_deltas: BTreeMap::new(),
             native_gas_credits: BTreeMap::new(),
+            gas_coin_type: None,
+            token_gas_credits: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
@@ -415,10 +428,71 @@ impl ChangeSet {
 
     /// Collect gas fees to DAO
     pub fn collect_gas(&mut self, dao_address: AccountAddress, gas_amount: u64) {
-        self.get_or_create_owner_delta(dao_address)
-            .credit(gas_amount);
-        let collected = self.native_gas_credits.entry(dao_address).or_insert(0);
+        self.collect_gas_for_coin(dao_address, kanari_types::gas_coin::GAS_COIN, gas_amount);
+    }
+
+    /// Canonical settlement coin for this changeset (`None` = native KANARI).
+    pub fn gas_coin_type(&self) -> &str {
+        self.gas_coin_type
+            .as_deref()
+            .unwrap_or(kanari_types::gas_coin::GAS_COIN)
+    }
+
+    /// Whether gas settles in native KANARI (legacy accounting path).
+    pub fn is_native_gas(&self) -> bool {
+        self.gas_coin_type
+            .as_deref()
+            .is_none_or(|coin| coin == kanari_types::gas_coin::GAS_COIN)
+    }
+
+    /// Record the settlement coin before collecting fees.
+    pub fn set_gas_coin_type(&mut self, coin_type: &str) {
+        let normalized = CoinModule::normalize_token_type(coin_type);
+        if normalized == kanari_types::gas_coin::GAS_COIN {
+            self.gas_coin_type = None;
+        } else {
+            self.gas_coin_type = Some(normalized);
+        }
+    }
+
+    /// Collect gas fees to the DAO in any whitelisted coin.
+    ///
+    /// Native KANARI keeps the legacy ledger path (owner delta + native gas
+    /// credits). Other coins skip owner deltas — the sender debit happens at
+    /// the `Coin<T>` object level in `StateManager::apply_changeset` — and
+    /// accumulate in `token_gas_credits` for the DAO protocol fee pool.
+    pub fn collect_gas_for_coin(
+        &mut self,
+        dao_address: AccountAddress,
+        coin_type: &str,
+        gas_amount: u64,
+    ) {
+        let normalized = CoinModule::normalize_token_type(coin_type);
+        if normalized == kanari_types::gas_coin::GAS_COIN {
+            self.get_or_create_owner_delta(dao_address)
+                .credit(gas_amount);
+            let collected = self.native_gas_credits.entry(dao_address).or_insert(0);
+            *collected = collected.saturating_add(gas_amount);
+            return;
+        }
+        self.set_gas_coin_type(&normalized);
+        let collected = self.token_gas_credits.entry(normalized).or_insert(0);
         *collected = collected.saturating_add(gas_amount);
+        // DAO address is retained in the native credit map with zero effect so
+        // conflict analysis still serializes fee collection per collector.
+        self.native_gas_credits.entry(dao_address).or_insert(0);
+    }
+
+    /// Total gas debited for `coin_type` in this changeset.
+    pub fn gas_debit_for_coin(&self, coin_type: &str) -> u64 {
+        let normalized = CoinModule::normalize_token_type(coin_type);
+        if normalized == kanari_types::gas_coin::GAS_COIN {
+            return self.native_gas_credits.values().copied().sum();
+        }
+        self.token_gas_credits
+            .get(&normalized)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Sets the total gas consumed by this execution.
@@ -436,6 +510,8 @@ impl ChangeSet {
     pub fn is_empty(&self) -> bool {
         self.owner_deltas.is_empty()
             && self.native_gas_credits.is_empty()
+            && self.gas_coin_type.is_none()
+            && self.token_gas_credits.is_empty()
             && self.events.is_empty()
             && self.treasuries.is_empty()
             && self.token_balance_sets.is_empty()
@@ -467,6 +543,13 @@ impl ChangeSet {
         }
         for (collector, amount) in other.native_gas_credits {
             let collected = self.native_gas_credits.entry(collector).or_insert(0);
+            *collected = collected.saturating_add(amount);
+        }
+        if self.gas_coin_type.is_none() {
+            self.gas_coin_type = other.gas_coin_type;
+        }
+        for (coin_type, amount) in other.token_gas_credits {
+            let collected = self.token_gas_credits.entry(coin_type).or_insert(0);
             *collected = collected.saturating_add(amount);
         }
         self.events.extend(other.events);
@@ -538,6 +621,13 @@ impl ChangeSet {
         }
         for (collector, amount) in &other.native_gas_credits {
             let collected = self.native_gas_credits.entry(*collector).or_insert(0);
+            *collected = collected.saturating_add(*amount);
+        }
+        if self.gas_coin_type.is_none() {
+            self.gas_coin_type = other.gas_coin_type.clone();
+        }
+        for (coin_type, amount) in &other.token_gas_credits {
+            let collected = self.token_gas_credits.entry(coin_type.clone()).or_insert(0);
             *collected = collected.saturating_add(*amount);
         }
         self.events.extend(other.events.iter().cloned());

@@ -622,6 +622,54 @@ impl BlockchainEngine {
         CoinModule::is_coin_type_for(object_type, GAS_COIN)
     }
 
+    /// Declared settlement coin for a transaction (native KANARI when the
+    /// wallet did not select another whitelisted coin).
+    fn tx_gas_coin_type(tx: &Transaction) -> String {
+        tx.gas_payment()
+            .map(|payment| payment.gas_coin_type())
+            .unwrap_or_else(|| GAS_COIN.to_string())
+    }
+
+    /// Whether `object_type` is a `Coin<T>` for the expected settlement coin.
+    fn is_gas_coin_type(object_type: &str, expected_coin: &str) -> bool {
+        CoinModule::is_coin_type_for(object_type, expected_coin)
+    }
+
+    /// Sum of the designated gas payment object balances for `gas_coin`.
+    fn gas_payment_object_balance(state: &StateManager, tx: &Transaction, gas_coin: &str) -> u64 {
+        tx.gas_payment()
+            .map(|payment| {
+                payment
+                    .payment_objects
+                    .iter()
+                    .filter_map(|payment_ref| {
+                        state
+                            .get_object(&payment_ref.object_id)
+                            .ok()
+                            .flatten()
+                            .filter(|object| Self::is_gas_coin_type(&object.type_, gas_coin))
+                            .and_then(|object| CoinModule::read_balance(&object.data))
+                    })
+                    .fold(0u64, |sum, amount| sum.saturating_add(amount))
+            })
+            .unwrap_or(0)
+    }
+
+    /// Per-unit gas cost in settlement-token base units.
+    ///
+    /// Native KANARI keeps the active priced model (`v3.1` discount). Other
+    /// coins are quoted off-chain through `kanari_types::gas_market` (USD
+    /// numeraire) and the wallet writes the agreed token-per-unit price into
+    /// `gas_price`, so the backend multiplies directly to stay deterministic
+    /// without an on-chain price read in the hot path.
+    fn gas_unit_price_for_coin(gas_price: u64, gas_coin: &str) -> u64 {
+        if gas_coin == GAS_COIN {
+            effective_gas_price(gas_price)
+        } else {
+            gas_price
+        }
+    }
+
     fn execute_backend_native_burn(
         state: &StateManager,
         tx: &Transaction,
@@ -631,6 +679,7 @@ impl BlockchainEngine {
         changeset: &mut ChangeSet,
     ) -> Result<()> {
         ensure!(amount > 0, "Native burn amount must be non-zero");
+        let gas_coin = Self::tx_gas_coin_type(tx);
         let gas_payment = tx
             .gas_payment()
             .context("Native burn requires prepared gas payment")?;
@@ -648,10 +697,10 @@ impl BlockchainEngine {
             })?;
 
         ensure!(
-            Self::is_native_gas_coin_type(&gas_object.type_),
+            Self::is_gas_coin_type(&gas_object.type_, &gas_coin),
             "Native burn gas object {} must be Coin<{}>, found {}",
             gas_object_ref.object_id,
-            GAS_COIN,
+            gas_coin,
             gas_object.type_
         );
         ensure!(
@@ -667,13 +716,20 @@ impl BlockchainEngine {
                 gas_object_ref.object_id
             )
         })?;
-        let total_required = amount
-            .checked_add(gas_cost)
-            .context("Native burn amount + gas overflowed u64")?;
+        // Legacy KANARI path: one object covers burn amount + gas. Multi-coin
+        // path: the burn amount stays native-ledger denominated while gas
+        // settles in the selected coin, so the gas object only needs gas_cost.
+        let total_required = if gas_coin == GAS_COIN {
+            amount
+                .checked_add(gas_cost)
+                .context("Native burn amount + gas overflowed u64")?
+        } else {
+            gas_cost
+        };
         ensure!(
             object_balance >= total_required,
-            "Native burn requires one Coin<{}> object with at least {} Mist for burn + gas; selected object {} only has {} Mist",
-            GAS_COIN,
+            "Native burn requires one Coin<{}> object with at least {} base units for burn + gas; selected object {} only has {}",
+            gas_coin,
             total_required,
             gas_object_ref.object_id,
             object_balance
@@ -681,11 +737,15 @@ impl BlockchainEngine {
 
         changeset.burn(sender_addr, amount);
 
+        // Multi-coin path with a non-zero remainder: leave the gas object
+        // untouched here. `StateManager::apply_changeset` debits exactly
+        // `gas_cost` from it via the gas-refs loop (emitting the remainder
+        // here too would debit twice, because that loop reads overlay state).
         if object_balance == total_required {
             changeset
                 .deleted_objects
                 .push(gas_object_ref.object_id.clone());
-        } else {
+        } else if gas_coin == GAS_COIN {
             let burned_coin_balance = object_balance
                 .checked_sub(amount)
                 .context("Native burn coin balance underflow after precheck")?;
@@ -742,6 +802,9 @@ impl BlockchainEngine {
         changeset: &mut ChangeSet,
     ) -> Result<()> {
         ensure!(amount > 0, "Native transfer amount must be non-zero");
+        // The transferred coin stays KANARI (`kanari::transfer` semantics) while
+        // gas may settle in any selected coin.
+        let gas_coin = Self::tx_gas_coin_type(tx);
         let gas_payment = tx
             .gas_payment()
             .context("Native transfer requires prepared gas payment")?;
@@ -751,8 +814,8 @@ impl BlockchainEngine {
             .context("Native transfer requires one prepared gas payment object")?;
         ensure!(
             gas_object_ref.object_id != coin_object_id,
-            "Native transfer requires two distinct Coin<{}> objects: one mutable transfer input and one separate gas payment object",
-            GAS_COIN
+            "Native transfer requires two distinct coin objects: one mutable transfer input and one separate Coin<{}> gas payment object",
+            gas_coin
         );
 
         let transfer_object = state.get_object(coin_object_id)?.with_context(|| {
@@ -784,10 +847,10 @@ impl BlockchainEngine {
                 )
             })?;
         ensure!(
-            Self::is_native_gas_coin_type(&gas_object.type_),
+            Self::is_gas_coin_type(&gas_object.type_, &gas_coin),
             "Native transfer gas object {} must be Coin<{}>, found {}",
             gas_object_ref.object_id,
-            GAS_COIN,
+            gas_coin,
             gas_object.type_
         );
         ensure!(
@@ -820,9 +883,10 @@ impl BlockchainEngine {
         );
         ensure!(
             gas_balance >= gas_cost,
-            "Native transfer gas object {} needs at least {} Mist; only has {} Mist",
+            "Native transfer gas object {} needs at least {} base units of Coin<{}>; only has {}",
             gas_object_ref.object_id,
             gas_cost,
+            gas_coin,
             gas_balance
         );
 
@@ -2773,13 +2837,42 @@ impl BlockchainEngine {
             }
         };
         let base_units = gas_op.gas_units().min(tx.gas_limit());
+        let gas_coin = Self::tx_gas_coin_type(tx);
         let requested_cost = base_units
-            .checked_mul(effective_gas_price(tx.gas_price()))
+            .checked_mul(Self::gas_unit_price_for_coin(tx.gas_price(), &gas_coin))
             .context("Failed to calculate failure gas cost")?;
 
-        let balance = {
+        let (balance, object_cap) = {
             let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
-            state.resolve_owner_native_balance(sender_addr).unwrap_or(0)
+            let wallet = state
+                .resolve_owner_token_balance(sender_addr, &gas_coin)
+                .unwrap_or(0);
+            // Non-native fees settle at the gas-object level, so a failed
+            // transaction must never credit the DAO more than the designated
+            // object can actually debit (otherwise fees mint from thin air).
+            let cap = if gas_coin == GAS_COIN {
+                u64::MAX
+            } else {
+                tx.gas_payment()
+                    .map(|payment| {
+                        payment
+                            .payment_objects
+                            .iter()
+                            .filter_map(|payment_ref| {
+                                state
+                                    .get_object(&payment_ref.object_id)
+                                    .ok()
+                                    .flatten()
+                                    .filter(|object| {
+                                        Self::is_gas_coin_type(&object.type_, &gas_coin)
+                                    })
+                                    .and_then(|object| CoinModule::read_balance(&object.data))
+                            })
+                            .fold(0u64, |sum, amount| sum.saturating_add(amount))
+                    })
+                    .unwrap_or(0)
+            };
+            (wallet, cap)
         };
         // Version/digest races are concurrency artifacts, not sender faults:
         // another transaction mutated a referenced object between submit and
@@ -2802,12 +2895,12 @@ impl BlockchainEngine {
                 ),
             )
         } else {
-            (requested_cost.min(balance), error_message)
+            (requested_cost.min(balance).min(object_cap), error_message)
         };
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
         changeset.mark_failed(error_message);
-        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, base_units)?;
+        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, base_units, &gas_coin)?;
         let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
@@ -2839,7 +2932,17 @@ impl BlockchainEngine {
         sender: AccountAddress,
         gas_cost: u64,
         gas_used: u64,
+        gas_coin: &str,
     ) -> Result<()> {
+        // Multi-coin path: no native ledger movement. The sender's `Coin<T>`
+        // object is debited in `StateManager::apply_changeset` and the DAO
+        // protocol fee pool is credited there by the same amount.
+        if gas_coin != GAS_COIN {
+            let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
+            changeset.collect_gas_for_coin(dao_addr, gas_coin, gas_cost);
+            changeset.set_gas_used(gas_used);
+            return Ok(());
+        }
         let sender_owner_delta = changeset.get_or_create_owner_delta(sender);
         sender_owner_delta.debit(gas_cost);
 
@@ -3007,7 +3110,9 @@ impl BlockchainEngine {
         state_overlay: Option<kanari_move_runtime_v1::StateOverlay>,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
-        let mut gas_meter = GasMeter::new(tx.gas_limit(), effective_gas_price(tx.gas_price()));
+        let gas_coin = Self::tx_gas_coin_type(tx);
+        let unit_price = Self::gas_unit_price_for_coin(tx.gas_price(), &gas_coin);
+        let mut gas_meter = GasMeter::new(tx.gas_limit(), unit_price);
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
 
@@ -3035,7 +3140,7 @@ impl BlockchainEngine {
         let base_gas_cost = gas_meter.total_cost();
         let max_gas_cost = tx
             .gas_limit()
-            .checked_mul(effective_gas_price(tx.gas_price()))
+            .checked_mul(unit_price)
             .context("Transaction maximum gas cost overflow")?;
 
         let state = match state_arc.read() {
@@ -3047,7 +3152,9 @@ impl BlockchainEngine {
         };
         Self::validate_transaction_object_access(&state, tx, sender_addr)?;
         if max_gas_cost > 0 {
-            let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
+            let balance = state
+                .resolve_owner_token_balance(sender_addr, &gas_coin)
+                .unwrap_or(0);
             if balance < max_gas_cost {
                 let msg = format!(
                     "Insufficient balance for maximum gas: need {}, have {}",
@@ -3059,9 +3166,32 @@ impl BlockchainEngine {
                     sender_addr,
                     base_gas_cost.min(balance),
                     gas_meter.gas_used,
+                    &gas_coin,
                 )?;
                 Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                 return Ok(changeset);
+            }
+            // Non-native fees settle at the gas-object level: the designated
+            // payment objects must cover the maximum, otherwise apply would
+            // fail the whole checkpoint instead of failing just this tx.
+            if gas_coin != GAS_COIN {
+                let object_balance = Self::gas_payment_object_balance(&state, tx, &gas_coin);
+                if object_balance < max_gas_cost {
+                    let msg = format!(
+                        "Insufficient gas object balance for maximum gas: need {}, have {}",
+                        max_gas_cost, object_balance
+                    );
+                    changeset.mark_failed(msg);
+                    Self::apply_gas_and_sequence(
+                        &mut changeset,
+                        sender_addr,
+                        base_gas_cost.min(object_balance),
+                        gas_meter.gas_used,
+                        &gas_coin,
+                    )?;
+                    Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+                    return Ok(changeset);
+                }
             }
         }
 
@@ -3074,7 +3204,7 @@ impl BlockchainEngine {
                 match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
+                    Some((tx.gas_limit(), unit_price)),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -3093,7 +3223,7 @@ impl BlockchainEngine {
                 match runtime.upgrade_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
+                    Some((tx.gas_limit(), unit_price)),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -3114,7 +3244,7 @@ impl BlockchainEngine {
                 match runtime.publish_package_with_context_and_persistence(
                     package_modules,
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
+                    Some((tx.gas_limit(), unit_price)),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -3135,7 +3265,7 @@ impl BlockchainEngine {
                 match runtime.upgrade_package_with_context_and_persistence(
                     package_modules,
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
+                    Some((tx.gas_limit(), unit_price)),
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -3181,6 +3311,7 @@ impl BlockchainEngine {
                         sender_addr,
                         base_gas_cost,
                         gas_meter.gas_used,
+                        &gas_coin,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -3208,6 +3339,7 @@ impl BlockchainEngine {
                         sender_addr,
                         base_gas_cost,
                         gas_meter.gas_used,
+                        &gas_coin,
                     )?;
                     Self::annotate_changeset_object_effects(&state, &mut changeset)?;
                     return Ok(changeset);
@@ -3241,7 +3373,7 @@ impl BlockchainEngine {
                         EntryFunctionObjectContext {
                             object_inputs: tx.object_inputs(),
                             sender: Some(sender_addr),
-                            gas_info: Some((tx.gas_limit(), effective_gas_price(tx.gas_price()))),
+                            gas_info: Some((tx.gas_limit(), unit_price)),
                             timestamp,
                             tx_hash: Some(tx.hash()),
                             persist_runtime_state,
@@ -3266,13 +3398,14 @@ impl BlockchainEngine {
             tx.gas_limit()
         );
         let charged_gas_cost = charged_gas_units
-            .checked_mul(effective_gas_price(tx.gas_price()))
+            .checked_mul(unit_price)
             .context("Transaction gas cost overflow")?;
         Self::apply_gas_and_sequence(
             &mut changeset,
             sender_addr,
             charged_gas_cost,
             charged_gas_units,
+            &gas_coin,
         )?;
         let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
@@ -3458,6 +3591,10 @@ impl BlockchainEngine {
             if expected_owner != sender_addr {
                 anyhow::bail!("Gas payment owner must match sender");
             }
+            // Declared settlement coin (`None` = native KANARI for legacy
+            // wallets). Every payment object must be a `Coin<T>` of exactly
+            // that type; `gas_coin_type()` already returns the canonical form.
+            let gas_coin = gas_payment.gas_coin_type();
             if strict_metadata {
                 ensure!(
                     !gas_payment.payment_objects.is_empty(),
@@ -3477,10 +3614,10 @@ impl BlockchainEngine {
                     anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id)
                 })?;
                 ensure!(
-                    Self::is_native_gas_coin_type(&stored.type_),
+                    Self::is_gas_coin_type(&stored.type_, &gas_coin),
                     "Gas payment object {} must be Coin<{}>, found {}",
                     payment.object_id,
-                    GAS_COIN,
+                    gas_coin,
                     stored.type_
                 );
                 if stored.owner != expected_owner {

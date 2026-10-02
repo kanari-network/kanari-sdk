@@ -154,6 +154,8 @@ pub fn build_native_gas_payment(
         owner: sender.to_string(),
         budget: gas_limit,
         price: gas_price,
+        coin_type: None,
+        price_version: None,
     };
 
     Ok((gas_coin, gas_payment))
@@ -234,6 +236,98 @@ pub async fn consolidate_coin_objects(
     ))
 }
 
+/// Auto-select gas payment for CLI-constructed transactions: native KANARI
+/// first (legacy path), otherwise the best whitelisted coin the wallet can
+/// afford ("มีเหรียญไหนใช้เหรียญนั้น").
+///
+/// Returns the selected coin object, the payment, and the effective per-unit
+/// price in settlement-token base units. Callers must use the returned price
+/// as the transaction `gas_price` so engine accounting matches the quote.
+/// Prices come from [`kanari_types::gas_market::GasPriceTable::from_env_or_default`]
+/// (see `KANARI_GAS_COINS_JSON`); quotation-only, never consensus-critical.
+pub fn build_gas_payment_auto(
+    owned_objects: &[ObjectInfo],
+    sender: &str,
+    gas_limit: u64,
+    gas_price: u64,
+    exclude_object_ids: &[&str],
+    transfer_needs: &std::collections::BTreeMap<String, u64>,
+) -> Result<(SelectedCoinObject, GasPayment, u64)> {
+    if let Ok(selected) = build_native_gas_payment(
+        owned_objects,
+        sender,
+        gas_limit,
+        gas_price,
+        exclude_object_ids,
+    ) {
+        return Ok((selected.0, selected.1, gas_price));
+    }
+
+    let table = kanari_types::gas_market::GasPriceTable::from_env_or_default();
+    let excluded = exclude_object_ids
+        .iter()
+        .map(|id| id.to_ascii_lowercase())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut balances = std::collections::BTreeMap::<String, u64>::new();
+    for obj in owned_objects {
+        if excluded.contains(&obj.id.to_ascii_lowercase()) {
+            continue;
+        }
+        let Some(token) = CoinModule::token_type_of_coin_object(&obj.type_) else {
+            continue;
+        };
+        let Some(balance) = read_coin_balance(&obj.data) else {
+            continue;
+        };
+        let normalized = CoinModule::normalize_token_type(&token);
+        let entry = balances.entry(normalized).or_insert(0);
+        *entry = entry.saturating_add(balance);
+    }
+    let (coin, quote) =
+        kanari_types::gas_market::select_gas_coin(&balances, gas_limit, &table, transfer_needs)
+            .context("No spendable gas coin object found in any whitelisted coin")?;
+
+    if CoinModule::normalize_token_type(&coin) == GAS_COIN {
+        let selected = build_native_gas_payment(
+            owned_objects,
+            sender,
+            gas_limit,
+            gas_price,
+            exclude_object_ids,
+        )?;
+        return Ok((selected.0, selected.1, gas_price));
+    }
+
+    let mut candidates = spendable_coin_objects(owned_objects, &coin)
+        .into_iter()
+        .filter(|coin_obj| {
+            !excluded.contains(&coin_obj.coin_object_id.to_ascii_lowercase())
+                && coin_obj.balance >= quote
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|coin_obj| coin_obj.balance);
+    let selected = candidates.into_iter().next().context(format!(
+        "Selected gas coin {coin} has no single object covering {quote} base units"
+    ))?;
+    // Per-unit settlement price, rounded up so `units * price >= quote`.
+    let unit_price = quote.div_ceil(gas_limit.max(1)).max(1);
+    let payment = GasPayment {
+        payment_objects: vec![selected.coin_object_ref.clone()],
+        owner: sender.to_string(),
+        budget: gas_limit,
+        price: unit_price,
+        coin_type: Some(coin),
+        price_version: Some(table.version),
+    };
+    let selected_object = SelectedCoinObject {
+        coin_object_id: selected.coin_object_id.clone(),
+        coin_object_ref: selected.coin_object_ref.clone(),
+        selected_balance: selected.balance,
+        total_balance: selected.balance,
+    };
+    Ok((selected_object, payment, unit_price))
+}
+
 pub fn object_call_context(
     sender: &str,
     primary_object_ref: ObjectRef,
@@ -251,6 +345,8 @@ pub fn object_call_context(
             owner: sender.to_string(),
             budget: gas_limit,
             price: gas_price,
+            coin_type: None,
+            price_version: None,
         },
     )
 }

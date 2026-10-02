@@ -125,6 +125,8 @@ pub fn build_funded_owned_fastpath_workload(
                 owner: sender.address.clone(),
                 budget: 100_000,
                 price: 1,
+                coin_type: None,
+                price_version: None,
             });
         }
         let mut signed_tx = SignedTransaction::new(tx);

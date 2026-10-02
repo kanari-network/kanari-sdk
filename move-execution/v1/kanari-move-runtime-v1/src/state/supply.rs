@@ -501,8 +501,11 @@ impl StateManager {
         // Any remaining gap between issued supply and accounted wallet/object balances
         // must stay visible as untracked instead of being silently re-labeled as locked.
         let object_locked_supply = ledger_locked_supply;
+        // Protocol-owned multi-coin gas fee pool (DAO revenue settled in Token-T).
+        let dao_fee_supply = self.dao_token_fees.get(&token_type).copied().unwrap_or(0);
         let accounted_supply = wallet_visible_supply
             .checked_add(object_locked_supply)
+            .and_then(|total| total.checked_add(dao_fee_supply))
             .require("Accounted token supply overflow")?;
 
         Ok(TokenSupplySummary {
@@ -633,8 +636,10 @@ impl StateManager {
                     acc.checked_add(amount)
                         .require("Object-locked token supply overflow")
                 })?;
+            let dao_fee_supply = self.dao_token_fees.get(&token_type).copied().unwrap_or(0);
             let accounted_supply = wallet_visible_supply
                 .checked_add(object_locked_supply)
+                .and_then(|total| total.checked_add(dao_fee_supply))
                 .require("Accounted token supply overflow")?;
             out.push(TokenSupplySummary {
                 token_type,

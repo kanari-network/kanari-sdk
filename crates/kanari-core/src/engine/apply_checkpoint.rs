@@ -23,6 +23,7 @@ impl BlockchainEngine {
     ) -> bool {
         !changeset.owner_deltas.is_empty()
             || !changeset.native_gas_credits.is_empty()
+            || !changeset.token_gas_credits.is_empty()
             || !changeset.treasuries.is_empty()
             || !changeset.token_balance_sets.is_empty()
             || !changeset.gas_object_refs.is_empty()
