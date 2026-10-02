@@ -1339,7 +1339,7 @@ fn coin_object_info(object_id: &str, token_type: &str, balance: u64) -> kanari_r
     }
 }
 
-fn usdc_price_table() -> kanari_types::gas_market::GasPriceTable {
+fn usd_price_table() -> kanari_types::gas_market::GasPriceTable {
     kanari_types::gas_market::GasPriceTable {
         version: 7,
         usd_per_gas_unit_micros: 1,
@@ -1354,13 +1354,6 @@ fn usdc_price_table() -> kanari_types::gas_market::GasPriceTable {
             },
             kanari_types::gas_market::GasCoinEntry {
                 coin_type: kanari_types::usd_coin::USD_COIN.to_string(),
-                decimals: 6,
-                active: true,
-                price_usd_micros: 1_000_000,
-                price_version: 7,
-            },
-            kanari_types::gas_market::GasCoinEntry {
-                coin_type: "0x2::usdc::USDC".to_string(),
                 decimals: 6,
                 active: true,
                 price_usd_micros: 1_000_000,
@@ -1385,7 +1378,7 @@ fn auto_gas_prefers_usd_when_available() {
         &[],
         &std::collections::HashSet::new(),
         &std::collections::BTreeMap::new(),
-        &usdc_price_table(),
+        &usd_price_table(),
     )
     .unwrap();
     assert_eq!(payment.gas_coin_type(), kanari_types::usd_coin::USD_COIN);
@@ -1393,8 +1386,12 @@ fn auto_gas_prefers_usd_when_available() {
 }
 
 #[test]
-fn auto_gas_falls_back_to_whitelisted_coin_without_kanari() {
-    let owned = vec![coin_object_info("0x2", "0x2::usdc::USDC", 5_000_000)];
+fn auto_gas_falls_back_to_kanari_when_usd_is_unavailable() {
+    let owned = vec![coin_object_info(
+        "0x2",
+        kanari_types::gas_coin::GAS_COIN,
+        1_000_000_000,
+    )];
     let (payment, price) = select_gas_payment_with_table(
         &owned,
         "0xa",
@@ -1403,20 +1400,17 @@ fn auto_gas_falls_back_to_whitelisted_coin_without_kanari() {
         &[],
         &std::collections::HashSet::new(),
         &std::collections::BTreeMap::new(),
-        &usdc_price_table(),
+        &usd_price_table(),
     )
     .unwrap();
-    // Quote: 100_000 units * $0.000001 = $0.10 = 100_000 USDC base units.
-    assert_eq!(payment.gas_coin_type(), "0x2::usdc::USDC");
+    assert!(payment.is_native_payment());
     assert_eq!(payment.budget, 100_000);
-    assert_eq!(price, 1);
-    assert_eq!(payment.price, 1);
-    assert_eq!(payment.price_version, Some(7));
+    assert_eq!(price, 1000);
 }
 
 #[test]
 fn auto_gas_fails_when_no_coin_covers_max_cost() {
-    let owned = vec![coin_object_info("0x2", "0x2::usdc::USDC", 1)];
+    let owned = vec![coin_object_info("0x2", kanari_types::usd_coin::USD_COIN, 1)];
     let err = select_gas_payment_with_table(
         &owned,
         "0xa",
@@ -1425,7 +1419,7 @@ fn auto_gas_fails_when_no_coin_covers_max_cost() {
         &[],
         &std::collections::HashSet::new(),
         &std::collections::BTreeMap::new(),
-        &usdc_price_table(),
+        &usd_price_table(),
     )
     .unwrap_err();
     assert!(err.to_string().contains("No spendable gas coin"));

@@ -155,6 +155,7 @@ module kanari_system::gas_market {
         checkpoint_seq: u64
     ) {
         let name = string::utf8(coin_type);
+        assert!(is_supported_gas_coin(&name), EUNSUPPORTED_GAS_COIN);
         let i = find_config(table, &name);
         if (i < vector::length(&table.configs)) {
             let cfg = vector::borrow_mut(&mut table.configs, i);
@@ -213,6 +214,7 @@ module kanari_system::gas_market {
         let i = 0;
         while (i < len) {
             let name = vector::borrow(&coin_types, i);
+            assert!(is_supported_gas_coin(name), EUNSUPPORTED_GAS_COIN);
             let j = find_config(table, name);
             assert!(j < vector::length(&table.configs), EUNSUPPORTED_GAS_COIN);
             let tick = vector::borrow_mut(&mut table.prices, j);
@@ -234,6 +236,7 @@ module kanari_system::gas_market {
         current_checkpoint: u64,
         max_price_per_unit: u64
     ): u64 {
+        assert!(is_supported_gas_coin(&coin_type), EUNSUPPORTED_GAS_COIN);
         let i = find_config(table, &coin_type);
         assert!(i < vector::length(&table.configs), EUNSUPPORTED_GAS_COIN);
         let cfg = vector::borrow(&table.configs, i);
@@ -267,6 +270,11 @@ module kanari_system::gas_market {
         len
     }
 
+    fun is_supported_gas_coin(coin_type: &String): bool {
+        *coin_type == string::utf8(b"0x2::kanari::KANARI")
+            || *coin_type == string::utf8(b"0x2::usd::USD")
+    }
+
     // --- Getters (used by SDK/RPC, also keeps ENOT_AUTHORIZED referenced) ---
     public fun version(table: &PriceTable): u64 {
         table.version
@@ -286,6 +294,16 @@ module kanari_system::gas_market {
 
     public fun assert_authorized(ok: bool) {
         assert!(ok, ENOT_AUTHORIZED);
+    }
+
+    #[test]
+    fun test_gas_coin_allowlist() {
+        let kanari = string::utf8(b"0x2::kanari::KANARI");
+        let usd = string::utf8(b"0x2::usd::USD");
+        let usdc = string::utf8(b"0x2::usdc::USDC");
+        assert!(is_supported_gas_coin(&kanari), EUNSUPPORTED_GAS_COIN);
+        assert!(is_supported_gas_coin(&usd), EUNSUPPORTED_GAS_COIN);
+        assert!(!is_supported_gas_coin(&usdc), EUNSUPPORTED_GAS_COIN);
     }
 }
 

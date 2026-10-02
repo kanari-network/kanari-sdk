@@ -15,6 +15,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::gas_coin::GAS_COIN;
+use kanari_types::usd_coin::USD_COIN;
 
 use kanari_types::transaction::{
     ObjectChange, ObjectChangeKind, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
@@ -622,6 +623,10 @@ impl BlockchainEngine {
         CoinModule::is_coin_type_for(object_type, GAS_COIN)
     }
 
+    fn is_supported_gas_coin_type(coin_type: &str) -> bool {
+        coin_type == GAS_COIN || coin_type == USD_COIN
+    }
+
     /// Declared settlement coin for a transaction (native KANARI when the
     /// wallet did not select another whitelisted coin).
     fn tx_gas_coin_type(tx: &Transaction) -> String {
@@ -657,8 +662,8 @@ impl BlockchainEngine {
 
     /// Per-unit gas cost in settlement-token base units.
     ///
-    /// Native KANARI keeps the active priced model (`v3.1` discount). Other
-    /// coins are quoted off-chain through `kanari_types::gas_market` (USD
+    /// Native KANARI keeps the active priced model (`v3.1` discount). USD is
+    /// quoted off-chain through `kanari_types::gas_market` (USD
     /// numeraire) and the wallet writes the agreed token-per-unit price into
     /// `gas_price`, so the backend multiplies directly to stay deterministic
     /// without an on-chain price read in the hot path.
@@ -2998,6 +3003,11 @@ impl BlockchainEngine {
             tx.gas_limit(),
             MAX_TRANSACTION_GAS_LIMIT
         );
+        let gas_coin = Self::tx_gas_coin_type(tx);
+        ensure!(
+            Self::is_supported_gas_coin_type(&gas_coin),
+            "Unsupported gas coin type: {gas_coin}"
+        );
         // Reject nonces that would overflow JSON safe integer range (2^53).
         const MAX_NONCE: u64 = (1u64 << 53) - 1;
         ensure!(
@@ -3595,6 +3605,10 @@ impl BlockchainEngine {
             // wallets). Every payment object must be a `Coin<T>` of exactly
             // that type; `gas_coin_type()` already returns the canonical form.
             let gas_coin = gas_payment.gas_coin_type();
+            ensure!(
+                Self::is_supported_gas_coin_type(&gas_coin),
+                "Unsupported gas coin type: {gas_coin}"
+            );
             if strict_metadata {
                 ensure!(
                     !gas_payment.payment_objects.is_empty(),

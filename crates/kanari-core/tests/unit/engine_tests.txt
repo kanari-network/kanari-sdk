@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 5217cbb1e677c2dbaa09fcce726ce50e34fdcd5b82ea52a5f5be48537fe7511c # shrinks to transfer_balance = 767447, transfer_amount = 353442, burn_amount = 434631
 cc dc0522d7390a52c862408dbe0f32ac080036e6223af1b35b8559e61c4567de67 # shrinks to total = 27
+cc 821a8040e7d0eea069baa50f35b12283a818ccd4090a661b72fada59850667c7 # shrinks to total = 17

@@ -388,7 +388,7 @@ impl MoveRuntime {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives(natives)?;
         if !cfg!(miri) {
-            runtime.load_system_modules(false)?;
+            runtime.load_system_modules()?;
         }
         Ok(runtime)
     }
@@ -397,15 +397,35 @@ impl MoveRuntime {
     pub fn new_with_kanari_natives_in_memory() -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_in_memory(natives)?;
-        runtime.load_system_modules(true)?;
+        runtime.load_embedded_system_modules()?;
         Ok(runtime)
     }
 
     /// Create a new runtime with Kanari system natives and a shared persistent store.
     pub fn new_with_kanari_natives_and_store(store: Arc<PersistentStore>) -> Result<Self> {
+        Self::new_with_kanari_natives_and_store_framework_source(store, false)
+    }
+
+    /// Create a runtime sharing `store` while loading the embedded frameworks.
+    /// Used by in-memory engines so their framework dependency set is stable
+    /// and independent of whatever build artifacts happen to be on disk.
+    pub fn new_with_kanari_natives_and_store_with_embedded_frameworks(
+        store: Arc<PersistentStore>,
+    ) -> Result<Self> {
+        Self::new_with_kanari_natives_and_store_framework_source(store, true)
+    }
+
+    fn new_with_kanari_natives_and_store_framework_source(
+        store: Arc<PersistentStore>,
+        use_embedded: bool,
+    ) -> Result<Self> {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_and_store(natives, store)?;
-        runtime.load_system_modules(false)?;
+        if use_embedded {
+            runtime.load_embedded_system_modules()?;
+        } else {
+            runtime.load_system_modules()?;
+        }
         Ok(runtime)
     }
 
@@ -627,7 +647,15 @@ impl MoveRuntime {
         Ok(())
     }
 
-    fn load_system_modules(&self, use_embedded: bool) -> Result<()> {
+    fn load_system_modules(&self) -> Result<()> {
+        self.load_system_modules_with_source(false)
+    }
+
+    fn load_embedded_system_modules(&self) -> Result<()> {
+        self.load_system_modules_with_source(true)
+    }
+
+    fn load_system_modules_with_source(&self, use_embedded: bool) -> Result<()> {
         self.load_move_stdlib(use_embedded)?;
         self.load_kanari_system(use_embedded)?;
         Ok(())

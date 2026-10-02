@@ -3148,7 +3148,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin(&engine, &sponsor.address, "0xgas", 10_000_000);
+    fund_sender_with_coin_type(&engine, &sponsor.address, "0xgas", 1_000_000, USD_COIN);
 
     let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
     let sponsor_tagged = sponsor.tagged_address();
@@ -3204,7 +3204,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
                 owner: sponsor.address.clone(),
                 budget: 100_000,
                 price: 1,
-                coin_type: None,
+                coin_type: Some(USD_COIN.to_string()),
                 price_version: None,
             }),
             gas_limit: 100_000,
@@ -3237,11 +3237,11 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
     }
 }
 
-/// Multi-coin gas must use the wallet-declared settlement coin end to end.
+/// Gas settlement accepts only the two protocol gas coins.
 const CUSTOM_GAS_COIN: &str = "0x2::james::JAMES";
 
 #[test]
-fn custom_coin_settles_failed_tx_gas_without_touching_native_ledger() {
+fn custom_gas_coin_is_rejected_for_move_execution() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     fund_sender_with_coin_type(
@@ -3272,7 +3272,14 @@ fn custom_coin_settles_failed_tx_gas_without_touching_native_ledger() {
         nonce: 0,
     };
 
-    let changeset = engine
+    let admission_error = BlockchainEngine::validate_transaction_admission_shape(&tx).unwrap_err();
+    assert!(
+        admission_error
+            .to_string()
+            .contains("Unsupported gas coin type")
+    );
+
+    let error = engine
         .execute_transaction_with_runtime_internal(
             &tx,
             &engine.runtime_pool[0],
@@ -3281,49 +3288,12 @@ fn custom_coin_settles_failed_tx_gas_without_touching_native_ledger() {
             None,
             false,
         )
-        .unwrap();
-    assert!(!changeset.success);
-    // Failed Move execution charges the full gas limit at the quoted
-    // token-per-unit price (no v3.1 KANARI discount off the native path).
-    let expected_fee = 100_000u64.saturating_mul(5);
-    assert_eq!(changeset.gas_used, 100_000);
-    assert!(changeset.owner_deltas.is_empty());
-    assert_eq!(
-        changeset.token_gas_credits.get(CUSTOM_GAS_COIN),
-        Some(&expected_fee)
-    );
-
-    {
-        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-        state.apply_changeset(&changeset).unwrap();
-    }
-
-    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    let gas_object = state.get_object("0xbbbb").unwrap().unwrap();
-    assert_eq!(
-        CoinModule::read_balance(&gas_object.data),
-        Some(1_000_000 - expected_fee)
-    );
-    assert_eq!(
-        state.dao_token_fees.get(CUSTOM_GAS_COIN),
-        Some(&expected_fee)
-    );
-    let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(sender_addr, CUSTOM_GAS_COIN)
-            .unwrap(),
-        1_000_000 - expected_fee
-    );
-    // Native ledger untouched: no KANARI moved anywhere.
-    assert_eq!(
-        state.resolve_owner_native_balance(sender_addr).unwrap_or(0),
-        0
-    );
+        .unwrap_err();
+    assert!(error.to_string().contains("Unsupported gas coin type"));
 }
 
 #[test]
-fn native_transfer_can_pay_gas_in_custom_coin() {
+fn native_transfer_rejects_custom_gas_coin() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
@@ -3354,7 +3324,7 @@ fn native_transfer_can_pay_gas_in_custom_coin() {
         gas_payment.coin_type = Some(CUSTOM_GAS_COIN.to_string());
     }
 
-    let changeset = engine
+    let error = engine
         .execute_transaction_with_runtime_internal(
             &tx,
             &engine.runtime_pool[0],
@@ -3363,38 +3333,8 @@ fn native_transfer_can_pay_gas_in_custom_coin() {
             None,
             false,
         )
-        .unwrap();
-    assert!(changeset.success, "{:?}", changeset.error_message);
-    // Transfer fast-path charges base units at the quoted token price.
-    let expected_fee = kanari_types::gas::GasOperation::Transfer.gas_units() * 5;
-    assert_eq!(
-        changeset.token_gas_credits.get(CUSTOM_GAS_COIN),
-        Some(&expected_fee)
-    );
-
-    {
-        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-        state.apply_changeset(&changeset).unwrap();
-    }
-
-    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    let gas_object = state.get_object("0xbbbb").unwrap().unwrap();
-    assert_eq!(
-        CoinModule::read_balance(&gas_object.data),
-        Some(1_000_000 - expected_fee)
-    );
-    assert_eq!(
-        state.dao_token_fees.get(CUSTOM_GAS_COIN),
-        Some(&expected_fee)
-    );
-    // KANARI transfer itself still settled natively.
-    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
-    assert_eq!(
-        state
-            .resolve_owner_native_balance(recipient_addr)
-            .unwrap_or(0),
-        100
-    );
+        .unwrap_err();
+    assert!(error.to_string().contains("Unsupported gas coin type"));
 }
 
 #[test]

@@ -84,60 +84,18 @@ impl Default for GasPriceTable {
 }
 
 impl GasPriceTable {
-    /// Node-local table for multi-coin quotation: the default (native KANARI)
-    /// plus operator-configured coins from `KANARI_GAS_COINS_JSON`:
-    /// `[{"coin_type":"0x2::usdc::USDC","decimals":6,"price_usd_micros":1000000}]`.
-    ///
-    /// Quotation-only: consensus charges exactly `gas_units * tx.gas_price`,
-    /// so a misconfigured table can only make wallets over/under-quote,
-    /// never fork.
+    /// Retained for API compatibility. Gas settlement is limited to KANARI and
+    /// USD; arbitrary node-local coin configuration is intentionally ignored.
     pub fn from_env_or_default() -> Self {
-        #[derive(Deserialize)]
-        struct EnvEntry {
-            coin_type: String,
-            decimals: u8,
-            price_usd_micros: u64,
-            #[serde(default = "default_active")]
-            active: bool,
-        }
-        fn default_active() -> bool {
-            true
-        }
-
-        let mut table = Self::default();
-        let Ok(json) = std::env::var("KANARI_GAS_COINS_JSON") else {
-            return table;
-        };
-        let Ok(entries) = serde_json::from_str::<Vec<EnvEntry>>(&json) else {
-            return table;
-        };
-        for entry in entries {
-            if entry.price_usd_micros == 0 || entry.decimals > 9 {
-                continue;
-            }
-            let normalized = CoinModule::normalize_token_type(&entry.coin_type);
-            if table
-                .entries
-                .iter()
-                .any(|existing| CoinModule::normalize_token_type(&existing.coin_type) == normalized)
-            {
-                continue;
-            }
-            table.entries.push(GasCoinEntry {
-                coin_type: normalized,
-                decimals: entry.decimals,
-                active: entry.active,
-                price_usd_micros: entry.price_usd_micros,
-                price_version: table.version,
-            });
-        }
-        table.version = table.version.saturating_add(1);
-        table
+        Self::default()
     }
 
     /// Canonical lookup (accepts `0x02..` style spellings).
     pub fn entry_for(&self, coin_type: &str) -> Option<&GasCoinEntry> {
         let wanted = CoinModule::normalize_token_type(coin_type);
+        if wanted != GAS_COIN && wanted != crate::usd_coin::USD_COIN {
+            return None;
+        }
         self.entries.iter().find(|entry| {
             entry.active && CoinModule::normalize_token_type(&entry.coin_type) == wanted
         })
@@ -227,10 +185,9 @@ pub fn format_usd_micros(micros: u64) -> String {
     format!("${dollars}.{frac}")
 }
 
-/// Auto-select settlement coin: "ถ้ากระเป๋ามีเหรียญไหน ก็ใช้เหรียญนั้นเป็น gas".
+/// Auto-select settlement coin: "If your wallet holds a particular coin, use that coin for gas.".
 ///
-/// Preference order: USD first, then native KANARI, then other stablecoins
-/// (6 decimals), then highest USD value affordable. Returns the coin type and
+/// Preference order: USD first, then native KANARI. Returns the coin type and
 /// the max-cost quote in that coin.
 pub fn select_gas_coin(
     balances: &BTreeMap<String, u64>,
@@ -238,9 +195,10 @@ pub fn select_gas_coin(
     table: &GasPriceTable,
     transfer_needs: &BTreeMap<String, u64>,
 ) -> Option<(String, u64)> {
-    if let Some((coin, balance)) = balances.iter().find(|(coin, _)| {
-        CoinModule::normalize_token_type(coin) == crate::usd_coin::USD_COIN
-    }) && table.is_supported(coin)
+    if let Some((coin, balance)) = balances
+        .iter()
+        .find(|(coin, _)| CoinModule::normalize_token_type(coin) == crate::usd_coin::USD_COIN)
+        && table.is_supported(coin)
     {
         let quote = table.quote_in_token(gas_limit, coin).ok()?;
         let need = quote.saturating_add(transfer_needs.get(coin).copied().unwrap_or(0));
@@ -333,6 +291,19 @@ mod tests {
                 .unwrap(),
             100_000
         );
+
+        let custom_table = GasPriceTable {
+            entries: vec![GasCoinEntry {
+                coin_type: "0x2::usdc::USDC".to_string(),
+                decimals: 6,
+                active: true,
+                price_usd_micros: 1_000_000,
+                price_version: 1,
+            }],
+            ..table
+        };
+        assert!(!custom_table.is_supported("0x2::usdc::USDC"));
+        assert!(custom_table.quote_in_token(100, "0x2::usdc::USDC").is_err());
     }
 
     #[test]
@@ -341,8 +312,10 @@ mod tests {
         assert!(table.check_version(None).is_ok());
         assert!(table.check_version(Some(1)).is_ok());
         assert!(table.check_version(Some(2)).is_err());
-        let mut stale = GasPriceTable::default();
-        stale.version = 1000;
+        let stale = GasPriceTable {
+            version: 1000,
+            ..GasPriceTable::default()
+        };
         assert!(stale.check_version(Some(1)).is_err());
     }
 

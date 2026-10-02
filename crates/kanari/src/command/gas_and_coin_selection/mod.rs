@@ -236,15 +236,13 @@ pub async fn consolidate_coin_objects(
     ))
 }
 
-/// Auto-select gas payment for CLI-constructed transactions: native KANARI
-/// first (legacy path), otherwise the best whitelisted coin the wallet can
-/// afford ("มีเหรียญไหนใช้เหรียญนั้น").
+/// Auto-select gas payment for CLI-constructed transactions: USD first, then
+/// native KANARI as a fallback.
 ///
 /// Returns the selected coin object, the payment, and the effective per-unit
 /// price in settlement-token base units. Callers must use the returned price
 /// as the transaction `gas_price` so engine accounting matches the quote.
-/// Prices come from [`kanari_types::gas_market::GasPriceTable::from_env_or_default`]
-/// (see `KANARI_GAS_COINS_JSON`); quotation-only, never consensus-critical.
+/// Prices come from [`kanari_types::gas_market::GasPriceTable::from_env_or_default`].
 pub fn build_gas_payment_auto(
     owned_objects: &[ObjectInfo],
     sender: &str,
@@ -253,16 +251,6 @@ pub fn build_gas_payment_auto(
     exclude_object_ids: &[&str],
     transfer_needs: &std::collections::BTreeMap<String, u64>,
 ) -> Result<(SelectedCoinObject, GasPayment, u64)> {
-    if let Ok(selected) = build_native_gas_payment(
-        owned_objects,
-        sender,
-        gas_limit,
-        gas_price,
-        exclude_object_ids,
-    ) {
-        return Ok((selected.0, selected.1, gas_price));
-    }
-
     let table = kanari_types::gas_market::GasPriceTable::from_env_or_default();
     let excluded = exclude_object_ids
         .iter()
