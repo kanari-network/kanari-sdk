@@ -3,7 +3,9 @@
 
 //! In-node USD faucet: web claim without any custodial transfer wallet.
 //!
-//! Flow: the visitor enters an address on the web page → the node mints
+//! Flow: the visitor enters an address on the web page → the node builds each
+//! 50 USD mint through `kanari_buildCallFunction`, signs it with the sponsor
+//! key, then submits it through `kanari_callFunction`. The two legs mint
 //! exactly 100 USD as **two** `Coin<USD>` objects (50 + 50) straight to that
 //! address through the permissionless `0x2::usd::mint` entry (shared
 //! `TreasuryCap`, no allowlist).
@@ -21,9 +23,7 @@
 //!
 //! Devnet only: never configure a funded mainnet key here.
 
-use super::{
-    build_object_input, fresh_nonce, normalize_addr, parse_hex_address, select_gas_payment_auto,
-};
+use super::{build_object_input, parse_hex_address};
 use crate::{RpcRequest, RpcResponse};
 use crate::{
     RpcServerState, internal_error_response, invalid_params_response, respond_with_serialize,
@@ -31,13 +31,14 @@ use crate::{
 use anyhow::{Context, Result};
 use kanari_crypto::keys::{CurveType, KeyPair, keypair_from_private_key};
 use kanari_rpc_api::{
-    CallFunctionRequest, RequestUsdFaucetRequest, RequestUsdFaucetResponse, methods,
+    BuildCallFunctionRequest, CallFunctionRequest, RequestUsdFaucetRequest,
+    RequestUsdFaucetResponse, methods,
 };
 use kanari_types::address::Address;
 use kanari_types::transaction::ObjectInput;
 use kanari_types::usd_coin::{USD_COIN, UsdModule};
 use move_core_types::account_address::AccountAddress;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -84,7 +85,6 @@ struct FaucetService {
     config: FaucetConfig,
     keypair: KeyPair,
     sender_tagged: String,
-    sender_hex: String,
     last_claim: Mutex<HashMap<String, Instant>>,
     /// Serializes claims across awaits (must be an async mutex: the guard is
     /// held while waiting for checkpoint commits, and a `std` guard there
@@ -112,12 +112,10 @@ fn faucet_service() -> Option<Arc<FaucetService>> {
                 config.cooldown.as_secs()
             );
             let sender_tagged = keypair.tagged_address();
-            let sender_hex = keypair.address.clone();
             let service = Arc::new(FaucetService {
                 config,
                 keypair,
                 sender_tagged,
-                sender_hex,
                 last_claim: Mutex::new(HashMap::new()),
                 claim_lock: tokio::sync::Mutex::new(()),
             });
@@ -181,53 +179,24 @@ fn shared_cap_id(state: &RpcServerState) -> Result<kanari_rpc_api::ObjectInfo> {
     })
 }
 
-/// Build, sign (sponsor), and submit one 50 USD mint leg directly against
-/// the engine.
-async fn mint_leg(
-    state: &RpcServerState,
-    service: &FaucetService,
-    cap: &kanari_rpc_api::ObjectInfo,
-    recipient: &str,
+fn handler_error_message(response: &RpcResponse) -> Option<String> {
+    response.error.as_ref().map(|error| {
+        format!(
+            "faucet handler rejected request (code {}): {}",
+            error.code, error.message
+        )
+    })
+}
+
+fn faucet_build_request(
+    sender_tagged: &str,
+    cap_input: ObjectInput,
+    cap_id_bytes: Vec<u8>,
+    recipient_bytes: Vec<u8>,
     amount: u64,
-    used_gas_ids: &mut HashSet<String>,
-) -> Result<Vec<u8>> {
-    let owner_info = state
-        .engine
-        .get_owner_info(&service.sender_hex)
-        .context("Faucet sponsor not found in node state (fund it with KANARI once)")?;
-    let owned_objects = owner_info
-        .owned_objects
-        .context("Faucet sponsor has no objects")?;
-    let pending = state.engine.pending_access_keys_snapshot();
-
-    let mut cap_input = build_object_input(cap, &service.sender_tagged)?;
-    cap_input.mutable = true;
-
-    let needs: BTreeMap<String, u64> = BTreeMap::new();
-    let (gas_payment, effective_price) = select_gas_payment_auto(
-        &owned_objects,
-        &service.sender_tagged,
-        FAUCET_GAS_LIMIT,
-        FAUCET_GAS_PRICE,
-        &[],
-        &pending,
-        &needs,
-    )
-    .context("Faucet sponsor cannot cover execution gas (fund it with KANARI once)")?;
-    for payment in &gas_payment.payment_objects {
-        used_gas_ids.insert(normalize_addr(&payment.object_id));
-    }
-
-    let cap_id_bytes = AccountAddress::from_hex_literal(&cap.id)
-        .context("Invalid treasury cap object id")?
-        .to_vec();
-    let recipient_bytes = AccountAddress::from_hex_literal(recipient)
-        .context("Invalid claim recipient")?
-        .to_vec();
-    let inputs: Vec<ObjectInput> = vec![cap_input];
-
-    let call_data = CallFunctionRequest {
-        sender: service.sender_tagged.clone(),
+) -> Result<BuildCallFunctionRequest> {
+    Ok(BuildCallFunctionRequest {
+        sender: sender_tagged.to_string(),
         package: Address::KANARI_SYSTEM_ADDRESS.to_string(),
         module: UsdModule::USD_MODULE.to_string(),
         function: "mint".to_string(),
@@ -237,34 +206,96 @@ async fn mint_leg(
             bcs::to_bytes(&amount).context("Failed to encode mint amount")?,
             recipient_bytes,
         ],
-        object_inputs: Some(inputs),
+        object_inputs: Some(vec![cap_input]),
         gas_limit: FAUCET_GAS_LIMIT,
-        gas_price: effective_price,
-        nonce: Some(fresh_nonce(None, owner_info.nonce)?),
-        gas_payment: Some(gas_payment),
-        signature: None,
+        gas_price: FAUCET_GAS_PRICE,
+        nonce: None,
         execute_immediate: Some(false),
-    };
+    })
+}
 
-    let mut signed_tx = super::build_call_signed_tx(call_data);
-    signed_tx
+/// Build, sign (sponsor), and submit one 50 USD mint leg through the standard
+/// `kanari_buildCallFunction` / `kanari_callFunction` handlers.
+async fn mint_leg(
+    state: &RpcServerState,
+    service: &FaucetService,
+    request_id: u64,
+    cap: &kanari_rpc_api::ObjectInfo,
+    recipient: &str,
+    amount: u64,
+) -> Result<Vec<u8>> {
+    let mut cap_input = build_object_input(cap, &service.sender_tagged)?;
+    cap_input.mutable = true;
+
+    let cap_id_bytes = AccountAddress::from_hex_literal(&cap.id)
+        .context("Invalid treasury cap object id")?
+        .to_vec();
+    let recipient_bytes = AccountAddress::from_hex_literal(recipient)
+        .context("Invalid claim recipient")?
+        .to_vec();
+
+    let build_request = faucet_build_request(
+        &service.sender_tagged,
+        cap_input,
+        cap_id_bytes,
+        recipient_bytes,
+        amount,
+    )?;
+    let build_response = super::handle_build_call_function(
+        state,
+        &RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: methods::BUILD_CALL_FUNCTION.to_string(),
+            params: serde_json::to_value(&build_request)
+                .context("Failed to encode faucet build request")?,
+            id: request_id,
+        },
+    )
+    .await;
+    if let Some(message) = handler_error_message(&build_response) {
+        anyhow::bail!("{message}");
+    }
+    let mut prepared: CallFunctionRequest = serde_json::from_value(
+        build_response
+            .result
+            .clone()
+            .context("Faucet build returned no prepared call")?,
+    )
+    .context("Faucet build returned an invalid prepared call")?;
+
+    let mut unsigned = super::build_call_signed_tx(prepared.clone());
+    unsigned
         .sign(&service.keypair.private_key, service.keypair.curve_type)
         .context("Failed to sign faucet mint transaction")?;
+    prepared.signature = Some(unsigned.signature.clone());
 
-    let hashes = state
-        .engine
-        .submit_transactions_batch(vec![signed_tx.clone()])
-        .context("Failed to submit faucet mint transaction")?;
-    state.broadcast_submitted_transaction(signed_tx);
-    hashes
-        .into_iter()
-        .next()
-        .context("Faucet submit returned no hash")
+    let submit_response = super::handle_call_function(
+        state,
+        &RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: methods::CALL_FUNCTION.to_string(),
+            params: serde_json::to_value(&prepared)
+                .context("Failed to encode faucet submit request")?,
+            id: request_id,
+        },
+    )
+    .await;
+    if let Some(message) = handler_error_message(&submit_response) {
+        anyhow::bail!("{message}");
+    }
+    let hash_hex = submit_response
+        .result
+        .as_ref()
+        .and_then(|result| result.get("hash"))
+        .and_then(|hash| hash.as_str())
+        .context("Faucet submit returned no hash")?;
+    hex::decode(hash_hex).context("Faucet submit returned an invalid hash")
 }
 
 async fn execute_claim(
     state: &RpcServerState,
     service: &FaucetService,
+    request_id: u64,
     recipient: &str,
 ) -> Result<Vec<Vec<u8>>> {
     // Serialize claims: both legs touch the same shared cap, so leg 2 must
@@ -274,10 +305,9 @@ async fn execute_claim(
 
     // Re-read the shared cap per leg: its version advances on every mint.
     let mut hashes = Vec::with_capacity(CLAIM_HALVES.len());
-    let mut used_gas_ids = HashSet::new();
     for (leg, amount) in CLAIM_HALVES.iter().enumerate() {
         let cap = shared_cap_id(state)?;
-        let hash = mint_leg(state, service, &cap, recipient, *amount, &mut used_gas_ids).await?;
+        let hash = mint_leg(state, service, request_id, &cap, recipient, *amount).await?;
         if leg + 1 < CLAIM_HALVES.len() {
             wait_for_commit(state, &hash, COMMIT_TIMEOUT).await?;
         }
@@ -360,7 +390,7 @@ pub async fn handle_request_usd_faucet(
     // (slow checkpoints) is cancelled mid-flight: leg 1 may already be
     // committed while leg 2 never builds. Cooldown is recorded only on full
     // success, so the client can safely retry (worst case: extra devnet USD).
-    match execute_claim(state, &service, &recipient).await {
+    match execute_claim(state, &service, request.id, &recipient).await {
         Ok(hashes) => {
             service
                 .last_claim
@@ -420,5 +450,38 @@ mod tests {
         assert_eq!(methods::REQUEST_USD_FAUCET, "kanari_requestUsdFaucet");
         assert_eq!(methods::GET_USD_FAUCET_STATUS, "kanari_getUsdFaucetStatus");
         assert!(FAUCET_METHODS.contains(&methods::REQUEST_USD_FAUCET));
+    }
+
+    #[test]
+    fn faucet_build_request_uses_standard_call_shape() {
+        use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
+
+        let cap_input = ObjectInput {
+            object_ref: ObjectRef::new("0x1234".to_string(), Some(7), Some("0xabcd".to_string())),
+            owner: Some(ObjectOwnerKind::Shared),
+            mutable: true,
+        };
+        let request = faucet_build_request(
+            "0x1::test::sponsor",
+            cap_input,
+            vec![0x12, 0x34],
+            vec![0xab, 0xcd],
+            50_000_000,
+        )
+        .unwrap();
+
+        assert_eq!(request.package, Address::KANARI_SYSTEM_ADDRESS);
+        assert_eq!(request.module, UsdModule::USD_MODULE);
+        assert_eq!(request.function, "mint");
+        assert_eq!(request.args.len(), 3);
+        assert_eq!(
+            bcs::from_bytes::<u64>(&request.args[1]).unwrap(),
+            50_000_000
+        );
+        let inputs = request.object_inputs.unwrap();
+        assert_eq!(inputs.len(), 1);
+        assert!(inputs[0].mutable);
+        assert_eq!(request.nonce, None);
+        assert_eq!(request.execute_immediate, Some(false));
     }
 }

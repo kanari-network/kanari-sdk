@@ -275,7 +275,7 @@ pub fn build_gas_payment_auto(
         kanari_types::gas_market::select_gas_coin(&balances, gas_limit, &table, transfer_needs)
             .context("No spendable gas coin object found in any whitelisted coin")?;
 
-    if CoinModule::normalize_token_type(&coin) == GAS_COIN {
+    if CoinModule::is_native_token_type(&coin) {
         let selected = build_native_gas_payment(
             owned_objects,
             sender,

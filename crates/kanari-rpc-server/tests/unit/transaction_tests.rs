@@ -15,6 +15,7 @@ use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::Transaction;
+use kanari_types::usd_coin::USD_COIN;
 use proptest::prelude::*;
 use std::collections::HashSet;
 
@@ -1069,11 +1070,13 @@ fn arg_backed_self_transfer_survives_noise_filter() {
     assert_eq!(transfers[0].transfer_amount, Some(77));
 }
 
-/// No-fallback contract: without state, only the KANARI protocol constant
-/// resolves; every other token is unknown (None), never an invented 9/6/0.
+/// Protocol-constant contract: without state, only the KANARI and USD
+/// settlement constants resolve; every other token is unknown (None), never
+/// an invented decimal.
 #[test]
-fn lookup_token_decimals_never_invents_fallback() {
+fn lookup_token_decimals_uses_protocol_constants_only() {
     assert_eq!(lookup_token_decimals(None, Some(GAS_COIN)), Some(9));
+    assert_eq!(lookup_token_decimals(None, Some(USD_COIN)), Some(6));
     assert_eq!(lookup_token_decimals(None, Some("0xabc::thb::THB")), None);
     assert_eq!(lookup_token_decimals(None, None), None);
 }

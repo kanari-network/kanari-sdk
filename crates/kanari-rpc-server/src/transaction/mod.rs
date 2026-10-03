@@ -461,7 +461,7 @@ fn select_gas_payment_with_table(
                 )
             })?;
 
-    if CoinModule::normalize_token_type(&coin) == GAS_COIN {
+    if CoinModule::is_native_token_type(&coin) {
         // Native was affordable only with a different object than the first
         // attempt allowed (e.g. exclusions); reselect honoring them.
         let payment = select_native_gas_payment(
@@ -875,8 +875,8 @@ fn token_transfer_details(
 fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str>) -> Option<u8> {
     let token_type = token_type?;
     let normalized = CoinModule::normalize_token_type(token_type);
-    if normalized == GAS_COIN {
-        return Some(9);
+    if let Some(decimals) = CoinModule::settlement_token_decimals(&normalized) {
+        return Some(decimals);
     }
     let state = state?;
     // StateManager already falls back across normalized/raw keys; keep this
@@ -1097,7 +1097,8 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
             object_inputs,
             ..
         } => {
-            if token_type == GAS_COIN && module == &GasModule::module_path() {
+            if CoinModule::is_native_token_type(&token_type) && module == &GasModule::module_path()
+            {
                 return true;
             }
 

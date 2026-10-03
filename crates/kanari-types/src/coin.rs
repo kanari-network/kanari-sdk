@@ -202,6 +202,26 @@ impl CoinModule {
             .unwrap_or_else(|_| token_type.to_string())
     }
 
+    /// Whether a token type is native KANARI after canonicalization.
+    pub fn is_native_token_type(token_type: &str) -> bool {
+        Self::normalize_token_type(token_type) == crate::gas_coin::GAS_COIN
+    }
+
+    /// Protocol-constant decimals for whitelisted settlement coins.
+    ///
+    /// KANARI is 9 decimals and USD is 6 decimals. Any other token must use
+    /// on-chain `CoinMetadata`; this helper never invents decimals for it.
+    pub fn settlement_token_decimals(token_type: &str) -> Option<u8> {
+        let normalized = Self::normalize_token_type(token_type);
+        if normalized == crate::gas_coin::GAS_COIN {
+            Some(crate::gas_coin::GasModule::KANARI_DECIMALS as u8)
+        } else if normalized == crate::usd_coin::USD_COIN {
+            Some(crate::usd_coin::UsdModule::USD_DECIMALS as u8)
+        } else {
+            None
+        }
+    }
+
     /// Read the `u64` balance from the canonical `Coin<T>` BCS layout.
     pub fn read_balance(data: &[u8]) -> Option<u64> {
         let amount = data.get(32..40)?;
@@ -361,5 +381,30 @@ mod tests {
             "0x2::kanari::KANARI"
         );
         assert_eq!(CoinModule::normalize_token_type("not-a-type"), "not-a-type");
+    }
+
+    #[test]
+    fn native_token_type_check_is_canonical() {
+        assert!(CoinModule::is_native_token_type("0x2::kanari::KANARI"));
+        assert!(CoinModule::is_native_token_type("0x02::kanari::KANARI"));
+        assert!(!CoinModule::is_native_token_type(crate::usd_coin::USD_COIN));
+        assert!(!CoinModule::is_native_token_type("not-a-type"));
+    }
+
+    #[test]
+    fn settlement_token_decimals_cover_kanari_and_usd() {
+        assert_eq!(
+            CoinModule::settlement_token_decimals("0x2::kanari::KANARI"),
+            Some(9)
+        );
+        assert_eq!(
+            CoinModule::settlement_token_decimals("0x02::usd::USD"),
+            Some(6)
+        );
+        assert_eq!(
+            CoinModule::settlement_token_decimals("0xabc::thb::THB"),
+            None
+        );
+        assert_eq!(CoinModule::settlement_token_decimals("not-a-type"), None);
     }
 }

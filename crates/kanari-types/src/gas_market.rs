@@ -93,7 +93,7 @@ impl GasPriceTable {
     /// Canonical lookup (accepts `0x02..` style spellings).
     pub fn entry_for(&self, coin_type: &str) -> Option<&GasCoinEntry> {
         let wanted = CoinModule::normalize_token_type(coin_type);
-        if wanted != GAS_COIN && wanted != crate::usd_coin::USD_COIN {
+        if !CoinModule::is_native_token_type(&wanted) && wanted != crate::usd_coin::USD_COIN {
             return None;
         }
         self.entries.iter().find(|entry| {
@@ -215,7 +215,9 @@ pub fn select_gas_coin(
             continue;
         }
         let entry = table.entry_for(coin)?;
-        if entry.coin_type == GAS_COIN || CoinModule::normalize_token_type(coin) == GAS_COIN {
+        if CoinModule::is_native_token_type(&entry.coin_type)
+            || CoinModule::is_native_token_type(coin)
+        {
             let quote = table.quote_in_token(gas_limit, coin).ok()?;
             let need = quote.saturating_add(transfer_needs.get(coin).copied().unwrap_or(0));
             if *balance >= need {

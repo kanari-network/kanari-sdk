@@ -74,8 +74,7 @@ impl GasPayment {
 
     /// Whether this payment settles in native KANARI (legacy path).
     pub fn is_native_payment(&self) -> bool {
-        crate::coin::CoinModule::normalize_token_type(&self.gas_coin_type())
-            == crate::gas_coin::GAS_COIN
+        crate::coin::CoinModule::is_native_token_type(&self.gas_coin_type())
     }
 
     /// Constructor used by wallets: explicit coin selection.
