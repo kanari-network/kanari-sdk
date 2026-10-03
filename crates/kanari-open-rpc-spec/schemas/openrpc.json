@@ -1234,8 +1234,8 @@
     },
     {
       "name": "kanari_requestUsdFaucet",
-      "summary": "Claim 100 USD from the web faucet",
-      "description": "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
+      "summary": "Claim 10 USD from the web faucet",
+      "description": "Mints exactly 10 USD as two 5 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
       "params": [
         {
           "name": "request",

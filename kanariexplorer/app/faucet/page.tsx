@@ -39,6 +39,13 @@ function isValidAddress(value: string): boolean {
   );
 }
 
+function formatCooldown(totalSecs: number): string {
+  if (!Number.isFinite(totalSecs) || totalSecs < 0) return "";
+  if (totalSecs % 3600 === 0) return `${totalSecs / 3600}h`;
+  if (totalSecs % 60 === 0) return `${totalSecs / 60}m`;
+  return `${totalSecs}s`;
+}
+
 function FaucetContent() {
   const [address, setAddress] = useState("");
   const [service, setService] = useState<FaucetStatus | null>(null);
@@ -121,6 +128,10 @@ function FaucetContent() {
   }
 
   const online = service?.enabled === true;
+  const dripLabel = service?.default_drip_usd
+    ? `${service.default_drip_usd} USD`
+    : "USD";
+  const cooldownLabel = service ? formatCooldown(service.cooldown_secs) : "";
 
   return (
     <div className="explorer-wrap">
@@ -128,16 +139,16 @@ function FaucetContent() {
         eyebrow="Devnet Faucet"
         title="USD"
         accent="Faucet."
-        description="Enter a wallet address to receive 100 USD as two 50 USD coin objects — no key, no password. Each claim mints fresh coins straight to the address."
+        description={`Enter a wallet address to receive ${dripLabel} as two USD coin objects — no key, no password. Each claim mints fresh coins straight to the address.`}
       />
 
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2 className="panel-title">Claim 100 USD</h2>
+            <h2 className="panel-title">Claim {dripLabel}</h2>
             <p className="panel-subtitle">
               {service?.enabled
-                ? `Fixed 100 USD in 2 × 50 USD objects · cooldown ${service.cooldown_secs}s per address`
+                ? `Fixed ${dripLabel} in 2 coin objects · cooldown ${cooldownLabel} per address & IP`
                 : "Checking node faucet..."}
             </p>
           </div>
@@ -165,7 +176,7 @@ function FaucetContent() {
               </div>
               <div>
                 <p className="tiny-label">You receive</p>
-                <span className="mono">100 USD in 2 × 50 USD objects</span>
+                <span className="mono">{dripLabel} in 2 coin objects</span>
               </div>
             </div>
             <div className="data-row data-row--account">

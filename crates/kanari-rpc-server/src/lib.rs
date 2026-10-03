@@ -8,7 +8,7 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::{Request, State, connect_info::ConnectInfo},
+    extract::{FromRequest, Request, State, connect_info::ConnectInfo},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -319,10 +319,19 @@ pub fn create_router_with_anti_spam(state: RpcServerState) -> Router {
 }
 
 /// Handle RPC request
-async fn handle_rpc(
-    State(state): State<RpcServerState>,
-    Json(request): Json<RpcRequest>,
-) -> impl IntoResponse {
+async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl IntoResponse {
+    // Read the client IP straight from the request extensions: `Option<T>`
+    // extractors are not supported for `ConnectInfo` in axum 0.8, and a
+    // required `ConnectInfo` extractor would 500 every router-level test that
+    // posts without connect info.
+    let client_ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string());
+    let Json(request) = match Json::<RpcRequest>::from_request(req, &state).await {
+        Ok(Json(request)) => Json(request),
+        Err(rejection) => return rejection.into_response(),
+    };
     debug!("RPC request: method={}, id={}", request.method, request.id);
 
     let _vm_permit = if is_vm_heavy_rpc(&request.method) {
@@ -335,7 +344,8 @@ async fn handle_rpc(
                         request.id,
                         "VM RPC capacity is temporarily exhausted; retry later",
                     )),
-                );
+                )
+                    .into_response();
             }
         }
     } else {
@@ -411,7 +421,9 @@ async fn handle_rpc(
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
         // Web USD faucet: fixed 100 USD claim as two 50 USD objects.
-        methods::REQUEST_USD_FAUCET => handle_request_usd_faucet(&state, &request).await,
+        methods::REQUEST_USD_FAUCET => {
+            handle_request_usd_faucet(&state, &request, client_ip.as_deref()).await
+        }
         methods::GET_USD_FAUCET_STATUS => handle_faucet_usd_status(&request).await,
 
         // Object queries
@@ -431,7 +443,7 @@ async fn handle_rpc(
         _ => error_response(request.id, RpcError::method_not_found(&request.method)),
     };
 
-    (StatusCode::OK, Json(response))
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 /// Handle Prometheus metrics

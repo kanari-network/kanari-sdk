@@ -35,7 +35,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
 
-/// In-node USD faucet: web claims mint 100 USD as two 50 USD objects.
+/// In-node USD faucet: web claims mint 10 USD as two 5 USD objects.
 pub mod faucet;
 
 // Extract function names from module bytecode (returns None on error)
