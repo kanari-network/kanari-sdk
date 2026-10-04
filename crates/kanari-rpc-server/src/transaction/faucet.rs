@@ -483,11 +483,11 @@ mod tests {
 
     #[test]
     fn claim_is_exactly_two_five_unit_legs() {
-        assert_eq!(CLAIM_HALVES, [5_000_000, 5_000_000]);
-        assert_eq!(CLAIM_HALVES.iter().sum::<u64>(), 10_000_000);
+        assert_eq!(CLAIM_HALVES, [50_000_000, 50_000_000]);
+        assert_eq!(CLAIM_HALVES.iter().sum::<u64>(), 100_000_000);
         assert_eq!(
             UsdModule::format_units_to_usd(CLAIM_HALVES.iter().sum()),
-            "10"
+            "100"
         );
     }
 
