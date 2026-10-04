@@ -52,13 +52,7 @@ fn system_natives_table_populated() {
         .map(|(_, mod_name, _, _)| mod_name.as_str().to_string())
         .collect();
 
-    for required in [
-        "base64",
-        "ed25519",
-        "dilithium3",
-        "transfer",
-        "tx_context",
-    ] {
+    for required in ["base64", "ed25519", "dilithium3", "transfer", "tx_context"] {
         assert!(
             module_names.contains(required),
             "must have native module `{required}`"
