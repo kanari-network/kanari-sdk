@@ -9,7 +9,7 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description.workspace = true
+description = "End-to-end tests for Kanari"
 
 [lib]
 name = "kanari_e2e_tests"
@@ -43,3 +43,8 @@ kanari-system-natives.workspace = true
 kanari-frameworks.workspace = true
 kanari-indexer = { path = "../kanari-indexer" }
 kanari-open-rpc-spec-builder = { path = "../kanari-open-rpc-spec-builder" }
+kanari-move-runtime-v1.workspace = true
+move-package.workspace = true
+move-binary-format.workspace = true
+move-core-types.workspace = true
+bcs.workspace = true

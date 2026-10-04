@@ -42,16 +42,16 @@ async fn move_full_rpc_endpoints_coverage() {
 #[tokio::test]
 async fn move_full_source_files_validation() {
     let sources = [
-        "move_sources/move_e2e_basic.move",
-        "move_sources/move_e2e_comprehensive.move",
-        "move_sources/move_e2e_math.move",
-        "move_sources/move_e2e_events.move",
-        "move_sources/move_e2e_access.move",
-        "move_sources/move_e2e_storage.move",
-        "move_sources/move_e2e_time.move",
-        "move_sources/move_e2e_nft.move",
-        "move_sources/move_e2e_pool.move",
-        "move_sources/move_e2e_registry.move",
+        "move_package/sources/move_e2e_basic.move",
+        "move_package/sources/move_e2e_comprehensive.move",
+        "move_package/sources/move_e2e_math.move",
+        "move_package/sources/move_e2e_events.move",
+        "move_package/sources/move_e2e_access.move",
+        "move_package/sources/move_e2e_storage.move",
+        "move_package/sources/move_e2e_time.move",
+        "move_package/sources/move_e2e_nft.move",
+        "move_package/sources/move_e2e_pool.move",
+        "move_package/sources/move_e2e_registry.move",
     ];
 
     for s in &sources {
@@ -65,33 +65,33 @@ async fn move_full_source_files_validation() {
 
 #[tokio::test]
 async fn move_full_module_functionality_check() {
-    let basic = std::fs::read_to_string("move_sources/move_e2e_basic.move").unwrap();
+    let basic = std::fs::read_to_string("move_package/sources/move_e2e_basic.move").unwrap();
     assert!(basic.contains("init_test_coin"));
 
-    let comp = std::fs::read_to_string("move_sources/move_e2e_comprehensive.move").unwrap();
+    let comp = std::fs::read_to_string("move_package/sources/move_e2e_comprehensive.move").unwrap();
     assert!(comp.contains("init_comp_coin"));
     assert!(comp.contains("create_vault"));
     assert!(comp.contains("deposit"));
     assert!(comp.contains("withdraw"));
 
-    let math = std::fs::read_to_string("move_sources/move_e2e_math.move").unwrap();
+    let math = std::fs::read_to_string("move_package/sources/move_e2e_math.move").unwrap();
     assert!(math.contains("add"));
     assert!(math.contains("multiply"));
     assert!(math.contains("safe_add"));
     assert!(math.contains("clamp"));
 
-    let events = std::fs::read_to_string("move_sources/move_e2e_events.move").unwrap();
-    assert!(events.contains("emit_simple"));
+    let events = std::fs::read_to_string("move_package/sources/move_e2e_events.move").unwrap();
+    assert!(events.contains("emit_message"));
     assert!(events.contains("emit_batch"));
 
-    let access = std::fs::read_to_string("move_sources/move_e2e_access.move").unwrap();
+    let access = std::fs::read_to_string("move_package/sources/move_e2e_access.move").unwrap();
     assert!(access.contains("create_access_control"));
     assert!(access.contains("add_admin"));
 }
 
 #[tokio::test]
 async fn move_full_advanced_modules_check() {
-    let storage = std::fs::read_to_string("move_sources/move_e2e_storage.move").unwrap();
+    let storage = std::fs::read_to_string("move_package/sources/move_e2e_storage.move").unwrap();
     assert!(storage.contains("create_store"));
     assert!(storage.contains("set_value"));
     assert!(storage.contains("get_value"));
@@ -99,24 +99,24 @@ async fn move_full_advanced_modules_check() {
     assert!(storage.contains("create_blob"));
     assert!(storage.contains("update_blob"));
 
-    let time = std::fs::read_to_string("move_sources/move_e2e_time.move").unwrap();
+    let time = std::fs::read_to_string("move_package/sources/move_e2e_time.move").unwrap();
     assert!(time.contains("create_record"));
     assert!(time.contains("update_record"));
     assert!(time.contains("is_fresh"));
 
-    let nft = std::fs::read_to_string("move_sources/move_e2e_nft.move").unwrap();
+    let nft = std::fs::read_to_string("move_package/sources/move_e2e_nft.move").unwrap();
     assert!(nft.contains("create_collection"));
     assert!(nft.contains("mint_nft"));
     assert!(nft.contains("transfer_nft"));
-    assert!(nft.contains("get_collection_size"));
+    assert!(nft.contains("collection_size"));
 
-    let pool = std::fs::read_to_string("move_sources/move_e2e_pool.move").unwrap();
+    let pool = std::fs::read_to_string("move_package/sources/move_e2e_pool.move").unwrap();
     assert!(pool.contains("create_pool"));
     assert!(pool.contains("add_liquidity"));
     assert!(pool.contains("remove_liquidity"));
-    assert!(pool.contains("get_reserves"));
+    assert!(pool.contains("reserves"));
 
-    let registry = std::fs::read_to_string("move_sources/move_e2e_registry.move").unwrap();
+    let registry = std::fs::read_to_string("move_package/sources/move_e2e_registry.move").unwrap();
     assert!(registry.contains("create_registry"));
     assert!(registry.contains("register_name"));
     assert!(registry.contains("lookup"));

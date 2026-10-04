@@ -1,0 +1,16 @@
+[package]
+name = "kanari_e2e"
+edition = "2024"
+
+[dependencies]
+KanariSystem = { local = "../../kanari-frameworks/packages/kanari-system" }
+MoveStdlib = { local = "../../kanari-frameworks/packages/move-stdlib" }
+
+[addresses]
+kanari_e2e_tests = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146"
+std = "0x1"
+kanari_system = "0x2"
+
+[dev-dependencies]
+
+[dev-addresses]

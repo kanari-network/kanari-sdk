@@ -3701,6 +3701,7 @@ name = "kanari-e2e-tests"
 version = "0.3.2"
 dependencies = [
  "anyhow",
+ "bcs",
  "kanari-auth",
  "kanari-common",
  "kanari-core",
@@ -3709,6 +3710,7 @@ dependencies = [
  "kanari-faucet",
  "kanari-frameworks",
  "kanari-indexer",
+ "kanari-move-runtime-v1",
  "kanari-open-rpc",
  "kanari-open-rpc-spec",
  "kanari-open-rpc-spec-builder",
@@ -3717,6 +3719,9 @@ dependencies = [
  "kanari-rpc-server",
  "kanari-system-natives",
  "kanari-types",
+ "move-binary-format",
+ "move-core-types",
+ "move-package",
  "serde_json",
  "smt",
  "tempfile",
