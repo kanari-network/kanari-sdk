@@ -3697,6 +3697,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanari-e2e-tests"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "kanari-auth",
+ "kanari-common",
+ "kanari-core",
+ "kanari-crypto",
+ "kanari-db-common",
+ "kanari-faucet",
+ "kanari-frameworks",
+ "kanari-indexer",
+ "kanari-open-rpc",
+ "kanari-open-rpc-spec",
+ "kanari-open-rpc-spec-builder",
+ "kanari-rpc-api",
+ "kanari-rpc-client",
+ "kanari-rpc-server",
+ "kanari-system-natives",
+ "kanari-types",
+ "serde_json",
+ "smt",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "kanari-faucet"
 version = "0.3.2"
 dependencies = [

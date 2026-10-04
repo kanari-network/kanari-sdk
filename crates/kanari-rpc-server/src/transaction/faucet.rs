@@ -6,7 +6,7 @@
 //! Flow: the visitor enters an address on the web page → the node builds each
 //! 5 USD mint through `kanari_buildCallFunction`, signs it with the sponsor
 //! key, then submits it through `kanari_callFunction`. The two legs mint
-//! exactly 10 USD as **two** `Coin<USD>` objects (5 + 5) straight to that
+//! exactly 100 USD as **two** `Coin<USD>` objects (50 + 50) straight to that
 //! address through the permissionless `0x2::usd::mint` entry (shared
 //! `TreasuryCap`, no allowlist).
 //!
@@ -45,10 +45,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Fixed claim: 10 USD total, minted as two 5 USD coin objects so the
+/// Fixed claim: 100 USD total, minted as two 50 USD coin objects so the
 /// recipient can immediately transfer again (transfers need a transfer coin
 /// plus a SEPARATE gas coin).
-const CLAIM_HALVES: [u64; 2] = [5_000_000, 5_000_000];
+const CLAIM_HALVES: [u64; 2] = [50_000_000, 50_000_000];
 const FAUCET_GAS_LIMIT: u64 = 100_000;
 const FAUCET_GAS_PRICE: u64 = 1_000;
 const COMMIT_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -148,7 +148,7 @@ fn faucet_service() -> Option<Arc<FaucetService>> {
     }) {
         Ok((config, keypair)) => {
             tracing::info!(
-                "USD web faucet enabled: 10 USD (2x5) per claim, cooldown {}s per address / {}s per IP",
+                "USD web faucet enabled: 100 USD (2x50) per claim, cooldown {}s per address / {}s per IP",
                 config.cooldown.as_secs(),
                 config.ip_cooldown.as_secs()
             );

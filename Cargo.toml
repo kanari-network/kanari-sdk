@@ -49,7 +49,8 @@ members = [
 
       # libraries mobile and desktop apps can use to interact with the kanari-sdk
       "packages/kanari_flutter/rust",
-      "packages/kanari-kotlin",
+      "packages/kanari-kotlin", 
+      "crates/kanari-e2e-tests",
 ]
 
 
@@ -74,7 +75,7 @@ description = "Kanari Network SDK"                                              
 # ============================================================================
 # Core Runtime & Concurrency
 # ============================================================================
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 rayon = "1.12.0"
 crossbeam-channel = "0.5.17"
 futures = "0.3.34"
@@ -202,7 +203,7 @@ walkdir = "2.5.0"                                                               
 num_cpus = "1.17.0"                                                                 # CPU core detection
 regex = "1.13.1"                                                                    # Regular expressions for validation
 smallvec = "1.16.2"                                                                 # Stack-allocated vectors
-lazy_static = { version = "1.5.0", default-features = true }
+lazy_static = { version = "1.5.1", default-features = true }
 once_cell = "1.21.4"
 
 # ============================================================================
@@ -239,7 +240,7 @@ ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.26.1", features = ["v4", "serde"] }
+uuid = { version = "1.27.0", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics

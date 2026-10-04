@@ -1,0 +1,45 @@
+[package]
+name = "kanari-e2e-tests"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[lib]
+name = "kanari_e2e_tests"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanari-e2e-tests"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+kanari-core.workspace = true
+kanari-types.workspace = true
+kanari-crypto.workspace = true
+kanari-rpc-api.workspace = true
+kanari-rpc-client.workspace = true
+kanari-rpc-server.workspace = true
+kanari-common.workspace = true
+kanari-auth.workspace = true
+kanari-db-common.workspace = true
+smt.workspace = true
+kanari-faucet.workspace = true
+kanari-open-rpc.workspace = true
+kanari-open-rpc-spec.workspace = true
+kanari-system-natives.workspace = true
+kanari-frameworks.workspace = true
+kanari-indexer = { path = "../kanari-indexer" }
+kanari-open-rpc-spec-builder = { path = "../kanari-open-rpc-spec-builder" }

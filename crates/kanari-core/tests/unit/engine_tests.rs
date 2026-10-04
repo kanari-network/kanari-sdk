@@ -3259,18 +3259,15 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
                 .unwrap(),
             total_dao_gas_fees
         );
-        let dao_address = AccountAddress::from_hex_literal(
-            kanari_types::address::Address::DAO_ADDRESS,
-        )
-        .unwrap();
+        let dao_address =
+            AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS).unwrap();
         let usd_coin_type = kanari_types::coin::CoinModule::coin_type(USD_COIN);
         let dao_usd_coins = state
             .query_objects(None, None, Some(&usd_coin_type), None, None)
             .unwrap()
             .into_iter()
             .filter(|(_, coin)| {
-                coin.owner_kind
-                    == ObjectOwnerKind::AddressOwner(dao_address.to_hex_literal())
+                coin.owner_kind == ObjectOwnerKind::AddressOwner(dao_address.to_hex_literal())
             })
             .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
             .sum::<u64>();
