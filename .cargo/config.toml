@@ -1,18 +1,18 @@
 [build]
-jobs = 8  # Adjust to match your CPU core count
+jobs = 8           # Adjust to match your CPU core count
 incremental = true
 
 rustflags = [
-    "-W", "clippy::all",
-    "-W", "clippy::pedantic",
-    "-W", "clippy::nursery"
+    "-W",
+    "clippy::all",
+    "-W",
+    "clippy::pedantic",
+    "-W",
+    "clippy::nursery",
 ]
 
 [target.'cfg(debug_assertions)']
-rustflags = [
-    "-W", "clippy::dbg_macro",
-    "-W", "clippy::print_stdout",
-]
+rustflags = ["-W", "clippy::dbg_macro", "-W", "clippy::print_stdout"]
 
 # Do not force `-C target-cpu=native` in workspace defaults. CI/release
 # artifacts must be portable across CPUs, and recent nightly codegen has hit
@@ -20,7 +20,7 @@ rustflags = [
 # still opt in by setting RUSTFLAGS explicitly on the benchmarking machine.
 
 [net]
-git-fetch-with-cli = true  # Can be faster for git dependencies
+git-fetch-with-cli = true # Can be faster for git dependencies
 
 [alias]
 a = "add"
@@ -34,7 +34,7 @@ r = "run"
 rr = "run --release"
 up = "update"
 
-kb = "build -p kari"                # Build kari package
-kbr = "build -p kari --release"     # Build kari package in release mode
-kr = "run -p kari"                  # Run kari package
-krr = "run -p kari --release"       # Run kari package in release mode
+kb = "build -p kanari"            # Build kanari package
+kbr = "build -p kanari --release" # Build kanari package in release mode
+kr = "run -p kanari"              # Run kanari package
+krr = "run -p kanari --release"   # Run kanari package in release mode
