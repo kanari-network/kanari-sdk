@@ -38,6 +38,13 @@ module kanari_e2e_tests::move_e2e_basic {
         coin::total_supply(cap)
     }
 
+    /// Entry wrapper so the treasury cap supply can be read back across calls.
+    public entry fun e2e_check_total_supply(
+        cap: &coin::TreasuryCap<TEST_COIN>, expected: u64
+    ) {
+        assert!(coin::total_supply(cap) == expected, E_BAD_SUPPLY);
+    }
+
     /// Creates the TEST_COIN currency with the canonical E2E parameters.
     fun e2e_create(ctx: &mut TxContext): (coin::TreasuryCap<TEST_COIN>, CoinMetadata<TEST_COIN>) {
         coin::create_currency<TEST_COIN>(

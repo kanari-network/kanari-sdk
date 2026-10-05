@@ -12,7 +12,7 @@ use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use move_core_types::language_storage::ModuleId;
-use move_core_types::runtime_value::{MoveStruct, MoveValue};
+use move_core_types::runtime_value::MoveValue;
 use move_package::BuildConfig;
 use move_package::compilation::compiled_package::CompiledPackage;
 
@@ -145,21 +145,6 @@ fn address_arg(value: &str) -> Vec<u8> {
         .expect("serialize address")
 }
 
-fn string_vec_arg(values: &[&str]) -> Vec<u8> {
-    MoveValue::Vector(
-        values
-            .iter()
-            .map(|s| {
-                MoveValue::Struct(MoveStruct::new(vec![MoveValue::Vector(
-                    s.as_bytes().iter().copied().map(MoveValue::U8).collect(),
-                )]))
-            })
-            .collect(),
-    )
-    .simple_serialize()
-    .expect("serialize vector<String>")
-}
-
 /// Strip the `0x` prefix and left-pad an object id to a full address literal.
 fn addr_literal(id: &str) -> String {
     format!("0x{}", id.trim_start_matches("0x"))
@@ -242,6 +227,60 @@ fn created_types(cs: &kanari_move_runtime_v1::changeset::ChangeSet) -> Vec<Strin
         .iter()
         .map(|(_, o)| o.type_.clone())
         .collect()
+}
+
+/// Id of the created object whose type ends with `suffix`.
+fn find_created(cs: &kanari_move_runtime_v1::changeset::ChangeSet, suffix: &str) -> String {
+    cs.created_objects
+        .iter()
+        .find(|(_, o)| o.type_.ends_with(suffix))
+        .unwrap_or_else(|| {
+            panic!(
+                "no created object whose type ends with `{suffix}`; got {:?}",
+                created_types(cs)
+            )
+        })
+        .0
+        .clone()
+}
+
+/// Id of the created object whose type contains `needle` (matches generic
+/// types such as `0x2::coin::TreasuryCap<0x3..::TEST_COIN>`).
+fn find_created_containing(
+    cs: &kanari_move_runtime_v1::changeset::ChangeSet,
+    needle: &str,
+) -> String {
+    cs.created_objects
+        .iter()
+        .find(|(_, o)| o.type_.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "no created object whose type contains `{needle}`; got {:?}",
+                created_types(cs)
+            )
+        })
+        .0
+        .clone()
+}
+
+/// Single `u64` payload of a created object: the trailing 8 bytes of its BCS
+/// data (the data is a 32-byte object id followed by the struct fields).
+fn created_u64(cs: &kanari_move_runtime_v1::changeset::ChangeSet, id: &str) -> anyhow::Result<u64> {
+    let data = &cs
+        .created_objects
+        .iter()
+        .find(|(k, _)| k == id)
+        .unwrap_or_else(|| panic!("object `{id}` was not created; got {:?}", created_types(cs)))
+        .1
+        .data;
+    anyhow::ensure!(
+        data.len() >= 8,
+        "object `{id}` holds {} bytes, expected at least 8",
+        data.len()
+    );
+    let mut tail = [0u8; 8];
+    tail.copy_from_slice(&data[data.len() - 8..]);
+    Ok(u64::from_le_bytes(tail))
 }
 
 #[test]
@@ -434,14 +473,12 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
     let module = module_id("move_e2e_basic");
     let sender = publisher_address();
 
-    let cs = runtime.execute_entry_function(
+    let cs = exec(
+        &runtime,
         &module,
         "init_test_coin",
-        vec![],
-        vec![tx_context_arg(sender, 0)],
-        Some(sender),
-        None,
-        None,
+        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        sender,
     )?;
 
     let types = created_types(&cs);
@@ -462,20 +499,55 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
         "expected a minted Coin<TEST_COIN>, got {types:?}"
     );
 
+    // The shared cap created by `init_test_coin` is rebound for a later
+    // transaction, proving the created objects were persisted and re-read.
+    let cap_id = find_created_containing(&cs, "TreasuryCap");
     preload_created(&runtime, &cs);
 
-    // `total_supply` is a view function over the shared cap.
-    let _ = runtime
-        .execute_entry_function(
-            &module,
-            "total_supply",
-            vec![],
-            vec![address_arg(&addr_literal(&cs.created_objects[0].0))],
-            Some(sender),
-            None,
-            None,
-        )
-        .ok();
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_total_supply",
+        vec![
+            Slot::Obj {
+                id: cap_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(1_000_000_000_000)),
+        ],
+        sender,
+    )?;
+
+    // A later `&mut` transaction against the same shared cap mints a real
+    // coin, so the rebinding resolves the cap for mutation rather than only
+    // for reads.
+    let mint_cs = exec(
+        &runtime,
+        &module,
+        "mint_more",
+        vec![
+            Slot::Obj {
+                id: cap_id,
+                mutable: true,
+            },
+            Slot::Raw(u64_arg(42)),
+            Slot::Raw(tx_context_arg(sender, 1)),
+        ],
+        sender,
+    )?;
+
+    let minted_id = find_created_containing(&mint_cs, "Coin<");
+    assert_eq!(
+        created_u64(&mint_cs, &minted_id)?,
+        42,
+        "mint_more must mint exactly the requested amount; type was {}",
+        mint_cs
+            .created_objects
+            .iter()
+            .find(|(k, _)| k == &minted_id)
+            .map(|(_, o)| o.type_.clone())
+            .unwrap_or_default()
+    );
 
     Ok(())
 }
@@ -986,19 +1058,486 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
     assert_eq!(self_id.name().as_str(), name);
     assert_eq!(*self_id.address(), publisher_address());
 
-    // The generic pool entry functions must exist in the compiled module.
     let module = module_id("move_e2e_pool");
     assert_eq!(module, self_id);
+
+    let sender = publisher_address();
+
+    // The 128-bit pool math is asserted inside Move, so a wrong result aborts.
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_mul_div",
+        vec![
+            Slot::Raw(u64_arg(100)),
+            Slot::Raw(u64_arg(200)),
+            Slot::Raw(u64_arg(5)),
+            Slot::Raw(u64_arg(4000)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_scaled_reserves",
+        vec![
+            Slot::Raw(u64_arg(12_345)),
+            Slot::Raw(u64_arg(67_890)),
+            Slot::Raw(u64_arg(83_810)),
+        ],
+        sender,
+    )?;
+
+    // Seed, grow and shrink an integer-only pool, verifying the share math
+    // after every step.
+    let pool_cs = exec(
+        &runtime,
+        &module,
+        "create_simple_pool",
+        vec![
+            Slot::Raw(u64_arg(1000)),
+            Slot::Raw(u64_arg(2000)),
+            Slot::Raw(tx_context_arg(sender, 0)),
+        ],
+        sender,
+    )?;
+    let (pool_id, _pool_version) = only_created(&pool_cs);
+    assert!(pool_cs.created_objects[0].1.type_.contains("::SimplePool"));
+    preload_created(&runtime, &pool_cs);
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_simple_pool",
+        vec![
+            Slot::Obj {
+                id: pool_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(1000)),
+            Slot::Raw(u64_arg(2000)),
+            Slot::Raw(u64_arg(3000)),
+        ],
+        sender,
+    )?;
+
+    // 500/1000 against 1000/2000 mints 1500 shares (mul_div 500*3000/1000).
+    let _ = exec(
+        &runtime,
+        &module,
+        "add_simple_liquidity",
+        vec![
+            Slot::Obj {
+                id: pool_id.clone(),
+                mutable: true,
+            },
+            Slot::Raw(u64_arg(500)),
+            Slot::Raw(u64_arg(1000)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_simple_pool",
+        vec![
+            Slot::Obj {
+                id: pool_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(1500)),
+            Slot::Raw(u64_arg(3000)),
+            Slot::Raw(u64_arg(4500)),
+        ],
+        sender,
+    )?;
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "remove_simple_liquidity",
+        vec![
+            Slot::Obj {
+                id: pool_id.clone(),
+                mutable: true,
+            },
+            Slot::Raw(u64_arg(1500)),
+            Slot::Raw(u64_arg(500)),
+            Slot::Raw(u64_arg(1000)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_simple_pool",
+        vec![
+            Slot::Obj {
+                id: pool_id,
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(1000)),
+            Slot::Raw(u64_arg(2000)),
+            Slot::Raw(u64_arg(3000)),
+        ],
+        sender,
+    )?;
+
     Ok(())
 }
 
+/// The full TEST_COIN lifecycle runs inside Move and asserts its own supply,
+/// split/join and burn arithmetic, so a wrong result aborts the call.
 #[test]
-fn e2e_string_vec_helpers_serialize() -> anyhow::Result<()> {
-    // Guards the BCS helpers used by the Move call arguments above.
-    let encoded = string_vec_arg(&["a", "b"]);
-    assert!(!encoded.is_empty());
-    assert_eq!(u64_arg(7).len(), 8);
-    assert_eq!(bool_arg(true).len(), 1);
-    assert!(!vec_u8_arg(b"x").is_empty());
+fn e2e_coin_lifecycle_executes() -> anyhow::Result<()> {
+    let (_scratch, compiled) = compile_e2e_package()?;
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    publish_all(&runtime, &compiled);
+
+    let module = module_id("move_e2e_basic");
+    let sender = publisher_address();
+
+    let cs = exec(
+        &runtime,
+        &module,
+        "e2e_coin_lifecycle",
+        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        sender,
+    )?;
+
+    let types = created_types(&cs);
+    for expected in ["TreasuryCap", "CoinMetadata", "TEST_COIN"] {
+        assert!(
+            types.iter().any(|t| t.contains(expected)),
+            "e2e_coin_lifecycle must create a {expected}, got {types:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Deposits and withdrawals are asserted in-transaction, then the vault is read
+/// back through the shared object to prove the drained balance persisted.
+#[test]
+fn e2e_vault_roundtrip_executes() -> anyhow::Result<()> {
+    let (_scratch, compiled) = compile_e2e_package()?;
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    publish_all(&runtime, &compiled);
+
+    let module = module_id("move_e2e_comprehensive");
+    let sender = publisher_address();
+
+    let cs = exec(
+        &runtime,
+        &module,
+        "e2e_vault_roundtrip",
+        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        sender,
+    )?;
+
+    let types = created_types(&cs);
+    assert!(
+        types
+            .iter()
+            .any(|t| t.contains("move_e2e_comprehensive::Vault")),
+        "e2e_vault_roundtrip must share a Vault, got {types:?}"
+    );
+    let vault_id = find_created(&cs, "::Vault");
+    preload_created(&runtime, &cs);
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_vault_balance",
+        vec![
+            Slot::Obj {
+                id: vault_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(0)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_vault_owner",
+        vec![
+            Slot::Obj {
+                id: vault_id,
+                mutable: false,
+            },
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+        ],
+        sender,
+    )?;
+
+    Ok(())
+}
+
+/// Registration, overwrite and lookup are asserted in-transaction, then the
+/// shared registry and entry are read back through separate calls.
+#[test]
+fn e2e_registry_roundtrip_executes() -> anyhow::Result<()> {
+    let (_scratch, compiled) = compile_e2e_package()?;
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    publish_all(&runtime, &compiled);
+
+    let module = module_id("move_e2e_registry");
+    let sender = publisher_address();
+
+    let cs = exec(
+        &runtime,
+        &module,
+        "e2e_registry_roundtrip",
+        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        sender,
+    )?;
+
+    let registry_id = find_created(&cs, "::Registry");
+    let entry_id = find_created(&cs, "::Entry");
+    preload_created(&runtime, &cs);
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_registry_size",
+        vec![
+            Slot::Obj {
+                id: registry_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(2)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_lookup",
+        vec![
+            Slot::Obj {
+                id: registry_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(vec_u8_arg(b"kanari")),
+            Slot::Raw(address_arg("0x4")),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_lookup_absent",
+        vec![
+            Slot::Obj {
+                id: registry_id,
+                mutable: false,
+            },
+            Slot::Raw(vec_u8_arg(b"absent")),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_entry_value",
+        vec![
+            Slot::Obj {
+                id: entry_id,
+                mutable: false,
+            },
+            Slot::Raw(vec_u8_arg(b"value2")),
+        ],
+        sender,
+    )?;
+
+    Ok(())
+}
+
+/// Mints two NFTs in one transaction, then verifies the shared collection
+/// through separate read-back calls.
+#[test]
+fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
+    let (_scratch, compiled) = compile_e2e_package()?;
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    publish_all(&runtime, &compiled);
+
+    let module = module_id("move_e2e_nft");
+    let sender = publisher_address();
+
+    let cs = exec(
+        &runtime,
+        &module,
+        "e2e_nft_roundtrip",
+        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        sender,
+    )?;
+
+    let types = created_types(&cs);
+    let nft_count = types.iter().filter(|t| t.ends_with("::NFT")).count();
+    assert_eq!(
+        nft_count, 2,
+        "e2e_nft_roundtrip must mint two NFTs, got {types:?}"
+    );
+
+    let collection_id = find_created(&cs, "::NFTCollection");
+    preload_created(&runtime, &cs);
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_collection_size",
+        vec![
+            Slot::Obj {
+                id: collection_id.clone(),
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(2)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_collection_name",
+        vec![
+            Slot::Obj {
+                id: collection_id,
+                mutable: false,
+            },
+            Slot::Raw(vec_u8_arg(b"E2E Collection")),
+        ],
+        sender,
+    )?;
+
+    Ok(())
+}
+
+/// Each scenario owns its own runtime: `object::new` derives ids
+/// deterministically from the transaction context, so separately-created
+/// objects would otherwise collide and shadow each other in the object store.
+#[test]
+fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
+    let (_scratch, compiled) = compile_e2e_package()?;
+    let sender = publisher_address();
+    let other = MoveAccountAddress::from_hex_literal("0x2").expect("valid address");
+
+    {
+        let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+        publish_all(&runtime, &compiled);
+        let module = module_id("move_e2e_storage");
+
+        let cs = exec(
+            &runtime,
+            &module,
+            "e2e_create_owned_store",
+            vec![Slot::Raw(tx_context_arg(sender, 0))],
+            sender,
+        )?;
+        let store_id = find_created(&cs, "::KeyValueStore");
+        preload_created(&runtime, &cs);
+
+        let denied = exec(
+            &runtime,
+            &module,
+            "set_value",
+            vec![
+                Slot::Obj {
+                    id: store_id,
+                    mutable: true,
+                },
+                Slot::Raw(vec_u8_arg(b"evil")),
+                Slot::Raw(vec_u8_arg(b"payload")),
+                Slot::Raw(tx_context_arg(other, 1)),
+            ],
+            other,
+        );
+        assert!(
+            denied.is_err(),
+            "non-owner set_value must abort, got {:?}",
+            denied.err()
+        );
+    }
+
+    {
+        let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+        publish_all(&runtime, &compiled);
+        let module = module_id("move_e2e_registry");
+
+        let cs = exec(
+            &runtime,
+            &module,
+            "e2e_create_owned_registry",
+            vec![Slot::Raw(tx_context_arg(sender, 0))],
+            sender,
+        )?;
+        let registry_id = find_created(&cs, "::Registry");
+        preload_created(&runtime, &cs);
+
+        let denied = exec(
+            &runtime,
+            &module,
+            "register_name",
+            vec![
+                Slot::Obj {
+                    id: registry_id,
+                    mutable: true,
+                },
+                Slot::Raw(vec_u8_arg(b"evil")),
+                Slot::Raw(address_arg("0x2")),
+                Slot::Raw(tx_context_arg(other, 1)),
+            ],
+            other,
+        );
+        assert!(
+            denied.is_err(),
+            "non-owner register_name must abort, got {:?}",
+            denied.err()
+        );
+    }
+
+    {
+        let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+        publish_all(&runtime, &compiled);
+        let module = module_id("move_e2e_nft");
+
+        let cs = exec(
+            &runtime,
+            &module,
+            "e2e_create_owned_collection",
+            vec![
+                Slot::Raw(vec_u8_arg(b"Owned")),
+                Slot::Raw(vec_u8_arg(b"owned by publisher")),
+                Slot::Raw(tx_context_arg(sender, 0)),
+            ],
+            sender,
+        )?;
+        let collection_id = find_created(&cs, "::NFTCollection");
+        preload_created(&runtime, &cs);
+
+        let denied = exec(
+            &runtime,
+            &module,
+            "e2e_mint_nft",
+            vec![
+                Slot::Obj {
+                    id: collection_id,
+                    mutable: true,
+                },
+                Slot::Raw(vec_u8_arg(b"Intruder")),
+                Slot::Raw(vec_u8_arg(b"not yours")),
+                Slot::Raw(vec_u8_arg(b"https://kanari.example/x.png")),
+                Slot::Raw(tx_context_arg(other, 1)),
+            ],
+            other,
+        );
+        assert!(
+            denied.is_err(),
+            "non-owner e2e_mint_nft must abort, got {:?}",
+            denied.err()
+        );
+    }
+
     Ok(())
 }
