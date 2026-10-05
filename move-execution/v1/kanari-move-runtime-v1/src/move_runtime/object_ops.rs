@@ -3,13 +3,7 @@
 
 //! Object manipulation operations for the Move runtime.
 
-// MoveRuntime object operations
-// This module provides functions for managing objects within the Kanari Move runtime, including adding transferred objects
-// to a ChangeSet, persisting runtime state, and handling object ownership and versioning. It includes functionality for processing transferred objects, determining their persistence requirements, and updating the ChangeSet accordingly. The module also handles the extraction of treasury and balance information from object data, ensuring that relevant state changes are accurately reflected in the ChangeSet.
-// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner. It also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
-// The module is designed to work with the Kanari Move runtime and integrates with the ChangeSet and StateOverlay types to provide a comprehensive solution for managing objects and their associated state.
-// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
-// The module also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
+use crate::common::balance::{is_balance_struct, token_type_from_struct_tag};
 use crate::common::ids::canonical_object_id;
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
 use kanari_system_natives::transfer_natives::TransferredObject;
@@ -111,15 +105,15 @@ impl super::MoveRuntime {
             if let Ok(struct_tag) = StructTag::from_str(&obj_type) {
                 if self.is_treasury_resource(&struct_tag)
                     && let Some(total) = self.extract_treasury_total_from_bytes(&data)
-                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                    && let Some(token_type) = token_type_from_struct_tag(&struct_tag)
                 {
                     cs.add_treasury(owner, token_type, total);
                     debug!("Detected TreasuryCap object: supply={}", total);
                 }
 
-                if self.is_balance_resource(&struct_tag)
+                if is_balance_struct(&struct_tag)
                     && let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag)
-                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                    && let Some(token_type) = token_type_from_struct_tag(&struct_tag)
                 {
                     cs.add_token_balance_set(owner, token_type, amount);
                     debug!("Detected Coin object: amount={}", amount);

@@ -20,8 +20,7 @@ use move_package::compilation::compiled_package::CompiledPackage;
 const E2E_PUBLISHER: &str = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146";
 
 /// Source of unique `tx_hash` values for hand-built contexts.
-static TX_CONTEXT_NONCE: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1);
+static TX_CONTEXT_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Modules that must exist after a successful compile.
 const EXPECTED_MODULES: &[&str] = &[

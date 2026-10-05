@@ -32,7 +32,7 @@ impl StateManager {
             return false;
         };
 
-        if Self::is_balance_struct(&struct_tag) {
+        if is_balance_struct(&struct_tag) {
             return false;
         }
 
@@ -757,7 +757,7 @@ impl StateManager {
         // Treat token balance hints as recompute triggers, not as canonical balance writes.
         // Non-native balances must come from owned objects so queries always reflect object
         // inventory instead of a parallel per-owner cache.
-        for (owner, token_type, amount) in &changeset.token_balance_sets {
+        for (owner, token_type, _) in &changeset.token_balance_sets {
             let normalized_token_type = Self::normalize_token_type(token_type);
             if normalized_token_type == GAS_COIN {
                 // Native KANARI balance is applied from owner deltas so gas and
@@ -765,7 +765,6 @@ impl StateManager {
                 continue;
             }
 
-            let _ = amount;
             let object_backed = self.changeset_touches_object_backed_token_for_owner(
                 changeset,
                 *owner,
@@ -777,7 +776,9 @@ impl StateManager {
         }
 
         for obj_id in &changeset.deleted_objects {
-            if let Some((stored_id, existing)) = self.load_stored_object_by_any_id(obj_id)? {
+            let (obj_key, stored_id) = if let Some((stored_id, existing)) =
+                self.load_stored_object_by_any_id(obj_id)?
+            {
                 let obj_key = object_key(&stored_id);
                 Self::record_object_balance_owner_if_needed(
                     &mut owners_to_recompute,
@@ -812,20 +813,16 @@ impl StateManager {
                         Some(&stored_id),
                     )?;
                 }
-                self.overlay.insert(obj_key, None);
-                self.remove_from_index_list(b"object_index", &stored_id)?;
-                self.remove_from_index_list(
-                    b"object_index",
-                    &Self::canonical_owned_object_id(obj_id),
-                )?;
+                (obj_key, Some(stored_id))
             } else {
-                let obj_key = object_key(obj_id);
-                self.overlay.insert(obj_key, None);
-                self.remove_from_index_list(
-                    b"object_index",
-                    &Self::canonical_owned_object_id(obj_id),
-                )?;
+                (object_key(obj_id), None)
+            };
+
+            self.overlay.insert(obj_key, None);
+            if let Some(stored_id) = &stored_id {
+                self.remove_from_index_list(b"object_index", stored_id)?;
             }
+            self.remove_from_index_list(b"object_index", &Self::canonical_owned_object_id(obj_id))?;
         }
 
         // 1. Check for newly created Objects to index Collections
@@ -1272,12 +1269,12 @@ impl StateManager {
         // Process Dynamic Fields into State Overlay.
         // =====================================================================
         for (object_id, name_bytes, value_bytes) in &changeset.added_dynamic_fields {
-            let df_key = Self::dynamic_field_key(object_id, name_bytes);
+            let df_key = dynamic_field_key(object_id, name_bytes);
             self.save_internal(&df_key, value_bytes)?;
         }
 
         for (object_id, name_bytes) in &changeset.removed_dynamic_fields {
-            let df_key = Self::dynamic_field_key(object_id, name_bytes);
+            let df_key = dynamic_field_key(object_id, name_bytes);
             // Record as None so commit() will delete it from RocksDB
             self.overlay.insert(df_key, None);
         }
@@ -1437,7 +1434,7 @@ impl StateManager {
             });
             access
                 .writes
-                .insert(format!("object:{canonical_object_id}").into_bytes());
+                .insert(crate::common::keys::object_key(&canonical_object_id));
         }
 
         if supply_delta > 0 {

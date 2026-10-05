@@ -3,18 +3,13 @@
 
 //! Internal helper functions for Move execution.
 
-// Helper functions for MoveRuntime resource parsing and object ID generation
-// This module provides utility functions for parsing Move changesets, resolving dynamic fields, and managing object IDs within the Kanari Move runtime. It includes functionality for extracting balance values from resource bytes, determining if a struct tag represents a balance or treasury resource, and preloading objects for execution. Additionally, it defines a custom dynamic field resolver that interacts with the persistent store and state overlay to retrieve dynamic field values.
-// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner.
-// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
-// The module also provides utilities for extracting token types from struct tags and handling the serialization and deserialization of dynamic field values.
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
 use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 
 use move_core_types::account_address::AccountAddress;
-use move_core_types::language_storage::{StructTag, TypeTag};
+use move_core_types::language_storage::StructTag;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -25,12 +20,7 @@ struct RuntimeDynamicFieldResolver {
 
 impl RuntimeDynamicFieldResolver {
     fn dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> Vec<u8> {
-        let hash = kanari_crypto::hash_data_blake3(name_bytes);
-        let mut key = b"df:".to_vec();
-        key.extend_from_slice(object_id.as_bytes());
-        key.extend_from_slice(b":");
-        key.extend_from_slice(hex::encode(&hash[0..16]).as_bytes());
-        key
+        crate::common::keys::dynamic_field_key(object_id, name_bytes)
     }
 }
 
@@ -230,16 +220,6 @@ impl super::MoveRuntime {
         object_type.contains("::coin::Coin<") || object_type.contains("::coin::coin::Coin<")
     }
 
-    /// Check if struct tag represents a balance/coin resource
-    pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
-        let module_name = struct_tag.module.as_str();
-        let struct_name = struct_tag.name.as_str();
-
-        (module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT)
-            || (module_name == BalanceModule::BALANCE_MODULE
-                && struct_name == BalanceModule::BALANCE_STRUCT)
-    }
-
     /// Check if struct tag represents a treasury resource
     pub(crate) fn is_treasury_resource(&self, struct_tag: &StructTag) -> bool {
         struct_tag.name.as_str() == CoinModule::TREASURY_CAP_STRUCT
@@ -286,15 +266,5 @@ impl super::MoveRuntime {
         } else {
             None
         }
-    }
-
-    /// Extract token type string from struct tag's type parameters
-    pub(crate) fn token_type_from_struct_tag(&self, struct_tag: &StructTag) -> Option<String> {
-        if let Some(TypeTag::Struct(st)) = struct_tag.type_params.first() {
-            // Normalize via Move's Display impl so all code paths use one canonical
-            // token type key (e.g. `0x2::kanari::KANARI`).
-            return Some(format!("{}", st));
-        }
-        None
     }
 }

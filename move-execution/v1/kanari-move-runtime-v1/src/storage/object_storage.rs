@@ -216,8 +216,8 @@ impl ObjectStorage {
 
         if let Some(ids) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes())? {
             for id in ids {
-                let object_key = format!("object:{id}");
-                let object = store.load::<StoredObject>(object_key.as_bytes())?.ok_or_else(|| {
+                let object_key = crate::common::keys::object_key(&id);
+                let object = store.load::<StoredObject>(&object_key)?.ok_or_else(|| {
                     anyhow::anyhow!(
                         "object index references missing object {id}; refusing to start with a partial object cache"
                     )
@@ -263,7 +263,7 @@ impl ObjectStorage {
         if old_owner.is_none()
             && let Some(store) = &self.persistent
             && let Some(existing) =
-                store.load::<StoredObject>(format!("object:{}", id).as_bytes())?
+                store.load::<StoredObject>(&crate::common::keys::object_key(&id))?
         {
             old_owner = Some(existing.owner);
             old_owner_kind = Some(existing.owner_kind);
@@ -271,7 +271,7 @@ impl ObjectStorage {
 
         if let Some(store) = &self.persistent {
             let mut updates = vec![Self::encode_update(
-                format!("object:{}", id).into_bytes(),
+                crate::common::keys::object_key(&id),
                 &obj,
             )?];
             let mut deletes = Vec::new();
@@ -349,7 +349,7 @@ impl ObjectStorage {
         drop(state);
 
         if let Some(store) = &self.persistent
-            && let Some(obj) = store.load::<StoredObject>(format!("object:{}", id).as_bytes())?
+            && let Some(obj) = store.load::<StoredObject>(&crate::common::keys::object_key(id))?
         {
             let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
             write_state.objects.insert(id.to_string(), obj.clone());
@@ -399,10 +399,10 @@ impl ObjectStorage {
 
         if let Some(store) = &self.persistent {
             if old_object.is_none() {
-                old_object = store.load::<StoredObject>(format!("object:{}", id).as_bytes())?;
+                old_object = store.load::<StoredObject>(&crate::common::keys::object_key(id))?;
             }
             let mut updates = Vec::new();
-            let deletes = vec![format!("object:{}", id).into_bytes()];
+            let deletes = vec![crate::common::keys::object_key(id)];
 
             if let Some(object) = &old_object
                 && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))

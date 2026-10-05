@@ -69,7 +69,7 @@ impl ModuleResolver for KanariMoveResolver {
 
     fn get_module(&self, id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
         self.record_read(
-            format!("module:{}:{}", id.address().to_hex_literal(), id.name()).into_bytes(),
+            crate::common::keys::module_key(id.address(), id.name().as_str()).into_bytes(),
         );
         // Fetch module directly from RocksDB via MoveVMState
         self.state.try_get_module(id)
@@ -84,7 +84,7 @@ impl ResourceResolver for KanariMoveResolver {
         address: &AccountAddress,
         tag: &StructTag,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.record_read(format!("resource:{}:{}", address.to_hex_literal(), tag).into_bytes());
+        self.record_read(crate::common::keys::resource_key(address, tag).into_bytes());
         if let Some(data) = self.state.try_get_resource(address, tag)? {
             return Ok(Some(data));
         }

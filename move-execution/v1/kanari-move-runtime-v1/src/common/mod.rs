@@ -3,5 +3,6 @@
 
 //! Common utilities shared across the runtime.
 
+pub mod balance;
 pub mod ids;
 pub mod keys;

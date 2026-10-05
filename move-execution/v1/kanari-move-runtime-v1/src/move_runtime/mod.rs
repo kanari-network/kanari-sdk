@@ -582,11 +582,8 @@ impl MoveRuntime {
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
                 let module_id = ModuleId::new(*addr, Identifier::new(module_name.as_str())?);
-                let key = format!(
-                    "module:{}:{}",
-                    module_id.address().to_hex_literal(),
-                    module_id.name()
-                );
+                let key =
+                    crate::common::keys::module_key(module_id.address(), module_id.name().as_str());
                 match op {
                     move_core_types::effects::Op::New(bytes)
                     | move_core_types::effects::Op::Modify(bytes) => {
@@ -602,7 +599,7 @@ impl MoveRuntime {
                 }
             }
             for (struct_tag, op) in account_changes.resources() {
-                let key = format!("resource:{}:{}", addr.to_hex_literal(), struct_tag);
+                let key = crate::common::keys::resource_key(addr, struct_tag);
                 match op {
                     move_core_types::effects::Op::New(bytes)
                     | move_core_types::effects::Op::Modify(bytes) => {
@@ -612,12 +609,11 @@ impl MoveRuntime {
                         // also an object-data write. Keep `object:{id}` in step for
                         // every type (not just `coin::Coin`) or mutated objects read
                         // stale bytes on the next call.
-                        let object_key = format!("object:{}", addr.to_hex_literal());
-                        if let Some(mut object) =
-                            store.load::<StoredObject>(object_key.as_bytes())?
-                        {
+                        let object_key = crate::common::keys::object_key(&addr.to_hex_literal());
+                        let stored = store.load::<StoredObject>(&object_key)?;
+                        if let Some(mut object) = stored {
                             object.data = bytes.to_vec();
-                            updates.push((object_key.as_bytes().to_vec(), bcs::to_bytes(&object)?));
+                            updates.push((object_key, bcs::to_bytes(&object)?));
                             refreshed_objects.push(object);
                         }
                     }
@@ -778,7 +774,6 @@ impl MoveRuntime {
         // The caller provides these context fields for API compatibility. The
         // bytecode publish path has no TxContext and must not fabricate them;
         // they are forwarded to a module `init` when one runs at publish.
-        let _ = timestamp;
         let publish_guard = self
             .module_publish_lock
             .lock()
@@ -822,26 +817,17 @@ impl MoveRuntime {
             (result.0, result.1, metered_gas.gas_used())
         };
 
-        cs.publish_module(sender, module_id.name().to_string());
-        self.parse_move_changeset(&move_changeset, &mut cs);
-        self.parse_move_events(&events, &mut cs);
-
-        if let Some((gas_limit, gas_price)) = gas_info {
-            let gas_op = GasOperation::PublishModule {
-                module_size: module_bytes.len(),
-            };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs, None)?;
-            self.apply_gas_info(&mut cs, gas_limit, gas_price, gas_op, written, deleted)?;
-        }
-        cs.set_gas_used(cs.gas_used.max(vm_gas_used));
-
-        if persist_runtime_state {
-            self.apply_move_changeset(move_changeset)?;
-            self.persist_created_objects(&cs)?;
-            self.persist_deleted_objects(&cs)?;
-            self.reload_vm_cache()?;
-        }
-
+        let cs = self.finish_publish_session(
+            cs,
+            move_changeset,
+            &events,
+            vm_gas_used,
+            sender,
+            [module_id].iter(),
+            module_bytes.len(),
+            gas_info,
+            persist_runtime_state,
+        )?;
         drop(publish_guard);
         Ok(cs)
     }
@@ -899,7 +885,6 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // Package publishing shares the same context rule as single modules.
-        let _ = timestamp;
         let publish_guard = self
             .module_publish_lock
             .lock()
@@ -963,16 +948,45 @@ impl MoveRuntime {
             (result.0, result.1, metered_gas.gas_used())
         };
 
-        for (module_id, _) in &compiled_modules {
+        let cs = self.finish_publish_session(
+            cs,
+            move_changeset,
+            &events,
+            vm_gas_used,
+            sender,
+            compiled_modules.iter().map(|(module_id, _)| module_id),
+            total_module_size,
+            gas_info,
+            persist_runtime_state,
+        )?;
+        drop(publish_guard);
+        Ok(cs)
+    }
+
+    /// Shared tail of the single-module and package publish paths: record the
+    /// published modules, parse VM effects, charge publish gas, and optionally
+    /// persist the runtime state.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_publish_session<'a>(
+        &self,
+        mut cs: ChangeSet,
+        move_changeset: move_core_types::effects::ChangeSet,
+        events: &[move_core_types::effects::Event],
+        vm_gas_used: u64,
+        sender: AccountAddress,
+        module_ids: impl IntoIterator<Item = &'a ModuleId>,
+        module_size: usize,
+        gas_info: Option<(u64, u64)>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
+        for module_id in module_ids {
             cs.publish_module(sender, module_id.name().to_string());
         }
         self.parse_move_changeset(&move_changeset, &mut cs);
-        self.parse_move_events(&events, &mut cs);
+        self.parse_move_events(events, &mut cs);
 
         if let Some((gas_limit, gas_price)) = gas_info {
-            let gas_op = GasOperation::PublishModule {
-                module_size: total_module_size,
-            };
+            let gas_op = GasOperation::PublishModule { module_size };
             let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs, None)?;
             self.apply_gas_info(&mut cs, gas_limit, gas_price, gas_op, written, deleted)?;
         }
@@ -985,7 +999,6 @@ impl MoveRuntime {
             self.reload_vm_cache()?;
         }
 
-        drop(publish_guard);
         Ok(cs)
     }
 
@@ -1079,10 +1092,9 @@ impl MoveRuntime {
             self.build_tx_context_bytes(Some(publisher), timestamp, tx_hash.as_deref())?;
         final_args.push(tx_context_bytes);
 
-        let return_values = session
+        session
             .execute_function_bypass_visibility(module_id, ident, vec![], final_args, metered_gas)
             .require("Module init execution failed")?;
-        let _ = return_values;
 
         let exts = session.get_native_extensions();
         let transferred = exts.get_mut::<TransferredObjectsExt>().take_all();
@@ -1386,9 +1398,10 @@ impl MoveRuntime {
         source: &str,
     ) {
         if let Ok(struct_tag) = type_name.parse::<move_core_types::language_storage::StructTag>()
-            && self.is_balance_resource(&struct_tag)
+            && crate::common::balance::is_balance_struct(&struct_tag)
             && let Some(amount) = self.extract_balance_from_bytes(data, &struct_tag)
-            && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+            && let Some(token_type) =
+                crate::common::balance::token_type_from_struct_tag(&struct_tag)
         {
             cs.add_token_balance_set(owner, token_type.clone(), amount);
             debug!(
@@ -1766,12 +1779,12 @@ impl MoveRuntime {
             .tracing_clone_with_overlay(state_overlay.clone());
         let mut session =
             self.create_session_with_resolver(&vm_guard, resolver, state_overlay.clone());
-        let mut deterministic_reads = std::collections::BTreeSet::from([format!(
-            "module:{}:{}",
-            module_id.address().to_hex_literal(),
-            module_id.name()
-        )
-        .into_bytes()]);
+        let mut deterministic_reads =
+            std::collections::BTreeSet::from([crate::common::keys::module_key(
+                module_id.address(),
+                module_id.name().as_str(),
+            )
+            .into_bytes()]);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
         self.preload_objects_for_execution(
@@ -1971,30 +1984,26 @@ impl MoveRuntime {
         }
 
         // Extensions are already added by create_session_with_storage_ext() - no need to add again
-
-        let (execution_result, vm_gas_used) = if bypass_entry_check {
-            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
-            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
-            let result = session.execute_function_bypass_visibility(
+        let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
+        let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
+        let execution_result = if bypass_entry_check {
+            session.execute_function_bypass_visibility(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
                 &mut metered_gas,
-            );
-            (result, metered_gas.gas_used())
+            )
         } else {
-            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
-            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
-            let result = session.execute_entry_function(
+            session.execute_entry_function(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
                 &mut metered_gas,
-            );
-            (result, metered_gas.gas_used())
+            )
         };
+        let vm_gas_used = metered_gas.gas_used();
 
         let mut cs = ChangeSet::new();
 
@@ -2163,9 +2172,6 @@ impl MoveRuntime {
 
                 if persist_runtime_state {
                     self.apply_move_changeset(move_changeset)?;
-                }
-
-                if persist_runtime_state {
                     self.persist_created_objects(&cs)?;
                     self.persist_deleted_objects(&cs)?;
                 }

@@ -206,6 +206,44 @@ fn merge_preserves_resolver_reads_for_conflict_validation() {
 }
 
 #[test]
+fn merge_and_merge_from_produce_identical_changesets() {
+    let owner = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)
+        .invariant("valid standard address");
+
+    let mut left = ChangeSet::new();
+    left.transfer(owner, owner, 7);
+    left.gas_used = 11;
+
+    let mut right = ChangeSet::new();
+    right.transfer(owner, owner, 3);
+    right.publish_module(owner, "kanari".to_string());
+    right.add_token_balance_set(owner, "0x2::kanari::KANARI".to_string(), 42);
+    right.add_event(Event {
+        key: b"k".to_vec(),
+        sequence_number: 1,
+        type_tag: "0x2::e::E".to_string(),
+        event_data: b"v".to_vec(),
+    });
+    right.add_deleted_object("0x9".to_string());
+    right.record_move_write(b"resource:0x2::t::S".to_vec(), Some(vec![1]));
+    right.record_move_write(b"resource:0x2::t::D".to_vec(), None);
+    right.record_resolver_reads([b"module:0x2:t".to_vec()]);
+    right.gas_used = 5;
+    right.success = false;
+    right.error_message = Some("boom".to_string());
+
+    let mut by_move = left.clone();
+    by_move.merge(right.clone());
+    let mut by_ref = left;
+    by_ref.merge_from(&right);
+
+    assert_eq!(
+        bcs::to_bytes(&by_move).invariant("serialize merge() result"),
+        bcs::to_bytes(&by_ref).invariant("serialize merge_from() result")
+    );
+}
+
+#[test]
 fn dynamic_field_write_conflicts_with_conservative_read_fence() {
     let reader = ChangeSet::new().deterministic_access_set();
     let mut writer = ChangeSet::new();

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::changeset::{ChangeSet, CreatedObject, StateAccessSet};
+use crate::common::balance::{is_balance_struct, token_type_from_struct_tag};
 use crate::common::ids::canonical_object_id;
-use crate::common::keys::{metadata_key, object_key, owned_objects_key};
+use crate::common::keys::{dynamic_field_key, metadata_key, object_key, owned_objects_key};
 use crate::storage::object_storage::StoredObject;
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::{Context, Result, ensure};
-use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::clock::ClockModule;
@@ -312,14 +312,6 @@ impl StateManager {
         Vec::new()
     }
 
-    fn is_balance_struct(struct_tag: &StructTag) -> bool {
-        let module_name = struct_tag.module.as_str();
-        let struct_name = struct_tag.name.as_str();
-        (module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT)
-            || (module_name == BalanceModule::BALANCE_MODULE
-                && struct_name == BalanceModule::BALANCE_STRUCT)
-    }
-
     fn extract_balance_from_object_bytes(data: &[u8], struct_tag: &StructTag) -> Option<u64> {
         let module_name = struct_tag.module.as_str();
         let struct_name = struct_tag.name.as_str();
@@ -371,13 +363,6 @@ impl StateManager {
 
         false
     }
-    fn token_type_from_balance_struct(struct_tag: &StructTag) -> Option<String> {
-        if let Some(TypeTag::Struct(st)) = struct_tag.type_params.first() {
-            return Some(format!("{}", st));
-        }
-        None
-    }
-
     fn treasury_cap_token_supply(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
         let struct_tag = StructTag::from_str(type_name).ok()?;
         if struct_tag.module.as_str() != CoinModule::COIN_MODULE
@@ -385,7 +370,7 @@ impl StateManager {
         {
             return None;
         }
-        let token_type = Self::token_type_from_balance_struct(&struct_tag)?;
+        let token_type = token_type_from_struct_tag(&struct_tag)?;
         if data.len() < UID_SIZE + U64_SIZE {
             return None;
         }
@@ -895,38 +880,6 @@ impl StateManager {
         self.commit_with_raw_updates(vec![(key, value)])
     }
 
-    /// Commit canonical state with a verified root and a single durable key-value pair.
-    pub fn commit_with_raw_update_and_verified_root(
-        &mut self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        verified_root: &[u8],
-    ) -> Result<()> {
-        let root: [u8; 32] = verified_root
-            .try_into()
-            .context("Verified state root must be 32 bytes")?;
-        self.commit_with_raw_updates_and_root(vec![(key, value)], Vec::new(), Some(root), None)
-    }
-
-    /// Commit canonical state with a verified root, a single durable key-value pair, and precomputed SMT changes.
-    pub fn commit_with_raw_update_verified_root_and_smt_changes(
-        &mut self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        verified_root: &[u8],
-        smt_changes: Option<PrecomputedSmtChanges>,
-    ) -> Result<()> {
-        let root: [u8; 32] = verified_root
-            .try_into()
-            .context("Verified state root must be 32 bytes")?;
-        self.commit_with_raw_updates_and_root(
-            vec![(key, value)],
-            Vec::new(),
-            Some(root),
-            smt_changes,
-        )
-    }
-
     /// Commit raw changes with a verified root and precomputed SMT changes.
     pub fn commit_with_raw_changes_verified_root_and_smt_changes(
         &mut self,
@@ -1174,16 +1127,6 @@ impl StateManager {
             }
         }
         Ok(None)
-    }
-
-    // helper for generating DB keys for Dynamic Fields
-    fn dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> Vec<u8> {
-        let hash = hash_data_blake3(name_bytes);
-        let mut key = b"df:".to_vec();
-        key.extend_from_slice(object_id.as_bytes());
-        key.extend_from_slice(b":");
-        key.extend_from_slice(hex::encode(&hash[0..16]).as_bytes());
-        key
     }
 
     fn is_canonical_state_root_key(key: &[u8]) -> bool {
@@ -1557,10 +1500,10 @@ impl StateManager {
 
     fn balance_token_amount(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
         let struct_tag = StructTag::from_str(type_name).ok()?;
-        if !Self::is_balance_struct(&struct_tag) {
+        if !is_balance_struct(&struct_tag) {
             return None;
         }
-        let token_type = Self::token_type_from_balance_struct(&struct_tag)?;
+        let token_type = token_type_from_struct_tag(&struct_tag)?;
         let amount = Self::extract_balance_from_object_bytes(data, &struct_tag)?;
         Some((Self::normalize_token_type(&token_type), amount))
     }

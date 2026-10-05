@@ -190,35 +190,20 @@ impl ChangeSet {
         access.read(b"df:*".to_vec());
 
         for input in &self.input_objects {
-            access.read(format!(
-                "object:{}",
-                Self::canonicalize_object_id(&input.object_ref.object_id)
-            ));
+            access.read(Self::object_access_key(&input.object_ref.object_id));
         }
         for input in &self.shared_inputs {
-            access.read(format!(
-                "object:{}",
-                Self::canonicalize_object_id(&input.object_id)
-            ));
+            access.read(Self::object_access_key(&input.object_id));
         }
         for input in &self.immutable_inputs {
-            access.read(format!(
-                "object:{}",
-                Self::canonicalize_object_id(&input.object_id)
-            ));
+            access.read(Self::object_access_key(&input.object_id));
         }
         for input in &self.gas_object_refs {
-            access.write(format!(
-                "object:{}",
-                Self::canonicalize_object_id(&input.object_id)
-            ));
+            access.write(Self::object_access_key(&input.object_id));
         }
         if let Some(payment) = &self.gas_payment {
             for input in &payment.payment_objects {
-                access.write(format!(
-                    "object:{}",
-                    Self::canonicalize_object_id(&input.object_id)
-                ));
+                access.write(Self::object_access_key(&input.object_id));
             }
         }
         for (owner, delta) in &self.owner_deltas {
@@ -243,38 +228,21 @@ impl ChangeSet {
             ));
         }
         for (object_id, _) in &self.created_objects {
-            access.write(format!(
-                "object:{}",
-                Self::canonicalize_object_id(object_id)
-            ));
+            access.write(Self::object_access_key(object_id));
         }
         for object_id in &self.deleted_objects {
-            access.write(format!(
-                "object:{}",
-                Self::canonicalize_object_id(object_id)
-            ));
+            access.write(Self::object_access_key(object_id));
         }
         for change in &self.explicit_object_changes {
-            access.write(format!(
-                "object:{}",
-                Self::canonicalize_object_id(&change.object_ref.object_id)
-            ));
+            access.write(Self::object_access_key(&change.object_ref.object_id));
         }
         for (object_id, name, _) in &self.added_dynamic_fields {
             access.write(b"df:*".to_vec());
-            access.write(format!(
-                "dynamic:{}:{}",
-                Self::canonicalize_object_id(object_id),
-                hex::encode(name)
-            ));
+            access.write(Self::dynamic_field_access_key(object_id, name));
         }
         for (object_id, name) in &self.removed_dynamic_fields {
             access.write(b"df:*".to_vec());
-            access.write(format!(
-                "dynamic:{}:{}",
-                Self::canonicalize_object_id(object_id),
-                hex::encode(name)
-            ));
+            access.write(Self::dynamic_field_access_key(object_id, name));
         }
         for key in self.move_writes.keys() {
             access.write(key.clone());
@@ -528,8 +496,13 @@ impl ChangeSet {
             && self.error_message.is_none()
     }
 
-    /// Merge another ChangeSet into this one. Later Move writes replace earlier writes
-    /// for the same canonical key, matching serial transaction execution semantics.
+    /// Merge another owned ChangeSet into this one. Later Move writes replace earlier
+    /// writes for the same canonical key, matching serial transaction execution semantics.
+    ///
+    /// `other` is taken by value so the merge can reuse its vector allocations instead
+    /// of copying them; callers that still need `other` should use [`ChangeSet::merge_from`].
+    /// The two are semantically identical — a change to one must be mirrored in the other,
+    /// which `merge_and_merge_from_produce_identical_changesets` guards.
     pub fn merge(&mut self, mut other: ChangeSet) {
         for (addr, other_change) in other.owner_deltas {
             let existing = self.get_or_create_owner_delta(addr);
@@ -586,10 +559,10 @@ impl ChangeSet {
 
     /// Merge another ChangeSet by reference.
     ///
-    /// This keeps high-throughput checkpoint preparation from cloning an entire
+    /// This is [`ChangeSet::merge`] with the ownership flipped: high-throughput
+    /// checkpoint preparation keeps the source set alive instead of cloning an entire
     /// vector of transaction effects before the merged batch is actually built.
-    /// Later Move writes still replace earlier writes for the same canonical key,
-    /// matching `merge`.
+    /// Later Move writes still replace earlier writes for the same canonical key.
     pub fn merge_from(&mut self, other: &ChangeSet) {
         self.events.reserve(other.events.len());
         self.treasuries.reserve(other.treasuries.len());
@@ -689,6 +662,20 @@ impl ChangeSet {
         AccountAddress::from_hex_literal(object_id)
             .map(|addr| addr.to_hex_literal())
             .unwrap_or_else(|_| object_id.to_string())
+    }
+
+    /// Deterministic-access key for one object record.
+    fn object_access_key(object_id: &str) -> String {
+        format!("object:{}", Self::canonicalize_object_id(object_id))
+    }
+
+    /// Deterministic-access key for one dynamic-field record.
+    fn dynamic_field_access_key(object_id: &str, name: &[u8]) -> String {
+        format!(
+            "dynamic:{}:{}",
+            Self::canonicalize_object_id(object_id),
+            hex::encode(name)
+        )
     }
 
     /// Records a treasury cap creation or update for a token type.

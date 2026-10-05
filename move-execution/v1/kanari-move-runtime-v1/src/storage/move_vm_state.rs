@@ -80,18 +80,14 @@ impl MoveVMState {
     }
 
     fn module_key(module_id: &ModuleId) -> String {
-        format!(
-            "module:{}:{}",
-            module_id.address().to_hex_literal(),
-            module_id.name().as_str()
-        )
+        crate::common::keys::module_key(module_id.address(), module_id.name().as_str())
     }
 
     fn resource_key(
         address: &AccountAddress,
         tag: &move_core_types::language_storage::StructTag,
     ) -> String {
-        format!("resource:{}:{}", address.to_hex_literal(), tag)
+        crate::common::keys::resource_key(address, tag)
     }
 
     fn framework_manifest_key(name: &str) -> String {

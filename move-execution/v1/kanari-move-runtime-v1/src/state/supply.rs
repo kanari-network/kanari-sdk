@@ -14,21 +14,13 @@ impl StateManager {
         owners.insert(Self::dao_account_address()?);
 
         for (_, object) in self.query_objects(None, None, None, None, None)? {
-            let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
-                continue;
-            };
-            if !Self::is_balance_struct(&struct_tag) {
-                continue;
-            }
-            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
-                continue;
-            };
-            let Some(amount) = Self::extract_balance_from_object_bytes(&object.data, &struct_tag)
+            let Some((token_type, amount)) =
+                Self::balance_token_amount(&object.type_, &object.data)
             else {
                 continue;
             };
             owners.insert(object.owner);
-            let key = (object.owner, Self::normalize_token_type(&token_type));
+            let key = (object.owner, token_type);
             let balance = object_balances.entry(key).or_insert(0);
             *balance = balance
                 .checked_add(amount)
@@ -149,24 +141,11 @@ impl StateManager {
                 continue;
             };
 
-            let Ok(struct_tag) = StructTag::from_str(&obj.type_) else {
-                continue;
-            };
-
-            if !Self::is_balance_struct(&struct_tag) {
-                continue;
-            }
-
-            let Some(amount) = Self::extract_balance_from_object_bytes(&obj.data, &struct_tag)
+            let Some((token_type, amount)) = Self::balance_token_amount(&obj.type_, &obj.data)
             else {
                 continue;
             };
 
-            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
-                continue;
-            };
-
-            let token_type = Self::normalize_token_type(&token_type);
             let entry = aggregated.entry(token_type).or_insert(0);
             *entry = entry
                 .checked_add(amount)
@@ -293,20 +272,14 @@ impl StateManager {
         // pass only discovered owners and then `resolve_owner_token_balance` rescanned
         // every object owned by every discovered account.
         for (_, object) in self.query_objects(None, None, None, None, None)? {
-            let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
-                continue;
-            };
-            if !Self::is_balance_struct(&struct_tag)
-                || !Self::token_type_from_balance_struct(&struct_tag).is_some_and(|object_token| {
-                    Self::normalize_token_type(&object_token) == token_type
-                })
-            {
-                continue;
-            }
-            let Some(amount) = Self::extract_balance_from_object_bytes(&object.data, &struct_tag)
+            let Some((object_token, amount)) =
+                Self::balance_token_amount(&object.type_, &object.data)
             else {
                 continue;
             };
+            if object_token != token_type {
+                continue;
+            }
             owners.insert(object.owner);
             let balance = object_balances.entry(object.owner).or_insert(0);
             *balance = balance
@@ -547,24 +520,14 @@ impl StateManager {
                 .map(|(t, _)| t.as_str())
                 .collect();
             for (_, object) in self.query_objects(None, None, None, None, None)? {
-                let Ok(struct_tag) = StructTag::from_str(&object.type_) else {
-                    continue;
-                };
-                if !Self::is_balance_struct(&struct_tag) {
-                    continue;
-                }
-                let Some(object_token) = Self::token_type_from_balance_struct(&struct_tag) else {
-                    continue;
-                };
-                let object_token = Self::normalize_token_type(&object_token);
-                if !wanted.contains(object_token.as_str()) {
-                    continue;
-                }
-                let Some(amount) =
-                    Self::extract_balance_from_object_bytes(&object.data, &struct_tag)
+                let Some((object_token, amount)) =
+                    Self::balance_token_amount(&object.type_, &object.data)
                 else {
                     continue;
                 };
+                if !wanted.contains(object_token.as_str()) {
+                    continue;
+                }
                 indexed_owners.insert(object.owner);
                 let entry = indexed_per_token
                     .entry(object_token)

@@ -3,12 +3,6 @@
 
 //! Type tag and argument parsers for Move entry functions.
 
-// MoveRuntime parsers and helpers
-// This module provides utility functions for parsing Move changesets, resolving dynamic fields, and managing object
-// IDs within the Kanari Move runtime. It includes functionality for extracting balance values from resource bytes, determining if a struct tag represents a balance or treasury resource, and preloading objects for execution. Additionally, it defines a custom dynamic field resolver that interacts with the persistent store and state overlay to retrieve dynamic field values.
-// The functions in this module are used internally by the MoveRuntime to facilitate the execution of Move transactions and manage the state of objects and resources in a consistent manner.
-// The module also includes logic for determining whether an object can be mutably borrowed based on its owner kind and the sender's address, ensuring that cross-owner mutable access is properly controlled and validated.
-
 use crate::changeset::ChangeSet;
 use crate::common::ids::object_id_from_bytes;
 use kanari_types::event::Event;
@@ -33,8 +27,7 @@ impl super::MoveRuntime {
 
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
-                let key = format!("module:{}:{}", addr.to_hex_literal(), module_name.as_str())
-                    .into_bytes();
+                let key = crate::common::keys::module_key(addr, module_name.as_str()).into_bytes();
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
                         kanari_cs.publish_module(*addr, module_name.to_string());
@@ -45,8 +38,7 @@ impl super::MoveRuntime {
             }
 
             for (struct_tag, op) in account_changes.resources() {
-                let resource_key =
-                    format!("resource:{}:{}", addr.to_hex_literal(), struct_tag).into_bytes();
+                let resource_key = crate::common::keys::resource_key(addr, struct_tag).into_bytes();
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
                         kanari_cs.record_move_write(resource_key, Some(bytes.to_vec()));
