@@ -8,6 +8,43 @@ fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
     ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
 }
 
+/// An address-owned object with no UID/ID record.
+///
+/// Every state test builds its objects this way, so the literals collapse into
+/// one call: the ownership metadata is derived, not re-stated per test.
+fn address_owned_object(
+    owner: AccountAddress,
+    type_: String,
+    data: Vec<u8>,
+    version: u64,
+) -> CreatedObject {
+    CreatedObject {
+        owner,
+        owner_kind: address_owner(owner),
+        uid: None,
+        id: None,
+        type_,
+        data,
+        version,
+    }
+}
+
+/// Payload of a `Coin<T>` object: a 32-byte UID followed by a u64 amount.
+fn coin_object_data(uid: [u8; UID_SIZE], amount: u64) -> Vec<u8> {
+    let mut data = Vec::with_capacity(UID_SIZE + U64_SIZE);
+    data.extend_from_slice(&uid);
+    data.extend_from_slice(&amount.to_le_bytes());
+    data
+}
+
+/// Same as [`coin_object_data`] but stamping only the first UID byte, which some
+/// tests rely on to keep otherwise-identical ids distinct.
+fn coin_object_data_with_leading_byte(byte: u8, amount: u64) -> Vec<u8> {
+    let mut uid = [0u8; UID_SIZE];
+    uid[0] = byte;
+    coin_object_data(uid, amount)
+}
+
 fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Result<()> {
     state.total_supply = total_supply;
     state.store.save(b"total_supply", &total_supply)?;
@@ -333,9 +370,7 @@ fn native_owner_overflow_is_rejected_without_mutating_state() -> Result<()> {
 #[test]
 fn identical_system_clock_replay_does_not_increment_object_version() -> Result<()> {
     let clock_id = "0xaade8aa25002489bbcfca67637daf4dac78f4c88606e0dfd5724f323cbda6b5d";
-    let mut clock_data = vec![0u8; UID_SIZE + U64_SIZE];
-    clock_data[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
-    clock_data[UID_SIZE..].copy_from_slice(&7u64.to_le_bytes());
+    let clock_data = coin_object_data([0xAA; UID_SIZE], 7u64);
 
     let mut prologue = ChangeSet::new();
     prologue.created_objects.push((
@@ -508,20 +543,10 @@ fn native_supply_summary_counts_object_fanout_when_owner_ledger_is_stale_low() -
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
     for index in 0u8..51 {
         let mut changeset = ChangeSet::new();
-        let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-        coin_data[..UID_SIZE].copy_from_slice(&[index; UID_SIZE]);
-        coin_data[UID_SIZE..].copy_from_slice(&1u64.to_le_bytes());
+        let coin_data = coin_object_data([index; UID_SIZE], 1u64);
         changeset.created_objects.push((
             format!("0x{}", hex::encode([index; UID_SIZE])),
-            CreatedObject {
-                owner,
-                owner_kind: address_owner(owner),
-                uid: None,
-                id: None,
-                type_: coin_type.clone(),
-                data: coin_data,
-                version: 1,
-            },
+            address_owned_object(owner, coin_type.clone(), coin_data, 1),
         ));
         state.apply_changeset(&changeset)?;
     }
@@ -577,22 +602,13 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
-    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    coin_data[UID_SIZE..].copy_from_slice(&250u64.to_le_bytes());
+    let coin_data = coin_object_data([0u8; UID_SIZE], 250u64);
 
     let mut cs = ChangeSet::new();
     cs.add_treasury(owner, token_type.to_string(), 1_000);
     cs.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type, coin_data, 1),
     ));
     state.apply_changeset(&cs)?;
 
@@ -612,21 +628,12 @@ fn resolve_owner_token_balances_requires_object_backed_non_native_assets() -> Re
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
-    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    coin_data[UID_SIZE..].copy_from_slice(&250u64.to_le_bytes());
+    let coin_data = coin_object_data([0u8; UID_SIZE], 250u64);
 
     let mut changeset = ChangeSet::new();
     changeset.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: object_owner,
-            owner_kind: address_owner(object_owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: coin_data,
-            version: 1,
-        },
+        address_owned_object(object_owner, coin_type, coin_data, 1),
     ));
     state.apply_changeset(&changeset)?;
 
@@ -644,50 +651,24 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
     let deal_type = format!("0x2::escrow::EscrowDeal<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
-    let mut full_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    full_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let full_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut init = ChangeSet::new();
     init.add_treasury(owner, token_type.to_string(), 1_000);
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: full_coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type.clone(), full_coin_data, 1),
     ));
     state.apply_changeset(&init)?;
 
-    let mut remaining_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    remaining_coin_data[UID_SIZE..].copy_from_slice(&900u64.to_le_bytes());
+    let remaining_coin_data = coin_object_data([0u8; UID_SIZE], 900u64);
     let mut lock = ChangeSet::new();
     lock.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: remaining_coin_data,
-            version: 2,
-        },
+        address_owned_object(owner, coin_type.clone(), remaining_coin_data, 2),
     ));
     lock.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: deal_type.clone(),
-            data: vec![1, 2, 3],
-            version: 1,
-        },
+        address_owned_object(owner, deal_type.clone(), vec![1, 2, 3], 1),
     ));
     state.apply_changeset(&lock)?;
 
@@ -700,32 +681,15 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
     assert_eq!(locked_records[0].holder_object_id, "0xbbbb");
     assert_eq!(locked_records[0].amount, 100);
 
-    let mut released_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    released_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+    let released_coin_data = coin_object_data([0u8; UID_SIZE], 100u64);
     let mut release = ChangeSet::new();
     release.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: deal_type,
-            data: vec![4, 5, 6],
-            version: 2,
-        },
+        address_owned_object(owner, deal_type, vec![4, 5, 6], 2),
     ));
     release.created_objects.push((
         "0xcccc".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: released_coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type, released_coin_data, 1),
     ));
     state.apply_changeset(&release)?;
 
@@ -748,15 +712,7 @@ fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<
     let mut init = ChangeSet::new();
     init.created_objects.push((
         padded_id.clone(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::test::Object".to_string(),
-            data: vec![1, 2, 3],
-            version: 1,
-        },
+        address_owned_object(owner, "0x2::test::Object".to_string(), vec![1, 2, 3], 1),
     ));
     state.apply_changeset(&init)?;
 
@@ -765,15 +721,7 @@ fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<
     let mut update = ChangeSet::new();
     update.created_objects.push((
         canonical_id.clone(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::test::Object".to_string(),
-            data: vec![4, 5, 6],
-            version: 2,
-        },
+        address_owned_object(owner, "0x2::test::Object".to_string(), vec![4, 5, 6], 2),
     ));
     state.apply_changeset(&update)?;
 
@@ -874,15 +822,12 @@ fn compute_state_root_tracks_indexed_canonical_objects() -> Result<()> {
     let mut create = ChangeSet::new();
     create.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
+        address_owned_object(
             owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
-            data: vec![1, 2, 3],
-            version: 1,
-        },
+            "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+            vec![1, 2, 3],
+            1,
+        ),
     ));
     state.apply_changeset(&create)?;
     let first_root = state.compute_state_root();
@@ -890,15 +835,12 @@ fn compute_state_root_tracks_indexed_canonical_objects() -> Result<()> {
     let mut update = ChangeSet::new();
     update.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
+        address_owned_object(
             owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
-            data: vec![4, 5, 6],
-            version: 2,
-        },
+            "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+            vec![4, 5, 6],
+            2,
+        ),
     ));
     state.apply_changeset(&update)?;
 
@@ -966,15 +908,12 @@ fn compute_state_root_matches_materialized_sparse_root_for_rocksdb() -> Result<(
     cs.publish_module(publisher, "example".to_string());
     cs.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
+        address_owned_object(
             owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
-            data: vec![1, 2, 3],
-            version: 1,
-        },
+            "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+            vec![1, 2, 3],
+            1,
+        ),
     ));
 
     state.apply_changeset(&cs)?;
@@ -1029,21 +968,16 @@ fn apply_changeset_debits_object_backed_native_balance_without_panicking() -> Re
     let base = state.token_supply_summary(GAS_COIN)?;
     set_native_supply_for_test(&mut state, base.total_supply + 10)?;
 
-    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    coin_data[..UID_SIZE].copy_from_slice(&[0xA5; UID_SIZE]);
-    coin_data[UID_SIZE..].copy_from_slice(&10u64.to_le_bytes());
+    let coin_data = coin_object_data([0xA5; UID_SIZE], 10u64);
     let mut seed = ChangeSet::new();
     seed.created_objects.push((
         "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5".to_string(),
-        CreatedObject {
-            owner: sender,
-            owner_kind: address_owner(sender),
-            uid: None,
-            id: None,
-            type_: format!("0x2::coin::Coin<{}>", GAS_COIN),
-            data: coin_data,
-            version: 1,
-        },
+        address_owned_object(
+            sender,
+            format!("0x2::coin::Coin<{}>", GAS_COIN),
+            coin_data,
+            1,
+        ),
     ));
     state.apply_changeset(&seed)?;
 
@@ -1053,20 +987,15 @@ fn apply_changeset_debits_object_backed_native_balance_without_panicking() -> Re
 
     let mut transfer = ChangeSet::new();
     transfer.transfer(sender, recipient, 8);
-    let mut remaining_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    remaining_coin_data[..UID_SIZE].copy_from_slice(&[0xA5; UID_SIZE]);
-    remaining_coin_data[UID_SIZE..].copy_from_slice(&2u64.to_le_bytes());
+    let remaining_coin_data = coin_object_data([0xA5; UID_SIZE], 2u64);
     transfer.created_objects.push((
         "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5".to_string(),
-        CreatedObject {
-            owner: sender,
-            owner_kind: address_owner(sender),
-            uid: None,
-            id: None,
-            type_: format!("0x2::coin::Coin<{}>", GAS_COIN),
-            data: remaining_coin_data,
-            version: 2,
-        },
+        address_owned_object(
+            sender,
+            format!("0x2::coin::Coin<{}>", GAS_COIN),
+            remaining_coin_data,
+            2,
+        ),
     ));
 
     state.apply_changeset(&transfer)?;
@@ -1126,15 +1055,12 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     let mut changeset = ChangeSet::new();
     changeset.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
+        address_owned_object(
             owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: "0x2::coin::CoinMetadata<0x2::test::TEST>".to_string(),
-            data: vec![1, 2, 3],
-            version: 1,
-        },
+            "0x2::coin::CoinMetadata<0x2::test::TEST>".to_string(),
+            vec![1, 2, 3],
+            1,
+        ),
     ));
     state.apply_changeset(&changeset)?;
 
@@ -1180,20 +1106,11 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
         .native_balance();
     assert_eq!(after_gas_balance, before_balance - 210);
 
-    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut mint = ChangeSet::new();
     mint.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type, coin_data, 1),
     ));
     state.apply_changeset(&mint)?;
 
@@ -1218,55 +1135,27 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
-    let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let alice_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut init = ChangeSet::new();
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_coin_data,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_coin_data, 1),
     ));
     state.apply_changeset(&init)?;
 
-    let mut alice_remaining_data = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_remaining_data[UID_SIZE..].copy_from_slice(&900u64.to_le_bytes());
-    let mut bob_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    bob_coin_data[0] = 0xbb;
-    bob_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+    let alice_remaining_data = coin_object_data([0u8; UID_SIZE], 900u64);
+    let bob_coin_data = coin_object_data_with_leading_byte(0xbb, 100u64);
 
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
     transfer.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_remaining_data,
-            version: 2,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_remaining_data, 2),
     ));
     transfer.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: bob_coin_data,
-            version: 1,
-        },
+        address_owned_object(bob, coin_type, bob_coin_data, 1),
     ));
 
     state.apply_changeset(&transfer)?;
@@ -1398,40 +1287,22 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
-    let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let alice_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut init = ChangeSet::new();
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_coin_data,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_coin_data, 1),
     ));
     state.apply_changeset(&init)?;
 
-    let mut moved_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    moved_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let moved_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
 
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
     transfer.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: moved_coin_data,
-            version: 2,
-        },
+        address_owned_object(bob, coin_type, moved_coin_data, 2),
     ));
 
     state.apply_changeset(&transfer)?;
@@ -1475,21 +1346,12 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
-    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
 
     let mut init = ChangeSet::new();
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: coin_data,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), coin_data, 1),
     ));
     state.apply_changeset(&init)?;
     assert_eq!(
@@ -1514,22 +1376,13 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     );
 
     // Then simulate an object-backed gas path touching the same coin object.
-    let mut touched_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    touched_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let touched_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut object_backed_call = ChangeSet::new();
     object_backed_call.get_or_create_owner_delta(alice).debit(3);
     object_backed_call.collect_gas(gas_collector, 3);
     object_backed_call.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: touched_coin_data,
-            version: 2,
-        },
+        address_owned_object(alice, coin_type, touched_coin_data, 2),
     ));
     state.apply_changeset(&object_backed_call)?;
 
@@ -1560,70 +1413,32 @@ fn implicit_gas_object_adjustment_does_not_apply_total_gas_to_multiple_debit_own
     set_native_supply_for_test(&mut state, base.total_supply + 2_000)?;
 
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
-    let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
-    let mut bob_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    bob_coin_data[0] = 0xbb;
-    bob_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let alice_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
+    let bob_coin_data = coin_object_data_with_leading_byte(0xbb, 1_000u64);
     let mut init = ChangeSet::new();
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_coin_data,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_coin_data, 1),
     ));
     init.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: bob_coin_data,
-            version: 1,
-        },
+        address_owned_object(bob, coin_type.clone(), bob_coin_data, 1),
     ));
     state.apply_changeset(&init)?;
 
-    let mut alice_touched = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_touched[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
-    let mut bob_touched = vec![0u8; UID_SIZE + U64_SIZE];
-    bob_touched[0] = 0xbb;
-    bob_touched[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let alice_touched = coin_object_data([0u8; UID_SIZE], 1_000u64);
+    let bob_touched = coin_object_data_with_leading_byte(0xbb, 1_000u64);
     let mut changeset = ChangeSet::new();
     changeset.get_or_create_owner_delta(alice).debit(3);
     changeset.get_or_create_owner_delta(bob).debit(4);
     changeset.collect_gas(gas_collector, 7);
     changeset.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_touched,
-            version: 2,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_touched, 2),
     ));
     changeset.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: bob_touched,
-            version: 2,
-        },
+        address_owned_object(bob, coin_type, bob_touched, 2),
     ));
 
     state.apply_changeset(&changeset)?;
@@ -1645,41 +1460,20 @@ fn explicit_gas_object_adjusts_its_owner_even_with_multiple_debit_owners() -> Re
     set_native_supply_for_test(&mut state, base.total_supply + 2_000)?;
 
     let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
-    let mut alice_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    alice_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
-    let mut bob_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    bob_coin_data[0] = 0xbb;
-    bob_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let alice_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
+    let bob_coin_data = coin_object_data_with_leading_byte(0xbb, 1_000u64);
     let mut init = ChangeSet::new();
     init.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: alice_coin_data,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), alice_coin_data, 1),
     ));
     init.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: bob_coin_data,
-            version: 1,
-        },
+        address_owned_object(bob, coin_type.clone(), bob_coin_data, 1),
     ));
     state.apply_changeset(&init)?;
 
-    let mut bob_touched = vec![0u8; UID_SIZE + U64_SIZE];
-    bob_touched[0] = 0xbb;
-    bob_touched[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let bob_touched = coin_object_data_with_leading_byte(0xbb, 1_000u64);
     let mut changeset = ChangeSet::new();
     changeset.get_or_create_owner_delta(alice).debit(7);
     changeset.get_or_create_owner_delta(bob).debit(4);
@@ -1689,15 +1483,7 @@ fn explicit_gas_object_adjusts_its_owner_even_with_multiple_debit_owners() -> Re
         .push(ObjectRef::new("0xaaaa".to_string(), Some(1), None));
     changeset.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: bob_touched,
-            version: 2,
-        },
+        address_owned_object(bob, coin_type, bob_touched, 2),
     ));
 
     state.apply_changeset(&changeset)?;
@@ -1729,19 +1515,10 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     mint.get_or_create_owner_delta(sender).debit(210);
     mint.collect_gas(gas_collector, 210);
     mint.add_treasury(sender, custom_token.to_string(), 1_000_000);
-    let mut custom_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    custom_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let custom_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     mint.created_objects.push((
         "0xc001".to_string(),
-        CreatedObject {
-            owner: sender,
-            owner_kind: address_owner(sender),
-            uid: None,
-            id: None,
-            type_: custom_coin_type,
-            data: custom_coin_data,
-            version: 1,
-        },
+        address_owned_object(sender, custom_coin_type, custom_coin_data, 1),
     ));
 
     state.apply_changeset(&mint)?;
@@ -1786,58 +1563,28 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
 
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
 
-    let mut sender_coin_before = vec![0u8; UID_SIZE + U64_SIZE];
-    sender_coin_before[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
-    sender_coin_before[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let sender_coin_before = coin_object_data([0xAA; UID_SIZE], 1_000u64);
     let mut initial = ChangeSet::new();
     initial.created_objects.push((
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: sender_coin_before,
-            version: 1,
-        },
+        address_owned_object(alice, coin_type.clone(), sender_coin_before, 1),
     ));
     state.apply_changeset(&initial)?;
 
-    let mut sender_coin_after = vec![0u8; UID_SIZE + U64_SIZE];
-    sender_coin_after[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
-    sender_coin_after[UID_SIZE..].copy_from_slice(&800u64.to_le_bytes());
+    let sender_coin_after = coin_object_data([0xAA; UID_SIZE], 800u64);
 
-    let mut recipient_coin = vec![0u8; UID_SIZE + U64_SIZE];
-    recipient_coin[..UID_SIZE].copy_from_slice(&[0xBB; UID_SIZE]);
-    recipient_coin[UID_SIZE..].copy_from_slice(&200u64.to_le_bytes());
+    let recipient_coin = coin_object_data([0xBB; UID_SIZE], 200u64);
 
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
     transfer.created_objects.push((
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: sender_coin_after,
-            version: 2,
-        },
+        address_owned_object(alice, coin_type.clone(), sender_coin_after, 2),
     ));
     transfer.created_objects.push((
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: recipient_coin,
-            version: 1,
-        },
+        address_owned_object(bob, coin_type.clone(), recipient_coin, 1),
     ));
     state.apply_changeset(&transfer)?;
 
@@ -1855,39 +1602,19 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
     assert_eq!(summary.untracked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
 
-    let mut sender_coin_second = vec![0u8; UID_SIZE + U64_SIZE];
-    sender_coin_second[..UID_SIZE].copy_from_slice(&[0xAA; UID_SIZE]);
-    sender_coin_second[UID_SIZE..].copy_from_slice(&690u64.to_le_bytes());
-    let mut recipient_coin_second = vec![0u8; UID_SIZE + U64_SIZE];
-    recipient_coin_second[..UID_SIZE].copy_from_slice(&[0xCC; UID_SIZE]);
-    recipient_coin_second[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+    let sender_coin_second = coin_object_data([0xAA; UID_SIZE], 690u64);
+    let recipient_coin_second = coin_object_data([0xCC; UID_SIZE], 100u64);
 
     let mut second_transfer = ChangeSet::new();
     second_transfer.get_or_create_owner_delta(alice).debit(10);
     second_transfer.collect_gas(bob, 10);
     second_transfer.created_objects.push((
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-        CreatedObject {
-            owner: alice,
-            owner_kind: address_owner(alice),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: sender_coin_second,
-            version: 3,
-        },
+        address_owned_object(alice, coin_type.clone(), sender_coin_second, 3),
     ));
     second_transfer.created_objects.push((
         "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
-        CreatedObject {
-            owner: bob,
-            owner_kind: address_owner(bob),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: recipient_coin_second,
-            version: 1,
-        },
+        address_owned_object(bob, coin_type.clone(), recipient_coin_second, 1),
     ));
     state.apply_changeset(&second_transfer)?;
 
@@ -1912,52 +1639,25 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
-    let mut setup_cap_data = vec![0u8; UID_SIZE + U64_SIZE];
-    setup_cap_data[UID_SIZE..].copy_from_slice(&0u64.to_le_bytes());
+    let setup_cap_data = coin_object_data([0u8; UID_SIZE], 0u64);
     let mut setup = ChangeSet::new();
     setup.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: cap_type.clone(),
-            data: setup_cap_data,
-            version: 1,
-        },
+        address_owned_object(owner, cap_type.clone(), setup_cap_data, 1),
     ));
     state.apply_changeset(&setup)?;
     assert_eq!(state.token_supply_summary(token_type)?.total_supply, 0);
 
-    let mut mint_cap_data = vec![0u8; UID_SIZE + U64_SIZE];
-    mint_cap_data[UID_SIZE..].copy_from_slice(&1_000_000u64.to_le_bytes());
+    let mint_cap_data = coin_object_data([0u8; UID_SIZE], 1_000_000u64);
     let mut mint = ChangeSet::new();
     mint.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: cap_type,
-            data: mint_cap_data,
-            version: 2,
-        },
+        address_owned_object(owner, cap_type, mint_cap_data, 2),
     ));
-    let mut minted_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    minted_coin_data[UID_SIZE..].copy_from_slice(&1_000_000u64.to_le_bytes());
+    let minted_coin_data = coin_object_data([0u8; UID_SIZE], 1_000_000u64);
     mint.created_objects.push((
         "0xbeef".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: minted_coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type, minted_coin_data, 1),
     ));
 
     state.apply_changeset(&mint)?;
@@ -1979,53 +1679,26 @@ fn custom_token_incoming_coin_adds_to_existing_wallet_balance() -> Result<()> {
     let coin_type = format!("0x2::coin::Coin<{}>", token_type);
     let mut state = StateManager::new_in_memory();
 
-    let mut cap_data = vec![0u8; UID_SIZE + U64_SIZE];
-    cap_data[UID_SIZE..].copy_from_slice(&200u64.to_le_bytes());
-    let mut first_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    first_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+    let cap_data = coin_object_data([0u8; UID_SIZE], 200u64);
+    let first_coin_data = coin_object_data([0u8; UID_SIZE], 100u64);
 
     let mut setup = ChangeSet::new();
     setup.created_objects.push((
         "0xcafe".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: cap_type,
-            data: cap_data,
-            version: 1,
-        },
+        address_owned_object(owner, cap_type, cap_data, 1),
     ));
     setup.created_objects.push((
         "0xaaaa".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type.clone(),
-            data: first_coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type.clone(), first_coin_data, 1),
     ));
     state.apply_changeset(&setup)?;
     assert_eq!(state.resolve_owner_token_balance(owner, token_type)?, 100);
 
-    let mut incoming_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    incoming_coin_data[UID_SIZE..].copy_from_slice(&50u64.to_le_bytes());
+    let incoming_coin_data = coin_object_data([0u8; UID_SIZE], 50u64);
     let mut incoming = ChangeSet::new();
     incoming.created_objects.push((
         "0xbbbb".to_string(),
-        CreatedObject {
-            owner,
-            owner_kind: address_owner(owner),
-            uid: None,
-            id: None,
-            type_: coin_type,
-            data: incoming_coin_data,
-            version: 1,
-        },
+        address_owned_object(owner, coin_type, incoming_coin_data, 1),
     ));
     state.apply_changeset(&incoming)?;
 
@@ -2063,19 +1736,10 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     mint.get_or_create_owner_delta(sender).debit(210);
     mint.collect_gas(gas_collector, 210);
     mint.add_treasury(sender, custom_token.to_string(), 1_000_000);
-    let mut custom_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
-    custom_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+    let custom_coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     mint.created_objects.push((
         "0xc002".to_string(),
-        CreatedObject {
-            owner: sender,
-            owner_kind: address_owner(sender),
-            uid: None,
-            id: None,
-            type_: custom_coin_type,
-            data: custom_coin_data,
-            version: 1,
-        },
+        address_owned_object(sender, custom_coin_type, custom_coin_data, 1),
     ));
 
     state.apply_changeset(&mint)?;

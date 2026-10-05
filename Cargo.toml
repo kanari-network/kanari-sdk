@@ -9,9 +9,10 @@ resolver = "2"                   # Use the version 2 feature resolver for more c
 # This can be useful for excluding third-party code or components 
 # that are not directly part of the workspace's build process.
 exclude = [
-    "third_party/move",           # Exclude the 'third_party/move' directory from workspace builds.
-    "crates/kanari-crypto/fuzz",  # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
-    "crates/mysticeti",           # Nested Mysticeti workspace used through explicit path dependencies.
+    "third_party/move",                                   # Exclude the 'third_party/move' directory from workspace builds.
+    "crates/kanari-crypto/fuzz",                          # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "move-execution/v1/kanari-move-runtime-v1/fuzz",      # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "crates/mysticeti",                                   # Nested Mysticeti workspace used through explicit path dependencies.
 ]
 
 
@@ -214,6 +215,7 @@ rand_core = "0.10.1"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.11.0"                                                                 # Property-based testing
 arbitrary = { version = "1.4.2", features = ["derive"] }                            # Fuzzing support
+libfuzzer-sys = { version = "0.4.13", features = ["fuzzing"] }                      # Fuzzing support
 
 # ============================================================================
 # Authentication & 2FA

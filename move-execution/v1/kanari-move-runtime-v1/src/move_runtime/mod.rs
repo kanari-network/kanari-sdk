@@ -19,12 +19,14 @@ use crate::state::default_owner_kind_for_type;
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
-use kanari_system_natives::dynamic_field::DynamicFieldsExt;
+use kanari_system_natives::dynamic_field::{DynamicFieldOp, DynamicFieldsExt};
+use kanari_system_natives::event::CapturedEvent;
 use kanari_system_natives::event::EventsExt;
 use kanari_system_natives::object::{
-    BorrowedObjectsExt, DeletedObjectsExt, LoadedObjectsExt, SavedObjectsExt,
+    BorrowedObject, BorrowedObjectsExt, DeletedObject, DeletedObjectsExt, LoadedObjectsExt,
+    SavedObject, SavedObjectsExt,
 };
-use kanari_system_natives::transfer_natives::TransferredObjectsExt;
+use kanari_system_natives::transfer_natives::{TransferredObject, TransferredObjectsExt};
 use kanari_types::clock::{Clock, ClockModule};
 
 use kanari_types::error::KanariUnwrapExt;
@@ -98,6 +100,145 @@ type LoadedMutableObject = (
 struct ObjectParamBindingRequirement {
     param_index: usize,
     mutable: bool,
+}
+
+/// Everything a finished Move session left behind in its native extensions.
+///
+/// Draining these once, into a named struct, keeps every execution path
+/// (publish `init`, entry call, ...) from re-deriving the same six-field tuple
+/// inline and from silently drifting when a new extension is recorded.
+struct SessionNativeOutputs {
+    transferred: Vec<TransferredObject>,
+    events: Vec<CapturedEvent>,
+    saved: Vec<SavedObject>,
+    deleted: Vec<DeletedObject>,
+    dynamic_fields: Vec<DynamicFieldOp>,
+    borrowed: Vec<BorrowedObject>,
+}
+
+impl SessionNativeOutputs {
+    fn drain(exts: &mut NativeContextExtensions<'_>) -> Self {
+        Self {
+            transferred: exts.get_mut::<TransferredObjectsExt>().take_all(),
+            events: exts.get_mut::<EventsExt>().take_all(),
+            saved: exts.get_mut::<SavedObjectsExt>().take_all(),
+            deleted: exts.get_mut::<DeletedObjectsExt>().take_all(),
+            dynamic_fields: exts.get_mut::<DynamicFieldsExt>().take_all(),
+            borrowed: exts.get_mut::<BorrowedObjectsExt>().take_all(),
+        }
+    }
+
+    /// Record events, deletions and dynamic-field ops into the changeset.
+    ///
+    /// These three carry no ownership or version resolution, so they translate
+    /// one-to-one and are safe to apply in any order.
+    fn apply_simple_effects(
+        cs: &mut ChangeSet,
+        events: Vec<CapturedEvent>,
+        deleted: Vec<DeletedObject>,
+        dynamic_fields: Vec<DynamicFieldOp>,
+    ) {
+        for ev in events {
+            cs.add_event(Event {
+                key: ev.key,
+                sequence_number: ev.sequence_number,
+                type_tag: ev.type_tag,
+                event_data: ev.event_data,
+            });
+        }
+        for deleted in deleted {
+            cs.add_deleted_object(deleted.object_id);
+        }
+        for op in dynamic_fields {
+            match op {
+                DynamicFieldOp::Add {
+                    object_id,
+                    name_bytes,
+                    value_bytes,
+                } => {
+                    cs.added_dynamic_fields
+                        .push((object_id, name_bytes, value_bytes));
+                }
+                DynamicFieldOp::Remove {
+                    object_id,
+                    name_bytes,
+                } => {
+                    cs.removed_dynamic_fields.push((object_id, name_bytes));
+                }
+            }
+        }
+    }
+}
+
+/// Reads type tags and abilities for a loaded function's parameters.
+///
+/// Entry-function execution and view calls both need the same three questions
+/// per parameter ("what is its type tag?", "is it a `key` struct?", "does it bind
+/// a declared object input?"). Bundling them behind one value keeps those
+/// answers defined once instead of re-derived as closures at every call site.
+struct ParamProbe<'s, 'r, 'l> {
+    session: &'s Session<'r, 'l, KanariMoveResolver>,
+}
+
+impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
+    fn new(session: &'s Session<'r, 'l, KanariMoveResolver>) -> Self {
+        Self { session }
+    }
+
+    /// Type tag for a parameter, unwrapping a reference layer when the reference
+    /// itself carries no tag.
+    fn type_tag_for_param(&self, param_type: &RuntimeType) -> Option<TypeTag> {
+        self.session
+            .get_type_tag(param_type)
+            .ok()
+            .or_else(|| match param_type {
+                RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                    self.session.get_type_tag(inner).ok()
+                }
+                _ => None,
+            })
+    }
+
+    /// True when the parameter is a struct carrying the `key` ability.
+    fn is_key_struct_param(&self, param_type: &RuntimeType) -> bool {
+        MoveRuntime::is_runtime_struct_like(param_type)
+            && self
+                .session
+                .get_type_abilities(param_type)
+                .map(|abilities| abilities.has_key())
+                .unwrap_or(false)
+    }
+
+    /// Declared-object binding requirements for a function signature, in
+    /// parameter order. `TxContext` is supplied by the runtime, never bound.
+    fn binding_requirements(
+        &self,
+        parameters: &[RuntimeType],
+    ) -> Vec<ObjectParamBindingRequirement> {
+        parameters
+            .iter()
+            .enumerate()
+            .filter_map(|(param_index, param_type)| {
+                let mutable = MoveRuntime::object_param_mutability(param_type, |t| {
+                    self.is_key_struct_param(t)
+                })?;
+                if self.is_tx_context_param(param_type) {
+                    return None;
+                }
+                Some(ObjectParamBindingRequirement {
+                    param_index,
+                    mutable,
+                })
+            })
+            .collect()
+    }
+
+    fn is_tx_context_param(&self, param_type: &RuntimeType) -> bool {
+        matches!(
+            self.type_tag_for_param(param_type),
+            Some(TypeTag::Struct(struct_tag)) if MoveRuntime::is_tx_context_struct(&struct_tag)
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -236,16 +377,6 @@ impl MoveRuntime {
             );
         }
         Ok(stored_obj)
-    }
-
-    fn is_tx_context_param<F>(param_type: &RuntimeType, type_tag_for_param: F) -> bool
-    where
-        F: Fn(&RuntimeType) -> Option<TypeTag>,
-    {
-        matches!(
-            type_tag_for_param(param_type),
-            Some(TypeTag::Struct(struct_tag)) if Self::is_tx_context_struct(&struct_tag)
-        )
     }
 
     #[cfg(test)]
@@ -1096,74 +1227,29 @@ impl MoveRuntime {
             .execute_function_bypass_visibility(module_id, ident, vec![], final_args, metered_gas)
             .require("Module init execution failed")?;
 
-        let exts = session.get_native_extensions();
-        let transferred = exts.get_mut::<TransferredObjectsExt>().take_all();
-        let captured_events = exts.get_mut::<EventsExt>().take_all();
-        let saved_objects = exts.get_mut::<SavedObjectsExt>().take_all();
-        let deleted_objects = exts.get_mut::<DeletedObjectsExt>().take_all();
-        let dynamic_fields_ops = exts.get_mut::<DynamicFieldsExt>().take_all();
-        let borrowed_objects = exts.get_mut::<BorrowedObjectsExt>().take_all();
-        let _ = exts;
+        let SessionNativeOutputs {
+            transferred,
+            events,
+            saved,
+            deleted,
+            dynamic_fields,
+            borrowed,
+        } = SessionNativeOutputs::drain(session.get_native_extensions());
 
         self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
-        for ev in captured_events.into_iter() {
-            cs.add_event(Event {
-                key: ev.key,
-                sequence_number: ev.sequence_number,
-                type_tag: ev.type_tag,
-                event_data: ev.event_data,
-            });
-        }
+        SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);
+
         let empty_mutables: Vec<LoadedMutableObject> = Vec::new();
-        for saved in saved_objects {
-            let (owner, owner_kind, version) =
-                self.resolve_saved_owner_metadata(&empty_mutables, &saved.object_id)?;
-            self.upsert_created_object(
-                cs,
-                owner,
-                owner_kind,
-                &saved.object_id,
-                &saved.object_type,
-                saved.data.clone(),
-                version,
-                "init-saved",
-            );
-        }
-        for deleted in deleted_objects {
-            cs.add_deleted_object(deleted.object_id);
-        }
-        for op in dynamic_fields_ops {
-            match op {
-                kanari_system_natives::dynamic_field::DynamicFieldOp::Add {
-                    object_id,
-                    name_bytes,
-                    value_bytes,
-                } => {
-                    cs.added_dynamic_fields
-                        .push((object_id, name_bytes, value_bytes));
-                }
-                kanari_system_natives::dynamic_field::DynamicFieldOp::Remove {
-                    object_id,
-                    name_bytes,
-                } => {
-                    cs.removed_dynamic_fields.push((object_id, name_bytes));
-                }
-            }
-        }
-        for borrowed in borrowed_objects {
-            let (owner, owner_kind, version) =
-                self.resolve_saved_owner_metadata(&empty_mutables, &borrowed.object_id)?;
-            self.upsert_created_object(
-                cs,
-                owner,
-                owner_kind,
-                &borrowed.object_id,
-                &borrowed.object_type,
-                borrowed.data.clone(),
-                version,
-                "init-borrowed",
-            );
-        }
+        let mut processed_ids = HashSet::new();
+        self.upsert_saved_and_borrowed_objects(
+            cs,
+            &empty_mutables,
+            saved,
+            borrowed,
+            "init-saved",
+            "init-borrowed",
+            &mut processed_ids,
+        )?;
         Ok(())
     }
 
@@ -1409,6 +1495,77 @@ impl MoveRuntime {
                 source, object_id, token_type, amount
             );
         }
+    }
+
+    /// Resolve ownership for one `save`/`borrow_global_mut` record and upsert it.
+    fn upsert_native_written_object(
+        &self,
+        cs: &mut ChangeSet,
+        loaded_mutable_objects: &[LoadedMutableObject],
+        object_id: &str,
+        object_type: &str,
+        data: Vec<u8>,
+        source: &str,
+    ) -> Result<()> {
+        let (owner, owner_kind, version) =
+            self.resolve_saved_owner_metadata(loaded_mutable_objects, object_id)?;
+        self.upsert_created_object(
+            cs,
+            owner,
+            owner_kind,
+            object_id,
+            object_type,
+            data,
+            version,
+            source,
+        );
+        Ok(())
+    }
+
+    /// Upsert every object recorded by `save` and `borrow_global_mut`.
+    ///
+    /// Both extensions carry the same shape (id, type, data) and need the same
+    /// ownership/version resolution, so the two loops live side by side here.
+    /// `processed_ids` is threaded through so a caller can skip objects already
+    /// accounted for by a mutable-reference writeback, and so the ids handled
+    /// here are excluded from later passes; pass an empty set to keep all.
+    fn upsert_saved_and_borrowed_objects(
+        &self,
+        cs: &mut ChangeSet,
+        loaded_mutable_objects: &[LoadedMutableObject],
+        saved: Vec<SavedObject>,
+        borrowed: Vec<BorrowedObject>,
+        saved_source: &str,
+        borrowed_source: &str,
+        processed_ids: &mut HashSet<String>,
+    ) -> Result<()> {
+        for saved in saved {
+            if !processed_ids.insert(saved.object_id.clone()) {
+                continue;
+            }
+            self.upsert_native_written_object(
+                cs,
+                loaded_mutable_objects,
+                &saved.object_id,
+                &saved.object_type,
+                saved.data,
+                saved_source,
+            )?;
+        }
+        for borrowed in borrowed {
+            if !processed_ids.insert(borrowed.object_id.clone()) {
+                continue;
+            }
+            self.upsert_native_written_object(
+                cs,
+                loaded_mutable_objects,
+                &borrowed.object_id,
+                &borrowed.object_type,
+                borrowed.data,
+                borrowed_source,
+            )?;
+        }
+        Ok(())
     }
 
     fn resolve_saved_owner_metadata(
@@ -1830,40 +1987,8 @@ impl MoveRuntime {
         let mut loaded_mutable_objects: Vec<LoadedMutableObject> = Vec::new();
 
         if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
-            let type_tag_for_param = |param_type: &RuntimeType| {
-                session
-                    .get_type_tag(param_type)
-                    .ok()
-                    .or_else(|| match param_type {
-                        RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
-                            session.get_type_tag(inner).ok()
-                        }
-                        _ => None,
-                    })
-            };
-            let is_key_struct_param = |param_type: &RuntimeType| {
-                Self::is_runtime_struct_like(param_type)
-                    && session
-                        .get_type_abilities(param_type)
-                        .map(|abilities| abilities.has_key())
-                        .unwrap_or(false)
-            };
-
-            let binding_requirements = func
-                .parameters
-                .iter()
-                .enumerate()
-                .filter_map(|(i, param_type)| {
-                    let mutable = Self::object_param_mutability(param_type, is_key_struct_param)?;
-                    if Self::is_tx_context_param(param_type, type_tag_for_param) {
-                        return None;
-                    }
-                    Some(ObjectParamBindingRequirement {
-                        param_index: i,
-                        mutable,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let probe = ParamProbe::new(&session);
+            let binding_requirements = probe.binding_requirements(&func.parameters);
 
             // System functions (bypass_entry_check) bind object references via the
             // plain 32-byte id argument path below rather than via declared
@@ -1873,10 +1998,14 @@ impl MoveRuntime {
             }
 
             for (i, param_type) in func.parameters.iter().enumerate() {
+                let object_mutability = MoveRuntime::object_param_mutability(param_type, |t| {
+                    probe.is_key_struct_param(t)
+                });
+
                 if i >= final_args.len() {
                     let needs_declared_object_input = !bypass_entry_check
-                        && Self::object_param_mutability(param_type, is_key_struct_param).is_some()
-                        && !Self::is_tx_context_param(param_type, type_tag_for_param);
+                        && object_mutability.is_some()
+                        && !probe.is_tx_context_param(param_type);
                     if needs_declared_object_input {
                         final_args.resize_with(i + 1, Vec::new);
                     } else {
@@ -1887,7 +2016,7 @@ impl MoveRuntime {
                 let mut bound_from_explicit_input = false;
 
                 if final_args[i].is_empty()
-                    && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
+                    && let Some(TypeTag::Struct(struct_tag)) = probe.type_tag_for_param(param_type)
                     && struct_tag.address == *module_id.address()
                     && struct_tag.module.as_str() == module_id.name().as_str()
                     && struct_tag.name.as_str() == module_id.name().as_str().to_ascii_uppercase()
@@ -1897,8 +2026,8 @@ impl MoveRuntime {
                     final_args[i] = otw_bytes;
                 }
 
-                if Self::object_param_mutability(param_type, is_key_struct_param).is_some()
-                    && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
+                if object_mutability.is_some()
+                    && let Some(TypeTag::Struct(_)) = probe.type_tag_for_param(param_type)
                     && let Some(explicit_input) = explicit_object_bindings.next()
                 {
                     let explicit_addr =
@@ -1916,8 +2045,8 @@ impl MoveRuntime {
                 let is_potential_id = final_args[i].len() == 32;
 
                 if is_potential_id
-                    && Self::object_param_mutability(param_type, is_key_struct_param).is_some()
-                    && !Self::is_tx_context_param(param_type, type_tag_for_param)
+                    && object_mutability.is_some()
+                    && !probe.is_tx_context_param(param_type)
                 {
                     let Ok(object_addr) = AccountAddress::from_bytes(final_args[i].as_slice())
                     else {
@@ -1976,7 +2105,7 @@ impl MoveRuntime {
             }
             if func.parameters.len() == final_args.len() + 1
                 && let Some(last_param_type) = func.parameters.last()
-                && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type)
+                && let Some(TypeTag::Struct(struct_tag)) = probe.type_tag_for_param(last_param_type)
                 && Self::is_tx_context_struct(&struct_tag)
             {
                 final_args.push(tx_context_bytes);
@@ -2019,24 +2148,14 @@ impl MoveRuntime {
                     .map(|(bytes, _)| bytes.clone())
                     .collect();
                 // Extract data from native extensions before finishing the session
-                let (
+                let SessionNativeOutputs {
                     transferred,
-                    captured_events,
-                    saved_objects,
-                    deleted_objects,
-                    dynamic_fields_ops,
-                    borrowed_objects,
-                ) = {
-                    let exts_after = session.get_native_extensions();
-                    (
-                        exts_after.get_mut::<TransferredObjectsExt>().take_all(),
-                        exts_after.get_mut::<EventsExt>().take_all(),
-                        exts_after.get_mut::<SavedObjectsExt>().take_all(),
-                        exts_after.get_mut::<DeletedObjectsExt>().take_all(),
-                        exts_after.get_mut::<DynamicFieldsExt>().take_all(),
-                        exts_after.get_mut::<BorrowedObjectsExt>().take_all(),
-                    )
-                };
+                    events: native_events,
+                    saved,
+                    deleted: native_deleted,
+                    dynamic_fields: native_dynamic_fields,
+                    borrowed,
+                } = SessionNativeOutputs::drain(session.get_native_extensions());
 
                 let (res, _) = session.finish();
                 let (move_changeset, events) = res.require("exec error")?;
@@ -2052,7 +2171,7 @@ impl MoveRuntime {
                 self.parse_move_changeset(&move_changeset, &mut cs);
                 self.parse_move_events(&events, &mut cs);
 
-                let mut processed_ids = std::collections::HashSet::new();
+                let mut processed_ids = HashSet::new();
 
                 for (idx, data, _) in return_values.mutable_reference_outputs {
                     if let Some((_, id, owner, owner_kind, type_name, version)) =
@@ -2074,50 +2193,15 @@ impl MoveRuntime {
                     }
                 }
 
-                for saved in saved_objects {
-                    if processed_ids.contains(&saved.object_id) {
-                        continue;
-                    }
-
-                    let (owner, owner_kind, version) = self
-                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &saved.object_id)?;
-
-                    self.upsert_created_object(
-                        &mut cs,
-                        owner,
-                        owner_kind,
-                        &saved.object_id,
-                        &saved.object_type,
-                        saved.data.clone(),
-                        version,
-                        "saved",
-                    );
-                    processed_ids.insert(saved.object_id);
-                }
-
-                // Record objects that were updated through `borrow_global_mut`.
-                for borrowed in borrowed_objects {
-                    if processed_ids.contains(&borrowed.object_id) {
-                        continue;
-                    }
-
-                    let (owner, owner_kind, version) = self.resolve_saved_owner_metadata(
-                        &loaded_mutable_objects,
-                        &borrowed.object_id,
-                    )?;
-
-                    self.upsert_created_object(
-                        &mut cs,
-                        owner,
-                        owner_kind,
-                        &borrowed.object_id,
-                        &borrowed.object_type,
-                        borrowed.data.clone(),
-                        version,
-                        "borrowed_mut",
-                    );
-                    processed_ids.insert(borrowed.object_id);
-                }
+                self.upsert_saved_and_borrowed_objects(
+                    &mut cs,
+                    &loaded_mutable_objects,
+                    saved,
+                    borrowed,
+                    "saved",
+                    "borrowed_mut",
+                    &mut processed_ids,
+                )?;
 
                 self.add_transferred_objects_to_changeset(
                     &mut cs,
@@ -2126,37 +2210,12 @@ impl MoveRuntime {
                     state_overlay.as_ref(),
                 )?;
 
-                for ev in captured_events.into_iter() {
-                    cs.add_event(Event {
-                        key: ev.key,
-                        sequence_number: ev.sequence_number,
-                        type_tag: ev.type_tag,
-                        event_data: ev.event_data,
-                    });
-                }
-
-                for deleted_obj in deleted_objects {
-                    cs.add_deleted_object(deleted_obj.object_id);
-                }
-
-                for op in dynamic_fields_ops {
-                    match op {
-                        kanari_system_natives::dynamic_field::DynamicFieldOp::Add {
-                            object_id,
-                            name_bytes,
-                            value_bytes,
-                        } => {
-                            cs.added_dynamic_fields
-                                .push((object_id, name_bytes, value_bytes));
-                        }
-                        kanari_system_natives::dynamic_field::DynamicFieldOp::Remove {
-                            object_id,
-                            name_bytes,
-                        } => {
-                            cs.removed_dynamic_fields.push((object_id, name_bytes));
-                        }
-                    }
-                }
+                SessionNativeOutputs::apply_simple_effects(
+                    &mut cs,
+                    native_events,
+                    native_deleted,
+                    native_dynamic_fields,
+                );
 
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1;
@@ -2283,46 +2342,17 @@ impl MoveRuntime {
         let mut final_args = args.to_vec();
 
         if let Ok(func) = session.load_function(&module_id, ident, &ty_args_loaded) {
-            let type_tag_for_param = |param_type: &RuntimeType| {
-                session
-                    .get_type_tag(param_type)
-                    .ok()
-                    .or_else(|| match param_type {
-                        RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
-                            session.get_type_tag(inner).ok()
-                        }
-                        _ => None,
-                    })
-            };
-            let is_key_struct_param = |param_type: &RuntimeType| {
-                Self::is_runtime_struct_like(param_type)
-                    && session
-                        .get_type_abilities(param_type)
-                        .map(|abilities| abilities.has_key())
-                        .unwrap_or(false)
-            };
-
-            let binding_requirements = func
-                .parameters
-                .iter()
-                .enumerate()
-                .filter_map(|(i, param_type)| {
-                    let mutable = Self::object_param_mutability(param_type, is_key_struct_param)?;
-                    if Self::is_tx_context_param(param_type, type_tag_for_param) {
-                        return None;
-                    }
-                    Some(ObjectParamBindingRequirement {
-                        param_index: i,
-                        mutable,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let probe = ParamProbe::new(&session);
+            let binding_requirements = probe.binding_requirements(&func.parameters);
             Self::validate_object_input_bindings(object_inputs, &binding_requirements, true)?;
 
             let mut explicit_object_bindings = object_inputs.iter();
             for (i, param_type) in func.parameters.iter().enumerate() {
-                if Self::object_param_mutability(param_type, is_key_struct_param).is_some()
-                    && !Self::is_tx_context_param(param_type, type_tag_for_param)
+                if MoveRuntime::object_param_mutability(param_type, |t| {
+                    probe.is_key_struct_param(t)
+                })
+                .is_some()
+                    && !probe.is_tx_context_param(param_type)
                     && let Some(explicit_input) = explicit_object_bindings.next()
                 {
                     if final_args.len() <= i {

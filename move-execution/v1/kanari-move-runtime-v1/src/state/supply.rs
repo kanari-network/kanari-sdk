@@ -1008,8 +1008,10 @@ impl StateManager {
         self.load_token_metadata_field(b"metadata_icon_url:", token_type)
     }
 
-    /// Validate that all supply invariants hold across persisted and cached state.
-    pub fn validate_supply_invariants(&self) -> Result<()> {
+    /// Reject a cached native total supply that disagrees with the persisted
+    /// treasury. Both the full and the fast invariant checks open with this,
+    /// so the canonical total is established once.
+    fn validate_persisted_native_supply(&self) -> Result<()> {
         let supply_key = Self::supply_key(GAS_COIN);
         let persisted_native_supply =
             if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
@@ -1026,6 +1028,12 @@ impl StateManager {
                 persisted
             );
         }
+        Ok(())
+    }
+
+    /// Validate that all supply invariants hold across persisted and cached state.
+    pub fn validate_supply_invariants(&self) -> Result<()> {
+        self.validate_persisted_native_supply()?;
 
         let native_supply = self.token_supply_summary(GAS_COIN)?;
         // Wallet-visible balance caches only reflect top-level wallet-owned
@@ -1070,22 +1078,7 @@ impl StateManager {
     /// reconciled. Full checkpoint/RPC validation still derives balances from
     /// canonical owner/object indexes via `validate_supply_invariants`.
     pub fn validate_cached_supply_invariants(&self) -> Result<()> {
-        let supply_key = Self::supply_key(GAS_COIN);
-        let persisted_native_supply =
-            if let Some(cap) = self.load_internal::<TreasuryCap>(&supply_key)? {
-                Some(cap.total_supply)
-            } else {
-                self.load_internal::<u64>(&supply_key)?
-            };
-        if let Some(persisted) = persisted_native_supply
-            && persisted != self.total_supply
-        {
-            anyhow::bail!(
-                "native total supply mismatch: state.total_supply={} persisted_treasury={}",
-                self.total_supply,
-                persisted
-            );
-        }
+        self.validate_persisted_native_supply()?;
 
         let wallet_visible_supply = self
             .global_token_supplies

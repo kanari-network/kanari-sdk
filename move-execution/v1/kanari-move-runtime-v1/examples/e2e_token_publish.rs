@@ -2,30 +2,44 @@
 #![allow(clippy::collapsible_if)]
 // Example CLI: publish a compiled Move module (james.mv), call an entry function,
 // and apply the resulting ChangeSets to `StateManager` to demonstrate E2E flow.
-use kanari_move_runtime_v1::changeset::ChangeSet;
-use kanari_move_runtime_v1::move_runtime::MoveRuntime;
+use kanari_move_runtime_v1::move_runtime::EntryFunctionObjectContext;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::coin::CoinModule;
-use kanari_types::tx_context::TxContextRecord;
-use move_binary_format::CompiledModule;
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef};
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use std::env;
-use std::path::Path;
-use std::path::PathBuf;
 
-fn find_james_module() -> Option<std::path::PathBuf> {
-    let candidates = [
-        "example_move/james/build/james/bytecode_modules/james.mv",
-        "../example_move/james/build/james/bytecode_modules/james.mv",
-        "../../example_move/james/build/james/bytecode_modules/james.mv",
-    ];
-    for p in candidates.iter() {
-        let path = Path::new(p);
-        if path.exists() {
-            return Some(path.to_path_buf());
-        }
+mod support;
+use support::{cleanup_db_dir, cli_arg, locate_module, publish, read_module, runtime};
+
+const MODULE_FILE: &str = "james.mv";
+
+/// Object-typed entry parameters are bound through declared object inputs
+/// (the arg slot itself stays an empty placeholder).
+fn mutable_object_input(object_id: &str, owner: &MoveAccountAddress) -> ObjectInput {
+    ObjectInput {
+        object_ref: ObjectRef::new(object_id.to_string(), None, None),
+        owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+        mutable: true,
     }
-    None
+}
+
+fn entry_context(
+    object_inputs: Vec<ObjectInput>,
+    sender: MoveAccountAddress,
+    call_tag: u8,
+) -> EntryFunctionObjectContext {
+    EntryFunctionObjectContext {
+        object_inputs,
+        sender: Some(sender),
+        gas_info: None,
+        timestamp: None,
+        // Unique per call: object ids are derived from (tx_hash, counter), so
+        // reusing a hash across transactions would collide object ids.
+        tx_hash: Some(vec![call_tag; 32]),
+        persist_runtime_state: true,
+        state_overlay: None,
+    }
 }
 
 fn main() {
@@ -33,47 +47,29 @@ fn main() {
 
     // Simple CLI: [module_path] [function_name] [mint_amount] [recipient_hex]
     let args: Vec<String> = env::args().collect();
-    let mut path = match find_james_module() {
-        Some(p) => p,
-        None => PathBuf::new(),
-    };
 
-    if args.len() > 1 {
-        let p = PathBuf::from(&args[1]);
-        if p.exists() {
-            path = p;
+    let path = match locate_module(MODULE_FILE, cli_arg(&args, 1)) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("{e:#}");
+            return;
         }
-    }
-
-    if path.as_os_str().is_empty() {
-        eprintln!(
-            "Compiled james.mv not found in expected paths; build James first or pass path as first arg."
-        );
-        return;
-    }
+    };
 
     // Initialize runtime with Kanari natives and preload system modules (stdlib + kanari-system).
     // This ensures modules like `0x1::string` are available for linking/verifier.
-    let runtime = match MoveRuntime::new_with_kanari_natives() {
+    let runtime = match runtime() {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Failed to init MoveRuntime: {:?}", e);
+            eprintln!("{e:#}");
             return;
         }
     };
 
-    let bytes = match std::fs::read(&path) {
-        Ok(b) => b,
+    let (compiled, bytes) = match read_module(&path) {
+        Ok(parsed) => parsed,
         Err(e) => {
-            eprintln!("Failed to read {}: {}", path.display(), e);
-            return;
-        }
-    };
-
-    let compiled = match CompiledModule::deserialize_with_defaults(&bytes) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to deserialize module bytes: {:?}", e);
+            eprintln!("{e:#}");
             return;
         }
     };
@@ -86,10 +82,10 @@ fn main() {
     let publish_sender = *module_id.address();
 
     // Publish module (no gas accounting here) as the module address
-    let publish_cs = match runtime.publish_module(bytes.clone(), publish_sender, None, None) {
+    let publish_cs = match publish(&runtime, bytes, publish_sender) {
         Ok(cs) => cs,
         Err(e) => {
-            eprintln!("publish_module failed: {:?}", e);
+            eprintln!("{e:#}");
             return;
         }
     };
@@ -101,58 +97,9 @@ fn main() {
         publish_cs.token_balance_sets.len()
     );
 
-    // Determine function to call (default "setup") from CLI.
-    let mut function_name = "setup".to_string();
-    if args.len() > 2 {
-        function_name = args[2].clone();
-    }
-
-    println!(
-        "Attempting to call entry function {}::{}",
-        module_id, function_name
-    );
-
-    // Build a serialized TxContext to pass as the last arg for entry functions
-    let tx_hash = vec![0u8; 32];
-    let epoch = 0u64;
-    let epoch_timestamp_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let ids_created = 0u64;
-    let tx_ctx = TxContextRecord::from_address(
-        publish_sender,
-        tx_hash.clone(),
-        epoch,
-        epoch_timestamp_ms,
-        ids_created,
-    );
-    let tx_context_bytes = bcs::to_bytes(&tx_ctx).expect("serialize tx context");
-
-    // Call setup (or specified function) using module address as the sender
-    let call_cs = match runtime.execute_entry_function(
-        &module_id,
-        &function_name,
-        vec![],
-        vec![tx_context_bytes.clone()],
-        Some(publish_sender),
-        None,
-        None,
-    ) {
-        Ok(cs) => cs,
-        Err(e) => {
-            eprintln!("execute_entry_function failed: {:?}", e);
-            // proceed — module publish already persisted
-            ChangeSet::new()
-        }
-    };
-
-    println!(
-        "Call ChangeSet produced: accounts={}, treasuries={}, token_sets={}",
-        call_cs.owner_deltas.len(),
-        call_cs.treasuries.len(),
-        call_cs.token_balance_sets.len()
-    );
+    // The runtime runs the module's `init` automatically during publish,
+    // so there is no separate setup call anymore.
+    println!("Module init ran automatically during publish (runtime-managed).");
 
     // Verbose: print created objects, treasuries, token sets from publish and call
     println!("Publish created objects:");
@@ -165,24 +112,12 @@ fn main() {
         publish_cs.token_balance_sets
     );
 
-    println!("Call created objects:");
-    for (id, obj) in call_cs.created_objects.iter() {
-        println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
-    }
-    println!("Call treasuries: {:?}", call_cs.treasuries);
-    println!("Call token_balance_sets: {:?}", call_cs.token_balance_sets);
-
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
     let mut state = StateManager::new_in_memory();
     if !publish_cs.is_empty() {
         state
             .apply_changeset(&publish_cs)
             .expect("apply publish changeset");
-    }
-    if !call_cs.is_empty() {
-        state
-            .apply_changeset(&call_cs)
-            .expect("apply call changeset");
     }
 
     // StateManager in DB mode doesn't expose public maps anymore.
@@ -213,21 +148,9 @@ fn main() {
             hex::encode(&ev.event_data)
         );
     }
-    println!("Call events:");
-    for ev in call_cs.events.iter() {
-        println!(
-            " event type={} data(hex)={}",
-            ev.type_tag,
-            hex::encode(&ev.event_data)
-        );
-    }
 
     // Try robust treasury detection by inspecting both `type_` and decoded native data
-    for (id, obj) in publish_cs
-        .created_objects
-        .iter()
-        .chain(call_cs.created_objects.iter())
-    {
+    for (id, obj) in publish_cs.created_objects.iter() {
         // Print raw data hex for inspection
         println!(
             "Created object data hex (first 256): {}",
@@ -275,11 +198,7 @@ fn main() {
         // It demonstrates how StateManager will record supplies and balances.
         // Try to extract the token type from the TreasuryCap object's type string.
         let mut token_type: Option<String> = None;
-        for (id, obj) in publish_cs
-            .created_objects
-            .iter()
-            .chain(call_cs.created_objects.iter())
-        {
+        for (id, obj) in publish_cs.created_objects.iter() {
             if id == &tid && obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT) {
                 if let Some(start) = obj.type_.find('<') {
                     if let Some(end) = obj.type_.rfind('>') {
@@ -306,24 +225,36 @@ fn main() {
             // 2. Amount (u64 BCS)
             // 3. Recipient (Address BCS)
 
-            let clean_tid = tid.strip_prefix("0x").unwrap_or(&tid);
-            let t_arg = hex::decode(clean_tid).expect("decode treasury id");
-
             let amount_arg = bcs::to_bytes(&mint_amount).expect("serialize amount");
             let recipient_arg = bcs::to_bytes(&recipient_move).expect("serialize recipient");
 
-            // Mint args
-            let mint_args = vec![t_arg.clone(), amount_arg, recipient_arg];
+            // The mint borrows the TreasuryCap; make sure the runtime can
+            // resolve it from its own object storage first.
+            if let Some((_, cap_obj)) = publish_cs.created_objects.iter().find(|(id, _)| id == &tid)
+            {
+                runtime
+                    .preload_object_snapshot(
+                        &tid,
+                        cap_obj.owner,
+                        &cap_obj.type_,
+                        cap_obj.data.clone(),
+                        cap_obj.version,
+                    )
+                    .unwrap_or_else(|e| eprintln!("Failed to preload TreasuryCap: {:?}", e));
+            }
+
+            // Object-typed parameters (TreasuryCap) are bound through
+            // object_inputs; their arg slots stay empty placeholders.
+            let mint_args = vec![Vec::new(), amount_arg, recipient_arg];
+            let mint_inputs = vec![mutable_object_input(&tid, &publish_sender)];
 
             // Execute mint
-            let mint_result = runtime.execute_entry_function(
+            let mint_result = runtime.execute_entry_function_with_object_context_and_persistence(
                 &module_id,
                 "mint",
                 vec![],
                 mint_args,
-                Some(publish_sender),
-                None,
-                None, // Create new TxContext
+                entry_context(mint_inputs, publish_sender, 1),
             );
 
             match mint_result {
@@ -371,6 +302,22 @@ fn main() {
                     }
 
                     if !coin_id.is_empty() {
+                        // The minted Coin must be resolvable by the runtime
+                        // before the transfer/burn demos borrow it.
+                        if let Some((_, coin_obj)) =
+                            m_cs.created_objects.iter().find(|(id, _)| id == &coin_id)
+                        {
+                            runtime
+                                .preload_object_snapshot(
+                                    &coin_id,
+                                    coin_obj.owner,
+                                    &coin_obj.type_,
+                                    coin_obj.data.clone(),
+                                    coin_obj.version,
+                                )
+                                .unwrap_or_else(|e| eprintln!("Failed to preload Coin: {:?}", e));
+                        }
+
                         // --- TRANSFER DEMO ---
                         let transfer_amount = 100_000u64;
                         let receiver_addr_str = "0x1234567890abcdef1234567890abcdef12345678";
@@ -382,24 +329,22 @@ fn main() {
                             transfer_amount, receiver_addr_str
                         );
 
-                        let clean_cid = coin_id.strip_prefix("0x").unwrap_or(&coin_id);
-                        let c_arg = hex::decode(clean_cid).expect("decode coin id");
                         let t_amt_arg =
                             bcs::to_bytes(&transfer_amount).expect("serialize transfer amount");
                         let receiver_arg = bcs::to_bytes(&receiver).expect("serialize receiver");
 
-                        // transfer(coin: &mut Coin, amount: u64, recipient: address)
-                        let transfer_args = vec![c_arg.clone(), t_amt_arg, receiver_arg];
+                        // transfer_amount(coin: &mut Coin, amount: u64, recipient: address)
+                        let transfer_args = vec![Vec::new(), t_amt_arg, receiver_arg];
+                        let transfer_inputs = vec![mutable_object_input(&coin_id, &publish_sender)];
 
-                        let transfer_res = runtime.execute_entry_function(
-                            &module_id,
-                            "transfer_amount",
-                            vec![],
-                            transfer_args,
-                            Some(publish_sender),
-                            None,
-                            None,
-                        );
+                        let transfer_res = runtime
+                            .execute_entry_function_with_object_context_and_persistence(
+                                &module_id,
+                                "transfer_amount",
+                                vec![],
+                                transfer_args,
+                                entry_context(transfer_inputs, publish_sender, 2),
+                            );
 
                         match transfer_res {
                             Ok(t_cs) => {
@@ -482,18 +427,21 @@ fn main() {
                         println!("\n--- BURN DEMO: {} ---", burn_amount);
 
                         let b_amt_arg = bcs::to_bytes(&burn_amount).expect("serialize burn amount");
-                        // burn(treasury: &mut TreasuryCap, coin: &mut Coin, amount: u64)
-                        let burn_args = vec![t_arg.clone(), c_arg.clone(), b_amt_arg];
+                        // burn_amount(treasury: &mut TreasuryCap, coin: &mut Coin, amount: u64)
+                        let burn_args = vec![Vec::new(), Vec::new(), b_amt_arg];
+                        let burn_inputs = vec![
+                            mutable_object_input(&tid, &publish_sender),
+                            mutable_object_input(&coin_id, &publish_sender),
+                        ];
 
-                        let burn_res = runtime.execute_entry_function(
-                            &module_id,
-                            "burn_amount",
-                            vec![],
-                            burn_args,
-                            Some(publish_sender),
-                            None,
-                            None,
-                        );
+                        let burn_res = runtime
+                            .execute_entry_function_with_object_context_and_persistence(
+                                &module_id,
+                                "burn_amount",
+                                vec![],
+                                burn_args,
+                                entry_context(burn_inputs, publish_sender, 3),
+                            );
                         match burn_res {
                             Ok(b_cs) => {
                                 println!("Burn successful!");
@@ -543,4 +491,8 @@ fn main() {
     }
 
     println!("E2E example finished");
+    // The runtime owns the RocksDB handle; release it before removing the
+    // directory, otherwise Windows still has the files locked.
+    drop(runtime);
+    cleanup_db_dir();
 }

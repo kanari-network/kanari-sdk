@@ -11,11 +11,16 @@
 //! defined). Forcing the symbol to be resolved pulls the object in.
 //!
 //! The flag is emitted only for `*-msvc` targets, so Linux/macOS builds and
-//! `cargo fuzz` runs are unaffected.
+//! `cargo fuzz` runs are unaffected (cargo-fuzz passes `/include:main` itself).
+//!
+//! Directives must be written to stdout: Cargo parses a build script's stdout
+//! for `cargo:` directives and ignores stderr entirely. Emitting via `eprintln!`
+//! drops the flag silently and the link then fails exactly as if this build
+//! script did not exist.
 
 fn main() {
-    eprintln!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build.rs");
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        eprintln!("cargo:rustc-link-arg=/INCLUDE:main");
+        println!("cargo:rustc-link-arg=/INCLUDE:main");
     }
 }

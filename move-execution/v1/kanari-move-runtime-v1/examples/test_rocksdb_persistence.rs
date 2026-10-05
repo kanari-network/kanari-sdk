@@ -2,17 +2,21 @@
 
 use anyhow::Result;
 use kanari_move_runtime_v1::{
-    state::{OwnerState, StateManager},
-    storage::persistent_store::PersistentStore,
+    ChangeSet, state::StateManager, storage::persistent_store::PersistentStore,
 };
 use kanari_types::address::Address;
 use kanari_types::gas_coin::GAS_COIN;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 fn main() -> Result<()> {
-    // Setup temporary DB path
-    let db_path = PathBuf::from("./test_db_persistence");
+    // Scratch DB in the system temp directory. A relative path would drop a
+    // few hundred KB of RocksDB files into the crate directory, and an
+    // aborted run (the invariant checks below panic) would leave them behind
+    // as untracked files in the repo.
+    let db_path = std::env::temp_dir().join(format!(
+        "kanari-move-runtime-rocksdb-example-{}",
+        std::process::id()
+    ));
     if db_path.exists() {
         std::fs::remove_dir_all(&db_path)?;
     }
@@ -25,12 +29,15 @@ fn main() -> Result<()> {
     let store1 = Arc::new(PersistentStore::open_with_path(Some(db_path.clone())).unwrap());
     let mut state1 = StateManager::new(store1.clone());
 
-    // Create owner state
-    println!("2. Creating owner state {:?} with balance 1000", addr);
-    let owner_state = OwnerState::with_native_balance(acc_addr, 1000);
-    state1.save_owner_state(&owner_state)?;
+    // Mint 1000 MIST through the canonical supply path. Writing the ledger
+    // directly would create treasury supply that was never issued, which the
+    // fail-closed startup invariant check rejects on re-open.
+    println!("2. Minting 1000 MIST to owner {:?}", addr);
+    let mut changeset = ChangeSet::new();
+    changeset.mint(acc_addr, 1000);
+    state1.apply_changeset(&changeset)?;
 
-    // Commit changes
+    // Commit changes (the mint bumps total_supply and the owner ledger together)
     println!("3. Committing state to disk...");
     state1.commit()?;
 
@@ -49,8 +56,13 @@ fn main() -> Result<()> {
     let store2 = Arc::new(PersistentStore::open_with_path(Some(db_path.clone())).unwrap());
     let state2 = StateManager::new(store2.clone());
 
-    // Verify owner state
+    // Verify owner state and that supply invariants survive the restart
     println!("5. Verifying owner state...");
+    assert_eq!(
+        state2.total_supply,
+        11_000_000_000_000_000u64 + 1000,
+        "total supply should be the genesis supply plus the minted 1000 MIST"
+    );
     let owner_state = state2
         .get_owner_state(&acc_addr)
         .expect("Owner state should exist");
