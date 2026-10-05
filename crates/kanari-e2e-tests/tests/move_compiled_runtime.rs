@@ -19,6 +19,10 @@ use move_package::compilation::compiled_package::CompiledPackage;
 /// Address the E2E Move package is published under (matches `Move.toml`).
 const E2E_PUBLISHER: &str = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146";
 
+/// Source of unique `tx_hash` values for hand-built contexts.
+static TX_CONTEXT_NONCE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
 /// Modules that must exist after a successful compile.
 const EXPECTED_MODULES: &[&str] = &[
     "move_e2e_access",
@@ -105,11 +109,26 @@ fn tx_context_arg(sender: MoveAccountAddress, epoch: u64) -> Vec<u8> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or_default();
+    tx_context_arg_at(sender, epoch, now_ms)
+}
+
+/// Tx context pinned to an explicit `epoch_timestamp_ms`, so entries that
+/// record a creation time can be read back with an exact expectation.
+fn tx_context_arg_at(sender: MoveAccountAddress, epoch: u64, timestamp_ms: u64) -> Vec<u8> {
+    // `object::new` derives its id from `hash(tx_hash || ids_created)`, so a
+    // constant hash would hand every transaction the same first object id and
+    // let one transaction's object silently overwrite another's.
+    let mut tx_hash = [0u8; 32];
+    tx_hash[..8].copy_from_slice(
+        &TX_CONTEXT_NONCE
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .to_le_bytes(),
+    );
     let ctx = kanari_types::tx_context::TxContextRecord::from_address(
         sender,
-        vec![0u8; 32],
+        tx_hash.to_vec(),
         epoch,
-        now_ms,
+        timestamp_ms,
         0,
     );
     bcs::to_bytes(&ctx).expect("serialize TxContext")
@@ -208,6 +227,29 @@ fn exec(
             },
         )
         .map_err(|e| anyhow::anyhow!("{fn_name}: {e:?}"))
+}
+
+/// Asserts a call aborted *inside* Move with `expected_code`. Checking the
+/// sub-status rules out an earlier failure in argument binding or ownership
+/// bookkeeping, which would otherwise satisfy a bare `is_err()`.
+fn assert_aborted(
+    result: anyhow::Result<kanari_move_runtime_v1::changeset::ChangeSet>,
+    expected_code: u64,
+    what: &str,
+) {
+    let err = match result {
+        Ok(_) => panic!("{what} was expected to abort but succeeded"),
+        Err(err) => err,
+    };
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("major_status: ABORTED"),
+        "{what} must abort inside Move, got {rendered}"
+    );
+    assert!(
+        rendered.contains(&format!("sub_status: Some({expected_code})")),
+        "{what} must abort with code {expected_code}, got {rendered}"
+    );
 }
 
 /// `(object_id, version)` of the single object created by a changeset.
@@ -527,7 +569,7 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
         "mint_more",
         vec![
             Slot::Obj {
-                id: cap_id,
+                id: cap_id.clone(),
                 mutable: true,
             },
             Slot::Raw(u64_arg(42)),
@@ -548,6 +590,22 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
             .map(|(_, o)| o.type_.clone())
             .unwrap_or_default()
     );
+
+    // `mint_more` mutated the shared cap in place. Reading it back in a later
+    // transaction must observe the bumped supply, not the creation-time value.
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_total_supply",
+        vec![
+            Slot::Obj {
+                id: cap_id,
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(1_000_000_000_042)),
+        ],
+        sender,
+    )?;
 
     Ok(())
 }
@@ -575,6 +633,7 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
         "init_comp_coin must create objects"
     );
     preload_created(&runtime, &init_cs);
+    let payment_id = find_created_containing(&init_cs, "Coin<");
 
     let vault_cs = runtime.execute_entry_function(
         &module,
@@ -594,23 +653,55 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
     );
     preload_created(&runtime, &vault_cs);
 
-    // The vault is empty right after creation; an oversized withdraw must abort.
-    let err = runtime.execute_entry_function(
+    // The vault is empty right after creation; an oversized withdraw must abort
+    // with `E_INSUFFICIENT`, which only happens if the call really reached Move.
+    let err = exec(
+        &runtime,
         &module,
         "e2e_withdraw",
-        vec![],
         vec![
-            address_arg(&addr_literal(vault_id)),
-            u64_arg(1),
-            tx_context_arg(sender, 2),
+            Slot::Obj {
+                id: vault_id.clone(),
+                mutable: true,
+            },
+            Slot::Raw(u64_arg(1)),
+            Slot::Raw(tx_context_arg(sender, 2)),
         ],
-        Some(sender),
-        None,
-        None,
+        sender,
     );
+    assert_aborted(err, 101, "withdraw from an empty vault");
+
+    // With the vault still empty, the minted payment coin can be merged in:
+    // `deposit` consumes the coin by value and reports the amount it took.
+    let deposit = exec(
+        &runtime,
+        &module,
+        "deposit",
+        vec![
+            Slot::Obj {
+                id: vault_id.to_string(),
+                mutable: true,
+            },
+            Slot::Obj {
+                id: payment_id,
+                mutable: true,
+            },
+            Slot::Raw(tx_context_arg(sender, 3)),
+        ],
+        sender,
+    );
+    let deposit = deposit.unwrap_or_else(|e| panic!("deposit must succeed, got {e:?}"));
     assert!(
-        err.is_err(),
-        "withdraw from an empty vault must abort with E_INSUFFICIENT"
+        deposit
+            .events
+            .iter()
+            .any(|ev| ev.type_tag.contains("move_e2e_comprehensive::DepositEvent")),
+        "deposit must emit a DepositEvent, got {:?}",
+        deposit
+            .events
+            .iter()
+            .map(|ev| &ev.type_tag)
+            .collect::<Vec<_>>()
     );
 
     Ok(())
@@ -655,6 +746,70 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         roundtrip.created_objects.len() >= 2,
         "e2e_store_roundtrip must create the store and the blob"
     );
+
+    // The round trip shares both objects in their final state (`beta` kept,
+    // `alpha` removed, blob bumped twice), so the read-back entries see
+    // exactly what that transaction left behind.
+    let store_id = find_created_containing(&roundtrip, "KeyValueStore");
+    let roundtrip_blob_id = find_created_containing(&roundtrip, "DataBlob");
+    preload_created(&runtime, &roundtrip);
+
+    let store = |mutable: bool| Slot::Obj {
+        id: store_id.clone(),
+        mutable,
+    };
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_store_size",
+        vec![store(false), Slot::Raw(u64_arg(1))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_get_value",
+        vec![
+            store(false),
+            Slot::Raw(vec_u8_arg(b"beta")),
+            Slot::Raw(vec_u8_arg(b"two")),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_get_value_absent",
+        vec![store(false), Slot::Raw(vec_u8_arg(b"alpha"))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_blob_version",
+        vec![
+            Slot::Obj {
+                id: roundtrip_blob_id,
+                mutable: false,
+            },
+            Slot::Raw(u64_arg(3)),
+        ],
+        sender,
+    )?;
+
+    // Owner-gated delete runs against the surviving key.
+    let _ = exec(
+        &runtime,
+        &module,
+        "remove_value",
+        vec![
+            store(true),
+            Slot::Raw(vec_u8_arg(b"beta")),
+            Slot::Raw(tx_context_arg(sender, 2)),
+        ],
+        sender,
+    )?;
 
     // Blob creation through the public entry point.
     let blob_cs = exec(
@@ -846,6 +1001,91 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
     );
     preload_created(&runtime, &roundtrip);
 
+    // A control seeded with an admin at creation time is readable from a later
+    // transaction, so membership and the admin count both assert positively.
+    let seeded = exec(
+        &runtime,
+        &module,
+        "e2e_create_control_with_admin",
+        vec![
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+            Slot::Raw(tx_context_arg(sender, 8)),
+        ],
+        sender,
+    )?;
+    let seeded_id = only_created(&seeded).0;
+    preload_created(&runtime, &seeded);
+
+    let seeded_slot = |mutable: bool| Slot::Obj {
+        id: seeded_id.clone(),
+        mutable,
+    };
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_admin_count",
+        vec![seeded_slot(false), Slot::Raw(u64_arg(1))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_is_admin",
+        vec![
+            seeded_slot(false),
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+            Slot::Raw(bool_arg(true)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_is_admin",
+        vec![
+            seeded_slot(false),
+            Slot::Raw(address_arg("0x2")),
+            Slot::Raw(bool_arg(false)),
+        ],
+        sender,
+    )?;
+
+    // The owner revokes the seeded admin; a member that is not listed is a
+    // no-op rather than an abort.
+    let _ = exec(
+        &runtime,
+        &module,
+        "remove_admin",
+        vec![
+            seeded_slot(true),
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+            Slot::Raw(tx_context_arg(sender, 9)),
+        ],
+        sender,
+    )?;
+
+    // The revoke mutated a non-Coin custom struct in place; the next
+    // transaction must read the shrunk list, not the creation-time snapshot.
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_admin_count",
+        vec![seeded_slot(false), Slot::Raw(u64_arg(0))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_is_admin",
+        vec![
+            seeded_slot(false),
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+            Slot::Raw(bool_arg(false)),
+        ],
+        sender,
+    )?;
+
     // A closed control has no admins and a different owner, so a stranger can
     // neither grant itself an admin nor update the guarded resource.
     let closed = exec(
@@ -878,7 +1118,7 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         ],
         other,
     );
-    assert!(denied.is_err(), "non-owner add_admin must abort");
+    assert_aborted(denied, 200, "non-owner add_admin");
 
     let denied = exec(
         &runtime,
@@ -899,10 +1139,7 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         ],
         other,
     );
-    assert!(
-        denied.is_err(),
-        "non-admin update_resource on a closed control must abort"
-    );
+    assert_aborted(denied, 201, "non-admin update_resource on a closed control");
 
     Ok(())
 }
@@ -1006,11 +1243,14 @@ fn e2e_time_flow_executes() -> anyhow::Result<()> {
     let module = module_id("move_e2e_time");
     let sender = publisher_address();
 
+    // Pinned so `created_at` / `last_updated` read back exactly.
+    const RECORDED_AT: u64 = 1_700_000_000_000;
+
     let cs = exec(
         &runtime,
         &module,
         "e2e_create_record",
-        vec![Slot::Raw(tx_context_arg(sender, 0))],
+        vec![Slot::Raw(tx_context_arg_at(sender, 0, RECORDED_AT))],
         sender,
     )?;
     let (record_id, _record_version) = only_created(&cs);
@@ -1022,22 +1262,64 @@ fn e2e_time_flow_executes() -> anyhow::Result<()> {
     );
     preload_created(&runtime, &cs);
 
+    let record = |mutable: bool| Slot::Obj {
+        id: record_id.clone(),
+        mutable,
+    };
+
+    // The record was never touched since creation, so these read back exactly.
     let _ = exec(
         &runtime,
         &module,
-        "update_record",
+        "e2e_check_created_at",
+        vec![record(false), Slot::Raw(u64_arg(RECORDED_AT))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_last_updated",
+        vec![record(false), Slot::Raw(u64_arg(RECORDED_AT))],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_is_fresh",
         vec![
-            Slot::Obj {
-                id: record_id,
-                mutable: true,
-            },
-            Slot::Raw(u64_arg(1_700_000_000_000)),
-            Slot::Raw(tx_context_arg(sender, 1)),
+            record(false),
+            Slot::Raw(u64_arg(RECORDED_AT + 500)),
+            Slot::Raw(u64_arg(1_000)),
+            Slot::Raw(bool_arg(true)),
+        ],
+        sender,
+    )?;
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_is_fresh",
+        vec![
+            record(false),
+            Slot::Raw(u64_arg(RECORDED_AT + 5_000)),
+            Slot::Raw(u64_arg(1_000)),
+            Slot::Raw(bool_arg(false)),
         ],
         sender,
     )?;
 
     let _ = exec(&runtime, &module, "e2e_check_clock_address", vec![], sender)?;
+
+    let _ = exec(
+        &runtime,
+        &module,
+        "update_record",
+        vec![
+            record(true),
+            Slot::Raw(u64_arg(1_700_000_000_000)),
+            Slot::Raw(tx_context_arg(sender, 1)),
+        ],
+        sender,
+    )?;
 
     Ok(())
 }
@@ -1375,11 +1657,18 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
     )?;
 
     let types = created_types(&cs);
-    let nft_count = types.iter().filter(|t| t.ends_with("::NFT")).count();
+    let nft_ids: Vec<String> = cs
+        .created_objects
+        .iter()
+        .filter(|(_, o)| o.type_.ends_with("::NFT"))
+        .map(|(id, _)| id.clone())
+        .collect();
     assert_eq!(
-        nft_count, 2,
+        nft_ids.len(),
+        2,
         "e2e_nft_roundtrip must mint two NFTs, got {types:?}"
     );
+    let (first_nft, second_nft) = (nft_ids[0].clone(), nft_ids[1].clone());
 
     let collection_id = find_created(&cs, "::NFTCollection");
     preload_created(&runtime, &cs);
@@ -1410,6 +1699,60 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         ],
         sender,
     )?;
+
+    // Neither NFT has been touched since minting, so the creator reads back.
+    let _ = exec(
+        &runtime,
+        &module,
+        "e2e_check_nft_creator",
+        vec![
+            Slot::Obj {
+                id: first_nft.clone(),
+                mutable: false,
+            },
+            Slot::Raw(address_arg(E2E_PUBLISHER)),
+        ],
+        sender,
+    )?;
+
+    // A hand-over by value takes the NFT out of the sender's possession.
+    let transfer = exec(
+        &runtime,
+        &module,
+        "transfer_nft",
+        vec![
+            Slot::Obj {
+                id: first_nft,
+                mutable: true,
+            },
+            Slot::Raw(address_arg("0x2")),
+        ],
+        sender,
+    );
+    assert!(
+        transfer.is_ok(),
+        "transfer_nft must succeed, got {:?}",
+        transfer.err()
+    );
+
+    // Burning consumes the second NFT and removes it from state.
+    let burn = exec(
+        &runtime,
+        &module,
+        "e2e_burn_nft",
+        vec![Slot::Obj {
+            id: second_nft.clone(),
+            mutable: true,
+        }],
+        sender,
+    )?;
+    assert!(
+        burn.deleted_objects
+            .iter()
+            .any(|d| addr_literal(d) == addr_literal(&second_nft)),
+        "e2e_burn_nft must delete the NFT {second_nft}, got {:?}",
+        burn.deleted_objects
+    );
 
     Ok(())
 }
@@ -1453,11 +1796,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             ],
             other,
         );
-        assert!(
-            denied.is_err(),
-            "non-owner set_value must abort, got {:?}",
-            denied.err()
-        );
+        assert_aborted(denied, 300, "non-owner set_value");
     }
 
     {
@@ -1490,11 +1829,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             ],
             other,
         );
-        assert!(
-            denied.is_err(),
-            "non-owner register_name must abort, got {:?}",
-            denied.err()
-        );
+        assert_aborted(denied, 700, "non-owner register_name");
     }
 
     {
@@ -1532,11 +1867,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             ],
             other,
         );
-        assert!(
-            denied.is_err(),
-            "non-owner e2e_mint_nft must abort, got {:?}",
-            denied.err()
-        );
+        assert_aborted(denied, 500, "non-owner e2e_mint_nft");
     }
 
     Ok(())

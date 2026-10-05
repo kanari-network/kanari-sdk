@@ -577,6 +577,7 @@ impl MoveRuntime {
             .collect::<std::collections::BTreeSet<_>>();
         let mut published_module_updates = Vec::new();
         let mut published_module_deletes = Vec::new();
+        let mut refreshed_objects = Vec::<StoredObject>::new();
 
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
@@ -607,19 +608,17 @@ impl MoveRuntime {
                     | move_core_types::effects::Op::Modify(bytes) => {
                         updates.push((key.as_bytes().to_vec(), bcs::to_bytes(bytes)?));
 
-                        if struct_tag.module.as_str() == "coin"
-                            && struct_tag.name.as_str() == "Coin"
+                        // Objects live under their own id, so a resource write is
+                        // also an object-data write. Keep `object:{id}` in step for
+                        // every type (not just `coin::Coin`) or mutated objects read
+                        // stale bytes on the next call.
+                        let object_key = format!("object:{}", addr.to_hex_literal());
+                        if let Some(mut object) =
+                            store.load::<StoredObject>(object_key.as_bytes())?
                         {
-                            let object_key = format!("object:{}", addr.to_hex_literal());
-                            if let Some(mut object) =
-                                store.load::<StoredObject>(object_key.as_bytes())?
-                            {
-                                object.data = bytes.to_vec();
-                                updates.push((
-                                    object_key.as_bytes().to_vec(),
-                                    bcs::to_bytes(&object)?,
-                                ));
-                            }
+                            object.data = bytes.to_vec();
+                            updates.push((object_key.as_bytes().to_vec(), bcs::to_bytes(&object)?));
+                            refreshed_objects.push(object);
                         }
                     }
                     move_core_types::effects::Op::Delete => {
@@ -644,6 +643,12 @@ impl MoveRuntime {
             modules.remove(&module_id);
         }
         drop(transaction_guard);
+
+        // `object_storage` caches what `store` now holds; refresh only the
+        // records rewritten above so later lookups see the mutated bytes.
+        for object in refreshed_objects {
+            self.object_storage.refresh_cached_object(object);
+        }
         Ok(())
     }
 

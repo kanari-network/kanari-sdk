@@ -50,6 +50,10 @@ pub trait ObjectStore: Send + Sync {
     fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError>;
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError>;
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
+    /// Replaces the cached copy of `obj` after its persistent record was
+    /// rewritten out-of-band (a mutated resource re-synced by the runtime).
+    /// Backends without a local cache can no-op.
+    fn refresh_cached_object(&self, _obj: StoredObject) {}
     #[cfg(test)]
     fn count(&self) -> usize;
     fn clear(&self) -> Result<(), ObjectStorageError>;
@@ -325,6 +329,18 @@ impl ObjectStorage {
         Ok(())
     }
 
+    /// Replaces the cached copy of `obj`. Persistent state and the owner /
+    /// object indexes are left alone: the id and owner are unchanged when a
+    /// resource is mutated in place.
+    fn refresh_cached_object(&self, obj: StoredObject) {
+        let id = obj.id.clone();
+        self.state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .objects
+            .insert(id, obj);
+    }
+
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
         if let Some(obj) = state.objects.get(id) {
@@ -446,6 +462,10 @@ impl ObjectStore for ObjectStorage {
 
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
         ObjectStorage::delete_object(self, id)
+    }
+
+    fn refresh_cached_object(&self, obj: StoredObject) {
+        ObjectStorage::refresh_cached_object(self, obj);
     }
 
     #[cfg(test)]

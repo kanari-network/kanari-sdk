@@ -181,6 +181,14 @@ module kanari_e2e_tests::move_e2e_access {
         transfer::share_object(res);
     }
 
+    /// Creates a closed control that already lists `admin`, so membership can
+    /// be asserted from a later transaction.
+    public entry fun e2e_create_control_with_admin(admin: address, ctx: &mut TxContext) {
+        let mut control = e2e_new_control(false, ctx);
+        vector::push_back(&mut control.admins, admin);
+        transfer::share_object(control);
+    }
+
     /// Creates a closed control with no admins so a non-owner call must abort.
     public entry fun e2e_create_closed_control(ctx: &mut TxContext) {
         let control = e2e_new_control(false, ctx);
