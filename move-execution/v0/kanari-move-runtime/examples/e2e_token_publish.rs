@@ -28,7 +28,8 @@ fn decode_object_id_32(id: &str) -> Vec<u8> {
     padded
 }
 
-fn find_james_module() -> Option<std::path::PathBuf> {    let candidates = [
+fn find_james_module() -> Option<std::path::PathBuf> {
+    let candidates = [
         "example_move/james/build/james/bytecode_modules/james.mv",
         "../example_move/james/build/james/bytecode_modules/james.mv",
         "../../example_move/james/build/james/bytecode_modules/james.mv",
@@ -125,7 +126,10 @@ fn main() {
         println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
     }
     println!("Publish treasuries: {:?}", publish_cs.treasuries);
-    println!("Publish token_balance_sets: {:?}", publish_cs.token_balance_sets);
+    println!(
+        "Publish token_balance_sets: {:?}",
+        publish_cs.token_balance_sets
+    );
 
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
     let mut state = StateManager::new_in_memory();

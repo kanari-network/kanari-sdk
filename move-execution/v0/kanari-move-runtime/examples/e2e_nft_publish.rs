@@ -139,15 +139,13 @@ fn main() {
             // `vector<String>` a length-prefixed vector of length-prefixed
             // UTF-8 strings.
             let arg1 = bcs::to_bytes(&b"Kari#42".to_vec()).expect("serialize name");
-            let arg2 =
-                bcs::to_bytes(&b"Genesis Kari NFT".to_vec()).expect("serialize desc");
+            let arg2 = bcs::to_bytes(&b"Genesis Kari NFT".to_vec()).expect("serialize desc");
             let arg3 = bcs::to_bytes(&b"https://kanari.example/nft/42.png".to_vec())
                 .expect("serialize url");
             let arg4 = bcs::to_bytes(&vec!["level".to_string(), "rarity".to_string()])
                 .expect("serialize attribute keys");
-            let arg5 =
-                bcs::to_bytes(&vec!["1".to_string(), "common".to_string()])
-                    .expect("serialize attribute values");
+            let arg5 = bcs::to_bytes(&vec!["1".to_string(), "common".to_string()])
+                .expect("serialize attribute values");
             let arg6 = bcs::to_bytes(&b"42".to_vec()).expect("serialize number");
 
             // Build args: cap, name, description, url, attribute_keys,
