@@ -36,7 +36,10 @@ const U64_SIZE: usize = 8;
 /// `Coin<T>` is `[32-byte UID][8-byte balance]`; `Balance<T>` is a bare u64,
 /// read from the tail so this mirrors `write_balance_to_object_bytes` when a
 /// blob carries trailing bytes beyond the 8-byte value.
-pub(crate) fn extract_balance_from_object_bytes(data: &[u8], struct_tag: &StructTag) -> Option<u64> {
+pub(crate) fn extract_balance_from_object_bytes(
+    data: &[u8],
+    struct_tag: &StructTag,
+) -> Option<u64> {
     let module_name = struct_tag.module.as_str();
     let struct_name = struct_tag.name.as_str();
 
@@ -48,8 +51,7 @@ pub(crate) fn extract_balance_from_object_bytes(data: &[u8], struct_tag: &Struct
         return Some(u64::from_le_bytes(bytes));
     }
 
-    if module_name == BalanceModule::BALANCE_MODULE
-        && struct_name == BalanceModule::BALANCE_STRUCT
+    if module_name == BalanceModule::BALANCE_MODULE && struct_name == BalanceModule::BALANCE_STRUCT
     {
         if data.len() < U64_SIZE {
             return None;

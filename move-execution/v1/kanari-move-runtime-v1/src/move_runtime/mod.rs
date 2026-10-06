@@ -1487,8 +1487,8 @@ impl MoveRuntime {
             && crate::common::balance::is_balance_struct(&struct_tag)
             && let Some(amount) =
                 crate::common::balance::extract_balance_from_object_bytes(data, &struct_tag)
-            && let Some(token_type) = crate::common::balance::token_type_from_struct_tag(&struct_tag)
-
+            && let Some(token_type) =
+                crate::common::balance::token_type_from_struct_tag(&struct_tag)
         {
             cs.add_token_balance_set(owner, token_type.clone(), amount);
             debug!(
