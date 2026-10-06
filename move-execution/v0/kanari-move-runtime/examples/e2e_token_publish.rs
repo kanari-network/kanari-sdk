@@ -1,20 +1,34 @@
 #![allow(clippy::print_stdout)]
 #![allow(clippy::collapsible_if)]
-// Example CLI: publish a compiled Move module (james.mv), call an entry function,
-// and apply the resulting ChangeSets to `StateManager` to demonstrate E2E flow.
-use kanari_move_runtime_v0::changeset::ChangeSet;
+// Example CLI: publish a compiled Move module (james.mv) — the runtime runs
+// `init` automatically during publish — and apply the resulting ChangeSets
+// to `StateManager` to demonstrate E2E flow.
 use kanari_move_runtime_v0::move_runtime::MoveRuntime;
 use kanari_move_runtime_v0::state::StateManager;
 use kanari_types::coin::CoinModule;
-use kanari_types::tx_context::TxContextRecord;
 use move_binary_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn find_james_module() -> Option<std::path::PathBuf> {
-    let candidates = [
+/// Decode an object id hex string into 32 raw bytes.
+///
+/// Ids round-tripped through display form may have leading zeros stripped
+/// (`AccountAddress::to_hex_literal` shortens them), so left-pad short
+/// decodings back to 32 bytes instead of passing a truncated id.
+fn decode_object_id_32(id: &str) -> Vec<u8> {
+    let clean = id.strip_prefix("0x").unwrap_or(id);
+    let bytes = hex::decode(clean).expect("decode object id hex");
+    if bytes.len() >= MoveAccountAddress::LENGTH {
+        return bytes;
+    }
+    let mut padded = vec![0u8; MoveAccountAddress::LENGTH - bytes.len()];
+    padded.extend_from_slice(&bytes);
+    padded
+}
+
+fn find_james_module() -> Option<std::path::PathBuf> {    let candidates = [
         "example_move/james/build/james/bytecode_modules/james.mv",
         "../example_move/james/build/james/bytecode_modules/james.mv",
         "../../example_move/james/build/james/bytecode_modules/james.mv",
@@ -101,88 +115,17 @@ fn main() {
         publish_cs.token_balance_sets.len()
     );
 
-    // Determine function to call (default "setup") and optional mint params from CLI
-    let mut function_name = "setup".to_string();
-    let mut _cli_mint_amount: Option<u64> = None;
-    let mut _cli_recipient: Option<MoveAccountAddress> = None;
-    if args.len() > 2 {
-        function_name = args[2].clone();
-    }
-    if args.len() > 3
-        && let Ok(v) = args[3].parse::<u64>()
-    {
-        _cli_mint_amount = Some(v);
-    }
-    if args.len() > 4
-        && let Ok(addr) = MoveAccountAddress::from_hex_literal(&args[4])
-    {
-        _cli_recipient = Some(addr);
-    }
+    // The runtime runs the module's `init` automatically during publish,
+    // so there is no separate setup call anymore.
+    println!("Module init ran automatically during publish (runtime-managed).");
 
-    println!(
-        "Attempting to call entry function {}::{}",
-        module_id, function_name
-    );
-
-    // Build a serialized TxContext to pass as the last arg for entry functions
-    let tx_hash = vec![0u8; 32];
-    let epoch = 0u64;
-    let epoch_timestamp_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let ids_created = 0u64;
-    let tx_ctx = TxContextRecord::from_address(
-        publish_sender,
-        tx_hash.clone(),
-        epoch,
-        epoch_timestamp_ms,
-        ids_created,
-    );
-    let tx_context_bytes = bcs::to_bytes(&tx_ctx).expect("serialize tx context");
-
-    // Call setup (or specified function) using module address as the sender
-    let call_cs = match runtime.execute_entry_function(
-        &module_id,
-        &function_name,
-        vec![],
-        vec![tx_context_bytes.clone()],
-        Some(publish_sender),
-        None,
-        None,
-    ) {
-        Ok(cs) => cs,
-        Err(e) => {
-            eprintln!("execute_entry_function failed: {:?}", e);
-            // proceed — module publish already persisted
-            ChangeSet::new()
-        }
-    };
-
-    println!(
-        "Call ChangeSet produced: accounts={}, treasuries={}, token_sets={}",
-        call_cs.account_changes.len(),
-        call_cs.treasuries.len(),
-        call_cs.token_balance_sets.len()
-    );
-
-    // Verbose: print created objects, treasuries, token sets from publish and call
+    // Verbose: print created objects, treasuries, token sets from publish
     println!("Publish created objects:");
     for (id, obj) in publish_cs.created_objects.iter() {
         println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
     }
     println!("Publish treasuries: {:?}", publish_cs.treasuries);
-    println!(
-        "Publish token_balance_sets: {:?}",
-        publish_cs.token_balance_sets
-    );
-
-    println!("Call created objects:");
-    for (id, obj) in call_cs.created_objects.iter() {
-        println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
-    }
-    println!("Call treasuries: {:?}", call_cs.treasuries);
-    println!("Call token_balance_sets: {:?}", call_cs.token_balance_sets);
+    println!("Publish token_balance_sets: {:?}", publish_cs.token_balance_sets);
 
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
     let mut state = StateManager::new_in_memory();
@@ -190,11 +133,6 @@ fn main() {
         state
             .apply_changeset(&publish_cs)
             .expect("apply publish changeset");
-    }
-    if !call_cs.is_empty() {
-        state
-            .apply_changeset(&call_cs)
-            .expect("apply call changeset");
     }
 
     // StateManager in DB mode doesn't expose public maps anymore.
@@ -214,7 +152,7 @@ fn main() {
     //     }
     // }
 
-    // If the call produced created objects or treasuries, try to find a TreasuryCap
+    // If the publish produced created objects or treasuries, try to find a TreasuryCap
     let mut found_treasury_id: Option<String> = None;
     // Also print events for debugging
     println!("Publish events:");
@@ -225,21 +163,8 @@ fn main() {
             hex::encode(&ev.event_data)
         );
     }
-    println!("Call events:");
-    for ev in call_cs.events.iter() {
-        println!(
-            " event type={} data(hex)={}",
-            ev.type_tag,
-            hex::encode(&ev.event_data)
-        );
-    }
-
     // Try robust treasury detection by inspecting both `type_` and decoded native data
-    for (id, obj) in publish_cs
-        .created_objects
-        .iter()
-        .chain(call_cs.created_objects.iter())
-    {
+    for (id, obj) in publish_cs.created_objects.iter() {
         // Print raw data hex for inspection
         println!(
             "Created object data hex (first 256): {}",
@@ -287,11 +212,7 @@ fn main() {
         // It demonstrates how StateManager will record supplies and balances.
         // Try to extract the token type from the TreasuryCap object's type string.
         let mut token_type: Option<String> = None;
-        for (id, obj) in publish_cs
-            .created_objects
-            .iter()
-            .chain(call_cs.created_objects.iter())
-        {
+        for (id, obj) in publish_cs.created_objects.iter() {
             if id == &tid && obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT) {
                 if let Some(start) = obj.type_.find('<') {
                     if let Some(end) = obj.type_.rfind('>') {
@@ -319,7 +240,7 @@ fn main() {
             // 3. Recipient (Address BCS)
 
             let clean_tid = tid.strip_prefix("0x").unwrap_or(&tid);
-            let t_arg = hex::decode(clean_tid).expect("decode treasury id");
+            let t_arg = decode_object_id_32(clean_tid);
 
             let amount_arg = bcs::to_bytes(&mint_amount).expect("serialize amount");
             let recipient_arg = bcs::to_bytes(&recipient_move).expect("serialize recipient");
@@ -395,7 +316,7 @@ fn main() {
                         );
 
                         let clean_cid = coin_id.strip_prefix("0x").unwrap_or(&coin_id);
-                        let c_arg = hex::decode(clean_cid).expect("decode coin id");
+                        let c_arg = decode_object_id_32(clean_cid);
                         let t_amt_arg =
                             bcs::to_bytes(&transfer_amount).expect("serialize transfer amount");
                         let receiver_arg = bcs::to_bytes(&receiver).expect("serialize receiver");
@@ -551,7 +472,7 @@ fn main() {
             println!("Could not extract token type from TreasuryCap object; skipping auto-mint.");
         }
     } else {
-        println!("No TreasuryCap object detected in publish/call ChangeSets.");
+        println!("No TreasuryCap object detected in publish ChangeSet.");
     }
 
     println!("E2E example finished");
