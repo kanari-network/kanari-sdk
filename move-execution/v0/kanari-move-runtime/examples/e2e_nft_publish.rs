@@ -1,13 +1,11 @@
 #![allow(clippy::print_stdout)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::redundant_closure)]
-// E2E example: publish James NFT module, call `setup`, and report created caps
-use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::move_runtime::MoveRuntime;
-use kanari_move_runtime::state::StateManager;
+// E2E example: publish James NFT module (init runs automatically) and report created caps
+use kanari_move_runtime_v0::move_runtime::MoveRuntime;
+use kanari_move_runtime_v0::state::StateManager;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
-use move_core_types::runtime_value::{MoveStruct, MoveValue};
 use serde::Deserialize;
 use std::env;
 use std::path::Path;
@@ -29,7 +27,7 @@ fn find_james_module() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
-    println!("kanari-move-runtime E2E NFT example: publish + setup");
+    println!("kanari-move-runtime-v0 E2E NFT example: publish (init runs automatically)");
 
     let args: Vec<String> = env::args().collect();
     let mut path = match find_james_module() {
@@ -94,54 +92,14 @@ fn main() {
         publish_cs.created_objects.len()
     );
 
-    println!("Calling setup entry...");
-    // Build a minimal TxContext arg
-    let tx_hash = vec![0u8; 32];
-    let epoch = 0u64;
-    let epoch_timestamp_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let ids_created = 0u64;
-    let tx_ctx = kanari_types::tx_context::TxContextRecord::from_address(
-        publish_sender,
-        tx_hash.clone(),
-        epoch,
-        epoch_timestamp_ms,
-        ids_created,
-    );
-    let tx_context_bytes = bcs::to_bytes(&tx_ctx).expect("serialize tx context");
-
-    let call_cs = match runtime.execute_entry_function(
-        &module_id,
-        "setup",
-        vec![],
-        vec![tx_context_bytes.clone()],
-        Some(publish_sender),
-        None,
-        None,
-    ) {
-        Ok(cs) => cs,
-        Err(e) => {
-            eprintln!("execute_entry_function failed: {:?}", e);
-            ChangeSet::new()
-        }
-    };
-
-    println!(
-        "Setup Call ChangeSet: created_objects={}, events={}",
-        call_cs.created_objects.len(),
-        call_cs.events.len()
-    );
+    // The runtime runs the module's `init` automatically during publish,
+    // so there is no separate setup call anymore.
+    println!("Module init ran automatically during publish (runtime-managed).");
 
     // Look for NftCap and Collection created objects
     let mut found_nftcap: Option<String> = None;
     let mut _found_collection: Option<String> = None;
-    for (id, obj) in publish_cs
-        .created_objects
-        .iter()
-        .chain(call_cs.created_objects.iter())
-    {
+    for (id, obj) in publish_cs.created_objects.iter() {
         if obj.type_.contains("::NftCap") {
             println!("Found NftCap: id={} type={}", id, obj.type_);
             found_nftcap = Some(id.clone());
@@ -176,60 +134,23 @@ fn main() {
             // The Move VM will look up the full object from storage
             let arg0 = naddr.into_bytes().to_vec(); // Just the 32-byte address, not the full struct
 
-            // Demo string fields (as vector<u8>) — richer example values
-            let name_bytes = b"Kari#42".to_vec();
-            let desc_bytes = b"Genesis Kari NFT".to_vec();
-            let number_bytes = b"42".to_vec();
-            let url_bytes = b"https://kanari.example/nft/42.png".to_vec();
+            // Plain BCS encoding matches the Move parameter layouts directly:
+            // `vector<u8>` is a length-prefixed byte vector and
+            // `vector<String>` a length-prefixed vector of length-prefixed
+            // UTF-8 strings.
+            let arg1 = bcs::to_bytes(&b"Kari#42".to_vec()).expect("serialize name");
+            let arg2 = bcs::to_bytes(&b"Genesis Kari NFT".to_vec()).expect("serialize desc");
+            let arg3 = bcs::to_bytes(&b"https://kanari.example/nft/42.png".to_vec())
+                .expect("serialize url");
+            let arg4 = bcs::to_bytes(&vec!["level".to_string(), "rarity".to_string()])
+                .expect("serialize attribute keys");
+            let arg5 = bcs::to_bytes(&vec!["1".to_string(), "common".to_string()])
+                .expect("serialize attribute values");
+            let arg6 = bcs::to_bytes(&b"42".to_vec()).expect("serialize number");
 
-            // Simplified version with only basic types first
-            let vec_u8_to_mv = |v: Vec<u8>| -> MoveValue {
-                MoveValue::Vector(v.into_iter().map(MoveValue::U8).collect())
-            };
-
-            // Basic type arguments (u8 vectors)
-            let arg1 = vec_u8_to_mv(name_bytes);
-            let arg1 = arg1.simple_serialize().expect("serialize name");
-            let arg2 = vec_u8_to_mv(desc_bytes);
-            let arg2 = arg2.simple_serialize().expect("serialize desc");
-            let arg3 = vec_u8_to_mv(number_bytes);
-            let arg3 = arg3.simple_serialize().expect("serialize number");
-            let arg4 = vec_u8_to_mv(url_bytes);
-            let arg4 = arg4.simple_serialize().expect("serialize url");
-
-            // Helper to build Move `vector<String>` as MoveValue::Vector of MoveValue::Struct representing std::string::String
-            let make_vec_string = |items: &[&str]| -> MoveValue {
-                let elems: Vec<MoveValue> = items
-                    .iter()
-                    .map(|s| {
-                        // Create a std::string::String struct: struct String(Vec<u8> data)
-                        // In Move, std::string::String has a field `bytes: vector<u8>`
-                        MoveValue::Struct(MoveStruct::new(vec![MoveValue::Vector(
-                            s.as_bytes()
-                                .to_vec()
-                                .into_iter()
-                                .map(MoveValue::U8)
-                                .collect(),
-                        )]))
-                    })
-                    .collect();
-                MoveValue::Vector(elems)
-            };
-
-            // First, create the MoveValue for each vector<String>
-            let level_mv = make_vec_string(&["1"]);
-            let rarity_mv = make_vec_string(&["common"]);
-            let attack_mv = make_vec_string(&["10"]);
-            let defense_mv = make_vec_string(&["5"]);
-
-            // Then serialize each one properly using BCS to ensure correct Move type layout
-            let arg5 = bcs::to_bytes(&level_mv).expect("serialize level");
-            let arg6 = bcs::to_bytes(&rarity_mv).expect("serialize rarity");
-            let arg7 = bcs::to_bytes(&attack_mv).expect("serialize attack");
-            let _arg8 = bcs::to_bytes(&defense_mv).expect("serialize defense"); // Prepared but not used in current mint signature
-
-            // Build args: cap, name, desc, number, url, level, rarity, attack (omit defense to match function signature)
-            let mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7];
+            // Build args: cap, name, description, url, attribute_keys,
+            // attribute_values, number (TxContext is appended automatically).
+            let mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6];
 
             println!("Calling Move mint entry with demo args...");
             // Debug: print arg lengths and hex to help diagnose deserialization failures

@@ -11,11 +11,13 @@ pub mod deny_list;
 pub mod error;
 pub mod event;
 pub mod gas_coin;
+pub mod gas_market;
 pub mod object;
 pub mod pay;
 pub mod transaction;
 pub mod transfer;
 pub mod tx_context;
+pub mod usd_coin;
 
 /// Active gas model facade. Switch the selected implementation inside
 /// [`gas`] while keeping downstream imports stable.

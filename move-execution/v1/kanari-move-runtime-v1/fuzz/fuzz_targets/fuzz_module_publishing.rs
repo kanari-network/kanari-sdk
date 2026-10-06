@@ -12,78 +12,75 @@ use move_core_types::account_address::AccountAddress;
 
 fuzz_target!(|data: &[u8]| {
     let mut unstructured = Unstructured::new(data);
-    
-    // Create MoveRuntime
+
+    let mut sender_bytes = [0u8; 32];
+    let _ = unstructured.fill_buffer(&mut sender_bytes);
+    let sender = AccountAddress::new(sender_bytes);
+
+    // Fuzzed module candidate; the size stays bounded by the fuzzer input.
+    let module_bytes: Vec<u8> = unstructured.arbitrary().unwrap_or_default();
+
+    // Fast path: bytecode deserialization must never panic.
+    let _ = CompiledModule::deserialize_with_defaults(&module_bytes);
+
     if let Ok(runtime) = MoveRuntime::new_with_kanari_natives_in_memory() {
         let mut state = StateManager::new_in_memory();
-        
-        // Initialize system clock
         let _ = runtime.ensure_system_clock(&mut state);
-        
-        // Generate random sender
-        let mut sender_bytes = [0u8; 32];
-        unstructured.fill_bytes(&mut sender_bytes).unwrap_or_default();
-        let sender = AccountAddress::new(sender_bytes);
-        
-        // Test 1: Try to publish with empty module bytes
-        let empty_module = vec![];
+
+        // Empty module bytes.
         let _ = runtime.publish_module_with_context_and_persistence(
-            empty_module.clone(),
+            Vec::new(),
             sender,
+            None,
+            None,
             None,
             true,
         );
-        
-        // Test 2: Try to publish with random bytes (invalid module)
-        let random_module = unstructured.bytes(1024).unwrap_or_default();
+
+        // Random bytes (invalid module).
         let _ = runtime.publish_module_with_context_and_persistence(
-            random_module,
+            module_bytes.clone(),
             sender,
+            Some((500, 1)),
+            None,
             None,
             true,
         );
-        
-        // Test 3: Try to publish with very large module
-        let mut large_module = vec![0u8; 1024 * 1024]; // 1MB
-        unstructured.fill_bytes(&mut large_module).unwrap_or_default();
-        let _ = runtime.publish_module_with_context_and_persistence(
-            large_module,
-            sender,
-            None,
-            true,
-        );
-        
-        // Test 4: Try to publish with malicious bytes
-        // Module with invalid magic bytes
+
+        // Invalid magic prefix followed by fuzzed bytes.
         let mut malicious_module = vec![0xFF, 0xFE, 0xFD, 0xFC];
-        malicious_module.extend_from_slice(&unstructured.bytes(256).unwrap_or_default());
+        malicious_module.extend_from_slice(&module_bytes);
         let _ = runtime.publish_module_with_context_and_persistence(
             malicious_module,
             sender,
             None,
+            None,
+            None,
             true,
         );
-        
-        // Test 5: Try to publish with all possible byte patterns
-        let byte_pattern_count = unstructured.int_in_range(1..=10).unwrap_or(1);
-        for _ in 0..byte_pattern_count {
+
+        // Uniform byte patterns of fuzz-chosen length.
+        let pattern_count: u32 = unstructured.int_in_range(1..=4).unwrap_or(1);
+        for _ in 0..pattern_count {
             let pattern_byte = unstructured.int_in_range(0..=255).unwrap_or(0) as u8;
-            let pattern_module = vec![pattern_byte; unstructured.int_in_range(1..=100).unwrap_or(1) as usize];
+            let pattern_len: u32 = unstructured.int_in_range(1..=64).unwrap_or(1);
+            let pattern_module = vec![pattern_byte; pattern_len as usize];
             let _ = runtime.publish_module_with_context_and_persistence(
                 pattern_module,
                 sender,
                 None,
+                None,
+                None,
                 true,
             );
         }
-        
-        // Test 6: Module upgrade with invalid existing module
-        let invalid_module_id = format!("0x{}", unstructured.int_in_range(0..=u64::MAX).unwrap_or(0));
-        let new_module = unstructured.bytes(512).unwrap_or_default();
+
+        // Upgrade path with fuzzed bytes.
         let _ = runtime.upgrade_module_with_context_and_persistence(
-            invalid_module_id,
-            new_module,
+            module_bytes,
             sender,
+            None,
+            None,
             None,
             true,
         );

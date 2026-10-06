@@ -8,7 +8,7 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::{Request, State, connect_info::ConnectInfo},
+    extract::{FromRequest, Request, State, connect_info::ConnectInfo},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -68,6 +68,7 @@ use crate::{
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
+        faucet::{handle_faucet_usd_status, handle_request_usd_faucet},
         handle_build_call_function, handle_build_native_coin_consolidation,
         handle_build_native_transfer, handle_build_publish_module, handle_build_publish_package,
         handle_build_token_transfer, handle_call_function, handle_get_fungible_asset_transactions,
@@ -318,10 +319,19 @@ pub fn create_router_with_anti_spam(state: RpcServerState) -> Router {
 }
 
 /// Handle RPC request
-async fn handle_rpc(
-    State(state): State<RpcServerState>,
-    Json(request): Json<RpcRequest>,
-) -> impl IntoResponse {
+async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl IntoResponse {
+    // Read the client IP straight from the request extensions: `Option<T>`
+    // extractors are not supported for `ConnectInfo` in axum 0.8, and a
+    // required `ConnectInfo` extractor would 500 every router-level test that
+    // posts without connect info.
+    let client_ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string());
+    let Json(request) = match Json::<RpcRequest>::from_request(req, &state).await {
+        Ok(Json(request)) => Json(request),
+        Err(rejection) => return rejection.into_response(),
+    };
     debug!("RPC request: method={}, id={}", request.method, request.id);
 
     let _vm_permit = if is_vm_heavy_rpc(&request.method) {
@@ -334,7 +344,8 @@ async fn handle_rpc(
                         request.id,
                         "VM RPC capacity is temporarily exhausted; retry later",
                     )),
-                );
+                )
+                    .into_response();
             }
         }
     } else {
@@ -409,6 +420,12 @@ async fn handle_rpc(
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
+        // Web USD faucet: fixed 100 USD claim as two 50 USD objects.
+        methods::REQUEST_USD_FAUCET => {
+            handle_request_usd_faucet(&state, &request, client_ip.as_deref()).await
+        }
+        methods::GET_USD_FAUCET_STATUS => handle_faucet_usd_status(&request).await,
+
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
         methods::GET_OBJECT_BY_REF => handle_get_object_by_ref(&state, &request).await,
@@ -426,7 +443,7 @@ async fn handle_rpc(
         _ => error_response(request.id, RpcError::method_not_found(&request.method)),
     };
 
-    (StatusCode::OK, Json(response))
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 /// Handle Prometheus metrics

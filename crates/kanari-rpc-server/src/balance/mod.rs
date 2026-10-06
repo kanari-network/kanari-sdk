@@ -5,7 +5,7 @@ use super::{
     RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
     respond_with_serialize,
 };
-use kanari_move_runtime_v1::state::StateManager;
+use kanari_move_runtime_v2::state::StateManager;
 use kanari_rpc_api::{
     FungibleAssetHolder, FungibleAssetHolderCursor, FungibleAssetHoldersResponse,
     FungibleAssetInfo, GetFungibleAssetHoldersRequest, GetFungibleAssetRequest,
@@ -18,12 +18,12 @@ use serde_json;
 use std::collections::BTreeSet;
 use tracing::warn;
 
-/// No fallback: returns on-chain `CoinMetadata` decimals only.
-/// `GAS_COIN` (KANARI) is `Some(9)` as protocol constant, everything else
-/// is `None` when metadata is not indexed — callers must not invent 9/6/0.
+/// Protocol constants first (`KANARI = 9`, `USD = 6`), then on-chain
+/// `CoinMetadata`. Any other token is `None` when metadata is not indexed —
+/// callers must not invent decimals for it.
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> Option<u8> {
-    if token_type == GAS_COIN {
-        return Some(9);
+    if let Some(decimals) = CoinModule::settlement_token_decimals(token_type) {
+        return Some(decimals);
     }
     state_guard.get_token_decimals(token_type).ok().flatten()
 }
@@ -232,7 +232,7 @@ pub async fn handle_get_owner_balances(
     let balances: Vec<_> = owner_info
         .balances
         .into_iter()
-        .filter(|(token_type, amount)| *amount > 0 || token_type == GAS_COIN)
+        .filter(|(token_type, amount)| *amount > 0 || CoinModule::is_native_token_type(token_type))
         .map(|(token_type, balance)| build_balance_json(&state_guard, token_type, balance))
         .collect();
 
@@ -363,7 +363,7 @@ pub async fn handle_get_fungible_asset(
             accounted_supply: summary.accounted_supply,
             untracked_supply: summary.untracked_supply,
             holders_count,
-            verified: token_type == GAS_COIN,
+            verified: CoinModule::is_native_token_type(&token_type),
         },
     )
 }

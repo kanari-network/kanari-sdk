@@ -22,4 +22,4 @@ pub use engine::{
 pub use file_io::{read_json_file, write_file_atomically, write_json_pretty_atomically};
 pub use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData};
 
-pub use kanari_move_runtime_v1;
+pub use kanari_move_runtime_v2;

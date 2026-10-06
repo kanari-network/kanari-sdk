@@ -31,6 +31,20 @@ import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
+private fun formatGasFee(tx: TransactionDetails, amount: Long): String {
+    val coinType = tx.gasPayment?.coinType ?: "0x2::kanari::KANARI"
+    val normalizedCoinType = coinType.lowercase()
+    val decimals = when {
+        normalizedCoinType.endsWith("::usd::usd") -> 6
+        normalizedCoinType.endsWith("::kanari::kanari") -> 9
+        else -> null
+    }
+    val symbol = coinType.substringAfterLast("::").ifBlank { "KANARI" }
+    val formattedAmount = decimals?.let { formatAmountExact(amount, it) }
+        ?: "$amount (raw, decimals unknown)"
+    return "$formattedAmount $symbol"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(viewModel: WalletViewModel) {
@@ -188,8 +202,7 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
         DetailRowShared(label = "Nonce", value = tx.nonce?.toString() ?: "N/A")
         DetailRowShared(label = "Gas Limit", value = tx.gasLimit.toString())
         DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
-        // KANARI decimals = 9 protocol constant (not a fallback)
-        tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatAmountExact(it, 9) + " KANARI") }
+        tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatGasFee(tx, it)) }
         tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
         tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }
         tx.effects?.let { eff ->

@@ -846,6 +846,36 @@ pub struct BuildCallFunctionRequest {
     pub execute_immediate: Option<bool>,
 }
 
+/// Claim 100 USD from the web faucet (`kanari_requestUsdFaucet`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestUsdFaucetRequest {
+    /// Recipient address (`0x`-prefixed 64 hex characters).
+    pub address: String,
+}
+
+/// Result of a USD faucet claim (`kanari_requestUsdFaucet`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestUsdFaucetResponse {
+    pub hash: String,
+    pub status: String,
+    pub leg_hashes: Vec<String>,
+    pub amount_usd: String,
+    pub amount_units: u64,
+    pub usd_type: String,
+    pub recipient: String,
+}
+
+/// USD faucet configuration (`kanari_getUsdFaucetStatus`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsdFaucetStatusResponse {
+    pub enabled: bool,
+    pub usd_type: String,
+    pub usd_decimals: u32,
+    pub default_drip_usd: String,
+    pub max_per_request_usd: String,
+    pub cooldown_secs: u64,
+}
+
 /// Build token transfer request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildTokenTransferRequest {
@@ -1519,6 +1549,22 @@ pub mod methods {
         tags = ["function"]
     )]
     pub const BUILD_TOKEN_TRANSFER: &str = "kanari_buildTokenTransfer";
+    #[open_rpc_method(
+        summary = "Claim 100 USD from the web faucet",
+        description = "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
+        params = [("request", "Faucet claim payload.", true, schema_object())],
+        result = ("faucet_result", "Faucet claim result.", schema_object()),
+        tags = ["faucet"]
+    )]
+    pub const REQUEST_USD_FAUCET: &str = "kanari_requestUsdFaucet";
+    #[open_rpc_method(
+        summary = "Get USD faucet status",
+        description = "Returns the web faucet configuration and whether it is enabled.",
+        params = [("request", "Empty payload.", false, schema_object())],
+        result = ("faucet_status", "Faucet status payload.", schema_object()),
+        tags = ["faucet"]
+    )]
+    pub const GET_USD_FAUCET_STATUS: &str = "kanari_getUsdFaucetStatus";
     #[open_rpc_method(
         summary = "View function",
         description = "Executes a read-only Move function without submitting a transaction.",

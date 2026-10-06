@@ -45,7 +45,7 @@ jobs:
       - name: Clippy (deny warnings)
         run: >
           cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server
-          -p kanari-move-runtime-v1 -p kanari-core --lib -- -D warnings
+          -p kanari-move-runtime-v2 -p kanari-core --lib -- -D warnings
 
       - name: OpenRPC spec consistency
         run: cargo run -p kanari-open-rpc-spec-builder -- test
@@ -55,7 +55,7 @@ jobs:
           cargo test -p kanari-types --lib
           cargo test -p kanari-rpc-api --lib
           cargo test -p kanari-rpc-server --lib
-          cargo test -p kanari-move-runtime-v1 --lib
+          cargo test -p kanari-move-runtime-v2 --lib
 
       - name: Unit tests (kanari-core engine)
         timeout-minutes: 30

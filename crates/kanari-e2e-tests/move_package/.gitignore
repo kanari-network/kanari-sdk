@@ -1,0 +1,10 @@
+# Move build output
+build/
+
+# Move cache
+.move/
+
+# Move coverage / test output
+*.coverage
+*.test
+trace

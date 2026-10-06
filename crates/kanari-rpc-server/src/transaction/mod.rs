@@ -8,7 +8,7 @@ use crate::{
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
-use kanari_move_runtime_v1::changeset::ChangeSet;
+use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::{
     BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
     BuildPublishModuleRequest, BuildPublishPackageRequest, BuildTokenTransferRequest,
@@ -34,6 +34,9 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
+
+/// In-node USD faucet: web claims mint 10 USD as two 5 USD objects.
+pub mod faucet;
 
 // Extract function names from module bytecode (returns None on error)
 fn extract_functions_from_bytes(bytes: &[u8]) -> Option<Vec<String>> {
@@ -375,7 +378,143 @@ fn select_native_gas_payment(
         owner: sender.to_string(),
         budget: gas_limit,
         price: gas_price,
+        coin_type: None,
+        price_version: None,
     })
+}
+
+/// Node-local gas price table for multi-coin quotation (see
+/// `kanari_types::gas_market::GasPriceTable::from_env_or_default`).
+fn node_gas_price_table() -> kanari_types::gas_market::GasPriceTable {
+    kanari_types::gas_market::GasPriceTable::from_env_or_default()
+}
+
+/// Auto-select gas payment: USD first, then native KANARI, then the best
+/// remaining whitelisted coin the wallet can afford.
+///
+/// Returns the payment plus the effective per-unit price in settlement-token
+/// base units, which callers must echo into the built transaction's
+/// `gas_price` so engine accounting (`units * price`) matches the quote.
+#[allow(clippy::too_many_arguments)]
+fn select_gas_payment_auto(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    sender: &str,
+    gas_limit: u64,
+    gas_price: u64,
+    exclude_object_ids: &[String],
+    pending_access_keys: &HashSet<String>,
+    transfer_needs: &std::collections::BTreeMap<String, u64>,
+) -> anyhow::Result<(GasPayment, u64)> {
+    let table = node_gas_price_table();
+    select_gas_payment_with_table(
+        owned_objects,
+        sender,
+        gas_limit,
+        gas_price,
+        exclude_object_ids,
+        pending_access_keys,
+        transfer_needs,
+        &table,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn select_gas_payment_with_table(
+    owned_objects: &[kanari_rpc_api::ObjectInfo],
+    sender: &str,
+    gas_limit: u64,
+    gas_price: u64,
+    exclude_object_ids: &[String],
+    pending_access_keys: &HashSet<String>,
+    transfer_needs: &std::collections::BTreeMap<String, u64>,
+    table: &kanari_types::gas_market::GasPriceTable,
+) -> anyhow::Result<(GasPayment, u64)> {
+    let native_required = gas_limit.saturating_mul(effective_gas_price(gas_price));
+    let excluded: HashSet<String> = exclude_object_ids
+        .iter()
+        .map(|id| normalize_addr(id))
+        .collect();
+    let mut balances = std::collections::BTreeMap::<String, u64>::new();
+    for object in owned_objects {
+        if excluded.contains(&normalize_addr(&object.id)) {
+            continue;
+        }
+        if pending_access_keys.contains(&format!("mut:gas:{}", object.id)) {
+            continue;
+        }
+        let Some(token) = CoinModule::token_type_of_coin_object(&object.type_) else {
+            continue;
+        };
+        let Some(balance) = CoinModule::read_balance(&object.data) else {
+            continue;
+        };
+        let normalized = CoinModule::normalize_token_type(&token);
+        let entry = balances.entry(normalized).or_insert(0);
+        *entry = entry.saturating_add(balance);
+    }
+    let (coin, quote) =
+        kanari_types::gas_market::select_gas_coin(&balances, gas_limit, table, transfer_needs)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No spendable gas coin object found (tried KANARI and {} whitelisted coin(s))",
+                    table.entries.len().saturating_sub(1)
+                )
+            })?;
+
+    if CoinModule::is_native_token_type(&coin) {
+        // Native was affordable only with a different object than the first
+        // attempt allowed (e.g. exclusions); reselect honoring them.
+        let payment = select_native_gas_payment(
+            owned_objects,
+            sender,
+            native_required,
+            gas_limit,
+            gas_price,
+            exclude_object_ids,
+            pending_access_keys,
+        )?;
+        return Ok((payment, gas_price));
+    }
+
+    let mut candidates: Vec<(ObjectRef, u64)> = owned_objects
+        .iter()
+        .filter(|object| !excluded.contains(&normalize_addr(&object.id)))
+        .filter(|object| !pending_access_keys.contains(&format!("mut:gas:{}", object.id)))
+        .filter(|object| {
+            CoinModule::token_type_of_coin_object(&object.type_)
+                .is_some_and(|token| CoinModule::normalize_token_type(&token) == coin)
+        })
+        .filter_map(|object| {
+            CoinModule::read_balance(&object.data).map(|balance| {
+                (
+                    ObjectRef::new(
+                        object.id.clone(),
+                        Some(object.version),
+                        object.digest.clone(),
+                    ),
+                    balance,
+                )
+            })
+        })
+        .filter(|(_, balance)| *balance >= quote)
+        .collect();
+    candidates.sort_by_key(|(_, balance)| *balance);
+    let (payment_ref, _) = candidates.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!("Selected gas coin {coin} has no single object covering {quote} base units")
+    })?;
+    // Per-unit settlement price, rounded up so `units * price >= quote`.
+    let unit_price = quote.div_ceil(gas_limit.max(1)).max(1);
+    Ok((
+        GasPayment {
+            payment_objects: vec![payment_ref],
+            owner: sender.to_string(),
+            budget: gas_limit,
+            price: unit_price,
+            coin_type: Some(coin),
+            price_version: Some(table.version),
+        },
+        unit_price,
+    ))
 }
 
 fn build_call_native_burn_amount(build_data: &BuildCallFunctionRequest) -> Option<u64> {
@@ -469,6 +608,8 @@ fn select_native_transfer_and_gas_payment(
                 owner: sender.to_string(),
                 budget: gas_limit,
                 price: gas_price,
+                coin_type: None,
+                price_version: None,
             },
         ));
     }
@@ -567,6 +708,8 @@ fn select_native_coin_consolidation_step(
             owner: sender.to_string(),
             budget: gas_limit,
             price: gas_price,
+            coin_type: None,
+            price_version: None,
         };
 
         return Ok((primary_object, merge_object, gas_payment));
@@ -646,7 +789,7 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
 
 /// Post-enrichment owner check: matches when the owner sent the transaction
 /// or received any transfer in it. This is what makes incoming token
-/// transfers visible in the recipient's activity — the pre-filter
+/// transfers visible in the recipient's activity â€” the pre-filter
 /// ([`tx_matches_owner`]) cannot see recipients because entry-function calls
 /// carry the coin in object inputs, not in args.
 fn details_involve_owner(details: &TransactionDetails, owner_norm: Option<&str>) -> bool {
@@ -732,8 +875,8 @@ fn token_transfer_details(
 fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str>) -> Option<u8> {
     let token_type = token_type?;
     let normalized = CoinModule::normalize_token_type(token_type);
-    if normalized == GAS_COIN {
-        return Some(9);
+    if let Some(decimals) = CoinModule::settlement_token_decimals(&normalized) {
+        return Some(decimals);
     }
     let state = state?;
     // StateManager already falls back across normalized/raw keys; keep this
@@ -747,7 +890,7 @@ fn lookup_token_decimals(state: Option<&RpcServerState>, token_type: Option<&str
 }
 
 /// Normalize a hex object id for comparison: arg-parsed ids come from
-/// `to_hex_literal` (lowercase `0x…`) while effect ids are verbatim and may
+/// `to_hex_literal` (lowercase `0xâ€¦`) while effect ids are verbatim and may
 /// differ in case. Lowercasing can only merge spellings of the same id.
 fn norm_hex_id(id: &str) -> String {
     id.trim().to_lowercase()
@@ -954,7 +1097,8 @@ fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool {
             object_inputs,
             ..
         } => {
-            if token_type == GAS_COIN && module == &GasModule::module_path() {
+            if CoinModule::is_native_token_type(&token_type) && module == &GasModule::module_path()
+            {
                 return true;
             }
 
@@ -2233,22 +2377,22 @@ pub async fn handle_build_call_function(
         .collect::<Vec<_>>();
     let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let burn_amount = build_call_native_burn_amount(&build_data);
-    let required_gas_balance = build_data
-        .gas_limit
-        .saturating_mul(effective_gas_price(build_data.gas_price));
-    let required_native_balance = burn_amount
-        .and_then(|amount| amount.checked_add(required_gas_balance))
-        .unwrap_or(required_gas_balance);
-    let gas_payment = match select_native_gas_payment(
+    // A native burn consumes from the KANARI balance alongside gas; other
+    // coins only ever pay gas, so scope the extra need to KANARI.
+    let mut transfer_needs = std::collections::BTreeMap::new();
+    if let Some(amount) = burn_amount {
+        transfer_needs.insert(GAS_COIN.to_string(), amount);
+    }
+    let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
         &owned_objects,
         &build_data.sender,
-        required_native_balance,
         build_data.gas_limit,
         build_data.gas_price,
         &exclude_ids,
         &pending_access_keys,
+        &transfer_needs,
     ) {
-        Ok(payment) => payment,
+        Ok(selected) => selected,
         Err(e) => {
             return RpcResponse {
                 jsonrpc: "2.0".into(),
@@ -2278,7 +2422,7 @@ pub async fn handle_build_call_function(
                 Some(object_inputs)
             },
             gas_limit: build_data.gas_limit,
-            gas_price: build_data.gas_price,
+            gas_price: effective_gas_price_value,
             nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,
@@ -2351,18 +2495,23 @@ pub async fn handle_build_token_transfer(
             };
         }
     };
-    let gas_payment = match select_native_gas_payment(
+    // The transferred tokens come from the selected coin object; any gas coin
+    // the wallet can afford may pay for execution.
+    let mut transfer_needs = std::collections::BTreeMap::new();
+    transfer_needs.insert(
+        CoinModule::normalize_token_type(&build_data.token_type),
+        build_data.amount,
+    );
+    let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
         &owned_objects,
         &build_data.sender,
-        build_data
-            .gas_limit
-            .saturating_mul(effective_gas_price(build_data.gas_price)),
         build_data.gas_limit,
         build_data.gas_price,
         std::slice::from_ref(&coin_object_ref.object_id),
         &state.engine.pending_access_keys_snapshot(),
+        &transfer_needs,
     ) {
-        Ok(payment) => payment,
+        Ok(selected) => selected,
         Err(e) => {
             return RpcResponse {
                 jsonrpc: "2.0".into(),
@@ -2416,7 +2565,7 @@ pub async fn handle_build_token_transfer(
             args: vec![coin_object_id, amount, recipient],
             object_inputs: Some(vec![object_input]),
             gas_limit: build_data.gas_limit,
-            gas_price: build_data.gas_price,
+            gas_price: effective_gas_price_value,
             nonce: Some(nonce),
             gas_payment: Some(gas_payment),
             signature: None,

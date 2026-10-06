@@ -38,6 +38,10 @@ impl super::MoveRuntime {
                         object_id.clone(),
                         stored_obj.type_name.clone(),
                         stored_obj.data.clone(),
+                        // `true` preserves the pre-flag behavior: this preload path
+                        // predates the mutability gate and served both
+                        // `borrow_global` and `borrow_global_mut`.
+                        true,
                     );
                     log::debug!(
                         "[RUNTIME] Preloaded object {} into LoadedObjectsExt",

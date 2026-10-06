@@ -68,10 +68,11 @@ impl TransactionScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanari_types::transaction::Transaction;
+    use kanari_types::transaction::{ObjectInput, ObjectRef, Transaction};
 
     fn create_dummy_tx(sender: &str, module: &str, object: Option<&str>) -> SignedTransaction {
         let mut args = Vec::new();
+        let mut object_inputs = Vec::new();
         if let Some(obj) = object {
             // Mock object ID as 32 bytes
             let mut id = vec![0u8; 32];
@@ -81,6 +82,13 @@ mod tests {
                 id[i] = *b;
             }
             args.push(id);
+            // Declared object inputs drive conflict detection under the current
+            // transaction model (raw args are only scanned for native calls).
+            object_inputs.push(ObjectInput {
+                object_ref: ObjectRef::new(format!("0x{obj}"), None, None),
+                owner: None,
+                mutable: true,
+            });
         }
 
         let tx = Transaction::ExecuteFunction {
@@ -89,9 +97,11 @@ mod tests {
             function: "test".to_string(),
             type_args: vec![],
             args,
+            object_inputs,
+            gas_payment: None,
             gas_limit: 1000,
             gas_price: 1,
-            sequence_number: 0,
+            nonce: 0,
         };
         SignedTransaction::new(tx)
     }

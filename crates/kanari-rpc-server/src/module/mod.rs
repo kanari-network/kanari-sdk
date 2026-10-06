@@ -52,7 +52,7 @@ fn extract_module_dependencies(bytecode: &[u8]) -> Vec<String> {
 
 fn build_object_info(
     id: String,
-    obj: kanari_move_runtime_v1::changeset::CreatedObject,
+    obj: kanari_move_runtime_v2::changeset::CreatedObject,
 ) -> ObjectInfo {
     let digest = format!("0x{}", hex::encode(blake3::hash(&obj.data).as_bytes()));
     ObjectInfo {

@@ -92,6 +92,27 @@ export function formatBalance(value: unknown, decimalsValue: unknown) {
   }
 }
 
+export function formatGasFee(transaction: unknown, value: unknown) {
+  const tx = typeof transaction === "object" && transaction !== null && !Array.isArray(transaction)
+    ? (transaction as Record<string, unknown>)
+    : {};
+  const payment = typeof tx["gas_payment"] === "object" && tx["gas_payment"] !== null && !Array.isArray(tx["gas_payment"])
+    ? (tx["gas_payment"] as Record<string, unknown>)
+    : {};
+  const coinType = typeof payment["coin_type"] === "string" && payment["coin_type"]
+    ? payment["coin_type"]
+    : "0x2::kanari::KANARI";
+  const normalizedCoinType = coinType.toLowerCase();
+  const symbol = coinType.split("::").pop() || coinType;
+  const decimals = normalizedCoinType.endsWith("::usd::usd")
+    ? "6"
+    : normalizedCoinType.endsWith("::kanari::kanari")
+      ? "9"
+      : null;
+
+  return `${formatBalance(value, decimals)} ${symbol}`;
+}
+
 export function PageHeader({
   eyebrow,
   title,

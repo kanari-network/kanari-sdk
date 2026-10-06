@@ -1,6 +1,6 @@
-# ER Diagram — kanari-move-runtime
+# ER Diagram — kanari-move-runtime-v0
 
-This document shows an Entity-Relationship (ER) style diagram describing the main components and data flows inside the `kanari-move-runtime` crate.
+This document shows an Entity-Relationship (ER) style diagram describing the main components and data flows inside the `kanari-move-runtime-v0` crate.
 
 The diagram below uses Mermaid's `erDiagram` syntax — GitHub and many editors render this automatically.
 

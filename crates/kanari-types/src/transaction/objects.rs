@@ -44,6 +44,57 @@ pub struct GasPayment {
     pub owner: String,
     pub budget: u64,
     pub price: u64,
+    /// Settlement coin type, e.g. `0x2::kanari::KANARI`.
+    ///
+    /// `None` means the legacy native gas coin and keeps every checkpoint
+    /// written before multi-coin gas readable through the JSON API (`serde`
+    /// fills `None` for missing fields). New BCS-encoded transactions always
+    /// populate this field, so a node upgraded to multi-coin gas only replays
+    /// post-upgrade history — reset devnet data on upgrade.
+    #[serde(default)]
+    pub coin_type: Option<String>,
+    /// Pinned oracle [`crate::gas_market::GasPriceTable`] version the wallet
+    /// quoted against. `None` = latest committed table (legacy behavior).
+    #[serde(default)]
+    pub price_version: Option<u64>,
+}
+
+impl GasPayment {
+    /// Canonical settlement coin type (defaults to native KANARI).
+    ///
+    /// Always normalized, so `0x02::..` style spellings behave identically to
+    /// `0x2::..` everywhere gas is validated or charged.
+    pub fn gas_coin_type(&self) -> String {
+        let raw = self
+            .coin_type
+            .clone()
+            .unwrap_or_else(|| crate::gas_coin::GAS_COIN.to_string());
+        crate::coin::CoinModule::normalize_token_type(&raw)
+    }
+
+    /// Whether this payment settles in native KANARI (legacy path).
+    pub fn is_native_payment(&self) -> bool {
+        crate::coin::CoinModule::is_native_token_type(&self.gas_coin_type())
+    }
+
+    /// Constructor used by wallets: explicit coin selection.
+    pub fn new_with_coin(
+        payment_objects: Vec<ObjectRef>,
+        owner: String,
+        budget: u64,
+        price: u64,
+        coin_type: Option<String>,
+        price_version: Option<u64>,
+    ) -> Self {
+        Self {
+            payment_objects,
+            owner,
+            budget,
+            price,
+            coin_type,
+            price_version,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

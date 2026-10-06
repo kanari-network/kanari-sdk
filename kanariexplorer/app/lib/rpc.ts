@@ -58,6 +58,8 @@ export const RPC_METHODS = {
   GET_OWNED_NFTS: "kanari_getOwnedNfts",
   LIST_COLLECTIONS: "kanari_listCollections",
   GET_NFTS_BY_COLLECTION: "kanari_getNftsByCollection",
+  REQUEST_USD_FAUCET: "kanari_requestUsdFaucet",
+  GET_USD_FAUCET_STATUS: "kanari_getUsdFaucetStatus",
 } as const;
 
 export type RpcEndpoint = {

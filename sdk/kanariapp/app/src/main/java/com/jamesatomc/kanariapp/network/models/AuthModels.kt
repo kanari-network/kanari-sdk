@@ -7,13 +7,13 @@ import kotlinx.serialization.Serializable
 data class RegisterRequest(
     val email: String,
     val password: String,
-    @SerialName("curve_type") val curveType: String? = null
+    @SerialName("curveType") val curveType: String? = null
 )
 
 @Serializable
 data class RegisterResponse(
     val success: Boolean? = null,
-    @SerialName("wallet_address") val walletAddress: String? = null,
+    @SerialName("walletAddress") val walletAddress: String? = null,
     val message: String? = null
 )
 
@@ -21,21 +21,21 @@ data class RegisterResponse(
 data class LoginRequest(
     val email: String,
     val password: String,
-    @SerialName("totp_code") val totpCode: String? = null,
-    @SerialName("backup_code") val backupCode: String? = null,
-    @SerialName("session_timeout_hours") val sessionTimeoutHours: Int? = null
+    @SerialName("totpCode") val totpCode: String? = null,
+    @SerialName("backupCode") val backupCode: String? = null,
+    @SerialName("sessionTimeoutHours") val sessionTimeoutHours: Int? = null
 )
 
 @Serializable
 data class LoginResponse(
     val success: Boolean? = null,
-    @SerialName("two_factor_enabled") val twoFactorEnabled: Boolean? = null,
-    @SerialName("session_id") val sessionId: String? = null,
-    @SerialName("user_email") val userEmail: String? = null,
-    @SerialName("wallet_address") val walletAddress: String? = null,
-    @SerialName("curve_type") val curveType: String? = null,
-    @SerialName("encrypted_private_key") val encryptedPrivateKey: String? = null,
-    @SerialName("expires_at") val expiresAt: String? = null
+    @SerialName("twoFactorEnabled") val twoFactorEnabled: Boolean? = null,
+    @SerialName("sessionId") val sessionId: String? = null,
+    @SerialName("userEmail") val userEmail: String? = null,
+    @SerialName("walletAddress") val walletAddress: String? = null,
+    @SerialName("curveType") val curveType: String? = null,
+    @SerialName("encryptedPrivateKey") val encryptedPrivateKey: String? = null,
+    @SerialName("expiresAt") val expiresAt: String? = null
 )
 
 @Serializable
@@ -48,9 +48,9 @@ data class TwoFactorSetupRequest(
 data class TwoFactorSetupResponse(
     val success: Boolean? = null,
     val secret: String? = null,
-    @SerialName("otpauth_url") val otpauthUrl: String? = null,
-    @SerialName("qr_code_svg") val qrCodeSvg: String? = null,
-    @SerialName("backup_codes") val backupCodes: List<String>? = null,
+    @SerialName("otpauthUrl") val otpauthUrl: String? = null,
+    @SerialName("qrCodeSvg") val qrCodeSvg: String? = null,
+    @SerialName("backupCodes") val backupCodes: List<String>? = null,
     val message: String? = null
 )
 
@@ -70,34 +70,34 @@ data class Disable2faRequest(
 
 @Serializable
 data class LogoutRequest(
-    @SerialName("session_id") val sessionId: String
+    @SerialName("sessionId") val sessionId: String
 )
 
 @Serializable
 data class LogoutAllRequest(
     val email: String,
-    @SerialName("session_id") val sessionId: String
+    @SerialName("sessionId") val sessionId: String
 )
 
 @Serializable
 data class ChangePasswordRequest(
     val email: String,
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("old_password") val oldPassword: String,
-    @SerialName("new_password") val newPassword: String
+    @SerialName("sessionId") val sessionId: String,
+    @SerialName("oldPassword") val oldPassword: String,
+    @SerialName("newPassword") val newPassword: String
 )
 
 @Serializable
 data class DeleteAccountRequest(
     val email: String,
-    @SerialName("session_id") val sessionId: String,
+    @SerialName("sessionId") val sessionId: String,
     val password: String
 )
 
 @Serializable
 data class ValidateSessionResponse(
     val valid: Boolean,
-    @SerialName("session_id") val sessionId: String
+    @SerialName("sessionId") val sessionId: String
 )
 
 @Serializable

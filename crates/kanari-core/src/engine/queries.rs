@@ -284,7 +284,25 @@ impl BlockchainEngine {
     pub fn try_get_owner_info(&self, owner: &str) -> Result<Option<OwnerInfo>> {
         let state = self.state_read();
         let Some(acc) = state.try_get_owner_state_by_hex(owner)? else {
-            return Ok(None);
+            let address = KanariAddress::parse_to_account_address(owner)?;
+            if address != KanariAddress::dao_account_address() {
+                return Ok(None);
+            }
+            let owned_objects = self.resolve_account_objects(&state, &address)?;
+            if owned_objects.is_empty() {
+                return Ok(None);
+            }
+            let balances = state
+                .resolve_owner_token_balances(address)
+                .with_context(|| format!("Failed to resolve token balances for owner {owner}"))?;
+            return Ok(Some(OwnerInfo {
+                owner: format!("{address:#x}"),
+                nonce: Some(self.get_expected_nonce(owner)),
+                modules: Vec::new(),
+                balances,
+                owned_object_count: Some(owned_objects.len()),
+                owned_objects: Some(owned_objects),
+            }));
         };
         let final_owned_objects = self.resolve_account_objects(&state, &acc.address)?;
         let balances = state

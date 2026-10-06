@@ -1,7 +1,7 @@
 #![allow(clippy::print_stdout)]
 
 use anyhow::Result;
-use kanari_move_runtime::{
+use kanari_move_runtime_v0::{
     state::{Account, StateManager},
     storage::persistent_store::PersistentStore,
 };
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
                     println!("7. Test completed successfully!");
                     return Ok(());
                 }
-                Err(e) if attempt < 5 => {
+                Err(_) if attempt < 5 => {
                     std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64));
                 }
                 Err(e) => {

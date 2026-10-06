@@ -9,7 +9,7 @@ use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
-use kanari_types::kanari::KanariModule;
+use kanari_types::gas_coin::GasModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -307,7 +307,7 @@ impl StateManager {
 
     fn init_genesis(&mut self) -> Result<()> {
         // Total supply in Mist (from kanari-types constants)
-        let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
+        let total_supply_mist: u64 = GasModule::TOTAL_SUPPLY_MIST;
 
         // Initialize system accounts using safe helper functions
         let genesis_addr = KanariAddress::genesis_account_address();

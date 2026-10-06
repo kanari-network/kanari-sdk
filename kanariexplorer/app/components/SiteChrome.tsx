@@ -88,6 +88,7 @@ export function SiteHeader() {
           <Link href="/coins" onClick={() => setMenuOpen(false)}>Tokens</Link>
           <Link href="/account" onClick={() => setMenuOpen(false)}>Accounts</Link>
           <Link href="/nft" onClick={() => setMenuOpen(false)}>NFTs</Link>
+          <Link href="/faucet" onClick={() => setMenuOpen(false)}>Faucet</Link>
           <div className={`site-nav__dropdown ${toolsOpen ? "site-nav__dropdown--open" : ""}`}>
             <button
               className="site-nav__dropdown-trigger"

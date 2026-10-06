@@ -1,9 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::print_stdout)]
+
 use anyhow::Result;
-use kanari_move_runtime::changeset::{ChangeSet, CreatedObject};
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v0::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v0::state::StateManager;
 use move_core_types::account_address::AccountAddress;
 
 #[test]
@@ -254,15 +256,15 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
 
 #[test]
 fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
-    use kanari_move_runtime::changeset::{ChangeSet, CreatedObject};
-    use kanari_move_runtime::state::StateManager;
+    use kanari_move_runtime_v0::changeset::{ChangeSet, CreatedObject};
+    use kanari_move_runtime_v0::state::StateManager;
     use move_core_types::account_address::AccountAddress;
 
     let alice = AccountAddress::from_hex_literal("0x01").unwrap();
     let mut state = StateManager::new_in_memory();
 
     // Initialize Alice's account with balance for storing Coins
-    let account = kanari_move_runtime::state::Account::new(alice, 0);
+    let account = kanari_move_runtime_v0::state::Account::new(alice, 0);
     state.save_account(&account)?;
 
     let token_type = "0x2::james::JAMES";
@@ -388,13 +390,13 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
 
 #[test]
 fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
-    use kanari_move_runtime::changeset::{ChangeSet, CreatedObject};
-    use kanari_move_runtime::state::StateManager;
+    use kanari_move_runtime_v0::changeset::{ChangeSet, CreatedObject};
+    use kanari_move_runtime_v0::state::StateManager;
     use move_core_types::account_address::AccountAddress;
 
     let alice = AccountAddress::from_hex_literal("0x01").unwrap();
     let mut state = StateManager::new_in_memory();
-    let account = kanari_move_runtime::state::Account::new(alice, 0);
+    let account = kanari_move_runtime_v0::state::Account::new(alice, 0);
     state.save_account(&account)?;
 
     let token_type = "0x2::james::JAMES";

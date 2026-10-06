@@ -17,6 +17,7 @@ use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, StructTag, TypeTag};
+use move_core_types::runtime_value::MoveTypeLayout;
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_extensions::NativeContextExtensions;
 use move_vm_runtime::native_functions::NativeFunctionTable;
@@ -28,7 +29,7 @@ mod load_system_modules;
 mod object_ops;
 mod parsers;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::gas_v2::GasOperation;
+use kanari_types::gas::gas_v2::GasOperation;
 use kanari_types::tx_context::TxContextModule;
 pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
@@ -283,6 +284,9 @@ impl MoveRuntime {
     ) -> Result<ChangeSet> {
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
+        // Fresh publishes run the module's `init` below; upgrades (module
+        // already present) never re-run it, mirroring kanari-move-runtime-v1.
+        let is_fresh_publish = self.state.get_module(&module_id).is_none();
 
         let (move_changeset, events) = {
             // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
@@ -327,7 +331,38 @@ impl MoveRuntime {
             )?;
         }
 
+        // Run the module's `init` in a follow-up session so freshly published
+        // modules initialize themselves (treasury creation, registry seeding)
+        // with no separate setup call. The follow-up session observes the
+        // module because a persisting publish applied it and reloaded the VM
+        // cache above. Init compute is not separately metered here; any init
+        // failure aborts the publish (the module itself stays persisted).
+        if persist_runtime_state && is_fresh_publish && Self::module_declares_init(&compiled) {
+            let init_cs = self.execute_system_function_with_tx_hash_and_persistence(
+                &module_id,
+                "init",
+                vec![],
+                // One empty slot for the one-time-witness parameter; the
+                // entry machinery appends TxContext automatically.
+                vec![Vec::new()],
+                Some(sender),
+                None,
+                None,
+                None,
+                true,
+            )?;
+            cs.merge(init_cs);
+        }
+
         Ok(cs)
+    }
+
+    /// Whether a compiled module declares an `init` function.
+    fn module_declares_init(compiled: &CompiledModule) -> bool {
+        compiled.function_defs().iter().any(|func_def| {
+            let handle = compiled.function_handle_at(func_def.function);
+            compiled.identifier_at(handle.name).as_str() == "init"
+        })
     }
 
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
@@ -736,6 +771,27 @@ impl MoveRuntime {
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
                     break;
+                }
+
+                // System calls synthesize one-time-witness bytes into empty
+                // struct slots, mirroring kanari-move-runtime-v1: a fieldless
+                // struct keeps empty bytes and a single-bool struct takes
+                // `true`. Anything else keeps its bytes and fails naturally
+                // at deserialization.
+                if bypass_entry_check && final_args[i].is_empty() {
+                    let base_type = match param_type {
+                        RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                            inner.as_ref()
+                        }
+                        base => base,
+                    };
+                    if let Ok(MoveTypeLayout::Struct(fields)) =
+                        session.type_to_type_layout(base_type)
+                        && fields.0.len() == 1
+                        && matches!(fields.0[0], MoveTypeLayout::Bool)
+                    {
+                        final_args[i] = vec![1];
+                    }
                 }
 
                 let is_potential_id = final_args[i].len() == 32;

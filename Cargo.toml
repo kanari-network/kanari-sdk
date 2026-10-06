@@ -9,9 +9,11 @@ resolver = "2"                   # Use the version 2 feature resolver for more c
 # This can be useful for excluding third-party code or components 
 # that are not directly part of the workspace's build process.
 exclude = [
-    "third_party/move",           # Exclude the 'third_party/move' directory from workspace builds.
-    "crates/kanari-crypto/fuzz",  # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
-    "crates/mysticeti",           # Nested Mysticeti workspace used through explicit path dependencies.
+    "third_party/move",                                   # Exclude the 'third_party/move' directory from workspace builds.
+    "crates/kanari-crypto/fuzz",                          # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "move-execution/v1/kanari-move-runtime-v1/fuzz",      # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "move-execution/v2/kanari-move-runtime-v2/fuzz",      # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "crates/mysticeti",                                   # Nested Mysticeti workspace used through explicit path dependencies.
 ]
 
 
@@ -45,11 +47,14 @@ members = [
       "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
+      "move-execution/v0/kanari-move-runtime",
       "move-execution/v1/kanari-move-runtime-v1",
+      "move-execution/v2/kanari-move-runtime-v2",
 
       # libraries mobile and desktop apps can use to interact with the kanari-sdk
       "packages/kanari_flutter/rust",
-      "packages/kanari-kotlin",
+      "packages/kanari-kotlin", 
+      "crates/kanari-e2e-tests",
 ]
 
 
@@ -74,7 +79,7 @@ description = "Kanari Network SDK"                                              
 # ============================================================================
 # Core Runtime & Concurrency
 # ============================================================================
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 rayon = "1.12.0"
 crossbeam-channel = "0.5.17"
 futures = "0.3.34"
@@ -202,7 +207,7 @@ walkdir = "2.5.0"                                                               
 num_cpus = "1.17.0"                                                                 # CPU core detection
 regex = "1.13.1"                                                                    # Regular expressions for validation
 smallvec = "1.16.2"                                                                 # Stack-allocated vectors
-lazy_static = { version = "1.5.0", default-features = true }
+lazy_static = { version = "1.5.1", default-features = true }
 once_cell = "1.21.4"
 
 # ============================================================================
@@ -213,6 +218,7 @@ rand_core = "0.10.1"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.11.0"                                                                 # Property-based testing
 arbitrary = { version = "1.4.2", features = ["derive"] }                            # Fuzzing support
+libfuzzer-sys = { version = "0.4.13", features = ["fuzzing"] }                      # Fuzzing support
 
 # ============================================================================
 # Authentication & 2FA
@@ -239,7 +245,7 @@ ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.26.1", features = ["v4", "serde"] }
+uuid = { version = "1.27.0", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
@@ -307,7 +313,9 @@ kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 smt = { path = "crates/smt" }
 
 # Move Runtime
+kanari-move-runtime-v0 = { path = "move-execution/v0/kanari-move-runtime" }
 kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
+kanari-move-runtime-v2 = { path = "move-execution/v2/kanari-move-runtime-v2" }
 
 # Move dependencies
 move-binary-format = { path = "third_party/move/crates/move-binary-format" }

@@ -4,16 +4,14 @@
 #![no_main]
 
 use arbitrary::{Arbitrary, Unstructured};
-use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject, StateAccessSet};
 use kanari_move_runtime_v1::state::{OwnerState, StateManager};
 use kanari_types::balance::BalanceRecord;
-use kanari_types::object::{IDRecord, UIDRecord};
 use kanari_types::transaction::ObjectOwnerKind;
 use libfuzzer_sys::fuzz_target;
 use move_core_types::account_address::AccountAddress;
-use std::collections::BTreeSet;
 
-/// Arbitrary OwnerState generator
+/// Arbitrary OwnerState generator.
 #[derive(Debug, Arbitrary)]
 struct ArbitraryOwnerState {
     address_bytes: [u8; 32],
@@ -24,52 +22,48 @@ struct ArbitraryOwnerState {
 
 fuzz_target!(|data: &[u8]| {
     let mut unstructured = Unstructured::new(data);
-
-    // Create a StateManager
     let mut state = StateManager::new_in_memory();
 
-    // Generate multiple random owner states
-    let owner_count = std::cmp::min(unstructured.int_in_range(1..=10).unwrap_or(1), 10);
-
+    // Build a handful of owner states from fuzzed data.
+    let owner_count: u32 = unstructured.int_in_range(1..=10).unwrap_or(1);
     let mut owners = Vec::new();
 
     for _ in 0..owner_count {
-        if let Ok(arb_owner) = ArbitraryOwnerState::arbitrary(&mut unstructured) {
-            let address = AccountAddress::new(arb_owner.address_bytes);
-            let mut owner_state = OwnerState::new(address);
-            owner_state.nonce = arb_owner.nonce;
+        let Ok(arb) = ArbitraryOwnerState::arbitrary(&mut unstructured) else {
+            break;
+        };
+        let address = AccountAddress::new(arb.address_bytes);
+        let mut owner_state = OwnerState::new(address);
+        owner_state.nonce = arb.nonce;
 
-            // Add some modules
-            for i in 0..arb_owner.module_count {
-                owner_state.add_module(format!("0x1::module_{}", i));
-            }
-
-            // Add some token balances
-            for i in 0..arb_owner.token_balance_count {
-                owner_state.set_token_balance(
-                    format!("0x1::coin::Coin<0x1::token{}>", i),
-                    BalanceRecord::new(i as u64 * 100),
-                );
-            }
-
-            owners.push((address, owner_state));
+        for i in 0..arb.module_count {
+            owner_state.modules.insert(format!("0x1::module_{}", i));
         }
+
+        for i in 0..arb.token_balance_count {
+            owner_state.set_token_balance(
+                format!("0x1::coin::Coin<0x1::token{}>", i),
+                BalanceRecord::new(i as u64 * 100),
+            );
+        }
+
+        owners.push((address, owner_state));
     }
 
-    // Apply owner states
-    for (address, owner_state) in owners {
-        let _ = state.set_owner_state(address, owner_state);
+    for (_, owner_state) in &owners {
+        let _ = state.save_owner_state(owner_state);
     }
 
-    // Generate random changesets and apply them
-    let changeset_count = std::cmp::min(unstructured.int_in_range(1..=5).unwrap_or(1), 5);
+    // Generate random changesets and apply them; none of this may panic.
+    let changeset_count: u32 = unstructured.int_in_range(1..=5).unwrap_or(1);
 
     for _ in 0..changeset_count {
         let mut cs = ChangeSet::new();
 
-        // Add some random token balance changes
-        if let Ok(owner_idx) = unstructured.int_in_range(0..=owners.len() as i32) {
-            let owner = owners[owner_idx as usize].0;
+        let owner_slot: u32 = unstructured
+            .int_in_range(0..=(owners.len().saturating_sub(1)) as u32)
+            .unwrap_or(0);
+        if let Some(&(owner, _)) = owners.get(owner_slot as usize) {
             let token_type = format!(
                 "0x1::coin::TEST{}",
                 unstructured.int_in_range(0..=100).unwrap_or(0)
@@ -77,26 +71,28 @@ fuzz_target!(|data: &[u8]| {
             let balance = unstructured.int_in_range(0..=10000).unwrap_or(0) as u64;
             cs.add_token_balance_set(owner, token_type, balance);
 
-            // Add some created objects
-            let obj_count = std::cmp::min(unstructured.int_in_range(0..=5).unwrap_or(0), 5);
+            let obj_count: u32 = unstructured.int_in_range(0..=5).unwrap_or(0);
             for _ in 0..obj_count {
-                let owner_kind = match unstructured.int_in_range(0..=4).unwrap_or(0) {
+                let mut obj_bytes = [0u8; 32];
+                let _ = unstructured.fill_buffer(&mut obj_bytes);
+                let object_id = AccountAddress::new(obj_bytes);
+
+                let owner_kind = match unstructured.int_in_range::<u32>(0..=3).unwrap_or(0) {
                     0 => ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
-                    1 => ObjectOwnerKind::ObjectOwner(format!("0x{}", owner)),
-                    2 => ObjectOwnerKind::SharedOwner {
-                        initial_shared_version: 1,
-                    },
-                    3 => ObjectOwnerKind::Immutable,
-                    _ => ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+                    1 => ObjectOwnerKind::AddressOwner(object_id.to_hex_literal()),
+                    2 => ObjectOwnerKind::Shared,
+                    _ => ObjectOwnerKind::Immutable,
                 };
 
                 let type_str = format!(
                     "0x1::test::Object{}",
                     unstructured.int_in_range(0..=100).unwrap_or(0)
                 );
+                let data_len: u32 = unstructured.int_in_range(0..=256).unwrap_or(0);
                 let data = unstructured
-                    .bytes(unstructured.int_in_range(0..=256).unwrap_or(0) as usize)
-                    .unwrap_or_default();
+                    .bytes(data_len as usize)
+                    .unwrap_or_default()
+                    .to_vec();
                 let version = unstructured.int_in_range(1..=100).unwrap_or(1) as u64;
 
                 cs.created_objects.push((
@@ -116,25 +112,35 @@ fuzz_target!(|data: &[u8]| {
                 ));
             }
 
-            // Add some state access
-            for _ in 0..unstructured.int_in_range(0..=10).unwrap_or(0) {
-                let key = unstructured.bytes(32).unwrap_or_default();
-                cs.state_access_set.read(key.clone());
-                if unstructured.int_in_range(0..=2).unwrap_or(0) > 0 {
-                    cs.state_access_set.write(key);
+            // Build an access manifest through the public reads/writes sets.
+            let access_count: u32 = unstructured.int_in_range(0..=10).unwrap_or(0);
+            let mut access = StateAccessSet::default();
+            for _ in 0..access_count {
+                let key_len: u32 = unstructured.int_in_range(0..=32).unwrap_or(32);
+                let key = unstructured
+                    .bytes(key_len as usize)
+                    .unwrap_or_default()
+                    .to_vec();
+                access.reads.insert(key.clone());
+                if unstructured.int_in_range::<u32>(0..=2).unwrap_or(0) > 0 {
+                    access.writes.insert(key);
                 }
             }
+
+            let derived = cs.deterministic_access_set();
+            assert_eq!(
+                access.conflicts_with(&derived),
+                derived.conflicts_with(&access),
+                "conflicts_with must be symmetric"
+            );
         }
 
-        // Try to apply changeset
         let _ = state.apply_changeset(&cs);
     }
 
-    // Verify state consistency
+    // Reading back every owner and recomputing the root must never panic.
     for (address, _) in &owners {
-        let _owner_state = state.get_owner_state(*address);
+        let _ = state.get_owner_state(address);
     }
-
-    // Try to get state root hash
-    let _state_root = state.compute_state_root();
+    let _ = state.compute_state_root();
 });

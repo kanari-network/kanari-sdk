@@ -1202,3 +1202,103 @@ html.dark .graph-change-card--mutated > .graph-change-card__top > .graph-change-
 .pagination-gap { min-width: 20px; text-align: center; color: var(--muted); font-size: 13px; }
 .pagination-size { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
 .pagination-size select { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 700; cursor: pointer; }
+
+/* =====================================================================
+   Responsive layer: tablet (<=1024px) and phone (<=640px).
+   The base stylesheet is desktop-first; these overrides collapse grids,
+   unfix the header nav into a hamburger menu, and keep dialogs inside
+   narrow viewports.
+   ===================================================================== */
+
+/* Safety net: never allow sideways page scroll from an overflowing visual. */
+html, body { overflow-x: clip; }
+
+@media (max-width: 1024px) {
+  .hero-section,
+  .explorer-wrap .hero-section { grid-template-columns: 1fr; min-height: 0; gap: 26px; padding: 46px 0 52px; }
+  .hero-visual { min-height: 0; }
+  .network-graphic { width: min(78vw, 420px); margin-inline: auto; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .content-grid { grid-template-columns: 1fr; }
+  .stability-grid,
+  .state-audit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .centauri-graph { grid-template-columns: 1fr; }
+  .route-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intro-section { grid-template-columns: 1fr; padding: 90px 0 40px; }
+  .feature-grid { grid-template-columns: 1fr; padding-bottom: 90px; }
+  .feature-card { min-height: 0; }
+}
+
+@media (max-width: 920px) {
+  /* Hamburger menu: the desktop inline nav becomes a dropdown panel. */
+  .menu-toggle { width: 42px; height: 42px; display: grid; flex: 0 0 auto; place-items: center; gap: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; cursor: pointer; }
+  .menu-toggle span { width: 16px; height: 2px; display: block; background: var(--ink); }
+  .menu-toggle span + span { margin-top: 4px; }
+  .site-nav { min-width: 220px; position: absolute; top: calc(100% + 12px); right: 12px; left: 12px; z-index: 50; display: none; flex-direction: column; gap: 2px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper); box-shadow: 0 18px 40px color-mix(in srgb, var(--deep-green) 14%, transparent); }
+  .site-nav--open { display: flex; }
+  .site-nav a { padding: 11px 12px; border-radius: 11px; }
+  .site-nav__dropdown-menu { position: static; box-shadow: none; }
+  .site-header { width: min(1240px, calc(100% - 24px)); }
+  .site-header .header-button { display: none; }
+  .site-nav { margin-right: 0; }
+}
+
+@media (max-width: 640px) {
+  .site-header { height: 64px; padding-left: 12px; border-radius: 24px; }
+  .site-header .brand img { width: 34px; height: 34px; }
+  .site-header-space { height: 82px; }
+
+  /* RPC dialog: fit narrow screens, wrap long preset URLs and actions. */
+  .rpc-dialog-backdrop { padding: 76px 12px 12px; overflow-y: auto; }
+  .rpc-dialog { box-shadow: 8px 8px 0 color-mix(in srgb, var(--deep-green) 42%, transparent); }
+  .rpc-dialog form { padding: 20px 18px 22px; }
+  .rpc-dialog__header { padding: 14px 16px; gap: 12px; }
+  .rpc-dialog__header p { font-size: 13px; }
+  .rpc-preset { flex-wrap: wrap; }
+  .rpc-preset small { flex: 1 1 100%; overflow-wrap: anywhere; white-space: normal; }
+  .rpc-dialog__actions { flex-wrap: wrap; }
+  .rpc-dialog__actions button { flex: 1 1 120px; }
+
+  .hero-copy h1 { font-size: clamp(52px, 17vw, 84px); }
+  .subpage-hero { padding: 110px 0 64px; }
+  .subpage-hero h1 { font-size: clamp(44px, 13vw, 72px); }
+  .hero-visual { display: none; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .stability-grid,
+  .state-audit-grid { grid-template-columns: 1fr; }
+  .route-list { grid-template-columns: 1fr; }
+  .nft-grid { grid-template-columns: 1fr 1fr; }
+
+  /* Data rows become stacked cards instead of overflowing grids. */
+  .data-row,
+  .data-row--tokens,
+  .data-row--account { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px; }
+  .data-row > *,
+  .state-root-row > *,
+  .state-root-table__head > *,
+  .block-summary__top > * { min-width: 0; }
+  .state-root-table__head { grid-template-columns: 1fr; gap: 10px; }
+  .state-root-row { grid-template-columns: 1fr; gap: 10px; }
+  .panel-head { flex-wrap: wrap; gap: 12px; }
+  .block-summary { padding: 18px; }
+  .block-summary__top,
+  .block-summary__top--triple { grid-template-columns: 1fr; }
+  .block-summary__hash { overflow-wrap: anywhere; }
+  .data-row .mono { overflow-wrap: anywhere; }
+
+  .search-box { flex-wrap: wrap; border-radius: 26px; }
+  .search-box .button { width: 100%; min-width: 0; }
+  .explorer-search-panel__form { width: 100%; }
+  .centauri-map { min-height: 340px; }
+  .site-footer { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 18px; padding-inline: 20px; text-align: center; }
+  .site-footer > * { min-width: 0; max-width: 100%; }
+  .site-footer div { justify-content: center; row-gap: 14px; }
+  .site-footer a { font-size: 12px; }
+}
+
+@media (max-width: 420px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .nft-grid { grid-template-columns: 1fr; }
+  .explorer-wrap { width: calc(100% - 24px); }
+}

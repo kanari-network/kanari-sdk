@@ -10,9 +10,9 @@ use crate::engine::{
 };
 use crate::file_io::write_file_atomically;
 use kanari_crypto::keys::{CurveType, generate_keypair};
-use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-use kanari_move_runtime_v1::state::OwnerState;
-use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
+use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v2::state::OwnerState;
+use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::CoinModule;
@@ -135,6 +135,8 @@ fn signed_native_burn_with_gas_object(
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         });
     }
     let mut signed_tx = SignedTransaction::new(tx);
@@ -452,6 +454,8 @@ fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
             owner: owner.to_string(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         });
     }
 
@@ -812,6 +816,8 @@ proptest! {
                 owner: sender.address.clone(),
                 budget: 100_000,
                 price: 1,
+                coin_type: None,
+                price_version: None,
             });
         }
         let mut burn_tx = SignedTransaction::new(burn_tx);
@@ -841,7 +847,7 @@ proptest! {
         // Floor at the minimum native gas charge (100 Mist): this property
         // asserts every hop succeeds, and the harness always pays gas from
         // the sender's smallest coin. Amounts below 100 would strand a dust
-        // fragment that later legitimately fails gas validation — that
+        // fragment that later legitimately fails gas validation â€” that
         // rejection path is covered by gas-specific tests, not here.
         hop_amounts in prop::collection::vec(100u64..200_000u64, 1..8),
     ) {
@@ -2080,8 +2086,28 @@ fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
 fn gas_application_credits_dao_ledger_without_creating_coin() {
     let sender = AccountAddress::random();
     let mut changeset = ChangeSet::new();
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.to_hex_literal(),
+        module: "0x2::coin".to_string(),
+        function: "transfer".to_string(),
+        type_args: Vec::new(),
+        args: Vec::new(),
+        object_inputs: Vec::new(),
+        gas_payment: None,
+        gas_limit: 10,
+        gas_price: 1,
+        nonce: 0,
+    };
 
-    BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
+    BlockchainEngine::apply_gas_and_sequence(
+        &mut changeset,
+        sender,
+        10,
+        10,
+        kanari_types::gas_coin::GAS_COIN,
+        &tx,
+    )
+    .unwrap();
 
     let sender_owner_delta = changeset.owner_deltas.get(&sender).unwrap();
     assert_eq!(sender_owner_delta.balance_delta, -10);
@@ -2090,7 +2116,7 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
     assert_eq!(changeset.native_gas_credits.get(&dao), Some(&10));
     assert!(changeset.created_objects.is_empty());
 
-    let mut state = kanari_move_runtime_v1::state::StateManager::new_in_memory();
+    let mut state = kanari_move_runtime_v2::state::StateManager::new_in_memory();
     state
         .save_owner_state(&OwnerState::with_native_balance(sender, 10))
         .unwrap();
@@ -2333,6 +2359,8 @@ fn mixed_success_and_failure_speculative_wave_matches_strict_serial() {
             owner: invalid_sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3001,6 +3029,8 @@ fn non_native_execute_function_requires_full_object_ref_metadata() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3070,6 +3100,8 @@ fn gas_payment_object_must_be_native_kanari_coin() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,
@@ -3082,6 +3114,270 @@ fn gas_payment_object_must_be_native_kanari_coin() {
 
     let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
     assert!(err.to_string().contains("must be Coin<"));
+}
+
+#[test]
+fn genesis_registers_usd_with_shared_mint_authority() {
+    use kanari_types::usd_coin::USD_COIN;
+
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    // No fixed supply and no dev allocation: minting is permissionless.
+    let dev = AccountAddress::from_hex_literal(KanariAddress::DEV_ADDRESS).unwrap();
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(dev, USD_COIN)
+            .unwrap_or(0),
+        0
+    );
+    assert_eq!(state.get_token_decimals(USD_COIN).unwrap(), Some(6));
+    assert_eq!(
+        state.get_token_symbol(USD_COIN).unwrap().as_deref(),
+        Some("USD")
+    );
+    // The TreasuryCap is a shared object, so anyone can call `usd::mint`.
+    let caps = state
+        .query_objects(
+            None,
+            None,
+            Some(&format!("0x2::coin::TreasuryCap<{}>", USD_COIN)),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(caps.len(), 1);
+    assert!(matches!(
+        caps[0].1.owner_kind,
+        kanari_types::transaction::ObjectOwnerKind::Shared
+    ));
+}
+
+/// Permissionless USD mint through the shared TreasuryCap: anyone holding
+/// gas can mint straight to any recipient (the web-faucet claim path).
+#[test]
+fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
+    use kanari_types::usd_coin::{USD_COIN, UsdModule};
+
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin_type(&engine, &sponsor.address, "0xgas", 1_000_000, USD_COIN);
+
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    let sponsor_tagged = sponsor.tagged_address();
+    let mut total_dao_gas_fees = 0u64;
+
+    for (leg, nonce) in [0u64, 1u64].iter().enumerate() {
+        // Fresh refs every leg: the shared cap version advances on each mint,
+        // and the gas coin balance drops by the previous leg's fee.
+        let (cap_id, cap_version, cap_digest, gas_ref) = {
+            let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+            let caps = state
+                .query_objects(
+                    None,
+                    None,
+                    Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
+                    None,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(caps.len(), 1);
+            let stored = state.get_object(&caps[0].0).unwrap().unwrap();
+            let digest =
+                |data: &[u8]| format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(data)));
+            let gas_stored = state.get_object("0xgas").unwrap().unwrap();
+            (
+                caps[0].0.clone(),
+                stored.version,
+                digest(&stored.data),
+                ObjectRef::new(
+                    "0xgas".to_string(),
+                    Some(gas_stored.version),
+                    Some(digest(&gas_stored.data)),
+                ),
+            )
+        };
+        let cap_id_bytes = AccountAddress::from_hex_literal(&cap_id).unwrap().to_vec();
+        let tx = Transaction::ExecuteFunction {
+            sender: sponsor_tagged.clone(),
+            module: UsdModule::module_path(),
+            function: "mint".to_string(),
+            type_args: vec![],
+            args: vec![
+                cap_id_bytes,
+                bcs::to_bytes(&50_000_000u64).unwrap(),
+                recipient_addr.to_vec(),
+            ],
+            object_inputs: vec![ObjectInput {
+                object_ref: ObjectRef::new(cap_id.clone(), Some(cap_version), Some(cap_digest)),
+                owner: Some(ObjectOwnerKind::Shared),
+                mutable: true,
+            }],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![gas_ref],
+                owner: sponsor.address.clone(),
+                budget: 100_000,
+                price: 1,
+                coin_type: Some(USD_COIN.to_string()),
+                price_version: None,
+            }),
+            gas_limit: 100_000,
+            gas_price: 1,
+            nonce: *nonce,
+        };
+        let changeset = engine
+            .execute_transaction_with_runtime_internal(
+                &tx,
+                &engine.runtime_pool[0],
+                &engine.state,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(changeset.success, "{:?}", changeset.error_message);
+        total_dao_gas_fees = total_dao_gas_fees.saturating_add(changeset.gas_used);
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            state.apply_changeset(&changeset).unwrap();
+        }
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let recipient_account = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(recipient_account, USD_COIN)
+                .unwrap(),
+            50_000_000 * (leg as u64 + 1)
+        );
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(
+                    AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS)
+                        .unwrap(),
+                    USD_COIN,
+                )
+                .unwrap(),
+            total_dao_gas_fees
+        );
+        let dao_address =
+            AccountAddress::from_hex_literal(kanari_types::address::Address::DAO_ADDRESS).unwrap();
+        let usd_coin_type = kanari_types::coin::CoinModule::coin_type(USD_COIN);
+        let dao_usd_coins = state
+            .query_objects(None, None, Some(&usd_coin_type), None, None)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, coin)| {
+                coin.owner_kind == ObjectOwnerKind::AddressOwner(dao_address.to_hex_literal())
+            })
+            .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
+            .sum::<u64>();
+        assert_eq!(dao_usd_coins, total_dao_gas_fees);
+    }
+
+    let dao_info = engine
+        .get_owner_info(kanari_types::address::Address::DAO_ADDRESS)
+        .expect("DAO fee account should be queryable");
+    assert_eq!(dao_info.balances.get(USD_COIN), Some(&total_dao_gas_fees));
+}
+
+/// Gas settlement accepts only the two protocol gas coins.
+const CUSTOM_GAS_COIN: &str = "0x2::james::JAMES";
+
+#[test]
+fn custom_gas_coin_is_rejected_for_move_execution() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin_type(
+        &engine,
+        &sender.address,
+        "0xbbbb",
+        1_000_000,
+        CUSTOM_GAS_COIN,
+    );
+
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.tagged_address(),
+        module: "0x2::module_that_does_not_exist".to_string(),
+        function: "missing".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![native_coin_object_ref("0xbbbb", 1_000_000)],
+            owner: sender.address.clone(),
+            budget: 100_000,
+            price: 5,
+            coin_type: Some(CUSTOM_GAS_COIN.to_string()),
+            price_version: None,
+        }),
+        gas_limit: 100_000,
+        gas_price: 5,
+        nonce: 0,
+    };
+
+    let admission_error = BlockchainEngine::validate_transaction_admission_shape(&tx).unwrap_err();
+    assert!(
+        admission_error
+            .to_string()
+            .contains("Unsupported gas coin type")
+    );
+
+    let error = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Unsupported gas coin type"));
+}
+
+#[test]
+fn native_transfer_rejects_custom_gas_coin() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+    fund_sender_with_coin_type(
+        &engine,
+        &sender.address,
+        "0xbbbb",
+        1_000_000,
+        CUSTOM_GAS_COIN,
+    );
+
+    let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address.clone(),
+        100,
+        0,
+        100_000,
+        5,
+    );
+    if let Transaction::ExecuteFunction {
+        gas_payment: Some(gas_payment),
+        ..
+    } = &mut tx
+    {
+        gas_payment.payment_objects = vec![native_coin_object_ref("0xbbbb", 1_000_000)];
+        gas_payment.coin_type = Some(CUSTOM_GAS_COIN.to_string());
+    }
+
+    let error = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Unsupported gas coin type"));
 }
 
 #[test]
@@ -3133,6 +3429,8 @@ fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
             owner: sender.address.clone(),
             budget: 100_000,
             price: 1,
+            coin_type: None,
+            price_version: None,
         }),
         gas_limit: 100_000,
         gas_price: 1,

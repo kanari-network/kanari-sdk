@@ -15,8 +15,8 @@ use reqwest::blocking::Client;
 use std::time::Duration;
 
 pub use crate::command::gas_and_coin_selection::{
-    SelectedCoinObject, SpendableCoinObject, build_native_gas_payment, consolidate_coin_objects,
-    object_call_context, select_coin_object, select_native_coin_object,
+    SelectedCoinObject, SpendableCoinObject, build_gas_payment_auto, build_native_gas_payment,
+    consolidate_coin_objects, object_call_context, select_coin_object, select_native_coin_object,
     select_native_gas_coin_object, spendable_coin_objects,
 };
 pub use crate::command::rpc_helpers::{
