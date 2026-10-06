@@ -1,6 +1,6 @@
 use anyhow::Result;
-use kanari_move_runtime::changeset::{ChangeSet, CreatedObject};
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v0::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v0::state::StateManager;
 use move_core_types::account_address::AccountAddress;
 
 #[test]

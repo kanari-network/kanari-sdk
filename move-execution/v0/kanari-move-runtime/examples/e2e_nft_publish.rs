@@ -2,9 +2,9 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::redundant_closure)]
 // E2E example: publish James NFT module, call `setup`, and report created caps
-use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::move_runtime::MoveRuntime;
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v0::changeset::ChangeSet;
+use kanari_move_runtime_v0::move_runtime::MoveRuntime;
+use kanari_move_runtime_v0::state::StateManager;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use move_core_types::runtime_value::{MoveStruct, MoveValue};
@@ -29,7 +29,7 @@ fn find_james_module() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
-    println!("kanari-move-runtime E2E NFT example: publish + setup");
+    println!("kanari-move-runtime-v0 E2E NFT example: publish + setup");
 
     let args: Vec<String> = env::args().collect();
     let mut path = match find_james_module() {

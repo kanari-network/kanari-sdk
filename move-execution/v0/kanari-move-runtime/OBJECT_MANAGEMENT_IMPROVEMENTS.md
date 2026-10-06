@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-This document describes the improvements made to `kanari-move-runtime` for better object management through native function integration.
+This document describes the improvements made to `kanari-move-runtime-v0` for better object management through native function integration.
 
 **Latest Update**: Added support for both immutable (`borrow_global`) and mutable (`borrow_global_mut`) object access.
 

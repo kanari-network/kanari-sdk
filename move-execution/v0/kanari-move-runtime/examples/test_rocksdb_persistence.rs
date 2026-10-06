@@ -1,7 +1,7 @@
 #![allow(clippy::print_stdout)]
 
 use anyhow::Result;
-use kanari_move_runtime::{
+use kanari_move_runtime_v0::{
     state::{Account, StateManager},
     storage::persistent_store::PersistentStore,
 };

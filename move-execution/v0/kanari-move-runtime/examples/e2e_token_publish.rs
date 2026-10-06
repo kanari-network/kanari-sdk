@@ -2,9 +2,9 @@
 #![allow(clippy::collapsible_if)]
 // Example CLI: publish a compiled Move module (james.mv), call an entry function,
 // and apply the resulting ChangeSets to `StateManager` to demonstrate E2E flow.
-use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::move_runtime::MoveRuntime;
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v0::changeset::ChangeSet;
+use kanari_move_runtime_v0::move_runtime::MoveRuntime;
+use kanari_move_runtime_v0::state::StateManager;
 use kanari_types::coin::CoinModule;
 use kanari_types::tx_context::TxContextRecord;
 use move_binary_format::CompiledModule;
@@ -29,7 +29,7 @@ fn find_james_module() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
-    println!("kanari-move-runtime E2E example: publish + call + apply");
+    println!("kanari-move-runtime-v0 E2E example: publish + call + apply");
 
     // Simple CLI: [module_path] [function_name] [mint_amount] [recipient_hex]
     let args: Vec<String> = env::args().collect();

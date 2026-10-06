@@ -1,5 +1,5 @@
 [package]
-name = "kanari-move-runtime"
+name = "kanari-move-runtime-v0"
 edition.workspace = true
 categories.workspace = true
 keywords.workspace = true

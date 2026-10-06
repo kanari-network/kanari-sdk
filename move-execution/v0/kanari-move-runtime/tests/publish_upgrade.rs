@@ -1,4 +1,4 @@
-use kanari_move_runtime::move_runtime::MoveRuntime;
+use kanari_move_runtime_v0::move_runtime::MoveRuntime;
 
 #[test]
 fn publish_module_upgrade_preserves_storage() {

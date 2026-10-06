@@ -3791,6 +3791,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanari-move-runtime-v0"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "hex",
+ "kanari-crypto",
+ "kanari-db-common",
+ "kanari-frameworks",
+ "kanari-system-natives",
+ "kanari-types",
+ "log",
+ "move-binary-format",
+ "move-bytecode-verifier",
+ "move-core-types",
+ "move-package",
+ "move-stdlib-natives",
+ "move-vm-profiler",
+ "move-vm-runtime",
+ "move-vm-test-utils",
+ "move-vm-types",
+ "rocksdb",
+ "serde",
+ "smt",
+ "tempfile",
+]
+
+[[package]]
 name = "kanari-move-runtime-v1"
 version = "0.3.2"
 dependencies = [
