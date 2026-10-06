@@ -5,8 +5,8 @@ use super::BlockchainEngine;
 use super::runtime_guards::strict_guard_required;
 use crate::consensus::Checkpoint;
 use crate::engine::{
-    MAX_PENDING_PER_PRIMARY_ACCESS_LANE, MAX_PENDING_PER_SENDER, PersistedTransactionLocation,
-    decode_hex_exact, normalize_consensus_authority_id,
+    MAX_PENDING_PER_PRIMARY_ACCESS_LANE, MAX_PENDING_PER_SENDER, MAX_TRANSACTION_OBJECTS,
+    PersistedTransactionLocation, decode_hex_exact, normalize_consensus_authority_id,
 };
 use crate::file_io::write_file_atomically;
 use kanari_crypto::keys::{CurveType, generate_keypair};
@@ -632,13 +632,37 @@ fn admission_rejects_client_faults_fail_closed() {
     let good_tx = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
         native_coin_object_ref("0xaaaa", 1_000_000),
-        recipient.address,
+        recipient.address.clone(),
         1,
         1,
         100_000,
         1,
     );
     BlockchainEngine::validate_transaction_admission_shape(&good_tx).unwrap();
+
+    // Object-count overflow.
+    let mut many_objects_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref("0xaaaa", 1_000_000),
+        recipient.address,
+        1,
+        1,
+        100_000,
+        1,
+    );
+    if let Transaction::ExecuteFunction { object_inputs, .. } = &mut many_objects_tx {
+        let filler = object_inputs
+            .first()
+            .cloned()
+            .expect("transfer carries an object input");
+        object_inputs.resize(MAX_TRANSACTION_OBJECTS + 1, filler);
+    }
+    let error =
+        BlockchainEngine::validate_transaction_admission_shape(&many_objects_tx).unwrap_err();
+    assert!(
+        error.to_string().contains("objects"),
+        "object-count overflow must be rejected: {error:#}"
+    );
 }
 
 #[test]
@@ -840,6 +864,42 @@ proptest! {
         prop_assert_eq!(state.resolve_owner_native_balance(recipient_addr).unwrap(), transfer_amount);
         prop_assert_eq!(state.total_supply, initial_supply - burn_amount);
         state.validate_supply_invariants().unwrap();
+    }
+
+    #[test]
+    fn admission_object_count_boundary_is_exact(extra_inputs in 990usize..1010) {
+        // Fuzz the object-cap boundary: the byte limit never binds in this
+        // band (inputs are small), so admission must accept exactly up to
+        // MAX_TRANSACTION_OBJECTS referenced objects and reject above it.
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+            sender.tagged_address(),
+            native_coin_object_ref("0xaaaa", 1_000_000),
+            recipient.address,
+            1,
+            1,
+            100_000,
+            1,
+        );
+        let Transaction::ExecuteFunction { object_inputs, .. } = &mut tx else {
+            unreachable!("transfer helper must construct ExecuteFunction");
+        };
+        if let Some(filler) = object_inputs.first().cloned() {
+            object_inputs.resize_with(extra_inputs, || filler.clone());
+        } else {
+            unreachable!("transfer helper must carry an object input");
+        }
+        let total = tx.object_inputs().len()
+            + tx
+                .gas_payment()
+                .map(|payment| payment.payment_objects.len())
+                .unwrap_or(0);
+        prop_assert_eq!(
+            BlockchainEngine::validate_transaction_admission_shape(&tx).is_ok(),
+            total <= MAX_TRANSACTION_OBJECTS,
+            "admission must accept exactly up to the object cap (total={})", total
+        );
     }
 
     #[test]

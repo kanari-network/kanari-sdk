@@ -123,6 +123,27 @@ impl Blockchain {
             .sum()
     }
 
+    /// Records one transaction in the hash index. Callers that insert many
+    /// transactions must call [`Self::evict_retained_tx_hashes`] afterwards
+    /// (or after each insert, matching the previous inline behavior).
+    fn track_one_transaction(&mut self, hash: Vec<u8>, sequence: u64, index: usize) {
+        if self.executed_tx_hashes.insert(hash.clone()) {
+            self.tx_hash_queue.push_back(hash.clone());
+            self.total_transaction_count = self.total_transaction_count.saturating_add(1);
+        }
+        self.tx_location_index.insert(hash, (sequence, index));
+    }
+
+    /// Evicts hashes beyond the retention window.
+    fn evict_retained_tx_hashes(&mut self) {
+        while self.tx_hash_queue.len() > MAX_RETAINED_TX_HASHES {
+            if let Some(old_hash) = self.tx_hash_queue.pop_front() {
+                self.executed_tx_hashes.remove(&old_hash);
+                self.tx_location_index.remove(&old_hash);
+            }
+        }
+    }
+
     /// Rebuilds the in-memory transaction hash index from the retained
     /// checkpoints. Must be called after deserializing a persisted blockchain
     /// whose index fields were skipped during serde.
@@ -137,22 +158,17 @@ impl Blockchain {
         self.tx_location_index.clear();
         self.total_transaction_count = 0;
 
-        for checkpoint in &self.dag_checkpoints {
-            for (index, tx) in checkpoint.transactions.iter().enumerate() {
-                let hash = tx.transaction_hash().to_vec();
-                if self.executed_tx_hashes.insert(hash.clone()) {
-                    self.tx_hash_queue.push_back(hash.clone());
-                    self.total_transaction_count = self.total_transaction_count.saturating_add(1);
-                }
-                self.tx_location_index
-                    .insert(hash, (checkpoint.sequence, index));
-
-                while self.tx_hash_queue.len() > MAX_RETAINED_TX_HASHES {
-                    if let Some(old_hash) = self.tx_hash_queue.pop_front() {
-                        self.executed_tx_hashes.remove(&old_hash);
-                        self.tx_location_index.remove(&old_hash);
-                    }
-                }
+        // Index-based loop: `track_one_transaction` borrows all of `self`,
+        // so the checkpoint borrow cannot stay live across the call.
+        for checkpoint_idx in 0..self.dag_checkpoints.len() {
+            let sequence = self.dag_checkpoints[checkpoint_idx].sequence;
+            let tx_count = self.dag_checkpoints[checkpoint_idx].transactions.len();
+            for index in 0..tx_count {
+                let hash = self.dag_checkpoints[checkpoint_idx].transactions[index]
+                    .transaction_hash()
+                    .to_vec();
+                self.track_one_transaction(hash, sequence, index);
+                self.evict_retained_tx_hashes();
             }
         }
         self.total_transaction_count = self.total_transaction_count.max(persisted_total);
@@ -214,20 +230,10 @@ impl Blockchain {
     fn track_checkpoint_transactions(&mut self, checkpoint: &Checkpoint) {
         for (index, tx) in checkpoint.transactions.iter().enumerate() {
             let hash = tx.transaction_hash().to_vec();
-            if self.executed_tx_hashes.insert(hash.clone()) {
-                self.tx_hash_queue.push_back(hash.clone());
-                self.total_transaction_count = self.total_transaction_count.saturating_add(1);
-            }
-            self.tx_location_index
-                .insert(hash, (checkpoint.sequence, index));
+            self.track_one_transaction(hash, checkpoint.sequence, index);
         }
 
-        while self.tx_hash_queue.len() > MAX_RETAINED_TX_HASHES {
-            if let Some(old_hash) = self.tx_hash_queue.pop_front() {
-                self.executed_tx_hashes.remove(&old_hash);
-                self.tx_location_index.remove(&old_hash);
-            }
-        }
+        self.evict_retained_tx_hashes();
     }
 
     /// Looks up a checkpoint by its sequence number.

@@ -24,30 +24,39 @@ impl super::MoveRuntime {
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
 
-        // Scan through arguments to find potential object IDs (32-byte addresses)
+        // Scan through arguments to find potential object IDs (32-byte addresses).
+        // Shorter args may carry stripped leading zeros; pad them back so
+        // they still resolve.
         for arg in args {
-            if arg.len() == 32 {
-                let object_id = format!("0x{}", hex::encode(arg));
+            if arg.is_empty() || arg.len() > 32 {
+                continue;
+            }
+            let mut id_bytes = arg.clone();
+            if id_bytes.len() < 32 {
+                let mut padded = vec![0u8; 32 - id_bytes.len()];
+                padded.append(&mut id_bytes);
+                id_bytes = padded;
+            }
+            let object_id = format!("0x{}", hex::encode(&id_bytes));
 
-                // Try to load object from storage
-                if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
-                    // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
-                    let exts = session.get_native_extensions();
-                    let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
-                    loaded_ext.insert(
-                        object_id.clone(),
-                        stored_obj.type_name.clone(),
-                        stored_obj.data.clone(),
-                        // `true` preserves the pre-flag behavior: this preload path
-                        // predates the mutability gate and served both
-                        // `borrow_global` and `borrow_global_mut`.
-                        true,
-                    );
-                    log::debug!(
-                        "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
-                        object_id
-                    );
-                }
+            // Try to load object from storage
+            if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
+                let exts = session.get_native_extensions();
+                let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
+                loaded_ext.insert(
+                    object_id.clone(),
+                    stored_obj.type_name.clone(),
+                    stored_obj.data.clone(),
+                    // `true` preserves the pre-flag behavior: this preload path
+                    // predates the mutability gate and served both
+                    // `borrow_global` and `borrow_global_mut`.
+                    true,
+                );
+                log::debug!(
+                    "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
+                    object_id
+                );
             }
         }
 

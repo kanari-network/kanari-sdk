@@ -878,6 +878,18 @@ impl DagEngine {
             .collect()
     }
 
+    /// Sorts vertices into the canonical sync order: round, then author,
+    /// then id. Every sync query must agree on this order or peers derive
+    /// different sync windows.
+    fn sort_vertices_for_sync(vertices: &mut [DagVertex]) {
+        vertices.sort_by(|left, right| {
+            left.round
+                .cmp(&right.round)
+                .then_with(|| left.author.cmp(&right.author))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    }
+
     /// Returns vertices across all authorities for DAG synchronization, up to the given limit.
     pub fn vertices_for_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
         if limit == 0 {
@@ -895,12 +907,7 @@ impl DagEngine {
                 })?);
             }
         }
-        vertices.sort_by(|left, right| {
-            left.round
-                .cmp(&right.round)
-                .then_with(|| left.author.cmp(&right.author))
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        Self::sort_vertices_for_sync(&mut vertices);
         if vertices.len() > limit {
             vertices.drain(..vertices.len() - limit);
         }
@@ -939,12 +946,7 @@ impl DagEngine {
                 break;
             }
         }
-        vertices.sort_by(|left, right| {
-            left.round
-                .cmp(&right.round)
-                .then_with(|| left.author.cmp(&right.author))
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        Self::sort_vertices_for_sync(&mut vertices);
         Ok(vertices)
     }
 
@@ -1075,12 +1077,7 @@ impl DagEngine {
         }
 
         let mut vertices = closure.into_values().collect::<Vec<_>>();
-        vertices.sort_by(|left, right| {
-            left.round
-                .cmp(&right.round)
-                .then_with(|| left.author.cmp(&right.author))
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        Self::sort_vertices_for_sync(&mut vertices);
         Ok(vertices)
     }
 

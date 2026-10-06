@@ -794,12 +794,22 @@ impl MoveRuntime {
                     }
                 }
 
-                let is_potential_id = final_args[i].len() == 32;
+                // Raw id bytes may carry stripped leading zeros after a display
+                // round-trip; pad them back to 32 bytes before lookup. This only
+                // runs for struct-typed params (numeric params never reach here),
+                // and misses keep their bytes and fail naturally below.
+                let is_potential_id = !final_args[i].is_empty() && final_args[i].len() <= 32;
 
                 if is_potential_id
                     && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
                 {
-                    let object_id = format!("0x{}", hex::encode(final_args[i].as_slice()));
+                    let mut id_bytes = final_args[i].clone();
+                    if id_bytes.len() < 32 {
+                        let mut padded = vec![0u8; 32 - id_bytes.len()];
+                        padded.append(&mut id_bytes);
+                        id_bytes = padded;
+                    }
+                    let object_id = format!("0x{}", hex::encode(&id_bytes));
 
                     if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
                         if let Some(s_addr) = sender {

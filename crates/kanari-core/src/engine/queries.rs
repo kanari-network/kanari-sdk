@@ -115,25 +115,12 @@ impl BlockchainEngine {
             .map(|entry| (entry.key.clone(), entry.value.clone()))
             .collect::<BTreeMap<_, _>>();
 
-        let mut first_divergence = None;
-        for key in local_map.keys().chain(remote_map.keys()) {
-            match (local_map.get(key), remote_map.get(key)) {
-                (Some(left), Some(right)) if left == right => {}
-                (Some(left), Some(right)) => {
-                    first_divergence = Some(format!("key={} left={} right={}", key, left, right));
-                    break;
-                }
-                (Some(left), None) => {
-                    first_divergence = Some(format!("key={} missing_on_right left={}", key, left));
-                    break;
-                }
-                (None, Some(right)) => {
-                    first_divergence = Some(format!("key={} missing_on_left right={}", key, right));
-                    break;
-                }
-                (None, None) => {}
-            }
-        }
+        let first_divergence = Self::first_map_divergence(
+            &local_map,
+            &remote_map,
+            |key: &String| key.clone(),
+            |value: &String| value.clone(),
+        );
 
         Ok(CanonicalStateDiffResponse {
             height: self.try_get_stats()?.height,
@@ -166,41 +153,57 @@ impl BlockchainEngine {
             .expect("canonical snapshot dump requires readable, well-formed persistent state")
     }
 
+    /// Describes the first diverging entry between two maps, if any.
+    /// Key/value rendering is injected so byte maps and string maps share
+    /// one comparison loop with identical conflict decisions.
+    fn first_map_divergence<K: Ord, V: PartialEq>(
+        left: &std::collections::BTreeMap<K, V>,
+        right: &std::collections::BTreeMap<K, V>,
+        fmt_key: impl Fn(&K) -> String,
+        fmt_val: impl Fn(&V) -> String,
+    ) -> Option<String> {
+        for key in left.keys().chain(right.keys()) {
+            match (left.get(key), right.get(key)) {
+                (Some(left_value), Some(right_value)) if left_value == right_value => {}
+                (Some(left_value), Some(right_value)) => {
+                    return Some(format!(
+                        "key={} left={} right={}",
+                        fmt_key(key),
+                        fmt_val(left_value),
+                        fmt_val(right_value)
+                    ));
+                }
+                (Some(left_value), None) => {
+                    return Some(format!(
+                        "key={} missing_on_right left={}",
+                        fmt_key(key),
+                        fmt_val(left_value)
+                    ));
+                }
+                (None, Some(right_value)) => {
+                    return Some(format!(
+                        "key={} missing_on_left right={}",
+                        fmt_key(key),
+                        fmt_val(right_value)
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
+        None
+    }
+
     /// Attempts to find the first diverging key between two engines' canonical states.
     pub fn try_first_canonical_state_divergence(&self, other: &Self) -> Result<Option<String>> {
         let left = self.state_read().try_canonical_state_snapshot()?;
         let right = other.state_read().try_canonical_state_snapshot()?;
 
-        for key in left.keys().chain(right.keys()) {
-            match (left.get(key), right.get(key)) {
-                (Some(left_value), Some(right_value)) if left_value == right_value => {}
-                (Some(left_value), Some(right_value)) => {
-                    return Ok(Some(format!(
-                        "key={} left={} right={}",
-                        String::from_utf8_lossy(key),
-                        hex::encode(left_value),
-                        hex::encode(right_value)
-                    )));
-                }
-                (Some(left_value), None) => {
-                    return Ok(Some(format!(
-                        "key={} missing_on_right left={}",
-                        String::from_utf8_lossy(key),
-                        hex::encode(left_value)
-                    )));
-                }
-                (None, Some(right_value)) => {
-                    return Ok(Some(format!(
-                        "key={} missing_on_left right={}",
-                        String::from_utf8_lossy(key),
-                        hex::encode(right_value)
-                    )));
-                }
-                (None, None) => {}
-            }
-        }
-
-        Ok(None)
+        Ok(Self::first_map_divergence(
+            &left,
+            &right,
+            |key| String::from_utf8_lossy(key).into_owned(),
+            |value| hex::encode(value),
+        ))
     }
 
     /// Returns the first diverging key between two engines' canonical states, panicking on failure.

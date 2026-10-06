@@ -154,11 +154,20 @@ impl super::MoveRuntime {
             .get_native_extensions()
             .get_mut::<LoadedObjectsExt>();
         for arg in args {
-            if arg.len() != 32 {
+            if arg.is_empty() || arg.len() > 32 {
                 continue;
             }
+            // Raw id bytes may carry stripped leading zeros after a display
+            // round-trip; pad them back so they still resolve. Unresolvable
+            // ids keep prior behavior (skipped below).
+            let mut id_bytes = arg.clone();
+            if id_bytes.len() < 32 {
+                let mut padded = vec![0u8; 32 - id_bytes.len()];
+                padded.append(&mut id_bytes);
+                id_bytes = padded;
+            }
 
-            let object_id = format!("0x{}", hex::encode(arg));
+            let object_id = format!("0x{}", hex::encode(&id_bytes));
             if loaded_ext.get(&object_id).is_some() {
                 continue;
             }

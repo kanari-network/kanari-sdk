@@ -97,3 +97,37 @@ fn transferred_object_version_and_owner_kind_are_read_from_speculative_overlay()
     assert_eq!(created.owner_kind, ObjectOwnerKind::Shared);
     assert_eq!(created.owner, new_owner);
 }
+
+#[test]
+fn preload_resolves_zero_stripped_object_ids() {
+    use kanari_system_natives::object::LoadedObjectsExt;
+
+    let runtime = MoveRuntime::new_with_natives_in_memory(vec![]).invariant("runtime init");
+    let owner = AccountAddress::from_hex_literal("0x1234").invariant("valid owner address");
+    // Canonical id with leading zero bytes; its display form strips them.
+    let canonical_id =
+        "0x0070b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed";
+    runtime
+        .preload_object_snapshot(canonical_id, owner, "0x2::test::Object", vec![0u8; 40], 1)
+        .invariant("snapshot stored");
+
+    // The stripped display form decodes to 31 bytes, not 32.
+    let stripped =
+        hex::decode("70b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed")
+            .invariant("decode stripped id");
+    assert_eq!(stripped.len(), 31);
+
+    let vm_guard = runtime.read_vm();
+    let mut session = runtime.create_session_with_storage_ext(&vm_guard);
+    runtime
+        .preload_object_ids_from_args(&mut session, &[stripped], Some(owner), None)
+        .invariant("preload succeeds");
+
+    let loaded = session
+        .get_native_extensions()
+        .get_mut::<LoadedObjectsExt>();
+    assert!(
+        loaded.get(canonical_id).is_some(),
+        "stripped id must resolve to the stored object"
+    );
+}
