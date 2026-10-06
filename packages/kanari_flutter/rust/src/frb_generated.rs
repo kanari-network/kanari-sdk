@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 311792711;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1279237213;
 
 // Section: executor
 
@@ -442,6 +442,281 @@ fn wire__crate__api__verify_signature_api_impl(
         },
     )
 }
+fn wire__crate__api__zklogin_build_bundle_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_build_bundle",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_jwt = <String>::sse_decode(&mut deserializer);
+            let api_jwks_json = <String>::sse_decode(&mut deserializer);
+            let api_iss = <String>::sse_decode(&mut deserializer);
+            let api_aud = <String>::sse_decode(&mut deserializer);
+            let api_salt = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_randomness = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_ephemeral_pubkey = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_ephemeral_sig = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_max_epoch = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::zklogin_build_bundle(
+                        api_jwt,
+                        api_jwks_json,
+                        api_iss,
+                        api_aud,
+                        api_salt,
+                        api_randomness,
+                        api_ephemeral_pubkey,
+                        api_ephemeral_sig,
+                        api_max_epoch,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_derive_address_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_derive_address",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_iss = <String>::sse_decode(&mut deserializer);
+            let api_aud = <String>::sse_decode(&mut deserializer);
+            let api_sub = <String>::sse_decode(&mut deserializer);
+            let api_salt = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::zklogin_derive_address(api_iss, api_aud, api_sub, api_salt)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_deterministic_salt_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_deterministic_salt",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_iss = <String>::sse_decode(&mut deserializer);
+            let api_aud = <String>::sse_decode(&mut deserializer);
+            let api_sub = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::zklogin_deterministic_salt(api_iss, api_aud, api_sub)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_prepare_nonce_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_prepare_nonce",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_max_epoch = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::zklogin_prepare_nonce(api_max_epoch)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_sign_ephemeral_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_sign_ephemeral",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_secret = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_message = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::zklogin_sign_ephemeral(api_secret, api_message)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_verify_ephemeral_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_verify_ephemeral",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_pubkey = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_message = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_signature = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::zklogin_verify_ephemeral(
+                        api_pubkey,
+                        api_message,
+                        api_signature,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__zklogin_verify_jwt_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "zklogin_verify_jwt",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_jwt = <String>::sse_decode(&mut deserializer);
+            let api_jwks_json = <String>::sse_decode(&mut deserializer);
+            let api_expected_iss = <String>::sse_decode(&mut deserializer);
+            let api_expected_aud = <String>::sse_decode(&mut deserializer);
+            let api_expected_nonce = <Option<String>>::sse_decode(&mut deserializer);
+            let api_now_secs = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::zklogin_verify_jwt(
+                        api_jwt,
+                        api_jwks_json,
+                        api_expected_iss,
+                        api_expected_aud,
+                        api_expected_nonce,
+                        api_now_secs,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 
 // Section: dart2rust
 
@@ -532,6 +807,35 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Option<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -548,6 +852,42 @@ impl SseDecode for usize {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u64::<NativeEndian>().unwrap() as _
+    }
+}
+
+impl SseDecode for crate::api::ZkLoginClaimsData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_iss = <String>::sse_decode(deserializer);
+        let mut var_aud = <String>::sse_decode(deserializer);
+        let mut var_sub = <String>::sse_decode(deserializer);
+        let mut var_exp = <Option<u64>>::sse_decode(deserializer);
+        let mut var_nonce = <Option<String>>::sse_decode(deserializer);
+        return crate::api::ZkLoginClaimsData {
+            iss: var_iss,
+            aud: var_aud,
+            sub: var_sub,
+            exp: var_exp,
+            nonce: var_nonce,
+        };
+    }
+}
+
+impl SseDecode for crate::api::ZkLoginNonceData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ephemeralPubkey = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_ephemeralSecret = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_randomness = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_maxEpoch = <u64>::sse_decode(deserializer);
+        let mut var_nonce = <String>::sse_decode(deserializer);
+        return crate::api::ZkLoginNonceData {
+            ephemeral_pubkey: var_ephemeralPubkey,
+            ephemeral_secret: var_ephemeralSecret,
+            randomness: var_randomness,
+            max_epoch: var_maxEpoch,
+            nonce: var_nonce,
+        };
     }
 }
 
@@ -585,6 +925,13 @@ fn pde_ffi_dispatcher_primary_impl(
         9 => wire__crate__api__list_supported_curves_impl(port, ptr, rust_vec_len, data_len),
         10 => wire__crate__api__sign_message_api_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__verify_signature_api_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__zklogin_build_bundle_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__zklogin_derive_address_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__zklogin_deterministic_salt_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__zklogin_prepare_nonce_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__zklogin_sign_ephemeral_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__zklogin_verify_ephemeral_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__zklogin_verify_jwt_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -638,6 +985,48 @@ impl flutter_rust_bridge::IntoDart for crate::api::KeyPairData {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::KeyPairData {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::KeyPairData> for crate::api::KeyPairData {
     fn into_into_dart(self) -> crate::api::KeyPairData {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::ZkLoginClaimsData {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.iss.into_into_dart().into_dart(),
+            self.aud.into_into_dart().into_dart(),
+            self.sub.into_into_dart().into_dart(),
+            self.exp.into_into_dart().into_dart(),
+            self.nonce.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::ZkLoginClaimsData {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::ZkLoginClaimsData>
+    for crate::api::ZkLoginClaimsData
+{
+    fn into_into_dart(self) -> crate::api::ZkLoginClaimsData {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::ZkLoginNonceData {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ephemeral_pubkey.into_into_dart().into_dart(),
+            self.ephemeral_secret.into_into_dart().into_dart(),
+            self.randomness.into_into_dart().into_dart(),
+            self.max_epoch.into_into_dart().into_dart(),
+            self.nonce.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::ZkLoginNonceData {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::ZkLoginNonceData>
+    for crate::api::ZkLoginNonceData
+{
+    fn into_into_dart(self) -> crate::api::ZkLoginNonceData {
         self
     }
 }
@@ -708,6 +1097,33 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Option<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u64::<NativeEndian>(self).unwrap();
+    }
+}
+
 impl SseEncode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -727,6 +1143,28 @@ impl SseEncode for usize {
             .cursor
             .write_u64::<NativeEndian>(self as _)
             .unwrap();
+    }
+}
+
+impl SseEncode for crate::api::ZkLoginClaimsData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.iss, serializer);
+        <String>::sse_encode(self.aud, serializer);
+        <String>::sse_encode(self.sub, serializer);
+        <Option<u64>>::sse_encode(self.exp, serializer);
+        <Option<String>>::sse_encode(self.nonce, serializer);
+    }
+}
+
+impl SseEncode for crate::api::ZkLoginNonceData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<u8>>::sse_encode(self.ephemeral_pubkey, serializer);
+        <Vec<u8>>::sse_encode(self.ephemeral_secret, serializer);
+        <Vec<u8>>::sse_encode(self.randomness, serializer);
+        <u64>::sse_encode(self.max_epoch, serializer);
+        <String>::sse_encode(self.nonce, serializer);
     }
 }
 

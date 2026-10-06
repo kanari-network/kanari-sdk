@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `parse_curve_type`, `to_keypair_data`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Generate a keypair for the specified curve type
 Future<KeyPairData> generateKeypairApi({required String curveName}) =>
@@ -104,6 +104,97 @@ Future<List<KeyPairData>> deriveMultipleAddressesApi({
   count: count,
 );
 
+/// Generate ephemeral keypair + randomness and bind them into a nonce.
+Future<ZkLoginNonceData> zkloginPrepareNonce({required BigInt maxEpoch}) =>
+    RustLib.instance.api.crateApiZkloginPrepareNonce(maxEpoch: maxEpoch);
+
+/// Verify an id_token against a provider JWKS (RS256 + iss/aud/exp + nonce).
+Future<ZkLoginClaimsData> zkloginVerifyJwt({
+  required String jwt,
+  required String jwksJson,
+  required String expectedIss,
+  required String expectedAud,
+  String? expectedNonce,
+  required BigInt nowSecs,
+}) => RustLib.instance.api.crateApiZkloginVerifyJwt(
+  jwt: jwt,
+  jwksJson: jwksJson,
+  expectedIss: expectedIss,
+  expectedAud: expectedAud,
+  expectedNonce: expectedNonce,
+  nowSecs: nowSecs,
+);
+
+/// Derive the canonical v2 zkLogin address (matches chain + Android).
+Future<String> zkloginDeriveAddress({
+  required String iss,
+  required String aud,
+  required String sub,
+  required List<int> salt,
+}) => RustLib.instance.api.crateApiZkloginDeriveAddress(
+  iss: iss,
+  aud: aud,
+  sub: sub,
+  salt: salt,
+);
+
+/// Canonical zkLogin address-salt (THE primary salt, shared by the CLI and
+/// the Android app): deterministic per (iss, aud, sub), stable across
+/// reinstalls and devices.
+Future<Uint8List> zkloginDeterministicSalt({
+  required String iss,
+  required String aud,
+  required String sub,
+}) => RustLib.instance.api.crateApiZkloginDeterministicSalt(
+  iss: iss,
+  aud: aud,
+  sub: sub,
+);
+
+/// Build the opaque `ZkLogin:` transaction signature bundle (v1 JSON).
+/// Returns the exact bytes `encode_zklogin_tx_signature` produces.
+Future<Uint8List> zkloginBuildBundle({
+  required String jwt,
+  required String jwksJson,
+  required String iss,
+  required String aud,
+  required List<int> salt,
+  required List<int> randomness,
+  required List<int> ephemeralPubkey,
+  required List<int> ephemeralSig,
+  required BigInt maxEpoch,
+}) => RustLib.instance.api.crateApiZkloginBuildBundle(
+  jwt: jwt,
+  jwksJson: jwksJson,
+  iss: iss,
+  aud: aud,
+  salt: salt,
+  randomness: randomness,
+  ephemeralPubkey: ephemeralPubkey,
+  ephemeralSig: ephemeralSig,
+  maxEpoch: maxEpoch,
+);
+
+/// Sign bytes with an ephemeral secret (32 raw bytes from prepare).
+Future<Uint8List> zkloginSignEphemeral({
+  required List<int> secret,
+  required List<int> message,
+}) => RustLib.instance.api.crateApiZkloginSignEphemeral(
+  secret: secret,
+  message: message,
+);
+
+/// Verify an ephemeral Ed25519 signature.
+Future<bool> zkloginVerifyEphemeral({
+  required List<int> pubkey,
+  required List<int> message,
+  required List<int> signature,
+}) => RustLib.instance.api.crateApiZkloginVerifyEphemeral(
+  pubkey: pubkey,
+  message: message,
+  signature: signature,
+);
+
 /// List all supported curves
 Future<List<CurveInfo>> listSupportedCurves() =>
     RustLib.instance.api.crateApiListSupportedCurves();
@@ -178,4 +269,81 @@ class KeyPairData {
           taggedAddress == other.taggedAddress &&
           rawPublicKey == other.rawPublicKey &&
           curveType == other.curveType;
+}
+
+/// Verified JWT claims needed for zkLogin.
+class ZkLoginClaimsData {
+  final String iss;
+  final String aud;
+  final String sub;
+  final BigInt? exp;
+  final String? nonce;
+
+  const ZkLoginClaimsData({
+    required this.iss,
+    required this.aud,
+    required this.sub,
+    this.exp,
+    this.nonce,
+  });
+
+  @override
+  int get hashCode =>
+      iss.hashCode ^
+      aud.hashCode ^
+      sub.hashCode ^
+      exp.hashCode ^
+      nonce.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ZkLoginClaimsData &&
+          runtimeType == other.runtimeType &&
+          iss == other.iss &&
+          aud == other.aud &&
+          sub == other.sub &&
+          exp == other.exp &&
+          nonce == other.nonce;
+}
+
+/// zkLogin nonce material: ephemeral pubkey + randomness + nonce.
+///
+/// NOTE: no salt here - the address-salt is the kanari-crypto standard
+/// (`deterministic_salt`, exposed as `zklogin_deterministic_salt`), derived
+/// after the JWT is known. A random salt per prepare would rotate the wallet
+/// address every login, so prepare must not mint one.
+class ZkLoginNonceData {
+  final Uint8List ephemeralPubkey;
+  final Uint8List ephemeralSecret;
+  final Uint8List randomness;
+  final BigInt maxEpoch;
+  final String nonce;
+
+  const ZkLoginNonceData({
+    required this.ephemeralPubkey,
+    required this.ephemeralSecret,
+    required this.randomness,
+    required this.maxEpoch,
+    required this.nonce,
+  });
+
+  @override
+  int get hashCode =>
+      ephemeralPubkey.hashCode ^
+      ephemeralSecret.hashCode ^
+      randomness.hashCode ^
+      maxEpoch.hashCode ^
+      nonce.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ZkLoginNonceData &&
+          runtimeType == other.runtimeType &&
+          ephemeralPubkey == other.ephemeralPubkey &&
+          ephemeralSecret == other.ephemeralSecret &&
+          randomness == other.randomness &&
+          maxEpoch == other.maxEpoch &&
+          nonce == other.nonce;
 }

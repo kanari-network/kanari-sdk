@@ -6642,6 +6642,7 @@ dependencies = [
  "hex",
  "kanari-crypto",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -164,6 +164,179 @@ pub fn derive_multiple_addresses_api(
         .collect())
 }
 
+/// zkLogin nonce material: ephemeral pubkey + randomness + nonce.
+///
+/// NOTE: no salt here - the address-salt is the kanari-crypto standard
+/// (`deterministic_salt`, exposed as `zklogin_deterministic_salt`), derived
+/// after the JWT is known. A random salt per prepare would rotate the wallet
+/// address every login, so prepare must not mint one.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ZkLoginNonceData {
+    pub ephemeral_pubkey: Vec<u8>,
+    pub ephemeral_secret: Vec<u8>,
+    pub randomness: Vec<u8>,
+    pub max_epoch: u64,
+    pub nonce: String,
+}
+
+/// Verified JWT claims needed for zkLogin.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ZkLoginClaimsData {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub exp: Option<u64>,
+    pub nonce: Option<String>,
+}
+
+/// Generate ephemeral keypair + randomness and bind them into a nonce.
+pub fn zklogin_prepare_nonce(max_epoch: u64) -> Result<ZkLoginNonceData, String> {
+    use kanari_crypto::signatures::zklogin::{
+        EphemeralKeypair, compute_nonce, generate_randomness,
+    };
+    let ephemeral =
+        EphemeralKeypair::generate().map_err(|e| format!("ephemeral key failed: {e:?}"))?;
+    let randomness = generate_randomness().map_err(|e| format!("randomness failed: {e:?}"))?;
+    let pubkey = ephemeral.public_bytes();
+    let secret = ephemeral.secret_bytes();
+    let nonce = compute_nonce(&pubkey, max_epoch, &randomness);
+    Ok(ZkLoginNonceData {
+        ephemeral_pubkey: pubkey.to_vec(),
+        ephemeral_secret: secret.to_vec(),
+        randomness: randomness.to_vec(),
+        max_epoch,
+        nonce,
+    })
+}
+
+/// Verify an id_token against a provider JWKS (RS256 + iss/aud/exp + nonce).
+pub fn zklogin_verify_jwt(
+    jwt: String,
+    jwks_json: String,
+    expected_iss: String,
+    expected_aud: String,
+    expected_nonce: Option<String>,
+    now_secs: u64,
+) -> Result<ZkLoginClaimsData, String> {
+    use kanari_crypto::signatures::zklogin::verify_jwt_with_jwks;
+    let jwks: kanari_crypto::signatures::zklogin::JwksDocument =
+        serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
+    let claims = verify_jwt_with_jwks(
+        &jwt,
+        &jwks,
+        &expected_iss,
+        &expected_aud,
+        expected_nonce.as_deref(),
+        now_secs,
+    )
+    .map_err(|e| format!("JWT verification failed: {e:?}"))?;
+    let aud = claims.aud.as_vec().first().cloned().unwrap_or_default();
+    Ok(ZkLoginClaimsData {
+        iss: claims.iss,
+        aud,
+        sub: claims.sub,
+        exp: claims.exp,
+        nonce: claims.nonce,
+    })
+}
+
+/// Derive the canonical v2 zkLogin address (matches chain + Android).
+pub fn zklogin_derive_address(
+    iss: String,
+    aud: String,
+    sub: String,
+    salt: Vec<u8>,
+) -> Result<String, String> {
+    use kanari_crypto::signatures::zklogin::derive_zklogin_address_v2;
+    derive_zklogin_address_v2(&iss, &aud, &sub, &salt)
+        .map_err(|e| format!("address derivation failed: {e:?}"))
+}
+
+/// Canonical zkLogin address-salt (THE primary salt, shared by the CLI and
+/// the Android app): deterministic per (iss, aud, sub), stable across
+/// reinstalls and devices.
+pub fn zklogin_deterministic_salt(
+    iss: String,
+    aud: String,
+    sub: String,
+) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zklogin::deterministic_salt;
+    deterministic_salt(&iss, &aud, &sub)
+        .map(|s| s.to_vec())
+        .map_err(|e| format!("salt derivation failed: {e:?}"))
+}
+
+/// Build the opaque `ZkLogin:` transaction signature bundle (v1 JSON).
+/// Returns the exact bytes `encode_zklogin_tx_signature` produces.
+pub fn zklogin_build_bundle(
+    jwt: String,
+    jwks_json: String,
+    iss: String,
+    aud: String,
+    salt: Vec<u8>,
+    randomness: Vec<u8>,
+    ephemeral_pubkey: Vec<u8>,
+    ephemeral_sig: Vec<u8>,
+    max_epoch: u64,
+) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zk_authenticator::{
+        JwtAuth, ZkAuthKind, ZkLoginAuthenticator, encode_zklogin_tx_signature,
+    };
+    use kanari_crypto::signatures::zklogin::JwksDocument;
+    let jwks: JwksDocument =
+        serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
+    let salt_arr: [u8; 32] = salt
+        .try_into()
+        .map_err(|_| "salt must be 32 bytes".to_string())?;
+    let rand_arr: [u8; 32] = randomness
+        .try_into()
+        .map_err(|_| "randomness must be 32 bytes".to_string())?;
+    let pub_arr: [u8; 32] = ephemeral_pubkey
+        .try_into()
+        .map_err(|_| "ephemeral pubkey must be 32 bytes".to_string())?;
+    let sig_arr: [u8; 64] = ephemeral_sig
+        .try_into()
+        .map_err(|_| "ephemeral sig must be 64 bytes".to_string())?;
+    let auth = ZkLoginAuthenticator {
+        ephemeral_pubkey: pub_arr,
+        ephemeral_sig: sig_arr,
+        max_epoch,
+        kind: ZkAuthKind::Jwt(JwtAuth {
+            jwt,
+            jwks,
+            iss,
+            aud,
+            randomness: rand_arr,
+            salt: salt_arr,
+        }),
+    };
+    encode_zklogin_tx_signature(&auth).map_err(|e| format!("bundle encode failed: {e:?}"))
+}
+
+/// Sign bytes with an ephemeral secret (32 raw bytes from prepare).
+pub fn zklogin_sign_ephemeral(secret: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, String> {
+    use kanari_crypto::signatures::zklogin::EphemeralKeypair;
+    let raw: [u8; 32] = secret
+        .try_into()
+        .map_err(|_| "ephemeral secret must be 32 bytes".to_string())?;
+    let kp = EphemeralKeypair::from_secret(raw).map_err(|e| format!("bad secret: {e:?}"))?;
+    Ok(kp.sign(&message))
+}
+
+/// Verify an ephemeral Ed25519 signature.
+pub fn zklogin_verify_ephemeral(
+    pubkey: Vec<u8>,
+    message: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<bool, String> {
+    use kanari_crypto::signatures::zklogin::EphemeralKeypair;
+    match EphemeralKeypair::verify(&pubkey, &message, &signature) {
+        Ok(()) => Ok(true),
+        Err(kanari_crypto::signatures::SignatureError::VerificationFailed) => Ok(false),
+        Err(e) => Err(format!("malformed ephemeral input: {e:?}")),
+    }
+}
+
 /// List all supported curves
 pub fn list_supported_curves() -> Vec<CurveInfo> {
     use CurveType::*;

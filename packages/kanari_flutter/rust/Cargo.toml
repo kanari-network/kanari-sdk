@@ -17,5 +17,6 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [dependencies]
 kanari-crypto.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 flutter_rust_bridge.workspace = true
 hex.workspace = true

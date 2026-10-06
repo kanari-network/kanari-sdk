@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 311792711;
+  int get rustContentHash => -1279237213;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -123,6 +123,55 @@ abstract class RustLibApi extends BaseApi {
     required List<int> message,
     required List<int> signature,
     required String curveName,
+  });
+
+  Future<Uint8List> crateApiZkloginBuildBundle({
+    required String jwt,
+    required String jwksJson,
+    required String iss,
+    required String aud,
+    required List<int> salt,
+    required List<int> randomness,
+    required List<int> ephemeralPubkey,
+    required List<int> ephemeralSig,
+    required BigInt maxEpoch,
+  });
+
+  Future<String> crateApiZkloginDeriveAddress({
+    required String iss,
+    required String aud,
+    required String sub,
+    required List<int> salt,
+  });
+
+  Future<Uint8List> crateApiZkloginDeterministicSalt({
+    required String iss,
+    required String aud,
+    required String sub,
+  });
+
+  Future<ZkLoginNonceData> crateApiZkloginPrepareNonce({
+    required BigInt maxEpoch,
+  });
+
+  Future<Uint8List> crateApiZkloginSignEphemeral({
+    required List<int> secret,
+    required List<int> message,
+  });
+
+  Future<bool> crateApiZkloginVerifyEphemeral({
+    required List<int> pubkey,
+    required List<int> message,
+    required List<int> signature,
+  });
+
+  Future<ZkLoginClaimsData> crateApiZkloginVerifyJwt({
+    required String jwt,
+    required String jwksJson,
+    required String expectedIss,
+    required String expectedAud,
+    String? expectedNonce,
+    required BigInt nowSecs,
   });
 }
 
@@ -505,6 +554,311 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     argNames: ["address", "message", "signature", "curveName"],
   );
 
+  @override
+  Future<Uint8List> crateApiZkloginBuildBundle({
+    required String jwt,
+    required String jwksJson,
+    required String iss,
+    required String aud,
+    required List<int> salt,
+    required List<int> randomness,
+    required List<int> ephemeralPubkey,
+    required List<int> ephemeralSig,
+    required BigInt maxEpoch,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(jwt, serializer);
+          sse_encode_String(jwksJson, serializer);
+          sse_encode_String(iss, serializer);
+          sse_encode_String(aud, serializer);
+          sse_encode_list_prim_u_8_loose(salt, serializer);
+          sse_encode_list_prim_u_8_loose(randomness, serializer);
+          sse_encode_list_prim_u_8_loose(ephemeralPubkey, serializer);
+          sse_encode_list_prim_u_8_loose(ephemeralSig, serializer);
+          sse_encode_u_64(maxEpoch, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginBuildBundleConstMeta,
+        argValues: [
+          jwt,
+          jwksJson,
+          iss,
+          aud,
+          salt,
+          randomness,
+          ephemeralPubkey,
+          ephemeralSig,
+          maxEpoch,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginBuildBundleConstMeta => const TaskConstMeta(
+    debugName: "zklogin_build_bundle",
+    argNames: [
+      "jwt",
+      "jwksJson",
+      "iss",
+      "aud",
+      "salt",
+      "randomness",
+      "ephemeralPubkey",
+      "ephemeralSig",
+      "maxEpoch",
+    ],
+  );
+
+  @override
+  Future<String> crateApiZkloginDeriveAddress({
+    required String iss,
+    required String aud,
+    required String sub,
+    required List<int> salt,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(iss, serializer);
+          sse_encode_String(aud, serializer);
+          sse_encode_String(sub, serializer);
+          sse_encode_list_prim_u_8_loose(salt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginDeriveAddressConstMeta,
+        argValues: [iss, aud, sub, salt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginDeriveAddressConstMeta =>
+      const TaskConstMeta(
+        debugName: "zklogin_derive_address",
+        argNames: ["iss", "aud", "sub", "salt"],
+      );
+
+  @override
+  Future<Uint8List> crateApiZkloginDeterministicSalt({
+    required String iss,
+    required String aud,
+    required String sub,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(iss, serializer);
+          sse_encode_String(aud, serializer);
+          sse_encode_String(sub, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginDeterministicSaltConstMeta,
+        argValues: [iss, aud, sub],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginDeterministicSaltConstMeta =>
+      const TaskConstMeta(
+        debugName: "zklogin_deterministic_salt",
+        argNames: ["iss", "aud", "sub"],
+      );
+
+  @override
+  Future<ZkLoginNonceData> crateApiZkloginPrepareNonce({
+    required BigInt maxEpoch,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(maxEpoch, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_zk_login_nonce_data,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginPrepareNonceConstMeta,
+        argValues: [maxEpoch],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginPrepareNonceConstMeta =>
+      const TaskConstMeta(
+        debugName: "zklogin_prepare_nonce",
+        argNames: ["maxEpoch"],
+      );
+
+  @override
+  Future<Uint8List> crateApiZkloginSignEphemeral({
+    required List<int> secret,
+    required List<int> message,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(secret, serializer);
+          sse_encode_list_prim_u_8_loose(message, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginSignEphemeralConstMeta,
+        argValues: [secret, message],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginSignEphemeralConstMeta =>
+      const TaskConstMeta(
+        debugName: "zklogin_sign_ephemeral",
+        argNames: ["secret", "message"],
+      );
+
+  @override
+  Future<bool> crateApiZkloginVerifyEphemeral({
+    required List<int> pubkey,
+    required List<int> message,
+    required List<int> signature,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(pubkey, serializer);
+          sse_encode_list_prim_u_8_loose(message, serializer);
+          sse_encode_list_prim_u_8_loose(signature, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 17,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginVerifyEphemeralConstMeta,
+        argValues: [pubkey, message, signature],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginVerifyEphemeralConstMeta =>
+      const TaskConstMeta(
+        debugName: "zklogin_verify_ephemeral",
+        argNames: ["pubkey", "message", "signature"],
+      );
+
+  @override
+  Future<ZkLoginClaimsData> crateApiZkloginVerifyJwt({
+    required String jwt,
+    required String jwksJson,
+    required String expectedIss,
+    required String expectedAud,
+    String? expectedNonce,
+    required BigInt nowSecs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(jwt, serializer);
+          sse_encode_String(jwksJson, serializer);
+          sse_encode_String(expectedIss, serializer);
+          sse_encode_String(expectedAud, serializer);
+          sse_encode_opt_String(expectedNonce, serializer);
+          sse_encode_u_64(nowSecs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_zk_login_claims_data,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiZkloginVerifyJwtConstMeta,
+        argValues: [
+          jwt,
+          jwksJson,
+          expectedIss,
+          expectedAud,
+          expectedNonce,
+          nowSecs,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiZkloginVerifyJwtConstMeta => const TaskConstMeta(
+    debugName: "zklogin_verify_jwt",
+    argNames: [
+      "jwt",
+      "jwksJson",
+      "expectedIss",
+      "expectedAud",
+      "expectedNonce",
+      "nowSecs",
+    ],
+  );
+
   @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -515,6 +869,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool dco_decode_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as bool;
+  }
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_64(raw);
   }
 
   @protected
@@ -572,6 +932,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  String? dco_decode_opt_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
+  }
+
+  @protected
   int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -590,6 +968,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ZkLoginClaimsData dco_decode_zk_login_claims_data(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return ZkLoginClaimsData(
+      iss: dco_decode_String(arr[0]),
+      aud: dco_decode_String(arr[1]),
+      sub: dco_decode_String(arr[2]),
+      exp: dco_decode_opt_box_autoadd_u_64(arr[3]),
+      nonce: dco_decode_opt_String(arr[4]),
+    );
+  }
+
+  @protected
+  ZkLoginNonceData dco_decode_zk_login_nonce_data(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return ZkLoginNonceData(
+      ephemeralPubkey: dco_decode_list_prim_u_8_strict(arr[0]),
+      ephemeralSecret: dco_decode_list_prim_u_8_strict(arr[1]),
+      randomness: dco_decode_list_prim_u_8_strict(arr[2]),
+      maxEpoch: dco_decode_u_64(arr[3]),
+      nonce: dco_decode_String(arr[4]),
+    );
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
@@ -600,6 +1008,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool sse_decode_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_64(deserializer));
   }
 
   @protected
@@ -677,6 +1091,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8();
@@ -691,6 +1133,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt sse_decode_usize(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
+  ZkLoginClaimsData sse_decode_zk_login_claims_data(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_iss = sse_decode_String(deserializer);
+    var var_aud = sse_decode_String(deserializer);
+    var var_sub = sse_decode_String(deserializer);
+    var var_exp = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_nonce = sse_decode_opt_String(deserializer);
+    return ZkLoginClaimsData(
+      iss: var_iss,
+      aud: var_aud,
+      sub: var_sub,
+      exp: var_exp,
+      nonce: var_nonce,
+    );
+  }
+
+  @protected
+  ZkLoginNonceData sse_decode_zk_login_nonce_data(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_ephemeralPubkey = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_ephemeralSecret = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_randomness = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_maxEpoch = sse_decode_u_64(deserializer);
+    var var_nonce = sse_decode_String(deserializer);
+    return ZkLoginNonceData(
+      ephemeralPubkey: var_ephemeralPubkey,
+      ephemeralSecret: var_ephemeralSecret,
+      randomness: var_randomness,
+      maxEpoch: var_maxEpoch,
+      nonce: var_nonce,
+    );
   }
 
   @protected
@@ -709,6 +1189,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self, serializer);
   }
 
   @protected
@@ -778,6 +1264,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
   void sse_encode_u_8(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self);
@@ -792,6 +1304,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_usize(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_zk_login_claims_data(
+    ZkLoginClaimsData self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.iss, serializer);
+    sse_encode_String(self.aud, serializer);
+    sse_encode_String(self.sub, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.exp, serializer);
+    sse_encode_opt_String(self.nonce, serializer);
+  }
+
+  @protected
+  void sse_encode_zk_login_nonce_data(
+    ZkLoginNonceData self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.ephemeralPubkey, serializer);
+    sse_encode_list_prim_u_8_strict(self.ephemeralSecret, serializer);
+    sse_encode_list_prim_u_8_strict(self.randomness, serializer);
+    sse_encode_u_64(self.maxEpoch, serializer);
+    sse_encode_String(self.nonce, serializer);
   }
 
   @protected

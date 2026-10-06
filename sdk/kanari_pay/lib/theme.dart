@@ -1,5 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:material_ui/material_ui.dart' as mui;
+
+/// Copies the Google-font family selected by google_fonts 9 (typed with
+/// material_ui since the Flutter 3.47 material split) onto an SDK text
+/// style. google_fonts only changes `fontFamily`/`fontFamilyFallback` per
+/// style; every other property stays on the SDK base theme.
+TextStyle? _withGoogleFont(TextStyle? base, mui.TextStyle? withFont) {
+  return base?.copyWith(
+    fontFamily: withFont?.fontFamily,
+    fontFamilyFallback: withFont?.fontFamilyFallback,
+  );
+}
 
 abstract final class KanariColors {
   static const ink = Color(0xFF111B18);
@@ -34,80 +46,80 @@ TextTheme createTextTheme(
   String displayFontString,
 ) {
   final base = Theme.of(context).textTheme;
-  final body = GoogleFonts.getTextTheme(bodyFontString, base);
-  final display = GoogleFonts.getTextTheme(displayFontString, base);
+  final body = GoogleFonts.getTextTheme(bodyFontString);
+  final display = GoogleFonts.getTextTheme(displayFontString);
 
-  return body.copyWith(
-    displayLarge: display.displayLarge?.copyWith(
+  return base.copyWith(
+    displayLarge: _withGoogleFont(base.displayLarge, display.displayLarge)?.copyWith(
       fontSize: 54,
       height: 0.94,
       fontWeight: FontWeight.w900,
       letterSpacing: 0,
     ),
-    displayMedium: display.displayMedium?.copyWith(
+    displayMedium: _withGoogleFont(base.displayMedium, display.displayMedium)?.copyWith(
       fontSize: 40,
       height: 0.98,
       fontWeight: FontWeight.w900,
       letterSpacing: 0,
     ),
-    displaySmall: display.displaySmall?.copyWith(
+    displaySmall: _withGoogleFont(base.displaySmall, display.displaySmall)?.copyWith(
       fontSize: 32,
       height: 1,
       fontWeight: FontWeight.w900,
       letterSpacing: 0,
     ),
-    headlineLarge: display.headlineLarge?.copyWith(
+    headlineLarge: _withGoogleFont(base.headlineLarge, display.headlineLarge)?.copyWith(
       fontSize: 28,
       height: 1.05,
       fontWeight: FontWeight.w900,
       letterSpacing: 0,
     ),
-    headlineMedium: display.headlineMedium?.copyWith(
+    headlineMedium: _withGoogleFont(base.headlineMedium, display.headlineMedium)?.copyWith(
       fontSize: 24,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
     ),
-    headlineSmall: display.headlineSmall?.copyWith(
+    headlineSmall: _withGoogleFont(base.headlineSmall, display.headlineSmall)?.copyWith(
       fontSize: 20,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
     ),
-    titleLarge: display.titleLarge?.copyWith(
+    titleLarge: _withGoogleFont(base.titleLarge, display.titleLarge)?.copyWith(
       fontSize: 20,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
     ),
-    titleMedium: display.titleMedium?.copyWith(
+    titleMedium: _withGoogleFont(base.titleMedium, display.titleMedium)?.copyWith(
       fontSize: 16,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
     ),
-    titleSmall: display.titleSmall?.copyWith(
+    titleSmall: _withGoogleFont(base.titleSmall, display.titleSmall)?.copyWith(
       fontSize: 14,
       fontWeight: FontWeight.w700,
       letterSpacing: 0,
     ),
-    bodyLarge: body.bodyLarge?.copyWith(
+    bodyLarge: _withGoogleFont(base.bodyLarge, body.bodyLarge)?.copyWith(
       fontSize: 16,
       height: 1.5,
       letterSpacing: 0,
     ),
-    bodyMedium: body.bodyMedium?.copyWith(
+    bodyMedium: _withGoogleFont(base.bodyMedium, body.bodyMedium)?.copyWith(
       fontSize: 14,
       height: 1.45,
       letterSpacing: 0,
     ),
-    bodySmall: body.bodySmall?.copyWith(
+    bodySmall: _withGoogleFont(base.bodySmall, body.bodySmall)?.copyWith(
       fontSize: 12,
       height: 1.4,
       letterSpacing: 0,
     ),
-    labelLarge: body.labelLarge?.copyWith(
+    labelLarge: _withGoogleFont(base.labelLarge, body.labelLarge)?.copyWith(
       fontSize: 13,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
     ),
-    labelMedium: body.labelMedium?.copyWith(
+    labelMedium: _withGoogleFont(base.labelMedium, body.labelMedium)?.copyWith(
       fontSize: 12,
       fontWeight: FontWeight.w800,
       letterSpacing: 0,
