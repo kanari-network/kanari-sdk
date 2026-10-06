@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::print_stdout)]
+
 use anyhow::Result;
 use kanari_move_runtime_v0::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v0::state::StateManager;

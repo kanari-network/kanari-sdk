@@ -238,7 +238,7 @@ impl super::MoveRuntime {
         ];
         let modules_dir = find_modules_dir("MOVE_STDLIB_PATH", &segments);
 
-        eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
+        log::info!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
             warn!(
@@ -332,7 +332,7 @@ impl super::MoveRuntime {
                 }
             }
             if let Err(e) = self.state.save_module(&m.module_id, &m.bytes) {
-                eprintln!("Warning: Failed to save {}: {}", module_file, e);
+                log::warn!("Warning: Failed to save {}: {}", module_file, e);
                 continue;
             }
             if let Ok(mut mods) = self.published_modules.write() {
@@ -341,7 +341,7 @@ impl super::MoveRuntime {
             count += 1;
         }
 
-        eprintln!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
+        log::info!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
         Ok(())
     }
 
@@ -358,7 +358,7 @@ impl super::MoveRuntime {
         ];
         let modules_dir = find_modules_dir("KANARI_FRAMEWORK_PATH", &segments);
 
-        eprintln!("Looking for Kanari system modules at: {:?}", modules_dir);
+        log::info!("Looking for Kanari system modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
             warn!(
@@ -388,7 +388,7 @@ impl super::MoveRuntime {
         // so no additional check is needed
 
         let (manifest, hash_hex) = compute_framework_manifest_and_hash(&modules);
-        eprintln!("kanari-system framework hash (disk): {}", hash_hex);
+        log::info!("kanari-system framework hash (disk): {}", hash_hex);
         if let Some(prev) = self.state.get_framework_hash("0x2")
             && prev != hash_hex
         {
@@ -475,7 +475,7 @@ impl super::MoveRuntime {
                 }
             }
             if let Err(e) = self.state.save_module(&m.module_id, &m.bytes) {
-                eprintln!("Warning: Failed to save {}: {}", module_file, e);
+                log::warn!("Warning: Failed to save {}: {}", module_file, e);
                 continue;
             }
             if let Ok(mut mods) = self.published_modules.write() {
@@ -484,7 +484,7 @@ impl super::MoveRuntime {
             count += 1;
         }
 
-        eprintln!("Loaded {} kanari-system modules (0x2::*)", count);
+        log::info!("Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
 }
