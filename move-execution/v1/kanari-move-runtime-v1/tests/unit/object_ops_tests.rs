@@ -105,16 +105,14 @@ fn preload_resolves_zero_stripped_object_ids() {
     let runtime = MoveRuntime::new_with_natives_in_memory(vec![]).invariant("runtime init");
     let owner = AccountAddress::from_hex_literal("0x1234").invariant("valid owner address");
     // Canonical id with leading zero bytes; its display form strips them.
-    let canonical_id =
-        "0x0070b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed";
+    let canonical_id = "0x0070b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed";
     runtime
         .preload_object_snapshot(canonical_id, owner, "0x2::test::Object", vec![0u8; 40], 1)
         .invariant("snapshot stored");
 
     // The stripped display form decodes to 31 bytes, not 32.
-    let stripped =
-        hex::decode("70b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed")
-            .invariant("decode stripped id");
+    let stripped = hex::decode("70b2e77c3117590f6c18cc58a31bead3f3990742a5007f4c63cd4ae8ca90ed")
+        .invariant("decode stripped id");
     assert_eq!(stripped.len(), 31);
 
     let vm_guard = runtime.read_vm();
