@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use kanari_move_runtime_v1::move_runtime::MoveRuntime;
+use kanari_move_runtime_v2::move_runtime::MoveRuntime;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use move_core_types::language_storage::ModuleId;
@@ -169,7 +169,7 @@ fn addr_literal(id: &str) -> String {
 }
 
 /// Preload every created object of a changeset so later calls can resolve them.
-fn preload_created(runtime: &MoveRuntime, cs: &kanari_move_runtime_v1::changeset::ChangeSet) {
+fn preload_created(runtime: &MoveRuntime, cs: &kanari_move_runtime_v2::changeset::ChangeSet) {
     for (id, obj) in &cs.created_objects {
         runtime
             .preload_object_snapshot(id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
@@ -192,7 +192,7 @@ fn exec(
     fn_name: &str,
     slots: Vec<Slot>,
     sender: MoveAccountAddress,
-) -> anyhow::Result<kanari_move_runtime_v1::changeset::ChangeSet> {
+) -> anyhow::Result<kanari_move_runtime_v2::changeset::ChangeSet> {
     let mut args: Vec<Vec<u8>> = Vec::new();
     let mut object_inputs: Vec<kanari_types::transaction::ObjectInput> = Vec::new();
     for slot in slots {
@@ -215,7 +215,7 @@ fn exec(
             fn_name,
             vec![],
             args,
-            kanari_move_runtime_v1::move_runtime::EntryFunctionObjectContext {
+            kanari_move_runtime_v2::move_runtime::EntryFunctionObjectContext {
                 object_inputs,
                 sender: Some(sender),
                 gas_info: None,
@@ -232,7 +232,7 @@ fn exec(
 /// sub-status rules out an earlier failure in argument binding or ownership
 /// bookkeeping, which would otherwise satisfy a bare `is_err()`.
 fn assert_aborted(
-    result: anyhow::Result<kanari_move_runtime_v1::changeset::ChangeSet>,
+    result: anyhow::Result<kanari_move_runtime_v2::changeset::ChangeSet>,
     expected_code: u64,
     what: &str,
 ) {
@@ -252,7 +252,7 @@ fn assert_aborted(
 }
 
 /// `(object_id, version)` of the single object created by a changeset.
-fn only_created(cs: &kanari_move_runtime_v1::changeset::ChangeSet) -> (String, u64) {
+fn only_created(cs: &kanari_move_runtime_v2::changeset::ChangeSet) -> (String, u64) {
     assert_eq!(
         cs.created_objects.len(),
         1,
@@ -263,7 +263,7 @@ fn only_created(cs: &kanari_move_runtime_v1::changeset::ChangeSet) -> (String, u
     (id.clone(), obj.version)
 }
 
-fn created_types(cs: &kanari_move_runtime_v1::changeset::ChangeSet) -> Vec<String> {
+fn created_types(cs: &kanari_move_runtime_v2::changeset::ChangeSet) -> Vec<String> {
     cs.created_objects
         .iter()
         .map(|(_, o)| o.type_.clone())
@@ -271,7 +271,7 @@ fn created_types(cs: &kanari_move_runtime_v1::changeset::ChangeSet) -> Vec<Strin
 }
 
 /// Id of the created object whose type ends with `suffix`.
-fn find_created(cs: &kanari_move_runtime_v1::changeset::ChangeSet, suffix: &str) -> String {
+fn find_created(cs: &kanari_move_runtime_v2::changeset::ChangeSet, suffix: &str) -> String {
     cs.created_objects
         .iter()
         .find(|(_, o)| o.type_.ends_with(suffix))
@@ -288,7 +288,7 @@ fn find_created(cs: &kanari_move_runtime_v1::changeset::ChangeSet, suffix: &str)
 /// Id of the created object whose type contains `needle` (matches generic
 /// types such as `0x2::coin::TreasuryCap<0x3..::TEST_COIN>`).
 fn find_created_containing(
-    cs: &kanari_move_runtime_v1::changeset::ChangeSet,
+    cs: &kanari_move_runtime_v2::changeset::ChangeSet,
     needle: &str,
 ) -> String {
     cs.created_objects
@@ -306,7 +306,7 @@ fn find_created_containing(
 
 /// Single `u64` payload of a created object: the trailing 8 bytes of its BCS
 /// data (the data is a 32-byte object id followed by the struct fields).
-fn created_u64(cs: &kanari_move_runtime_v1::changeset::ChangeSet, id: &str) -> anyhow::Result<u64> {
+fn created_u64(cs: &kanari_move_runtime_v2::changeset::ChangeSet, id: &str) -> anyhow::Result<u64> {
     let data = &cs
         .created_objects
         .iter()

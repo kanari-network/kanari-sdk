@@ -4,8 +4,8 @@
 use super::*;
 use crate::{CheckpointSyncData, consensus::Checkpoint};
 use kanari_crypto::keys::{CurveType, generate_keypair};
-use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-use kanari_move_runtime_v1::state::OwnerState;
+use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v2::state::OwnerState;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};

@@ -143,7 +143,7 @@ fn maybe_print_rocksdb_profile(engine: &kanari_core::BlockchainEngine) {
 }
 
 fn print_rocksdb_profile(
-    store: &kanari_core::kanari_move_runtime_v1::storage::persistent_store::PersistentStore,
+    store: &kanari_core::kanari_move_runtime_v2::storage::persistent_store::PersistentStore,
     label: &str,
 ) {
     eprintln!("RocksDB profile ({label}):");

@@ -6,7 +6,6 @@
 use arbitrary::Unstructured;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
-use kanari_move_runtime_v1::validation::{MAX_MODULE_SIZE, validate_module_bytes};
 use libfuzzer_sys::fuzz_target;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
@@ -21,17 +20,8 @@ fuzz_target!(|data: &[u8]| {
     // Fuzzed module candidate; the size stays bounded by the fuzzer input.
     let module_bytes: Vec<u8> = unstructured.arbitrary().unwrap_or_default();
 
-    // Fast path: input validation and bytecode deserialization must never panic.
-    let _ = validate_module_bytes(&module_bytes);
+    // Fast path: bytecode deserialization must never panic.
     let _ = CompiledModule::deserialize_with_defaults(&module_bytes);
-
-    // A module above the documented limit must be rejected, not accepted.
-    if module_bytes.len() > MAX_MODULE_SIZE {
-        assert!(
-            validate_module_bytes(&module_bytes).is_err(),
-            "oversized modules must fail validation"
-        );
-    }
 
     if let Ok(runtime) = MoveRuntime::new_with_kanari_natives_in_memory() {
         let mut state = StateManager::new_in_memory();

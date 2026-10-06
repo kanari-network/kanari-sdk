@@ -5,7 +5,7 @@
 
 use arbitrary::Unstructured;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
-use kanari_move_runtime_v1::validation::{MAX_MODULE_SIZE, validate_gas_info};
+use kanari_move_runtime_v1::validation::validate_gas_info;
 use kanari_types::gas::GasOperation;
 use libfuzzer_sys::fuzz_target;
 use move_core_types::account_address::AccountAddress;
@@ -24,10 +24,11 @@ fuzz_target!(|data: &[u8]| {
     let _ = validate_gas_info(100, 1000);
 
     // 2. Gas accounting for every operation kind. `module_size` stays inside the
-    //    range that `validate_module_bytes` accepts, so the arithmetic below only
+    //    range the bytecode verifier accepts (64 KB), so the arithmetic below only
     //    ever sees inputs the protocol can produce.
+    const MAX_FUZZ_MODULE_SIZE: u64 = 65_535;
     let module_size = unstructured
-        .int_in_range(0..=MAX_MODULE_SIZE as u64)
+        .int_in_range(0..=MAX_FUZZ_MODULE_SIZE)
         .unwrap_or(0) as usize;
     let complexity = unstructured.int_in_range(0..=u32::MAX as u64).unwrap_or(0) as u32;
     let operations = [

@@ -5,7 +5,7 @@ use super::{
     RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
     respond_with_serialize,
 };
-use kanari_move_runtime_v1::state::StateManager;
+use kanari_move_runtime_v2::state::StateManager;
 use kanari_rpc_api::{
     FungibleAssetHolder, FungibleAssetHolderCursor, FungibleAssetHoldersResponse,
     FungibleAssetInfo, GetFungibleAssetHoldersRequest, GetFungibleAssetRequest,

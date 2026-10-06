@@ -10,7 +10,7 @@ use super::{
     validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
-use kanari_move_runtime_v1::changeset::ChangeSet;
+use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;

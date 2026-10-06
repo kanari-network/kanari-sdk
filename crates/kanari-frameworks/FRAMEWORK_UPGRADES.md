@@ -8,7 +8,7 @@ signature) without wiping node data.
 On startup every node compares the freshly built framework bytecode on disk
 against the modules already stored in its database
 (`save_framework_modules` in
-`move-execution/v1/kanari-move-runtime-v1/src/move_runtime/load_system_modules.rs`).
+`move-execution/v2/kanari-move-runtime-v2/src/move_runtime/load_system_modules.rs`).
 It runs Move's `Compatibility::full_check`:
 
 - adding a `public fun` / new module / new native: **compatible**, boots fine

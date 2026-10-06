@@ -1,0 +1,55 @@
+[package]
+name = "kanari-move-runtime-v2"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+exclude = ["fuzz"]
+
+[dependencies]
+anyhow = { workspace = true }
+bcs = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+rocksdb = { workspace = true }
+hex = { workspace = true }
+sha3 = { workspace = true }
+arbitrary = { workspace = true }
+
+# Move VM dependencies (use workspace/local paths similar to other crates)
+move-core-types = { workspace = true }
+move-vm-runtime = { workspace = true }
+move-binary-format = { workspace = true }
+move-bytecode-verifier = { workspace = true }
+move-vm-types = { workspace = true }
+move-stdlib-natives = { workspace = true }
+move-vm-profiler = { workspace = true }
+move-package = { workspace = true }
+
+kanari-db-common = { workspace = true }
+smt = { workspace = true }
+kanari-system-natives = { workspace = true }
+kanari-types = { workspace = true }
+kanari-crypto = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kanari-frameworks = { workspace = true }
+tempfile = { workspace = true }
+kanari-types = { workspace = true }
+proptest = { workspace = true }
+
+[build-dependencies]
+move-package = { workspace = true }
+
+[features]
+default = []
+framework-pruning = []

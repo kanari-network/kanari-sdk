@@ -8,7 +8,7 @@ use crate::{
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
-use kanari_move_runtime_v1::changeset::ChangeSet;
+use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::{
     BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
     BuildPublishModuleRequest, BuildPublishPackageRequest, BuildTokenTransferRequest,

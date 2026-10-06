@@ -43,7 +43,7 @@ kanari-system-natives.workspace = true
 kanari-frameworks.workspace = true
 kanari-indexer = { path = "../kanari-indexer" }
 kanari-open-rpc-spec-builder = { path = "../kanari-open-rpc-spec-builder" }
-kanari-move-runtime-v1.workspace = true
+kanari-move-runtime-v2.workspace = true
 move-package.workspace = true
 move-binary-format.workspace = true
 move-core-types.workspace = true

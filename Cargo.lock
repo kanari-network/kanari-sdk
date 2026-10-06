@@ -3607,7 +3607,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "kanari-crypto",
- "kanari-move-runtime-v1",
+ "kanari-move-runtime-v2",
  "kanari-rpc-api",
  "kanari-types",
  "log",
@@ -3704,7 +3704,7 @@ dependencies = [
  "kanari-faucet",
  "kanari-frameworks",
  "kanari-indexer",
- "kanari-move-runtime-v1",
+ "kanari-move-runtime-v2",
  "kanari-open-rpc",
  "kanari-open-rpc-spec",
  "kanari-open-rpc-spec-builder",
@@ -3792,6 +3792,38 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "arbitrary",
+ "bcs",
+ "hex",
+ "kanari-crypto",
+ "kanari-db-common",
+ "kanari-frameworks",
+ "kanari-system-natives",
+ "kanari-types",
+ "log",
+ "move-binary-format",
+ "move-bytecode-verifier",
+ "move-core-types",
+ "move-package",
+ "move-stdlib-natives",
+ "move-vm-profiler",
+ "move-vm-runtime",
+ "move-vm-types",
+ "proptest",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "sha3 0.12.0",
+ "smt",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "kanari-move-runtime-v2"
 version = "0.3.2"
 dependencies = [
  "anyhow",
@@ -3947,7 +3979,7 @@ dependencies = [
  "hex",
  "kanari-core",
  "kanari-crypto",
- "kanari-move-runtime-v1",
+ "kanari-move-runtime-v2",
  "kanari-rpc-api",
  "kanari-types",
  "move-binary-format",

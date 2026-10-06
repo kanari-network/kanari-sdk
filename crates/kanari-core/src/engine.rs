@@ -6,10 +6,10 @@ use crate::consensus::Checkpoint;
 use crate::file_io::{read_json_file, write_json_pretty_atomically};
 use ahash::AHashMap;
 use anyhow::{Context, Result, ensure};
-use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject, StateAccessSet};
-use kanari_move_runtime_v1::move_runtime::{EntryFunctionObjectContext, MoveRuntime};
-use kanari_move_runtime_v1::state::StateManager;
-use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
+use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject, StateAccessSet};
+use kanari_move_runtime_v2::move_runtime::{EntryFunctionObjectContext, MoveRuntime};
+use kanari_move_runtime_v2::state::StateManager;
+use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
@@ -238,7 +238,7 @@ pub struct BlockchainEngine {
     invalid_pending_drop_count: Arc<AtomicU64>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
-    pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
+    pub runtime_pool: Vec<kanari_move_runtime_v2::move_runtime::MoveRuntime>,
     // LRU cache for frequently requested merkle proofs
     // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
     pub proof_cache: Arc<RwLock<ProofCache>>,
@@ -2437,7 +2437,7 @@ impl BlockchainEngine {
         });
         if serial_execution
             || has_module_publish
-            || kanari_move_runtime_v1::TransactionScheduler::requires_serial_execution()
+            || kanari_move_runtime_v2::TransactionScheduler::requires_serial_execution()
         {
             if has_module_publish {
                 self.runtime_pool[0].reload_vm_cache()?;
@@ -2523,7 +2523,7 @@ impl BlockchainEngine {
             return Ok((executed_count, failed_count, transaction_effects));
         }
 
-        let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
+        let waves = kanari_move_runtime_v2::TransactionScheduler::schedule(transactions);
         let wave_count = waves.len();
         let mut speculative_committed_waves = 0usize;
         let mut speculative_committed_txs = 0usize;
@@ -3101,7 +3101,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
-        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v2::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
@@ -3114,7 +3114,7 @@ impl BlockchainEngine {
     pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
-        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v2::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         _validate_sequence: bool,
         timestamp: Option<u64>,
@@ -3142,12 +3142,12 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime_overlay(
         &self,
         tx: &Transaction,
-        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v2::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         _validate_sequence: bool,
         timestamp: Option<u64>,
         persist_runtime_state: bool,
-        state_overlay: Option<kanari_move_runtime_v1::StateOverlay>,
+        state_overlay: Option<kanari_move_runtime_v2::StateOverlay>,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let gas_coin = Self::tx_gas_coin_type(tx);

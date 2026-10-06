@@ -4,7 +4,7 @@
 use super::BlockchainEngine;
 use crate::consensus::Checkpoint;
 use anyhow::{Context, Result, bail};
-use kanari_move_runtime_v1::state::{PrecomputedSmtChanges, StateManager};
+use kanari_move_runtime_v2::state::{PrecomputedSmtChanges, StateManager};
 use kanari_types::transaction::SignedTransaction;
 use log::info;
 use std::sync::{Arc, RwLock};
@@ -19,7 +19,7 @@ pub(crate) struct PreparedCheckpointState {
 
 impl BlockchainEngine {
     fn changeset_needs_native_wallet_repair(
-        changeset: &kanari_move_runtime_v1::changeset::ChangeSet,
+        changeset: &kanari_move_runtime_v2::changeset::ChangeSet,
     ) -> bool {
         !changeset.owner_deltas.is_empty()
             || !changeset.native_gas_credits.is_empty()

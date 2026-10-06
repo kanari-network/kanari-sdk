@@ -112,7 +112,7 @@ Stores retained checkpoint history and query indexes:
 
 ### Move Runtime
 
-`kanari-move-runtime-v1` executes Move transactions and maintains logical state.
+`kanari-move-runtime-v2` executes Move transactions and maintains logical state.
 State roots are generated through the workspace `smt` crate.
 
 ## Transaction Flow
@@ -214,7 +214,7 @@ and measurement method.
 
 Key workspace dependencies:
 
-- `kanari-move-runtime-v1`
+- `kanari-move-runtime-v2`
 - `kanari-types`
 - `kanari-crypto`
 - `smt`

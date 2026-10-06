@@ -73,7 +73,7 @@ fn move_str_vec_to_strings(vec: &[MoveString]) -> Vec<String> {
 }
 
 fn parse_collection_fields(
-    obj: &kanari_move_runtime_v1::changeset::CreatedObject,
+    obj: &kanari_move_runtime_v2::changeset::CreatedObject,
 ) -> (String, String, String, String, u64) {
     let mut name = "Unknown Collection".to_string();
     let mut description = String::new();

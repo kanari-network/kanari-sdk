@@ -10,9 +10,9 @@ use crate::engine::{
 };
 use crate::file_io::write_file_atomically;
 use kanari_crypto::keys::{CurveType, generate_keypair};
-use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-use kanari_move_runtime_v1::state::OwnerState;
-use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
+use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v2::state::OwnerState;
+use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::CoinModule;
@@ -2116,7 +2116,7 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
     assert_eq!(changeset.native_gas_credits.get(&dao), Some(&10));
     assert!(changeset.created_objects.is_empty());
 
-    let mut state = kanari_move_runtime_v1::state::StateManager::new_in_memory();
+    let mut state = kanari_move_runtime_v2::state::StateManager::new_in_memory();
     state
         .save_owner_state(&OwnerState::with_native_balance(sender, 10))
         .unwrap();

@@ -7,8 +7,8 @@ use axum::{
     http::{Method, Request, StatusCode},
     response::Response,
 };
-use kanari_core::kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-use kanari_core::kanari_move_runtime_v1::state::{OwnerState, StateManager};
+use kanari_core::kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
+use kanari_core::kanari_move_runtime_v2::state::{OwnerState, StateManager};
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_rpc_api::methods;
 use kanari_types::balance::BalanceRecord;

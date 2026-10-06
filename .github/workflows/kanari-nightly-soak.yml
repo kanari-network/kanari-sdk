@@ -116,7 +116,7 @@ jobs:
       - name: fmt + clippy + spec
         run: |
           cargo fmt --check
-          cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server -p kanari-move-runtime-v1 -p kanari-core --lib -- -D warnings
+          cargo clippy -p kanari-types -p kanari-rpc-api -p kanari-rpc-server -p kanari-move-runtime-v2 -p kanari-core --lib -- -D warnings
           cargo run -p kanari-open-rpc-spec-builder -- test
 
       - name: Full test suites
@@ -124,5 +124,5 @@ jobs:
           cargo test -p kanari-types --lib
           cargo test -p kanari-rpc-api --lib
           cargo test -p kanari-rpc-server --lib
-          cargo test -p kanari-move-runtime-v1 --lib
+          cargo test -p kanari-move-runtime-v2 --lib
           cargo test -p kanari-core --lib
