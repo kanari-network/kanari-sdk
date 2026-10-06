@@ -155,6 +155,10 @@ const DEFAULT_MAX_DAG_VERTEX_TXS_PER_HOT_OBJECT: usize = 64;
 const DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS: usize = 65_536;
 pub const MAX_TRANSACTION_BYTES: usize = 256 * 1024;
 pub const MAX_TRANSACTION_GAS_LIMIT: u64 = 10_000_000;
+/// Maximum number of objects (declared inputs plus gas payment objects) one
+/// transaction may reference. The byte limit above already bounds this
+/// indirectly; the explicit cap fails fast before any object is loaded.
+pub const MAX_TRANSACTION_OBJECTS: usize = 1_000;
 
 mod apply_checkpoint;
 mod bootstrap;
@@ -3026,6 +3030,16 @@ impl BlockchainEngine {
             bcs::serialized_size(tx)? <= MAX_TRANSACTION_BYTES,
             "Transaction exceeds {} byte admission limit",
             MAX_TRANSACTION_BYTES
+        );
+        let object_count = tx.object_inputs().len()
+            + tx.gas_payment()
+                .map(|payment| payment.payment_objects.len())
+                .unwrap_or(0);
+        ensure!(
+            object_count <= MAX_TRANSACTION_OBJECTS,
+            "Transaction references {} objects, exceeding maximum {}",
+            object_count,
+            MAX_TRANSACTION_OBJECTS
         );
         ensure!(
             tx.gas_limit() <= MAX_TRANSACTION_GAS_LIMIT,

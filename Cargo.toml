@@ -47,7 +47,6 @@ members = [
       "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
-      "move-execution/v0/kanari-move-runtime",
       "move-execution/v1/kanari-move-runtime-v1",
       "move-execution/v2/kanari-move-runtime-v2",
 
@@ -313,7 +312,6 @@ kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 smt = { path = "crates/smt" }
 
 # Move Runtime
-kanari-move-runtime-v0 = { path = "move-execution/v0/kanari-move-runtime" }
 kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
 kanari-move-runtime-v2 = { path = "move-execution/v2/kanari-move-runtime-v2" }
 
