@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::changeset::{ChangeSet, CreatedObject, StateAccessSet};
-use crate::common::balance::{is_balance_struct, token_type_from_struct_tag};
+use crate::common::balance::{
+    extract_balance_from_object_bytes, is_balance_struct, token_type_from_struct_tag,
+};
 use crate::common::ids::canonical_object_id;
 use crate::common::keys::{dynamic_field_key, metadata_key, object_key, owned_objects_key};
 use crate::storage::object_storage::StoredObject;
@@ -310,31 +312,6 @@ impl StateManager {
     fn log_index_fallback(index_name: &str, error: anyhow::Error) -> Vec<String> {
         log::error!("[StateManager] Failed to load index {index_name}: {error:#}");
         Vec::new()
-    }
-
-    fn extract_balance_from_object_bytes(data: &[u8], struct_tag: &StructTag) -> Option<u64> {
-        let module_name = struct_tag.module.as_str();
-        let struct_name = struct_tag.name.as_str();
-
-        if module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT {
-            if data.len() < UID_SIZE + U64_SIZE {
-                return None;
-            }
-            let bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
-            return Some(u64::from_le_bytes(bytes));
-        }
-
-        if module_name == BalanceModule::BALANCE_MODULE
-            && struct_name == BalanceModule::BALANCE_STRUCT
-        {
-            if data.len() < U64_SIZE {
-                return None;
-            }
-            let bytes: [u8; U64_SIZE] = data[data.len() - U64_SIZE..].try_into().ok()?;
-            return Some(u64::from_le_bytes(bytes));
-        }
-
-        None
     }
 
     fn write_balance_to_object_bytes(data: &mut [u8], struct_tag: &StructTag, amount: u64) -> bool {
@@ -1504,7 +1481,7 @@ impl StateManager {
             return None;
         }
         let token_type = token_type_from_struct_tag(&struct_tag)?;
-        let amount = Self::extract_balance_from_object_bytes(data, &struct_tag)?;
+        let amount = extract_balance_from_object_bytes(data, &struct_tag)?;
         Some((Self::normalize_token_type(&token_type), amount))
     }
 

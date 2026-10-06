@@ -929,7 +929,7 @@ impl StateManager {
                         let new_struct_tag = StructTag::from_str(&new_obj.type_)
                             .context("Invalid transferred native coin object type")?;
                         let object_amount =
-                            Self::extract_balance_from_object_bytes(&new_obj.data, &new_struct_tag)
+                            extract_balance_from_object_bytes(&new_obj.data, &new_struct_tag)
                                 .context("Invalid transferred native coin object data")?;
                         ensure!(
                             object_amount >= remaining_debit,

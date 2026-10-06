@@ -9,9 +9,9 @@ use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::validation::{
-    MAX_ARG_SIZE, MAX_ARGS, MAX_FUNCTION_NAME_LENGTH, MAX_MODULE_SIZE, MAX_TYPE_ARGS,
-    ValidatedGasInfo, validate_args, validate_function_name, validate_gas_info,
-    validate_module_bytes, validate_transaction, validate_type_tags,
+    MAX_ARG_SIZE, MAX_ARGS, MAX_FUNCTION_NAME_LENGTH, MAX_TYPE_ARGS, ValidatedGasInfo,
+    validate_args, validate_function_name, validate_gas_info, validate_transaction,
+    validate_type_tags,
 };
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{ModuleId, TypeTag};
@@ -73,19 +73,6 @@ fn prop_fuzz_changeset_roundtrip() {
 // ============================================================================
 // Input Validation Tests - 100% Coverage
 // ============================================================================
-
-#[test]
-fn prop_fuzz_validation_module_bytes() {
-    proptest!(runtime_fuzz_config(), |(data: Vec<u8>)| {
-        prop_assume!(data.len() <= 4096);
-        assert!(validate_module_bytes(&[]).is_err());
-        let oversized = vec![0u8; MAX_MODULE_SIZE + 1];
-        assert!(validate_module_bytes(&oversized).is_err());
-        if data.len() <= MAX_MODULE_SIZE && !data.is_empty() {
-            let _ = validate_module_bytes(&data);
-        }
-    });
-}
 
 #[test]
 fn prop_fuzz_validation_function_name() {

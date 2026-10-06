@@ -12,9 +12,6 @@ use move_core_types::language_storage::{ModuleId, TypeTag};
 // Size Limits
 // ============================================================================
 
-/// Maximum module bytecode size (10 MB)
-pub const MAX_MODULE_SIZE: usize = 10 * 1024 * 1024;
-
 /// Maximum number of type arguments per transaction
 pub const MAX_TYPE_ARGS: usize = 100;
 
@@ -30,39 +27,9 @@ pub const MAX_FUNCTION_NAME_LENGTH: usize = 256;
 /// Maximum length of module names
 pub const MAX_MODULE_NAME_LENGTH: usize = 256;
 
-/// Maximum number of objects per transaction
-pub const MAX_OBJECTS_PER_TX: usize = 1000;
-
-/// Maximum transaction size
-pub const MAX_TX_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-
 // ============================================================================
 // Validation Functions
 // ============================================================================
-
-/// Validates module bytecode before publishing
-pub fn validate_module_bytes(bytes: &[u8]) -> Result<()> {
-    // Check empty
-    if bytes.is_empty() {
-        anyhow::bail!("Module bytes cannot be empty");
-    }
-
-    // Check size limit
-    if bytes.len() > MAX_MODULE_SIZE {
-        anyhow::bail!(
-            "Module bytes too large: {} > {}",
-            bytes.len(),
-            MAX_MODULE_SIZE
-        );
-    }
-
-    // Note: We skip bytecode parsing as CompiledModule::deserialize
-    // is not available in the current dependencies.
-    // The size check above provides basic protection.
-    // For production, add proper bytecode verification.
-
-    Ok(())
-}
 
 /// Validates function name
 pub fn validate_function_name(name: &str) -> Result<()> {
@@ -251,17 +218,6 @@ impl ValidatedGasInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_validate_empty_module() {
-        assert!(validate_module_bytes(&[]).is_err());
-    }
-
-    #[test]
-    fn test_validate_large_module() {
-        let large = vec![0u8; MAX_MODULE_SIZE + 1];
-        assert!(validate_module_bytes(&large).is_err());
-    }
 
     #[test]
     fn test_validate_empty_function_name() {
