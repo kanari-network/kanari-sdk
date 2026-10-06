@@ -277,9 +277,7 @@ impl BlockchainEngine {
             "Initializing runtime pool with {} workers (independent VMs sharing DB)",
             workers
         );
-        let verbose_startup = std::env::var("KANARI_VERBOSE_STARTUP")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
+        let verbose_startup = Self::env_flag_enabled("KANARI_VERBOSE_STARTUP");
         tracing::info!(workers, "Move runtime pool initializing");
         runtime_pool.push(base_runtime.clone());
 

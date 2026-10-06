@@ -959,16 +959,20 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    fn prefixed_sequence_key(prefix: &str, sequence: u64) -> Vec<u8> {
+        format!("{prefix}/{sequence:020}").into_bytes()
+    }
+
     fn checkpoint_transactions_key(sequence: u64) -> Vec<u8> {
-        format!("checkpoint_txs/{sequence:020}").into_bytes()
+        Self::prefixed_sequence_key("checkpoint_txs", sequence)
     }
 
     fn checkpoint_metadata_key(sequence: u64) -> Vec<u8> {
-        format!("checkpoint_meta/{sequence:020}").into_bytes()
+        Self::prefixed_sequence_key("checkpoint_meta", sequence)
     }
 
     fn checkpoint_metadata_json_key(sequence: u64) -> Vec<u8> {
-        format!("checkpoint_meta_json_v1/{sequence:020}").into_bytes()
+        Self::prefixed_sequence_key("checkpoint_meta_json_v1", sequence)
     }
 
     /// Storage key for the serialized blockchain metadata snapshot.
@@ -981,16 +985,18 @@ impl BlockchainEngine {
         b"runtime:pending_checkpoint_commit_v1"
     }
 
-    fn transaction_payload_key(tx_hash: &[u8]) -> Vec<u8> {
-        let mut key = b"tx_payload/".to_vec();
+    fn prefixed_tx_key(prefix: &[u8], tx_hash: &[u8]) -> Vec<u8> {
+        let mut key = prefix.to_vec();
         key.extend_from_slice(hex::encode(tx_hash).as_bytes());
         key
     }
 
+    fn transaction_payload_key(tx_hash: &[u8]) -> Vec<u8> {
+        Self::prefixed_tx_key(b"tx_payload/", tx_hash)
+    }
+
     fn transaction_index_key(tx_hash: &[u8]) -> Vec<u8> {
-        let mut key = b"tx_index/".to_vec();
-        key.extend_from_slice(hex::encode(tx_hash).as_bytes());
-        key
+        Self::prefixed_tx_key(b"tx_index/", tx_hash)
     }
 
     fn recent_transaction_hashes_key() -> &'static [u8] {
@@ -1027,6 +1033,15 @@ impl BlockchainEngine {
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .filter(|value| *value > 0)
+    }
+
+    /// Reads a boolean feature flag from the environment. Only the explicit
+    /// truthy spellings count; anything else (including unset) is false.
+    pub(crate) fn env_flag_enabled(var: &str) -> bool {
+        matches!(
+            std::env::var(var).as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+        )
     }
 
     fn persist_transaction_hash_index_enabled(store: &PersistentStore) -> bool {
@@ -1841,9 +1856,7 @@ impl BlockchainEngine {
     }
 
     fn owned_fastpath_smt_audit_enabled() -> bool {
-        std::env::var("KANARI_OWNED_FASTPATH_AUDIT_SMT")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false)
+        Self::env_flag_enabled("KANARI_OWNED_FASTPATH_AUDIT_SMT")
     }
 
     fn is_owned_fast_path_eligible(tx: &SignedTransaction) -> bool {
@@ -2158,10 +2171,7 @@ impl BlockchainEngine {
         changesets: &[ChangeSet],
         indices: &[usize],
     ) -> Result<()> {
-        let profile = matches!(
-            std::env::var("KANARI_DEPENDENCY_APPLY_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_DEPENDENCY_APPLY_PROFILE");
         let started_at = std::time::Instant::now();
         match indices {
             [] => Ok(()),
@@ -2192,10 +2202,7 @@ impl BlockchainEngine {
         state: &mut StateManager,
         changesets: &[ChangeSet],
     ) -> Result<(usize, usize)> {
-        let profile = matches!(
-            std::env::var("KANARI_DEPENDENCY_APPLY_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_DEPENDENCY_APPLY_PROFILE");
         let started_at = std::time::Instant::now();
         let batches = Self::schedule_dependency_aware_apply_batches(changesets);
         let scheduled_at = std::time::Instant::now();
@@ -2234,10 +2241,7 @@ impl BlockchainEngine {
         timestamp: Option<u64>,
         persist_objects: bool,
     ) -> Result<(usize, usize, Vec<TransactionEffects>)> {
-        let profile = matches!(
-            std::env::var("KANARI_CONFLICT_FREE_EXECUTOR_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_CONFLICT_FREE_EXECUTOR_PROFILE");
         let started_at = std::time::Instant::now();
         if transactions.is_empty() {
             return Ok((0, 0, Vec::new()));
@@ -2348,9 +2352,8 @@ impl BlockchainEngine {
             .map(|(batches, _)| *batches)
             .unwrap_or(0);
         let validate_result = if trusted_owned_native_conflict_keys {
-            let validate_owned_fastpath = std::env::var("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY")
-                .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                .unwrap_or(false);
+            let validate_owned_fastpath =
+                Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
             if validate_owned_fastpath {
                 apply_result
                     .map(|_| ())
@@ -2422,10 +2425,7 @@ impl BlockchainEngine {
         serial_execution: bool,
         fail_hard: bool,
     ) -> Result<(usize, usize, Vec<TransactionEffects>)> {
-        let profile = matches!(
-            std::env::var("KANARI_EXECUTION_WAVES_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_EXECUTION_WAVES_PROFILE");
         let execution_started_at = std::time::Instant::now();
         let mut executed_count = 0;
         let mut failed_count = 0;
@@ -3852,10 +3852,7 @@ impl BlockchainEngine {
         started_at: std::time::Instant,
         selected_at: std::time::Instant,
     ) -> Result<CheckpointProductionInfo> {
-        let profile = matches!(
-            std::env::var("KANARI_OWNED_FASTPATH_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_OWNED_FASTPATH_PROFILE");
         if transactions.is_empty() {
             return Ok(CheckpointProductionInfo {
                 vertex_id: "owned-fastpath-empty".to_string(),

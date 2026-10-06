@@ -122,16 +122,12 @@ impl BlockchainEngine {
         checkpoint: &Checkpoint,
         assume_conflict_free: bool,
     ) -> Result<PreparedCheckpointState> {
-        let profile = matches!(
-            std::env::var("KANARI_CHECKPOINT_PREPARE_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_PREPARE_PROFILE");
         let started_at = std::time::Instant::now();
         let mut state_snapshot = self.state_read().clone();
         if assume_conflict_free {
-            let validate_owned_fastpath = std::env::var("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY")
-                .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                .unwrap_or(false);
+            let validate_owned_fastpath =
+                Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
             if validate_owned_fastpath {
                 state_snapshot
                     .repair_cached_native_wallet_overcount()
@@ -180,12 +176,8 @@ impl BlockchainEngine {
         {
             let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
             if assume_conflict_free {
-                let validate_owned_fastpath =
-                    std::env::var("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY")
-                        .map(|value| {
-                            matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES")
-                        })
-                        .unwrap_or(false);
+                    let validate_owned_fastpath =
+                        Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
                 if validate_owned_fastpath {
                     state_write
                         .repair_cached_native_wallet_overcount()
@@ -232,10 +224,7 @@ impl BlockchainEngine {
         precomputed_smt_changes: Option<PrecomputedSmtChanges>,
         validate_supply: bool,
     ) -> Result<()> {
-        let profile = matches!(
-            std::env::var("KANARI_CHECKPOINT_FINALIZE_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_FINALIZE_PROFILE");
         let started_at = std::time::Instant::now();
         let has_module_publish = checkpoint.transactions.iter().any(|signed_tx| {
             matches!(
@@ -340,10 +329,7 @@ impl BlockchainEngine {
         checkpoint: Checkpoint,
         checkpoint_metadata_already_persisted: bool,
     ) -> Result<()> {
-        let profile = matches!(
-            std::env::var("KANARI_CHECKPOINT_METADATA_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_METADATA_PROFILE");
         let started_at = std::time::Instant::now();
         let tx_count = checkpoint.transactions.len();
         // 1. Update blockchain metadata in-memory.
