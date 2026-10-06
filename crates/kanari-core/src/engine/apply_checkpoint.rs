@@ -176,8 +176,8 @@ impl BlockchainEngine {
         {
             let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
             if assume_conflict_free {
-                    let validate_owned_fastpath =
-                        Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
+                let validate_owned_fastpath =
+                    Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
                 if validate_owned_fastpath {
                     state_write
                         .repair_cached_native_wallet_overcount()
