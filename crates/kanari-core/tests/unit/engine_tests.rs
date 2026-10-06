@@ -867,6 +867,42 @@ proptest! {
     }
 
     #[test]
+    fn admission_object_count_boundary_is_exact(extra_inputs in 990usize..1010) {
+        // Fuzz the object-cap boundary: the byte limit never binds in this
+        // band (inputs are small), so admission must accept exactly up to
+        // MAX_TRANSACTION_OBJECTS referenced objects and reject above it.
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+            sender.tagged_address(),
+            native_coin_object_ref("0xaaaa", 1_000_000),
+            recipient.address,
+            1,
+            1,
+            100_000,
+            1,
+        );
+        let Transaction::ExecuteFunction { object_inputs, .. } = &mut tx else {
+            unreachable!("transfer helper must construct ExecuteFunction");
+        };
+        if let Some(filler) = object_inputs.first().cloned() {
+            object_inputs.resize_with(extra_inputs, || filler.clone());
+        } else {
+            unreachable!("transfer helper must carry an object input");
+        }
+        let total = tx.object_inputs().len()
+            + tx
+                .gas_payment()
+                .map(|payment| payment.payment_objects.len())
+                .unwrap_or(0);
+        prop_assert_eq!(
+            BlockchainEngine::validate_transaction_admission_shape(&tx).is_ok(),
+            total <= MAX_TRANSACTION_OBJECTS,
+            "admission must accept exactly up to the object cap (total={})", total
+        );
+    }
+
+    #[test]
     fn native_transfer_multihop_conserves_objects_and_supply(
         // Floor at the minimum native gas charge (100 Mist): this property
         // asserts every hop succeeds, and the harness always pays gas from
