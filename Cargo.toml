@@ -65,7 +65,7 @@ categories = ["development-tools"]                                              
 keywords = ["blockchain", "sdk", "move", "rust", "ifps", "storage", "wallet", "framework"]     # Keywords for crates.io search.
 homepage = "https://kanarinetwork.site"                                                        # Project homepage.
 documentation = "https://docs.kanarinetwork.site"                                              # Link to project documentation.
-version = "0.3.3"                                                                              # Current version of the SDK.
+version = "0.3.4"                                                                              # Current version of the SDK.
 authors = ["Kanari Network"]                                                                   # Authors of the SDK.
 license = "Apache-2.0"                                                                         # License information.
 repository = "https://github.com/kanari-network/kanari-sdk"                                    # Link to the code repository.
@@ -160,7 +160,7 @@ falcon = { package = "falcon-rs", version = "0.3.1", features = ["std"] }       
 # ============================================================================
 # Memory Security & Timing Attack Prevention
 # ============================================================================
-zeroize = { version = "1.9.0", features = ["derive"] }                              # Secure memory zeroing
+zeroize = { version = "1.9.1", features = ["derive"] }                              # Secure memory zeroing
 subtle = "2.6.1"                                                                    # Constant-time operations
 rpassword = "7.5.4"                                                                 # Secure password input
 fs2 = "0.4.3"                                                                       # File locking for key files
@@ -216,7 +216,7 @@ rand = "0.10.3"
 rand_core = "0.10.1"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.11.0"                                                                 # Property-based testing
-arbitrary = { version = "1.4.2", features = ["derive"] }                            # Fuzzing support
+arbitrary = { version = "1.5.0", features = ["derive"] }                            # Fuzzing support
 libfuzzer-sys = { version = "0.4.13", features = ["fuzzing"] }                      # Fuzzing support
 
 # ============================================================================

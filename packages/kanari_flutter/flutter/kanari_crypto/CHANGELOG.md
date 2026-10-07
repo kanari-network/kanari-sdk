@@ -1,3 +1,9 @@
+## 0.2.8
+
+- Added: zkLogin API parity with kanari-kotlin (prepare_nonce, verify_jwt,
+  derive_address, deterministic_salt, build_bundle, sign/verify_ephemeral
+  plus ZkLoginNonceData/ZkLoginClaimsData).
+
 ## 0.2.7
 
 - Release: bump version to 0.2.7.

@@ -86,7 +86,9 @@ class MockRustApi extends RustLibApi {
   }) async {
     // Mirror the real contract: seeds shorter than 64 bytes are rejected.
     if (seed.length < 64) {
-      throw Exception('Seed derivation failed: Seed material must be at least 64 bytes');
+      throw Exception(
+        'Seed derivation failed: Seed material must be at least 64 bytes',
+      );
     }
     // Deterministic mock material (test-only): fold seed bytes into a tag so
     // determinism and cross-curve distinctness are assertable.
@@ -126,6 +128,92 @@ class MockRustApi extends RustLibApi {
       list.add(await crateApiGenerateKeypairApi(curveName: curveName));
     }
     return list;
+  }
+
+  @override
+  Future<ZkLoginNonceData> crateApiZkloginPrepareNonce({
+    required BigInt maxEpoch,
+  }) async {
+    return ZkLoginNonceData(
+      ephemeralPubkey: Uint8List.fromList(List<int>.filled(32, 1)),
+      ephemeralSecret: Uint8List.fromList(List<int>.filled(32, 2)),
+      randomness: Uint8List.fromList(List<int>.filled(32, 3)),
+      maxEpoch: maxEpoch,
+      nonce: 'mock-nonce-${maxEpoch.toInt()}',
+    );
+  }
+
+  @override
+  Future<ZkLoginClaimsData> crateApiZkloginVerifyJwt({
+    required String jwt,
+    required String jwksJson,
+    required String expectedIss,
+    required String expectedAud,
+    String? expectedNonce,
+    required BigInt nowSecs,
+  }) async {
+    return ZkLoginClaimsData(
+      iss: expectedIss,
+      aud: expectedAud,
+      sub: 'mock-sub',
+      exp: nowSecs + BigInt.from(3600),
+      nonce: expectedNonce,
+    );
+  }
+
+  @override
+  Future<String> crateApiZkloginDeriveAddress({
+    required String iss,
+    required String aud,
+    required String sub,
+    required List<int> salt,
+  }) async {
+    return 'ZkLogin:mock-$sub-${salt.length}';
+  }
+
+  @override
+  Future<Uint8List> crateApiZkloginDeterministicSalt({
+    required String iss,
+    required String aud,
+    required String sub,
+  }) async {
+    return Uint8List.fromList(List<int>.filled(32, 7));
+  }
+
+  @override
+  Future<Uint8List> crateApiZkloginSignEphemeral({
+    required List<int> secret,
+    required List<int> message,
+  }) async {
+    return Uint8List.fromList(List<int>.filled(64, 9));
+  }
+
+  @override
+  Future<bool> crateApiZkloginVerifyEphemeral({
+    required List<int> pubkey,
+    required List<int> message,
+    required List<int> signature,
+  }) async {
+    return signature.length == 64;
+  }
+
+  @override
+  Future<Uint8List> crateApiZkloginBuildBundle({
+    required String jwt,
+    required String jwksJson,
+    required String iss,
+    required String aud,
+    required List<int> salt,
+    required List<int> randomness,
+    required List<int> ephemeralPubkey,
+    required List<int> ephemeralSig,
+    required BigInt maxEpoch,
+  }) async {
+    return Uint8List.fromList([
+      salt.length,
+      randomness.length,
+      maxEpoch.toInt() & 0xFF,
+    ]);
   }
 }
 
@@ -235,7 +323,10 @@ void main() {
       expect(kp.curveType, contains(curve));
 
       // Determinism: same seed reproduces the same keypair.
-      final again = await deriveKeypairFromSeedApi(seed: seed, curveName: curve);
+      final again = await deriveKeypairFromSeedApi(
+        seed: seed,
+        curveName: curve,
+      );
       expect(again.address, kp.address);
 
       // Cross-curve distinctness.
@@ -251,5 +342,62 @@ void main() {
       ),
       throwsException,
     );
+  });
+
+  test('zkLogin binding surface round-trips through the mock', () async {
+    // NOTE: runs against MockRustApi (binding surface only).
+    final prepared = await zkloginPrepareNonce(maxEpoch: BigInt.from(100));
+    expect(prepared.ephemeralPubkey, hasLength(32));
+    expect(prepared.nonce, isNotEmpty);
+
+    final claims = await zkloginVerifyJwt(
+      jwt: 'mock.jwt.token',
+      jwksJson: '{}',
+      expectedIss: 'https://accounts.google.com',
+      expectedAud: 'mock-aud',
+      nowSecs: BigInt.from(1_700_000_000),
+    );
+    expect(claims.sub, isNotEmpty);
+
+    final salt = await zkloginDeterministicSalt(
+      iss: claims.iss,
+      aud: claims.aud,
+      sub: claims.sub,
+    );
+    expect(salt, hasLength(32));
+
+    final address = await zkloginDeriveAddress(
+      iss: claims.iss,
+      aud: claims.aud,
+      sub: claims.sub,
+      salt: salt,
+    );
+    expect(address, startsWith('ZkLogin:'));
+
+    final sig = await zkloginSignEphemeral(
+      secret: prepared.ephemeralSecret,
+      message: 'hello'.codeUnits,
+    );
+    expect(
+      await zkloginVerifyEphemeral(
+        pubkey: prepared.ephemeralPubkey,
+        message: 'hello'.codeUnits,
+        signature: sig,
+      ),
+      isTrue,
+    );
+
+    final bundle = await zkloginBuildBundle(
+      jwt: 'mock.jwt.token',
+      jwksJson: '{}',
+      iss: claims.iss,
+      aud: claims.aud,
+      salt: salt,
+      randomness: prepared.randomness,
+      ephemeralPubkey: prepared.ephemeralPubkey,
+      ephemeralSig: sig,
+      maxEpoch: prepared.maxEpoch,
+    );
+    expect(bundle, isNotEmpty);
   });
 }
