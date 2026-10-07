@@ -216,7 +216,7 @@ rand = "0.10.3"
 rand_core = "0.10.1"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.11.0"                                                                 # Property-based testing
-arbitrary = { version = "1.4.2", features = ["derive"] }                            # Fuzzing support
+arbitrary = { version = "1.5.0", features = ["derive"] }                            # Fuzzing support
 libfuzzer-sys = { version = "0.4.13", features = ["fuzzing"] }                      # Fuzzing support
 
 # ============================================================================
