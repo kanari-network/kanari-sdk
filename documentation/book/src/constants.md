@@ -8,13 +8,13 @@ Constants are immutable values defined at module level. They provide named, reus
 module my_module::constants {
     // Basic constant
     const MAX_SUPPLY: u64 = 1000000;
-    
+
     // Address constant
     const ADMIN_ADDRESS: address = @0x123;
-    
+
     // Byte vector constant
     const TOKEN_NAME: vector<u8> = b"My Token";
-    
+
     // Boolean constant
     const IS_ACTIVE: bool = true;
 }
@@ -73,7 +73,7 @@ module errors::codes {
     const E_UNAUTHORIZED: u64 = 2;
     const E_ALREADY_EXISTS: u64 = 3;
     const E_NOT_FOUND: u64 = 4;
-    
+
     // State errors
     const E_INVALID_STATE: u64 = 100;
     const E_OVERFLOW: u64 = 101;
@@ -84,7 +84,7 @@ module errors::codes {
 public fun withdraw(balance: &mut u64, amount: u64) {
     assert!(amount > 0, errors::codes::E_INVALID_AMOUNT);
     assert!(*balance >= amount, errors::codes::E_INSUFFICIENT_BALANCE);
-    
+
     *balance -= amount;
 }
 ```
@@ -98,7 +98,7 @@ module config::token {
     const MIST_PER_TOKEN: u64 = 1_000_000_000;
     const MAX_SUPPLY: u64 = 10_000_000_000;
     const MIN_MINT_AMOUNT: u64 = 1_000_000;
-    
+
     // Fee configuration
     const TRANSFER_FEE_BPS: u64 = 25; // 0.25%
     const BPS_DENOMINATOR: u64 = 10_000;
@@ -136,7 +136,7 @@ public fun is_expired(created_at: u64, current_time: u64): bool {
 module math::constants {
     const PI_X1000: u64 = 3141; // π * 1000
     const E_X1000: u64 = 2718;  // e * 1000
-    
+
     // Percentage helpers
     const PERCENT_100: u64 = 10_000; // 100% in basis points
     const PERCENT_50: u64 = 5_000;   // 50%
@@ -151,11 +151,11 @@ module math::constants {
 module user::app {
     use config::token;
     use errors::codes;
-    
+
     public fun mint(amount: u64) {
         assert!(amount >= token::MIN_MINT_AMOUNT, codes::E_INVALID_AMOUNT);
         assert!(amount <= token::MAX_SUPPLY, codes::E_OVERFLOW);
-        
+
         // Mint logic
     }
 }
@@ -185,11 +185,11 @@ module config::dex {
     // Pool constants
     const MIN_LIQUIDITY: u64 = 1_000;
     const MAX_SWAP_SLIPPAGE_BPS: u64 = 500; // 5%
-    
+
     // Fee constants
     const SWAP_FEE_BPS: u64 = 30; // 0.3%
     const PROTOCOL_FEE_BPS: u64 = 5; // 0.05%
-    
+
     // Price constants
     const PRICE_PRECISION: u64 = 1_000_000;
 }
@@ -261,7 +261,7 @@ module version {
     const MAJOR: u8 = 1;
     const MINOR: u8 = 2;
     const PATCH: u8 = 3;
-    
+
     /// Version as string: "1.2.3"
     const VERSION_STRING: vector<u8> = b"1.2.3";
 }
@@ -275,7 +275,7 @@ module permissions {
     const WRITE: u8 = 2;      // 0b0010
     const DELETE: u8 = 4;     // 0b0100
     const ADMIN: u8 = 8;      // 0b1000
-    
+
     const FULL_ACCESS: u8 = 15; // 0b1111
 }
 

@@ -19,7 +19,7 @@ module 0x1::math_utils {
     public fun add(a: u64, b: u64): u64 {
         a + b
     }
-    
+
     public fun multiply(a: u64, b: u64): u64 {
         a * b
     }
@@ -37,40 +37,40 @@ module my_address::token {
     use kanari_system::coin;
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
-    
+
     // 2. Constants
     const DECIMALS: u8 = 9;
     const MAX_SUPPLY: u64 = 1_000_000_000;
-    
+
     // 3. Error codes
     const E_INVALID_AMOUNT: u64 = 0;
     const E_INSUFFICIENT_BALANCE: u64 = 1;
-    
+
     // 4. Structs and enums
     struct TOKEN has drop {}
-    
+
     struct Balance has key, store {
         id: UID,
         value: u64,
     }
-    
+
     // 5. Public API functions
     public fun initialize(ctx: &mut TxContext) {
         // Initialize token
     }
-    
+
     public entry fun transfer(
         coins: Coin<TOKEN>,
         recipient: address
     ) {
         transfer::public_transfer(coins, recipient);
     }
-    
+
     // 6. Internal helper functions
     fun validate_amount(amount: u64) {
         assert!(amount > 0, E_INVALID_AMOUNT);
     }
-    
+
     // 7. Tests
     #[test]
     fun test_initialization() {
@@ -129,7 +129,7 @@ module my_address::app {
     use kanari_system::coin::{self, Coin};
     use kanari_system::transfer;
     use my_address::token;
-    
+
     public fun example() {
         let v = vector::empty<u64>();
         // Use imported modules
@@ -197,20 +197,20 @@ module project::api {
 module project::factory {
     use kanari_system::object::{UID, new};
     use kanari_system::tx_context::TxContext;
-    
+
     struct Widget has key, store {
         id: UID,
         creator: address,
         value: u64,
     }
-    
+
     public entry fun create_widget(value: u64, ctx: &mut TxContext) {
         let widget = Widget {
             id: new(ctx),
             creator: tx_context::sender(ctx),
             value,
         };
-        
+
         transfer::public_transfer(widget, tx_context::sender(ctx));
     }
 }
@@ -223,18 +223,18 @@ module project::registry {
     use std::vector;
     use kanari_system::object::{UID, new};
     use kanari_system::tx_context::TxContext;
-    
+
     struct Registry has key, store {
         id: UID,
         addresses: vector<address>,
     }
-    
+
     public entry fun register(registry: &mut Registry, addr: address) {
         if (!vector::contains(&registry.addresses, &addr)) {
             vector::push_back(&mut registry.addresses, addr);
         };
     }
-    
+
     public fun is_registered(registry: &Registry, addr: address): bool {
         vector::contains(&registry.addresses, &addr)
     }
@@ -247,15 +247,15 @@ module project::registry {
 module project::access_control {
     use kanari_system::object::{UID, new};
     use kanari_system::tx_context::TxContext;
-    
+
     struct AdminCap has key, store {
         id: UID,
     }
-    
+
     public entry fun create_admin_cap(ctx: &mut TxContext): AdminCap {
         AdminCap { id: new(ctx) }
     }
-    
+
     public fun requires_admin(_cap: &AdminCap) {
         // Function that requires admin capability
     }
@@ -271,14 +271,14 @@ module my_address::calculator {
     public fun add(a: u64, b: u64): u64 {
         a + b
     }
-    
+
     #[test]
     fun test_addition() {
         assert!(add(2, 3) == 5, 0);
         assert!(add(0, 0) == 0, 1);
         assert!(add(100, 200) == 300, 2);
     }
-    
+
     #[test]
     fun test_edge_cases() {
         let max = 18446744073709551615; // u64::MAX
@@ -340,11 +340,11 @@ const E_INSUFFICIENT_FUNDS: u64 = 2;
 
 ```move
 /// Transfers tokens to recipient
-/// 
+///
 /// # Arguments
 /// * `coins` - Tokens to transfer
 /// * `recipient` - Destination address
-/// 
+///
 /// # Panics
 /// * If recipient is zero address
 public entry fun transfer(
@@ -440,13 +440,13 @@ public entry fun user_entry_point() {
 ```move
 module project::proxy {
     use kanari_system::object::{UID, new};
-    
+
     struct Implementation has key, store {
         id: UID,
         version: u64,
         code_hash: vector<u8>,
     }
-    
+
     public entry fun upgrade_impl(
         impl: &mut Implementation,
         new_code_hash: vector<u8>
@@ -463,7 +463,7 @@ module project::proxy {
 module project::composed_feature {
     use project::feature_a;
     use project::feature_b;
-    
+
     public entry fun combined_operation() {
         feature_a::do_something();
         feature_b::do_something_else();

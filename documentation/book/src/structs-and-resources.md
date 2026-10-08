@@ -236,7 +236,7 @@ public fun set_recipient(builder: &mut TransactionBuilder, recipient: address) {
 public fun build(builder: TransactionBuilder, ctx: &mut TxContext): Transaction {
     assert!(builder.recipient != @0x0, 0);
     assert!(builder.amount > 0, 1);
-    
+
     Transaction {
         id: new(ctx),
         sender: builder.sender,

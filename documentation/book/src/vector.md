@@ -19,19 +19,18 @@ let vv: vector<vector<u8>> = vector[
     vector[30, 40]
 ];
 ```
-The vector type is a built-in type in Move, and does not need to be imported from a module. However, vector operations are defined in the std::vector module, and you need to import the module to use them.
 
+The vector type is a built-in type in Move, and does not need to be imported from a module. However, vector operations are defined in the std::vector module, and you need to import the module to use them.
 
 ## Vector operations
 
 The standard library provides methods to manipulate vectors. The following are some of the most commonly used operations:
 
-* push_back: Adds an element to the end of the vector.
-* pop_back: Removes the last element from the vector.
-* length: Returns the number of elements in the vector.
-* is_empty: Returns true if the vector is empty.
-* remove: Removes an element at a given index.
-
+- push_back: Adds an element to the end of the vector.
+- pop_back: Removes the last element from the vector.
+- length: Returns the number of elements in the vector.
+- is_empty: Returns true if the vector is empty.
+- remove: Removes an element at a given index.
 
 ```rust
 let mut v = vector[10u8, 20, 30];
@@ -49,7 +48,7 @@ assert!(last_value == 40);
 
 A vector of non-droppable types cannot be discarded. If you define a vector of types without drop ability, the vector value cannot be ignored. However, if the vector is empty, compiler requires an explicit call to destroy_empty function.
 
-```rust 
+```rust
 /// A struct without `drop` ability.
 struct MyDrop {}
 

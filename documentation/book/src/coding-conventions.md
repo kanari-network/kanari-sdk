@@ -14,7 +14,7 @@ module my_project::token_manager {
     public fun mint_tokens() { }
     public fun get_balance() { }
     public entry fun transfer_to_recipient() { }
-    
+
     // Bad
     public fun MintTokens() { }
     public fun getBalance() { }
@@ -78,26 +78,26 @@ module my_project::token {
     use std::vector;
     use kanari_system::coin;
     use kanari_system::transfer;
-    
+
     // 2. Constants
     const DECIMALS: u8 = 9;
     const MAX_SUPPLY: u64 = 1_000_000;
-    
+
     // 3. Error codes
     const E_INVALID_AMOUNT: u64 = 0;
     const E_INSUFFICIENT_BALANCE: u64 = 1;
-    
+
     // 4. Structs and enums
     struct Token has drop {}
     struct Balance has key, store { }
-    
+
     // 5. Public API functions
     public fun mint() { }
     public fun burn() { }
-    
+
     // 6. Internal helper functions
     fun validate_amount() { }
-    
+
     // 7. Tests
     #[test]
     fun test_mint() { }
@@ -132,17 +132,17 @@ fun update_state() { }
 
 Document each module:
 
-```move
+````move
 /// # Token Module
-/// 
+///
 /// Implements a fungible token with minting and burning capabilities.
-/// 
+///
 /// # Features
 /// - Mint new tokens (admin only)
 /// - Burn existing tokens
 /// - Transfer between accounts
 /// - Query balances
-/// 
+///
 /// # Example
 /// ```
 /// let tokens = token::mint(1000);
@@ -151,7 +151,7 @@ Document each module:
 module my_project::token {
     // ...
 }
-```
+````
 
 ### Function Documentation
 
@@ -159,13 +159,13 @@ Use doc comments for public functions:
 
 ```move
 /// Mints new tokens and transfers to recipient
-/// 
+///
 /// # Arguments
 /// * `cap` - Mint capability reference
 /// * `amount` - Amount to mint (in smallest units)
 /// * `recipient` - Address to receive tokens
 /// * `ctx` - Transaction context
-/// 
+///
 /// # Panics
 /// * If amount is zero
 /// * If recipient is zero address
@@ -292,7 +292,7 @@ public fun transfer(amount: u64, recipient: address) {
     assert!(amount > 0, E_INVALID_AMOUNT);
     assert!(recipient != @0x0, E_INVALID_RECIPIENT);
     assert!(recipient != tx_context::sender(ctx), E_SELF_TRANSFER);
-    
+
     // Execute transfer
 }
 ```
@@ -316,7 +316,7 @@ public entry fun protected_operation(
 ) {
     // Verify caller has capability
     assert!(object::owner(&cap.id) == tx_context::sender(ctx), E_UNAUTHORIZED);
-    
+
     // Execute operation
 }
 ```
@@ -335,10 +335,10 @@ struct Account has key, store {
 public fun withdraw(account: &mut Account, amount: u64) {
     assert!(!account.locked, E_REENTRANCY);
     account.locked = true;
-    
+
     // Perform withdrawal
     account.balance -= amount;
-    
+
     account.locked = false;
 }
 ```

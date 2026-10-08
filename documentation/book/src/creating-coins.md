@@ -17,10 +17,10 @@ module my_project::my_token {
     use kanari_system::coin;
     use kanari_system::tx_context::TxContext;
     use std::option;
-    
+
     /// Witness type - proves we own this token type
     struct MY_TOKEN has drop {}
-    
+
     // ... more code will go here
 }
 ```
@@ -43,10 +43,10 @@ public entry fun create_my_token(ctx: &mut TxContext) {
         option::none(),           // Icon URL (optional)
         ctx
     );
-    
+
     // Freeze metadata so it can't be changed
     kanari_system::transfer::public_freeze_object(metadata);
-    
+
     // Keep treasury_cap to mint/burn tokens
     // In production, transfer this to a secure wallet
 }
@@ -118,10 +118,10 @@ module my_project::my_token {
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
     use std::option;
-    
+
     /// Witness type for MY_TOKEN
     struct MY_TOKEN has drop {}
-    
+
     /// Initialize the token
     public entry fun initialize(ctx: &mut TxContext) {
         let (treasury_cap, metadata) = coin::create_currency<MY_TOKEN>(
@@ -133,18 +133,18 @@ module my_project::my_token {
             option::none(),
             ctx
         );
-        
+
         // Freeze metadata permanently
         transfer::public_freeze_object(metadata);
-        
+
         // Mint initial supply to deployer
         let initial_supply = 1000000000000000; // 1 million tokens
         let coins = coin::mint(&mut treasury_cap, initial_supply, ctx);
-        
+
         // Keep treasury_cap for future minting
         // Store it securely or transfer to governance
     }
-    
+
     /// Mint additional tokens
     public entry fun mint_more(
         treasury_cap: &mut coin::TreasuryCap<MY_TOKEN>,
@@ -154,7 +154,7 @@ module my_project::my_token {
     ) {
         coin::mint_and_transfer(treasury_cap, amount, to, ctx);
     }
-    
+
     /// Burn tokens to reduce supply
     public entry fun burn_tokens(
         treasury_cap: &mut coin::TreasuryCap<MY_TOKEN>,
@@ -162,7 +162,7 @@ module my_project::my_token {
     ) {
         coin::burn(treasury_cap, coins);
     }
-    
+
     /// Split a coin into two
     public entry fun split_coin(
         coin_obj: &mut coin::Coin<MY_TOKEN>,
@@ -171,7 +171,7 @@ module my_project::my_token {
     ): coin::Coin<MY_TOKEN> {
         coin::split(coin_obj, amount, ctx)
     }
-    
+
     /// Merge two coins
     public entry fun merge_coins(
         coin1: &mut coin::Coin<MY_TOKEN>,
@@ -190,10 +190,10 @@ Add unit tests to verify functionality:
 #[test]
 fun test_token_creation() {
     use kanari_system::tx_context;
-    
+
     // Create test context
     let ctx = &mut tx_context::dummy();
-    
+
     // Create currency
     let (treasury_cap, metadata) = coin::create_currency<MY_TOKEN>(
         MY_TOKEN {},
@@ -204,14 +204,14 @@ fun test_token_creation() {
         option::none(),
         ctx
     );
-    
+
     // Verify metadata
     assert!(coin::total_supply(&treasury_cap) == 0, 0);
-    
+
     // Mint some tokens
     let coins = coin::mint(&mut treasury_cap, 1000, ctx);
     assert!(coin::value(&coins) == 1000, 1);
-    
+
     // Burn tokens
     let burned = coin::burn(&mut treasury_cap, coins);
     assert!(burned == 1000, 2);
@@ -226,16 +226,16 @@ fun test_token_creation() {
 ```move
 public entry fun create_fixed_supply(ctx: &mut TxContext) {
     let (mut treasury_cap, metadata) = coin::create_currency<MY_TOKEN>(
-        MY_TOKEN {}, 9, b"FIX", b"Fixed Token", 
+        MY_TOKEN {}, 9, b"FIX", b"Fixed Token",
         b"Fixed supply token", option::none(), ctx
     );
-    
+
     transfer::public_freeze_object(metadata);
-    
+
     // Mint all tokens immediately
     let total_supply = 1000000000000000;
     let coins = coin::mint(&mut treasury_cap, total_supply, ctx);
-    
+
     // Destroy treasury cap to prevent future minting
     // This makes supply truly fixed
     destroy_treasury_cap(treasury_cap);
@@ -254,9 +254,9 @@ public entry fun create_capped_token(max_supply: u64, ctx: &mut TxContext) {
         MY_TOKEN {}, 9, b"CAP", b"Capped Token",
         b"Token with max supply", option::none(), ctx
     );
-    
+
     transfer::public_freeze_object(metadata);
-    
+
     // Store max_supply in a config object
     // Check before each mint operation
 }
@@ -270,7 +270,7 @@ public entry fun mint_with_cap(
 ) {
     let current = coin::total_supply(treasury_cap);
     assert!(current + amount <= max_supply, 0);
-    
+
     coin::mint_and_transfer(treasury_cap, amount, to, ctx);
 }
 ```
@@ -285,7 +285,7 @@ public entry fun create_governance_token(ctx: &mut TxContext) {
         GovernanceToken {}, 9, b"GOV", b"Governance Token",
         b"Used for voting", option::none(), ctx
     );
-    
+
     // Transfer treasury to DAO/governance contract
     // Don't freeze - allow controlled minting
 }

@@ -11,11 +11,11 @@ public fun withdraw(balance: &mut u64, amount: u64) {
     if (amount == 0) {
         abort 0  // Error code 0: Invalid amount
     };
-    
+
     if (*balance < amount) {
         abort 1  // Error code 1: Insufficient balance
     };
-    
+
     *balance -= amount;
 }
 ```
@@ -32,7 +32,7 @@ const E_UNAUTHORIZED: u64 = 2;
 public fun safe_withdraw(balance: &mut u64, amount: u64) {
     assert!(amount > 0, E_INVALID_AMOUNT);
     assert!(*balance >= amount, E_INSUFFICIENT_BALANCE);
-    
+
     *balance -= amount;
 }
 ```
@@ -68,7 +68,7 @@ public fun transfer_tokens(
     assert!(recipient != @0x0, E_INVALID_RECIPIENT);
     assert!(sender != recipient, E_CANNOT_SEND_TO_SELF);
     assert!(amount > 0, E_INVALID_AMOUNT);
-    
+
     // Transfer logic
 }
 ```
@@ -84,12 +84,12 @@ module errors::token {
     const E_INVALID_ADDRESS: u64 = 1;
     const E_OVERFLOW: u64 = 2;
     const E_UNDERFLOW: u64 = 3;
-    
+
     // Authorization errors (100-199)
     const E_UNAUTHORIZED: u64 = 100;
     const E_NOT_OWNER: u64 = 101;
     const E_CAPABILITY_REQUIRED: u64 = 102;
-    
+
     // State errors (200-299)
     const E_INSUFFICIENT_BALANCE: u64 = 200;
     const E_SUPPLY_EXCEEDED: u64 = 201;
@@ -105,12 +105,12 @@ module errors::categories {
     const E_INVALID_INPUT: u64 = 0;
     const E_OUT_OF_RANGE: u64 = 1;
     const E_INVALID_FORMAT: u64 = 2;
-    
+
     // Business logic
     const E_INVALID_STATE: u64 = 100;
     const E_CONSTRAINT_VIOLATED: u64 = 101;
     const E_PRECONDITION_FAILED: u64 = 102;
-    
+
     // Access control
     const E_ACCESS_DENIED: u64 = 200;
     const E_ROLE_REQUIRED: u64 = 201;
@@ -135,7 +135,7 @@ public fun update_profile(
     assert!(vector::length(&name) <= 100, E_NAME_TOO_LONG);
     assert!(age >= 18, E_UNDERAGE);
     assert!(age <= 150, E_INVALID_AGE);
-    
+
     // Main logic
     profile.name = name;
     profile.age = age;
@@ -167,7 +167,7 @@ public fun execute_transfer(
     balance: &mut u64
 ) {
     validate_transfer(sender, recipient, amount, *balance);
-    
+
     *balance -= amount;
     // Complete transfer
 }
@@ -228,7 +228,7 @@ public fun mint_tokens(
     assert!(amount > 0, E_ZERO_MINT);
     assert!(amount <= MAX_MINT_AMOUNT, E_EXCEEDS_LIMIT);
     assert!(recipient != @0x0, E_INVALID_RECIPIENT);
-    
+
     // Then execute
     coin::mint(cap, amount)
 }
@@ -302,17 +302,17 @@ fun test_any_failure() {
 #[test]
 fun test_all_error_cases() {
     let mut balance: u64 = 1000;
-    
+
     // Test zero amount
     #[expected_failure(abort_code = E_INVALID_AMOUNT)]
     fun test_zero() { withdraw(&mut balance, 0); }
     test_zero();
-    
+
     // Test insufficient balance
     #[expected_failure(abort_code = E_INSUFFICIENT_BALANCE)]
     fun test_insufficient() { withdraw(&mut balance, 2000); }
     test_insufficient();
-    
+
     // Test valid withdrawal
     withdraw(&mut balance, 500);
     assert!(balance == 500, 0);
@@ -350,7 +350,7 @@ const E_BALANCE_OVERFLOW: u64 = 101;
 
 ```move
 /// Withdraws tokens from balance
-/// 
+///
 /// Aborts with:
 /// - E_INVALID_AMOUNT if amount is zero
 /// - E_INSUFFICIENT_BALANCE if balance < amount
@@ -376,7 +376,7 @@ public fun complex_operation(
     assert!(timestamp > 0, E_INVALID_TIMESTAMP);
     assert!(vector::length(&data) > 0, E_EMPTY_DATA);
     assert!(vector::length(&data) <= MAX_DATA_SIZE, E_DATA_TOO_LARGE);
-    
+
     // Execute operation
 }
 ```

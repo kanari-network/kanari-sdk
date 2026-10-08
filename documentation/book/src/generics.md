@@ -225,13 +225,13 @@ public fun map<T: copy, U: store>(
     let mut result = vector::empty<U>();
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         let item = vector::borrow(items, i);
         vector::push_back(&mut result, f(item));
         i = i + 1;
     };
-    
+
     result
 }
 
@@ -242,7 +242,7 @@ public fun filter<T: copy>(
     let mut result = vector::empty<T>();
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         let item = vector::borrow(items, i);
         if (predicate(item)) {
@@ -250,7 +250,7 @@ public fun filter<T: copy>(
         };
         i = i + 1;
     };
-    
+
     result
 }
 ```
@@ -264,12 +264,12 @@ public fun create_multiple<T: store + drop>(
 ): vector<T> {
     let mut items = vector::empty<T>();
     let mut i = 0;
-    
+
     while (i < count) {
         vector::push_back(&mut items, factory());
         i = i + 1;
     };
-    
+
     items
 }
 
@@ -345,7 +345,7 @@ fun test_identity() {
 fun test_generic_struct() {
     let container = create_container<u64>(100);
     assert!(container.value == 100, 0);
-    
+
     let container2 = create_container<bool>(false);
     assert!(container2.value == false, 1);
 }
@@ -363,7 +363,7 @@ fun test_swap() {
 fun test_phantom_types() {
     let coin1 = Coin<KANARI> { id: new(ctx), value: 100 };
     let coin2 = Coin<USD> { id: new(ctx), value: 50 };
-    
+
     // Different types despite same structure
     assert!(coin1.value == 100, 0);
     assert!(coin2.value == 50, 1);
@@ -400,7 +400,7 @@ public fn minimal<T: store>(x: T) { }
 
 ```move
 /// A generic container that holds a single value of type T.
-/// 
+///
 /// # Type Parameters
 /// * `T` - The type of value to store (must have 'store' ability)
 struct Container<T: store> {

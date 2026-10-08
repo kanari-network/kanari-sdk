@@ -49,11 +49,11 @@ public fun total_weight(entries: vector<Entry>): u64 {
 The iterable decides what the loop variable is bound to and whether the vector survives the loop.
 This matches Rust.
 
-| Loop | Loop variable | The vector afterwards |
-| --- | --- | --- |
-| `for x in v` | `x: T`, moved out of `v` | consumed, left empty |
-| `for x in &v` | `x: &T` | borrowed, unchanged |
-| `for x in &mut v` | `x: &mut T` | borrowed, elements can be written |
+| Loop              | Loop variable            | The vector afterwards             |
+| ----------------- | ------------------------ | --------------------------------- |
+| `for x in v`      | `x: T`, moved out of `v` | consumed, left empty              |
+| `for x in &v`     | `x: &T`                  | borrowed, unchanged               |
+| `for x in &mut v` | `x: &mut T`              | borrowed, elements can be written |
 
 Taking the vector by value is what lets `for` work on a type without `copy`:
 
@@ -222,12 +222,12 @@ while (i < 10) {
 public fun sum_up_to(n: u64): u64 {
     let mut sum: u64 = 0;
     let mut i: u64 = 1;
-    
+
     while (i <= n) {
         sum = sum + i;
         i = i + 1;
     };
-    
+
     sum
 }
 
@@ -242,12 +242,12 @@ public fun sum_vector(numbers: &vector<u64>): u64 {
     let mut sum: u64 = 0;
     let len = vector::length(numbers);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         sum = sum + *vector::borrow(numbers, i);
         i = i + 1;
     };
-    
+
     sum
 }
 ```
@@ -262,7 +262,7 @@ public fun find_index(items: &vector<u64>, target: u64): u64 {
     let mut i: u64 = 0;
     let mut found: u64 = 0;
     let mut is_found: bool = false;
-    
+
     while (i < len && !is_found) {
         if (*vector::borrow(items, i) == target) {
             found = i;
@@ -270,7 +270,7 @@ public fun find_index(items: &vector<u64>, target: u64): u64 {
         };
         i = i + 1;
     };
-    
+
     if (is_found) { found } else { 0xFFFFFFFFFFFFFFFF }
 }
 ```
@@ -280,14 +280,14 @@ public fun find_index(items: &vector<u64>, target: u64): u64 {
 ```move
 public fun wait_for_condition(): u64 {
     let mut attempts: u64 = 0;
-    
+
     loop {
         if (check_condition()) {
             break attempts;
         };
-        
+
         attempts = attempts + 1;
-        
+
         // Prevent infinite loops
         assert!(attempts < 1000, 0);
     }
@@ -303,20 +303,20 @@ public fun sum_even_numbers(numbers: &vector<u64>): u64 {
     let mut sum: u64 = 0;
     let len = vector::length(numbers);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         let num = *vector::borrow(numbers, i);
-        
+
         // Skip odd numbers
         if (num % 2 != 0) {
             i = i + 1;
             continue;
         };
-        
+
         sum = sum + num;
         i = i + 1;
     };
-    
+
     sum
 }
 ```
@@ -330,14 +330,14 @@ public fun count_items(items: &vector<u8>, target: u8): u64 {
     let mut count: u64 = 0;
     let len = vector::length(items);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(items, i) == target) {
             count = count + 1;
         };
         i = i + 1;
     };
-    
+
     count
 }
 ```
@@ -349,12 +349,12 @@ public fun product(numbers: &vector<u64>): u64 {
     let mut result: u64 = 1;
     let len = vector::length(numbers);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         result = result * *vector::borrow(numbers, i);
         i = i + 1;
     };
-    
+
     result
 }
 ```
@@ -365,10 +365,10 @@ public fun product(numbers: &vector<u64>): u64 {
 public fun find_max(numbers: &vector<u64>): u64 {
     let len = vector::length(numbers);
     assert!(len > 0, 0);
-    
+
     let mut max_val = *vector::borrow(numbers, 0);
     let mut i: u64 = 1;
-    
+
     while (i < len) {
         let current = *vector::borrow(numbers, i);
         if (current > max_val) {
@@ -376,7 +376,7 @@ public fun find_max(numbers: &vector<u64>): u64 {
         };
         i = i + 1;
     };
-    
+
     max_val
 }
 ```
@@ -388,7 +388,7 @@ public fun filter_positive(numbers: &vector<i64>): vector<u64> {
     let mut result = vector::empty<u64>();
     let len = vector::length(numbers);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         let num = *vector::borrow(numbers, i);
         if (num > 0) {
@@ -396,7 +396,7 @@ public fun filter_positive(numbers: &vector<i64>): vector<u64> {
         };
         i = i + 1;
     };
-    
+
     result
 }
 ```
@@ -408,13 +408,13 @@ public fun double_all(numbers: &vector<u64>): vector<u64> {
     let mut result = vector::empty<u64>();
     let len = vector::length(numbers);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         let num = *vector::borrow(numbers, i);
         vector::push_back(&mut result, num * 2);
         i = i + 1;
     };
-    
+
     result
 }
 ```
@@ -425,20 +425,20 @@ public fun double_all(numbers: &vector<u64>): vector<u64> {
 public fun multiplication_table(size: u64): vector<vector<u64>> {
     let mut table = vector::empty<vector<u64>>();
     let mut i: u64 = 1;
-    
+
     while (i <= size) {
         let mut row = vector::empty<u64>();
         let mut j: u64 = 1;
-        
+
         while (j <= size) {
             vector::push_back(&mut row, i * j);
             j = j + 1;
         };
-        
+
         vector::push_back(&mut table, row);
         i = i + 1;
     };
-    
+
     table
 }
 ```
@@ -450,13 +450,13 @@ public fun enumerate(items: &vector<u8>): vector<(u64, u8)> {
     let mut result = vector::empty<(u64, u8)>();
     let len = vector::length(items);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         let value = *vector::borrow(items, i);
         vector::push_back(&mut result, (i, value));
         i = i + 1;
     };
-    
+
     result
 }
 ```
@@ -468,15 +468,15 @@ public fun enumerate(items: &vector<u8>): vector<(u64, u8)> {
 ```move
 public fun retry_operation(max_attempts: u64): bool {
     let mut attempts: u64 = 0;
-    
+
     while (attempts < max_attempts) {
         if (try_operation()) {
             return true;
         };
-        
+
         attempts = attempts + 1;
     };
-    
+
     false
 }
 ```
@@ -490,7 +490,7 @@ public fun process_in_batches(
 ) {
     let total = vector::length(items);
     let mut processed: u64 = 0;
-    
+
     while (processed < total) {
         let batch_end = min(processed + batch_size, total);
         process_batch(items, processed, batch_end);
@@ -505,7 +505,7 @@ public fun process_in_batches(
 public fun validate_all(items: &vector<Address>): bool {
     let len = vector::length(items);
     let mut i: u64 = 0;
-    
+
     while (i < len) {
         let addr = *vector::borrow(items, i);
         if (!is_valid_address(addr)) {
@@ -513,7 +513,7 @@ public fun validate_all(items: &vector<Address>): bool {
         };
         i = i + 1;
     };
-    
+
     true
 }
 ```
@@ -525,12 +525,12 @@ public fun validate_all(items: &vector<Address>): bool {
 fun test_while_loop() {
     let mut sum: u64 = 0;
     let mut i: u64 = 1;
-    
+
     while (i <= 10) {
         sum = sum + i;
         i = i + 1;
     };
-    
+
     assert!(sum == 55, 0); // 1+2+3+...+10
 }
 
@@ -594,14 +594,14 @@ while (index < length) { }
 public fun safe_loop() {
     let mut iterations: u64 = 0;
     let max_iterations: u64 = 10000;
-    
+
     loop {
         assert!(iterations < max_iterations, 0);
-        
+
         if (condition_met()) {
             break;
         };
-        
+
         iterations = iterations + 1;
     }
 }
@@ -696,11 +696,11 @@ while (i < 10) {
 public fun binary_search(sorted: &vector<u64>, target: u64): u64 {
     let mut left: u64 = 0;
     let mut right = vector::length(sorted);
-    
+
     while (left < right) {
         let mid = left + (right - left) / 2;
         let mid_val = *vector::borrow(sorted, mid);
-        
+
         if (mid_val == target) {
             return mid;
         } else if (mid_val < target) {
@@ -709,7 +709,7 @@ public fun binary_search(sorted: &vector<u64>, target: u64): u64 {
             right = mid;
         };
     };
-    
+
     0xFFFFFFFFFFFFFFFF // Not found
 }
 ```
@@ -720,20 +720,20 @@ public fun binary_search(sorted: &vector<u64>, target: u64): u64 {
 public fun retry_with_backoff(max_retries: u64): bool {
     let mut attempt: u64 = 0;
     let mut delay: u64 = 1000; // Start with 1 second
-    
+
     while (attempt < max_retries) {
         if (try_operation()) {
             return true;
         };
-        
+
         // Wait (simulated)
         // sleep(delay);
-        
+
         // Exponential backoff
         delay = delay * 2;
         attempt = attempt + 1;
     };
-    
+
     false
 }
 ```

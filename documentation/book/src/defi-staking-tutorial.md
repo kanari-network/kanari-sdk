@@ -5,6 +5,7 @@ This tutorial demonstrates how to build a simple staking protocol where users ca
 ## Overview
 
 We'll create a staking system with these features:
+
 - Stake tokens to earn rewards
 - Time-based reward calculation
 - Unstaking with rewards
@@ -19,7 +20,7 @@ module my_project::staking {
     use kanari_system::clock;
     use kanari_system::tx_context::TxContext;
     use std::vector;
-    
+
     /// Staking pool configuration
     struct StakingPool has key, store {
         id: UID,
@@ -30,7 +31,7 @@ module my_project::staking {
         last_update_time: u64,
         accumulated_rewards: u64,
     }
-    
+
     /// Individual stake position
     struct StakePosition has key, store {
         id: UID,
@@ -40,7 +41,7 @@ module my_project::staking {
         pending_rewards: u64,
         pool_id: address,
     }
-    
+
     const E_INSUFFICIENT_BALANCE: u64 = 0;
     const E_NOT_OWNER: u64 = 1;
     const E_NO_STAKE: u64 = 2;
@@ -64,7 +65,7 @@ public entry fun create_pool<T: drop, R: drop>(
         last_update_time: clock::timestamp_ms(),
         accumulated_rewards: 0,
     };
-    
+
     // Share pool so users can interact with it
     kanari_system::transfer::share_object(pool);
 }
@@ -83,10 +84,10 @@ public entry fun stake<T: drop>(
 ) {
     let amount = coin::value(&tokens);
     assert!(amount > 0, E_INSUFFICIENT_BALANCE);
-    
+
     // Update pool rewards
     update_pool_rewards(pool);
-    
+
     // Create stake position
     let position = StakePosition {
         id: new(ctx),
@@ -96,14 +97,14 @@ public entry fun stake<T: drop>(
         pending_rewards: 0,
         pool_id: object::id_to_address(&pool.id),
     };
-    
+
     // Update pool state
     pool.total_staked = pool.total_staked + amount;
     kanari_system::object::save_object(pool);
-    
+
     // Store staked tokens in pool (simplified)
     // In production, use proper vault pattern
-    
+
     // Give position to user
     transfer::public_transfer(position, tx_context::sender(ctx));
 }
@@ -116,14 +117,14 @@ public entry fun stake<T: drop>(
 fun update_pool_rewards(pool: &mut StakingPool) {
     let current_time = clock::timestamp_ms();
     let time_elapsed = current_time - pool.last_update_time;
-    
+
     if (time_elapsed > 0 && pool.total_staked > 0) {
         // Calculate new rewards
         let new_rewards = (pool.reward_rate * time_elapsed) / 1000; // Convert ms to seconds
-        
+
         pool.accumulated_rewards = pool.accumulated_rewards + new_rewards;
         pool.last_update_time = current_time;
-        
+
         kanari_system::object::save_object(pool);
     }
 }
@@ -136,14 +137,14 @@ fun calculate_position_rewards(
     if (position.staked_amount == 0) {
         return 0;
     }
-    
+
     let current_time = clock::timestamp_ms();
     let time_staked = current_time - position.stake_time;
-    
+
     // Simple reward calculation: proportional to stake
-    let reward_share = (position.staked_amount * pool.accumulated_rewards) 
+    let reward_share = (position.staked_amount * pool.accumulated_rewards)
                       / pool.total_staked;
-    
+
     reward_share + position.pending_rewards
 }
 ```
@@ -159,23 +160,23 @@ public entry fun unstake<T: drop, R: drop>(
 ) {
     assert!(position.owner == tx_context::sender(ctx), E_NOT_OWNER);
     assert!(position.staked_amount > 0, E_NO_STAKE);
-    
+
     // Update pool
     update_pool_rewards(pool);
-    
+
     // Calculate final rewards
     let rewards = calculate_position_rewards(pool, &position);
-    
+
     // Return staked tokens (simplified)
     // In production, withdraw from vault
-    
+
     // Distribute reward tokens
     // mint_and_transfer_rewards<R>(pool, position.owner, rewards, ctx);
-    
+
     // Update pool total
     pool.total_staked = pool.total_staked - position.staked_amount;
     kanari_system::object::save_object(pool);
-    
+
     // Delete position
     kanari_system::object::delete(position.id);
 }
@@ -187,15 +188,15 @@ public entry fun claim_rewards<R: drop>(
     ctx: &mut TxContext
 ) {
     assert!(position.owner == tx_context::sender(ctx), E_NOT_OWNER);
-    
+
     update_pool_rewards(pool);
-    
+
     let rewards = calculate_position_rewards(pool, position);
     assert!(rewards > 0, E_INSUFFICIENT_BALANCE);
-    
+
     // Distribute rewards
     // mint_and_transfer_rewards<R>(pool, position.owner, rewards, ctx);
-    
+
     // Reset pending rewards
     position.pending_rewards = 0;
     position.stake_time = clock::timestamp_ms();
@@ -213,7 +214,7 @@ public entry fun update_reward_rate(
 ) {
     // Verify admin
     assert!(admin_cap.is_admin, 0);
-    
+
     update_pool_rewards(pool);
     pool.reward_rate = new_rate;
     kanari_system::object::save_object(pool);
@@ -227,7 +228,7 @@ public entry fun emergency_withdraw<T: drop>(
     ctx: &mut TxContext
 ) {
     assert!(admin_cap.is_admin, 0);
-    
+
     // Withdraw tokens from pool
     // Implementation depends on vault design
 }
@@ -249,10 +250,10 @@ module examples::simple_staking {
     use kanari_system::clock;
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
-    
+
     struct STAKE_TOKEN has drop {}
     struct REWARD_TOKEN has drop {}
-    
+
     /// Simplified staking contract
     struct StakingContract has key, store {
         id: UID,
@@ -260,14 +261,14 @@ module examples::simple_staking {
         reward_per_token: u64,
         last_update: u64,
     }
-    
+
     struct UserStake has key, store {
         id: UID,
         owner: address,
         amount: u64,
         reward_debt: u64,
     }
-    
+
     /// Initialize staking
     public entry fun init(ctx: &mut TxContext) {
         let contract = StakingContract {
@@ -276,10 +277,10 @@ module examples::simple_staking {
             reward_per_token: 0,
             last_update: clock::timestamp_ms(),
         };
-        
+
         transfer::share_object(contract);
     }
-    
+
     /// Stake tokens
     public entry fun stake(
         contract: &mut StakingContract,
@@ -288,22 +289,22 @@ module examples::simple_staking {
     ) {
         let amount = coin::value(&tokens);
         assert!(amount > 0, 0);
-        
+
         update_rewards(contract);
-        
+
         let stake = UserStake {
             id: new(ctx),
             owner: tx_context::sender(ctx),
             amount,
             reward_debt: 0,
         };
-        
+
         contract.total_staked += amount;
         kanari_system::object::save_object(contract);
-        
+
         transfer::public_transfer(stake, tx_context::sender(ctx));
     }
-    
+
     /// Unstake and claim
     public entry fun unstake(
         contract: &mut StakingContract,
@@ -311,28 +312,28 @@ module examples::simple_staking {
         ctx: &mut TxContext
     ) {
         update_rewards(contract);
-        
+
         let rewards = calculate_rewards(contract, &stake);
-        
+
         contract.total_staked -= stake.amount;
         kanari_system::object::save_object(contract);
-        
+
         // Distribute rewards here
-        
+
         kanari_system::object::delete(stake.id);
     }
-    
+
     fun update_rewards(contract: &mut StakingContract) {
         let now = clock::timestamp_ms();
         let elapsed = now - contract.last_update;
-        
+
         if (elapsed > 0 && contract.total_staked > 0) {
             contract.reward_per_token += elapsed * 100 / contract.total_staked;
             contract.last_update = now;
             kanari_system::object::save_object(contract);
         }
     }
-    
+
     fun calculate_rewards(
         contract: &StakingContract,
         stake: &UserStake
@@ -349,21 +350,21 @@ module examples::simple_staking {
 fun test_staking_flow() {
     use kanari_system::tx_context;
     use kanari_system::coin;
-    
+
     let ctx = &mut tx_context::dummy();
-    
+
     // Initialize
     init(ctx);
-    
+
     // Create test tokens
     // Note: This requires setting up test coins
-    
+
     // Stake tokens
     // Verify stake position created
-    
+
     // Advance time (mock clock)
     // Calculate expected rewards
-    
+
     // Unstake and verify rewards received
 }
 ```
@@ -405,7 +406,7 @@ public entry fun unstake_locked(
     ctx: &mut TxContext
 ) {
     assert!(clock::timestamp_ms() >= stake.unlock_time, 0);
-    
+
     // Higher rewards for longer locks
     let rewards = calculate_boosted_rewards(&stake);
 }
@@ -420,11 +421,11 @@ public entry fun compound_rewards(
     ctx: &mut TxContext
 ) {
     let rewards = calculate_rewards(contract, stake);
-    
+
     // Automatically restake rewards
     stake.amount += rewards;
     stake.reward_debt = stake.amount * contract.reward_per_token / 100;
-    
+
     contract.total_staked += rewards;
     kanari_system::object::save_object(contract);
 }

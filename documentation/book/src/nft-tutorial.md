@@ -14,7 +14,7 @@ First, let's create a collection with metadata and supply limits:
 module my_project::my_nft {
     use kanari_system::collection;
     use kanari_system::tx_context::TxContext;
-    
+
     /// Create a new NFT collection
     public entry fun create_collection(
         name: vector<u8>,
@@ -28,7 +28,7 @@ module my_project::my_nft {
             max_supply,
             ctx
         );
-        
+
         (col, cap)
     }
 }
@@ -57,7 +57,7 @@ public entry fun mint_nft(
 ): collection::Nft {
     // Mint a new NFT
     let nft = collection::mint(cap, ctx);
-    
+
     nft
 }
 ```
@@ -72,10 +72,10 @@ Monitor your collection's supply and issuance:
 public fun collection_info(cap: &collection::NftCap) {
     // How many NFTs can still be minted
     let remaining = collection::remaining(cap);
-    
+
     // Total NFTs minted so far
     let issued = collection::issued_counter(cap);
-    
+
     assert!(remaining + issued == MAX_SUPPLY, 0);
 }
 ```
@@ -105,9 +105,9 @@ module my_project::art_collection {
     use kanari_system::transfer;
     use kanari_system::object;
     use kanari_system::tx_context::TxContext;
-    
+
     const MAX_SUPPLY: u64 = 1000;
-    
+
     /// Initialize the collection
     public entry fun initialize(ctx: &mut TxContext) {
         let (col, cap) = collection::create_collection(
@@ -116,13 +116,13 @@ module my_project::art_collection {
             MAX_SUPPLY,
             ctx
         );
-        
+
         // Transfer collection object to treasury/admin
         // Keep cap for minting
-        
+
         // Store cap securely - it controls minting!
     }
-    
+
     /// Mint a single NFT
     public entry fun mint(
         cap: &mut collection::NftCap,
@@ -130,11 +130,11 @@ module my_project::art_collection {
         ctx: &mut TxContext
     ) {
         assert!(collection::remaining(cap) > 0, 0);
-        
+
         let nft = collection::mint(cap, ctx);
         transfer::public_transfer(nft, recipient);
     }
-    
+
     /// Mint multiple NFTs at once
     public entry fun mint_batch(
         cap: &mut collection::NftCap,
@@ -144,7 +144,7 @@ module my_project::art_collection {
     ) {
         assert!(quantity > 0, 0);
         assert!(collection::remaining(cap) >= quantity, 1);
-        
+
         let mut i = 0;
         while (i < quantity) {
             let nft = collection::mint(cap, ctx);
@@ -152,7 +152,7 @@ module my_project::art_collection {
             i = i + 1;
         };
     }
-    
+
     /// Burn an NFT (return supply to cap)
     public entry fun burn_nft(
         cap: &mut collection::NftCap,
@@ -162,7 +162,7 @@ module my_project::art_collection {
         // Return supply to cap
         collection::return_from_burn(cap);
     }
-    
+
     /// Get collection statistics
     public fun stats(cap: &collection::NftCap): (u64, u64) {
         (collection::issued_counter(cap), collection::remaining(cap))
@@ -181,7 +181,7 @@ module my_project::metadata_nft {
     use kanari_system::object::{UID, new};
     use kanari_system::tx_context::TxContext;
     use std::string;
-    
+
     /// NFT with custom attributes
     struct Artwork has key, store {
         id: UID,
@@ -190,7 +190,7 @@ module my_project::metadata_nft {
         artist: string::String,
         year: u64,
     }
-    
+
     /// Create artwork NFT
     public entry fun create_artwork(
         cap: &mut collection::NftCap,
@@ -201,7 +201,7 @@ module my_project::metadata_nft {
     ) {
         // Mint base NFT
         let nft = collection::mint(cap, ctx);
-        
+
         // Create artwork with metadata
         let artwork = Artwork {
             id: new(ctx),
@@ -210,10 +210,10 @@ module my_project::metadata_nft {
             artist: string::utf8(artist_bytes),
             year,
         };
-        
+
         // Store artwork - in production, transfer to owner
     }
-    
+
     /// Get artwork metadata
     public fun get_title(artwork: &Artwork): &string::String {
         &artwork.title
@@ -232,7 +232,7 @@ module my_project::nft_marketplace {
     use kanari_system::transfer;
     use kanari_system::object::{UID, new};
     use kanari_system::tx_context::TxContext;
-    
+
     /// A listed NFT for sale
     struct Listing has key, store {
         id: UID,
@@ -241,7 +241,7 @@ module my_project::nft_marketplace {
         seller: address,
         token_type: type,
     }
-    
+
     /// List NFT for sale
     public entry fun list_nft<T: drop>(
         nft: collection::Nft,
@@ -249,7 +249,7 @@ module my_project::nft_marketplace {
         ctx: &mut TxContext
     ) {
         assert!(price > 0, 0);
-        
+
         let listing = Listing {
             id: new(ctx),
             nft,
@@ -257,11 +257,11 @@ module my_project::nft_marketplace {
             seller: tx_context::sender(ctx),
             token_type: T {},
         };
-        
+
         // Make listing publicly accessible
         transfer::share_object(listing);
     }
-    
+
     /// Purchase a listed NFT
     public entry fun buy_listing<T: drop>(
         listing: Listing,
@@ -269,28 +269,28 @@ module my_project::nft_marketplace {
         ctx: &mut TxContext
     ) {
         assert!(coin::value(&payment) >= listing.price, 0);
-        
+
         let Listing { id, nft, price: _, seller, token_type: _ } = listing;
-        
+
         // Transfer NFT to buyer
         transfer::public_transfer(nft, tx_context::sender(ctx));
-        
+
         // Transfer payment to seller
         transfer::public_transfer(payment, seller);
-        
+
         // Remove listing
         object::delete(id);
     }
-    
+
     /// Cancel listing
     public entry fun cancel_listing(listing: Listing, ctx: &mut TxContext) {
         assert!(listing.seller == tx_context::sender(ctx), 0);
-        
+
         let Listing { id, nft, price: _, seller: _, token_type: _ } = listing;
-        
+
         // Return NFT to seller
         transfer::public_transfer(nft, seller);
-        
+
         // Delete listing
         object::delete(id);
     }
@@ -303,9 +303,9 @@ module my_project::nft_marketplace {
 #[test]
 fun test_nft_minting() {
     use kanari_system::tx_context;
-    
+
     let ctx = &mut tx_context::dummy();
-    
+
     // Create collection
     let (col, mut cap) = collection::create_collection(
         b"Test Collection",
@@ -313,18 +313,18 @@ fun test_nft_minting() {
         100,
         ctx
     );
-    
+
     // Check initial state
     assert!(collection::remaining(&cap) == 100, 0);
     assert!(collection::issued_counter(&cap) == 0, 1);
-    
+
     // Mint NFT
     let nft = collection::mint(&mut cap, ctx);
-    
+
     // Verify state changes
     assert!(collection::remaining(&cap) == 99, 2);
     assert!(collection::issued_counter(&cap) == 1, 3);
-    
+
     // Mint another
     let nft2 = collection::mint(&mut cap, ctx);
     assert!(collection::remaining(&cap) == 98, 4);
@@ -334,9 +334,9 @@ fun test_nft_minting() {
 #[expected_failure(abort_code = 0)]
 fun test_mint_exceeds_supply() {
     use kanari_system::tx_context;
-    
+
     let ctx = &mut tx_context::dummy();
-    
+
     // Create collection with 1 NFT max
     let (_, mut cap) = collection::create_collection(
         b"Limited",
@@ -344,10 +344,10 @@ fun test_mint_exceeds_supply() {
         1,
         ctx
     );
-    
+
     // Mint first NFT - OK
     let _ = collection::mint(&mut cap, ctx);
-    
+
     // Try to mint second - should fail
     let _ = collection::mint(&mut cap, ctx);
 }
@@ -383,7 +383,7 @@ public entry fun mint_during_window(
     let current_time = clock::timestamp_ms();
     assert!(current_time >= start_time, 0);
     assert!(current_time <= end_time, 1);
-    
+
     let nft = collection::mint(cap, ctx);
     transfer::public_transfer(nft, tx_context::sender(ctx));
 }
@@ -406,7 +406,7 @@ public entry fun mint_whitelist(
 ) {
     let sender = tx_context::sender(ctx);
     assert!(is_whitelisted(whitelist, sender), 0);
-    
+
     let nft = collection::mint(cap, ctx);
     transfer::public_transfer(nft, sender);
 }
@@ -415,14 +415,14 @@ fun is_whitelisted(list: &Whitelist, addr: address): bool {
     let len = vector::length(&list.addresses);
     let mut i = 0;
     let mut found = false;
-    
+
     while (i < len) {
         if (*vector::borrow(&list.addresses, i) == addr) {
             found = true;
         };
         i = i + 1;
     };
-    
+
     found
 }
 ```
