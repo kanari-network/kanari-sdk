@@ -1,0 +1,8 @@
+[package]
+name = "DynamicObjectFieldE2E"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+
+[addresses]
+tester = "0x43"

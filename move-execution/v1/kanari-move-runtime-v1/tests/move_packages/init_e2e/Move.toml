@@ -1,0 +1,8 @@
+[package]
+name = "InitE2E"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+
+[addresses]
+tester = "0x4A"
