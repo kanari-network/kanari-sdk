@@ -1,0 +1,8 @@
+[package]
+name = "EntryReturnValue"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+
+[addresses]
+tester = "0x49"

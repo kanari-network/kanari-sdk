@@ -37,7 +37,8 @@ pub struct DynamicFieldScenario {
     pub tester_addr: &'static str,
     /// Move module name; also the `Host` struct's type suffix.
     pub module_name: &'static str,
-    /// Module source. `{module_name}` is substituted before writing.
+    /// Move module source, read from the on-disk `.move` file so the same
+    /// source is reviewable and compilable outside the test harness.
     pub move_source: &'static str,
     /// Entry function adding a field.
     pub add_fn: &'static str,
@@ -226,14 +227,11 @@ fn create_test_package(scenario: &DynamicFieldScenario) -> Result<PathBuf> {
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
-    let source = scenario
-        .move_source
-        .replace("{module_name}", scenario.module_name);
     fs::write(
         package_dir
             .join("sources")
             .join(format!("{}.move", scenario.module_name)),
-        source,
+        scenario.move_source,
     )?;
 
     Ok(package_dir)

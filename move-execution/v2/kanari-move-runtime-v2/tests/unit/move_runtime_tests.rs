@@ -704,7 +704,7 @@ fn create_hash_test_package() -> Result<PathBuf> {
         "GasMeterHashE2E",
         "0x44",
         "gas_meter_hash_e2e.move",
-        "module tester::gas_meter_hash_e2e {\n    use std::hash;\n\n    public entry fun hash_once(data: vector<u8>) {\n        let _digest = hash::sha2_256(data);\n    }\n}\n",
+        include_str!("../move_packages/gas_meter_hash_e2e/sources/gas_meter_hash_e2e.move"),
     )
 }
 
@@ -713,7 +713,7 @@ fn create_event_test_package() -> Result<PathBuf> {
         "GasMeterEventE2E",
         "0x45",
         "gas_meter_event_e2e.move",
-        "module tester::gas_meter_event_e2e {\n    use kanari_system::event;\n\n    public entry fun emit_blob(data: vector<u8>) {\n        event::emit<vector<u8>>(data);\n    }\n}\n",
+        include_str!("../move_packages/gas_meter_event_e2e/sources/gas_meter_event_e2e.move"),
     )
 }
 
@@ -722,7 +722,9 @@ fn create_save_object_test_package() -> Result<PathBuf> {
         "GasMeterSaveObjectE2E",
         "0x46",
         "gas_meter_save_object_e2e.move",
-        "module tester::gas_meter_save_object_e2e {\n    use kanari_system::object::{Self, UID};\n    use kanari_system::tx_context::TxContext;\n\n    struct Blob has key, store {\n        id: UID,\n        data: vector<u8>,\n    }\n\n    public entry fun save_blob(data: vector<u8>, ctx: &mut TxContext) {\n        let blob = Blob { id: object::new(ctx), data };\n        object::save_object(&blob);\n        let Blob { id, data: _ } = blob;\n        object::delete(id);\n    }\n}\n",
+        include_str!(
+            "../move_packages/gas_meter_save_object_e2e/sources/gas_meter_save_object_e2e.move"
+        ),
     )
 }
 
@@ -731,7 +733,7 @@ fn create_transfer_test_package() -> Result<PathBuf> {
         "GasMeterTransferE2E",
         "0x47",
         "gas_meter_transfer_e2e.move",
-        "module tester::gas_meter_transfer_e2e {\n    use kanari_system::object::{Self, UID};\n    use kanari_system::transfer;\n    use kanari_system::tx_context::{Self, TxContext};\n\n    struct Blob has key, store {\n        id: UID,\n        data: vector<u8>,\n    }\n\n    public entry fun transfer_blob(data: vector<u8>, ctx: &mut TxContext) {\n        let blob = Blob { id: object::new(ctx), data };\n        transfer::public_transfer(blob, tx_context::sender(ctx));\n    }\n}\n",
+        include_str!("../move_packages/gas_meter_transfer_e2e/sources/gas_meter_transfer_e2e.move"),
     )
 }
 
@@ -740,7 +742,7 @@ fn create_value_test_package() -> Result<PathBuf> {
         "EntryReturnValue",
         "0x49",
         "entry_return_value.move",
-        "module tester::entry_return_value {\n    public entry fun get_value(): u64 {\n        42\n    }\n}\n",
+        include_str!("../move_packages/entry_return_value/sources/entry_return_value.move"),
     )
 }
 
@@ -780,7 +782,7 @@ fn create_init_test_package() -> Result<PathBuf> {
         "InitE2E",
         "0x4A",
         "init_e2e.move",
-        "module tester::init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    public entry fun noop() {}\n\n    fun init(_ctx: &mut TxContext) {\n        event::emit<u64>(777);\n    }\n}\n",
+        include_str!("../move_packages/init_e2e/sources/init_e2e.move"),
     )
 }
 
@@ -789,7 +791,7 @@ fn create_init_v2_test_package() -> Result<PathBuf> {
         "InitE2EV2",
         "0x4A",
         "init_e2e.move",
-        "module tester::init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    public entry fun noop() {}\n\n    fun init(_ctx: &mut TxContext) {\n        event::emit<u64>(888);\n    }\n}\n",
+        include_str!("../move_packages/init_e2e_v2/sources/init_e2e.move"),
     )
 }
 
@@ -826,7 +828,7 @@ fn create_witness_init_test_package() -> Result<PathBuf> {
         "WitnessInitE2E",
         "0x4B",
         "witness_init_e2e.move",
-        "module tester::witness_init_e2e {\n    use kanari_system::event;\n    use kanari_system::tx_context::TxContext;\n\n    struct WITNESS_INIT_E2E has drop {}\n\n    public entry fun noop() {}\n\n    fun init(_witness: WITNESS_INIT_E2E, ctx: &mut TxContext) {\n        let _ = ctx;\n        event::emit<u64>(999);\n    }\n}\n",
+        include_str!("../move_packages/witness_init_e2e/sources/witness_init_e2e.move"),
     )
 }
 
@@ -903,7 +905,9 @@ fn create_escrow_like_test_package() -> Result<PathBuf> {
         "EscrowLikeObjectInput",
         "0x48",
         "escrow_like_object_input.move",
-        "#[allow(unused_field)]\nmodule tester::escrow_like_object_input {\n    use std::string::String;\n    use kanari_system::coin::{Self, Coin};\n    use kanari_system::object::{Self, UID};\n    use kanari_system::tx_context::{Self, TxContext};\n\n    const E_NOT_ENOUGH_BALANCE: u64 = 7;\n\n    struct Marker has key, store {\n        id: UID,\n    }\n\n    public entry fun create_deal<CoinType>(\n        deal_id: String,\n        seller: address,\n        amount: u64,\n        description: String,\n        buyer_coin_id: address,\n        ctx: &mut TxContext,\n    ) {\n        let _buyer = tx_context::sender(ctx);\n        let _deal_id = deal_id;\n        let _seller = seller;\n        let _description = description;\n        let buyer_coin: &mut Coin<CoinType> = object::borrow_global_mut<Coin<CoinType>>(buyer_coin_id);\n        assert!(coin::value(buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);\n    }\n\n    public entry fun touch_marker(marker_id: address, ctx: &mut TxContext) {\n        let _sender = tx_context::sender(ctx);\n        let _marker: &mut Marker = object::borrow_global_mut<Marker>(marker_id);\n    }\n}\n",
+        include_str!(
+            "../move_packages/escrow_like_object_input/sources/escrow_like_object_input.move"
+        ),
     )
 }
 

@@ -1,0 +1,8 @@
+[package]
+name = "EscrowLikeObjectInput"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+
+[addresses]
+tester = "0x48"
