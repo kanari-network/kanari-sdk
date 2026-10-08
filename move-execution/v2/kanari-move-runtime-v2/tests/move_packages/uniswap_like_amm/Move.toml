@@ -1,0 +1,8 @@
+[package]
+name = "UniswapLikeAmm"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+
+[addresses]
+tester = "0x4c"
