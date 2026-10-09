@@ -443,7 +443,7 @@ packages:
       path: "../../packages/kanari_flutter/flutter/kanari_crypto"
       relative: true
     source: path
-    version: "0.2.7"
+    version: "0.2.8"
   leak_tracker:
     dependency: transitive
     description:

@@ -1,0 +1,27 @@
+# Allowlist: only ship what the extension needs at runtime.
+# For more information on `.vscodeignore` files, see:
+# https://code.visualstudio.com/api/working-with-extensions/publishing-extension#.vscodeignore
+
+**/*
+!images/**/*
+!out/src/**/*
+!node_modules/balanced-match/**/*
+!node_modules/brace-expansion/**/*
+!node_modules/command-exists/**/*
+!node_modules/minimatch/**/*
+!node_modules/prettier/**/*
+!node_modules/semver/**/*
+!node_modules/vscode-jsonrpc/**/*
+!node_modules/vscode-languageclient/**/*
+!node_modules/vscode-languageserver-protocol/**/*
+!node_modules/vscode-languageserver-textdocument/**/*
+!node_modules/vscode-languageserver-types/**/*
+!node_modules/web-tree-sitter/**/*
+!vendor/**/*
+!language-configuration.json
+!language-server/**/*
+!syntaxes/**/*
+!package-lock.json
+!package.json
+!LICENSE
+!README.md

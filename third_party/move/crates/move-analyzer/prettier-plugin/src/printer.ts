@@ -3,7 +3,7 @@
 
 import type { AstPath, Doc, ParserOptions } from 'prettier';
 import * as prettier from 'prettier';
-import { SyntaxNode } from 'web-tree-sitter'
+import { Node as SyntaxNode } from 'web-tree-sitter'
 
 const { hardline, indent, join, line, softline, group, ifBreak } = prettier.doc.builders;
 
@@ -34,9 +34,27 @@ export function print(path: AstPath, options: ParserOptions, print: printFn) {
                 // empty module (the only children are curlies)
                 return [ '{}' ];
             } else {
+                // Blank line between members, except that consecutive `use`
+                // declarations and comments stay grouped without blank lines.
+                const members = node.namedChildren;
+                const parts: Doc[] = [];
+                for (let i = 0; i < members.length; i++) {
+                    const member = members[i];
+                    const prev = i > 0 ? members[i - 1] : undefined;
+                    if (i > 0 && member !== undefined && prev !== undefined) {
+                        parts.push(
+                            isTightMember(prev.type) && isTightMember(member.type)
+                                ? hardline
+                                : [hardline, hardline],
+                        );
+                    }
+                    if (member !== undefined) {
+                        parts.push(path.call(print, 'namedChildren', i));
+                    }
+                }
                 return [
                     '{',
-                    indent([[hardline, hardline], join([hardline, hardline], path.map(print, 'namedChildren'))]),
+                    indent([[hardline, hardline], parts]),
                     hardline,
                     '}'
                 ];
@@ -180,6 +198,12 @@ export function print(path: AstPath, options: ParserOptions, print: printFn) {
         default:
             return node.text;
     }
+}
+
+function isTightMember(type: string): boolean {
+    // Module members printed without a separating blank line when adjacent
+    // to each other (import/use groups and their comments).
+    return type === 'use_declaration' || type === 'line_comment';
 }
 
 function breakable_comma_separated_list(path: AstPath,

@@ -3,8 +3,8 @@ module dex_v1::dex_v1_tests {
     use dex_v1::dex_v1;
     use kanari_system::tx_context;
     // Test token types
-    struct TEST_COIN_A has drop {}
-    struct TEST_COIN_B has drop {}
+    public struct TEST_COIN_A has drop {}
+    public struct TEST_COIN_B has drop {}
 
     #[test]
     fun test_create_pool() {
