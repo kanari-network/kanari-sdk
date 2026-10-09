@@ -9,14 +9,19 @@ module kanari_system::pay {
 
     /// For when empty vector is supplied into join function.
     const ENoCoins: u64 = 0;
+
     /// Recipient is on the deny list.
     const EDENIED: u64 = 1;
+
     /// Vector fan-out exceeds `coin::max_split_parts`.
     const ETOO_MANY_COINS: u64 = 2;
+
     /// Sending to the sender themselves: use `keep`/`split` instead.
     const ESELF_PAY: u64 = 3;
+
     /// Amount specified must be greater than zero.
     const EZERO_AMOUNT: u64 = 4;
+
     /// Division by zero is not allowed.
     const EDIVISION_BY_ZERO: u64 = 5;
 
@@ -29,7 +34,9 @@ module kanari_system::pay {
     /// Split coin `self` to two coins, one with balance `split_amount`,
     /// and the remaining balance is left is `self`.
     public entry fun split<T>(
-        self: &mut Coin<T>, split_amount: u64, ctx: &mut TxContext
+        self: &mut Coin<T>,
+        split_amount: u64,
+        ctx: &mut TxContext,
     ) {
         assert!(split_amount > 0, EZERO_AMOUNT);
         keep(coin::split(self, split_amount, ctx), ctx)
@@ -38,7 +45,9 @@ module kanari_system::pay {
     /// Split coin `self` into multiple coins, each with balance specified
     /// in `split_amounts`. Remaining balance is left in `self`.
     public entry fun split_vec<T>(
-        self: &mut Coin<T>, split_amounts: vector<u64>, ctx: &mut TxContext
+        self: &mut Coin<T>,
+        split_amounts: vector<u64>,
+        ctx: &mut TxContext,
     ) {
         assert!(
             vector::length(&split_amounts) <= coin::max_split_parts(),
@@ -55,7 +64,10 @@ module kanari_system::pay {
     /// Aborts `ESELF_PAY` when `recipient` is the transaction sender; keep
     /// the coin with `keep`/`split` instead. Aborts `EZERO_AMOUNT` if `amount` is 0.
     public entry fun split_and_transfer<T>(
-        c: &mut Coin<T>, amount: u64, recipient: address, ctx: &mut TxContext
+        c: &mut Coin<T>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
     ) {
         assert!(amount > 0, EZERO_AMOUNT);
         assert!(recipient != tx_context::sender(ctx), ESELF_PAY);
@@ -70,7 +82,7 @@ module kanari_system::pay {
         amount: u64,
         recipient: address,
         deny: &DenyList,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         assert!(!deny_list::contains(deny, recipient), EDENIED);
         split_and_transfer(c, amount, recipient, ctx)
@@ -80,7 +92,9 @@ module kanari_system::pay {
     /// Divide coin `self` into `n` coins with equal balances. If the balance is
     /// not evenly divisible by `n`, the remainder is left in `self`.
     public entry fun divide_and_keep<T>(
-        self: &mut Coin<T>, n: u64, ctx: &mut TxContext
+        self: &mut Coin<T>,
+        n: u64,
+        ctx: &mut TxContext,
     ) {
         assert!(n > 0, EDIVISION_BY_ZERO);
         let vec: vector<Coin<T>> = coin::divide_into_n(self, n, ctx);
@@ -114,7 +128,9 @@ module kanari_system::pay {
 
     /// Join a vector of `Coin` into a single object and transfer it to `receiver`.
     public entry fun join_vec_and_transfer<T>(
-        coins: vector<Coin<T>>, receiver: address, ctx: &TxContext
+        coins: vector<Coin<T>>,
+        receiver: address,
+        ctx: &TxContext,
     ) {
         assert!(receiver != tx_context::sender(ctx), ESELF_PAY);
         assert!(vector::length(&coins) > 0, ENoCoins);
@@ -128,4 +144,3 @@ module kanari_system::pay {
         transfer::public_transfer(self, receiver)
     }
 }
-

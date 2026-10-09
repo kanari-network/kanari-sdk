@@ -75,16 +75,16 @@ module kanari_system::kanari {
         c: &mut coin::Coin<KANARI>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         pay::split_and_transfer<KANARI>(c, amount, recipient, ctx);
     }
 
     /// Burns KANARI tokens, decreasing total supply
     public entry fun burn(
-        treasury_cap: &mut TreasuryCap<KANARI>, coin: Coin<KANARI>
+        treasury_cap: &mut TreasuryCap<KANARI>,
+        coin: Coin<KANARI>,
     ) {
         coin::burn(treasury_cap, coin);
     }
 }
-

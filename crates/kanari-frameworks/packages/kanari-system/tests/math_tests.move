@@ -9,7 +9,6 @@ module kanari_system::math_tests {
     const E_INVALID_ARG: u64 = 3;
     const E_OUT_OF_RANGE: u64 = 4;
     const E_OVERFLOW: u64 = 1;
-
     const MAX_U64: u64 = 18446744073709551615;
     const MAX_U128: u128 = 340282366920938463463374607431768211455;
     const MAX_U8: u8 = 255;
@@ -874,4 +873,3 @@ module kanari_system::math_tests {
         };
     }
 }
-

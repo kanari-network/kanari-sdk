@@ -15,8 +15,10 @@ module kanari_system::sphincs_plus_sha256_robust {
         SIGNATURE_LENGTH
     }
 
-    native public fun verify(
-        signature: &vector<u8>, public_key: &vector<u8>, message: &vector<u8>
+    public native fun verify(
+        signature: &vector<u8>,
+        public_key: &vector<u8>,
+        message: &vector<u8>,
     ): bool;
 
     #[test]
@@ -75,4 +77,3 @@ module kanari_system::sphincs_plus_sha256_robust {
         );
     }
 }
-

@@ -8,8 +8,10 @@ module kanari_system::bcs {
 
     /// For when bytes length is less than required for deserialization.
     const EOutOfRange: u64 = 0;
+
     /// For when the boolean value different than `0` or `1`.
     const ENotBool: u64 = 1;
+
     /// For when ULEB byte is out of range (or not found).
     const ELenOutOfRange: u64 = 2;
 
@@ -17,7 +19,7 @@ module kanari_system::bcs {
     /// vector performance, it stores reversed bytes of the BCS and
     /// enables use of `vector::pop_back`.
     struct BCS has store, copy, drop {
-        bytes: vector<u8>
+        bytes: vector<u8>,
     }
 
     /// Get BCS serialized bytes for any value.
@@ -245,7 +247,7 @@ module kanari_system::bcs {
         c: u64,
         d: u128,
         k: vector<bool>,
-        s: address
+        s: address,
     }
 
     #[test]
@@ -443,4 +445,3 @@ module kanari_system::bcs {
         };
     }
 }
-

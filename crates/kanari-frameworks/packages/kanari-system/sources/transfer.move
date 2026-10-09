@@ -17,7 +17,7 @@ module kanari_system::transfer {
     struct Transfer has copy, drop {
         from: address,
         to: address,
-        amount: u64
+        amount: u64,
     }
 
     // ObjectStore: Global registry for transferred objects
@@ -26,7 +26,7 @@ module kanari_system::transfer {
     struct ObjectStore<T: key + store> has key {
         id: UID,
         inner: T,
-        owner: address
+        owner: address,
     }
 
     /// Create a transfer record with full validation
@@ -151,4 +151,3 @@ module kanari_system::transfer {
         create_transfer(@0x1, @0x1, 100);
     }
 }
-

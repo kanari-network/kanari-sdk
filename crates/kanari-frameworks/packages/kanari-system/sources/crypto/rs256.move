@@ -5,10 +5,13 @@ module kanari_system::rs256 {
 
     /// Minimum modulus (n) length (bits) for RSASSA-PKCS1-V1_5 with SHA-256 (RS256)
     const RSASSA_PKCS1_V1_5_MINIMUM_MODULUS_LENGTH: u64 = 2048;
+
     /// Minimum exponent (e) length (bytes) for RSASSA-PKCS1-V1_5 with SHA-256 (RS256)
     const RSASSA_PKCS1_V1_5_MINIMUM_EXPONENT_LENGTH: u64 = 1;
+
     /// Maximum exponent (e) length (bytes) for RSASSA-PKCS1-V1_5 with SHA-256 (RS256)
     const RSASSA_PKCS1_V1_5_MAXIMUM_EXPONENT_LENGTH: u64 = 512;
+
     /// Message length for the Sha2-256 hash function
     const SHA256_MESSAGE_LENGTH: u64 = 32;
 
@@ -29,7 +32,10 @@ module kanari_system::rs256 {
     /// Verifies a RSA signature from public modulus (n) and public exponent (e) over RSASSA-PKCS1-V1_5 with SHA-256 (RS256).
     /// The message will be the original message with hashing in-function.
     public fun verify(
-        signature: &vector<u8>, n: &vector<u8>, e: &vector<u8>, msg: &vector<u8>
+        signature: &vector<u8>,
+        n: &vector<u8>,
+        e: &vector<u8>,
+        msg: &vector<u8>,
     ): bool {
         // check conditions for verify function
         check_conditions_verify(signature, n, e);
@@ -38,7 +44,10 @@ module kanari_system::rs256 {
     }
 
     native fun native_verify(
-        signature: &vector<u8>, n: &vector<u8>, e: &vector<u8>, msg: &vector<u8>
+        signature: &vector<u8>,
+        n: &vector<u8>,
+        e: &vector<u8>,
+        msg: &vector<u8>,
     ): bool;
 
     /// Verifies a RSA signature from public modulus (n) and public exponent (e) over RSASSA-PKCS1-V1_5 with SHA-256 (RS256).
@@ -48,7 +57,7 @@ module kanari_system::rs256 {
         n: &vector<u8>,
         e: &vector<u8>,
         msg: &vector<u8>,
-        hash_type: u8
+        hash_type: u8,
     ): bool {
         // check conditions for verify prehash function
         check_conditions_verify_prehash(signature, n, e, msg, hash_type);
@@ -61,11 +70,13 @@ module kanari_system::rs256 {
         n: &vector<u8>,
         e: &vector<u8>,
         msg: &vector<u8>,
-        hash_type: u8
+        hash_type: u8,
     ): bool;
 
     fun check_conditions_verify(
-        signature: &vector<u8>, n: &vector<u8>, e: &vector<u8>
+        signature: &vector<u8>,
+        n: &vector<u8>,
+        e: &vector<u8>,
     ) {
         // 1. Signature length must match modulus (n) length (both in bytes)
         // This ensures the signature was generated with the same key size
@@ -159,7 +170,7 @@ module kanari_system::rs256 {
         n: &vector<u8>,
         e: &vector<u8>,
         msg: &vector<u8>,
-        hash_type: u8
+        hash_type: u8,
     ) {
         // include all verify conditions
         check_conditions_verify(signature, n, e);
@@ -167,4 +178,3 @@ module kanari_system::rs256 {
         assert!(vector::length(msg) == SHA256_MESSAGE_LENGTH, ErrorInvalidMessageLength);
     }
 }
-

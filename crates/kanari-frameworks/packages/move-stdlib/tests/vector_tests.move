@@ -2,8 +2,10 @@
 module std::vector_tests {
     use std::vector as V;
 
-    struct R has store { }
+    struct R has store {}
+
     struct Droppable has drop {}
+
     struct NotDroppable {}
 
     #[test]
@@ -352,7 +354,6 @@ module std::vector_tests {
         assert!(*V::borrow(&v, 0) == 0, 7);
         assert!(*V::borrow(&v, 1) == 3, 8);
         assert!(*V::borrow(&v, 2) == 2, 9);
-
     }
 
     #[test]

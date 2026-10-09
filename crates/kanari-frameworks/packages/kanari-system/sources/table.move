@@ -11,7 +11,7 @@ module kanari_system::table {
     /// A Table map that stores key-value pairs dynamically
     struct Table<phantom K: copy + drop + store, phantom V: store> has key, store {
         id: UID,
-        size: u64
+        size: u64,
     }
 
     /// Creates a new, empty table
@@ -21,7 +21,9 @@ module kanari_system::table {
 
     /// Adds a key-value pair to the table
     public fun add<K: copy + drop + store, V: store>(
-        table: &mut Table<K, V>, k: K, v: V
+        table: &mut Table<K, V>,
+        k: K,
+        v: V,
     ) {
         dynamic_field::add(&mut table.id, k, v);
         table.size = table.size + 1;
@@ -29,7 +31,8 @@ module kanari_system::table {
 
     /// Mutably borrows the value associated with the key
     public fun borrow_mut<K: copy + drop + store, V: store>(
-        table: &mut Table<K, V>, k: K
+        table: &mut Table<K, V>,
+        k: K,
     ): &mut V {
         dynamic_field::borrow_mut(&mut table.id, k)
     }
@@ -41,7 +44,8 @@ module kanari_system::table {
 
     /// Removes the key-value pair and returns the value
     public fun remove<K: copy + drop + store, V: store>(
-        table: &mut Table<K, V>, k: K
+        table: &mut Table<K, V>,
+        k: K,
     ): V {
         let v = dynamic_field::remove(&mut table.id, k);
         table.size = table.size - 1;
@@ -50,7 +54,8 @@ module kanari_system::table {
 
     /// Returns true if the table contains the key
     public fun contains<K: copy + drop + store, V: store>(
-        table: &Table<K, V>, k: K
+        table: &Table<K, V>,
+        k: K,
     ): bool {
         dynamic_field::exists_(&table.id, k)
     }
@@ -62,11 +67,10 @@ module kanari_system::table {
 
     /// Destroys an empty table
     public fun destroy_empty<K: copy + drop + store, V: store>(
-        table: Table<K, V>
+        table: Table<K, V>,
     ) {
         let Table { id, size } = table;
         assert!(size == 0, ETableNotEmpty);
         object::delete(id);
     }
 }
-

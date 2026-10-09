@@ -28,12 +28,16 @@ module kanari_system::signature_multisig {
 
     /// Not enough valid signatures to meet the threshold.
     const E_THRESHOLD_NOT_MET: u64 = 1;
+
     /// Threshold is zero, or exceeds the number of keys.
     const E_INVALID_THRESHOLD: u64 = 2;
+
     /// Keys and signatures vectors have different lengths.
     const E_LENGTH_MISMATCH: u64 = 3;
+
     /// Unsupported scheme selector.
     const E_INVALID_SCHEME: u64 = 4;
+
     /// The same public key appears twice. Without this check one signer
     /// could satisfy an n-of-n threshold alone by replaying their own
     /// key/signature pair.
@@ -62,7 +66,7 @@ module kanari_system::signature_multisig {
     public fun count_valid_ed25519(
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
-        msg: &vector<u8>
+        msg: &vector<u8>,
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -86,7 +90,7 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        hash: u8
+        hash: u8,
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -110,7 +114,7 @@ module kanari_system::signature_multisig {
     public fun count_valid_ecdsa_r1(
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
-        msg: &vector<u8>
+        msg: &vector<u8>,
     ): u64 {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -135,7 +139,7 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        threshold: u64
+        threshold: u64,
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
@@ -150,7 +154,7 @@ module kanari_system::signature_multisig {
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
         hash: u8,
-        threshold: u64
+        threshold: u64,
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
@@ -164,7 +168,7 @@ module kanari_system::signature_multisig {
         public_keys: &vector<vector<u8>>,
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
-        threshold: u64
+        threshold: u64,
     ) {
         assert_valid_threshold(threshold, vector::length(public_keys));
         assert!(
@@ -182,7 +186,7 @@ module kanari_system::signature_multisig {
         signatures: &vector<vector<u8>>,
         msg: &vector<u8>,
         hash: u8,
-        threshold: u64
+        threshold: u64,
     ) {
         let n = vector::length(public_keys);
         assert!(n == vector::length(signatures), E_LENGTH_MISMATCH);
@@ -255,7 +259,9 @@ module kanari_system::signature_multisig {
     ///
     /// Layout: `domain || u64 LE(action_id_len) || action_id || u64 LE(nonce)`.
     public fun build_message(
-        domain: &vector<u8>, action_id: &vector<u8>, nonce: u64
+        domain: &vector<u8>,
+        action_id: &vector<u8>,
+        nonce: u64,
     ): vector<u8> {
         let msg = *domain;
         vector::append(&mut msg, bcs::to_bytes(&vector::length(action_id)));
@@ -329,4 +335,3 @@ module kanari_system::signature_multisig {
         assert!(m1 == build_message(&domain, &b"send", 1), 3);
     }
 }
-

@@ -9,13 +9,13 @@ module kanari_system::object {
     /// The UID contains an object-style address generated from the
     /// transaction context, ensuring it is unique per creation.
     struct UID has store, drop {
-        addr: address
+        addr: address,
     }
 
     /// ID is a copyable, storable identifier for an object.
     /// It is used to reference objects without requiring ownership of the UID.
     struct ID has copy, drop, store {
-        bytes: address
+        bytes: address,
     }
 
     // --- Public Creator ---
@@ -122,4 +122,3 @@ module kanari_system::object {
         assert!(id_to_address(&created_id) == test_addr, 3);
     }
 }
-

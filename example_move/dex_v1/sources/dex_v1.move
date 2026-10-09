@@ -1,29 +1,23 @@
 module dex_v1::dex_v1 {
-
     use kanari_system::object::{Self, UID};
     use kanari_system::balance::{Self, Balance, Supply};
     use kanari_system::coin::{Self, Coin};
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::math;
     use kanari_system::transfer;
+
     // =================================================================
     // Error Codes
     // =================================================================
-
     const E_INSUFFICIENT_LIQUIDITY: u64 = 1;
-
     const E_INSUFFICIENT_AMOUNT: u64 = 2;
-
     const E_INSUFFICIENT_LIQUIDITY_MINTED: u64 = 3;
-
     const E_INSUFFICIENT_LIQUIDITY_BURNED: u64 = 4;
-
     const E_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 5;
 
     // =================================================================
     // Structs
     // =================================================================
-
     public struct LP_TOKEN<phantom CoinTypeA, phantom CoinTypeB> has drop {}
 
     public struct Pool<phantom CoinTypeA, phantom CoinTypeB> has key, store {
@@ -37,7 +31,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // 1. Create Pool (Entry Function)
     // =================================================================
-
     public entry fun create_pool<CoinTypeA, CoinTypeB>(
         fee_percent: u64,
         ctx: &mut TxContext,
@@ -58,7 +51,6 @@ module dex_v1::dex_v1 {
     }
 
     #[test_only]
-
     public fun create_pool_for_testing<CoinTypeA, CoinTypeB>(
         fee_percent: u64,
         ctx: &mut TxContext,
@@ -77,7 +69,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // 2. Add Liquidity (Entry Function with Object ID and Amounts)
     // =================================================================
-
     public entry fun add_liquidity<CoinTypeA, CoinTypeB>(
         pool_id: address,
         coin_a_id: address,
@@ -101,7 +92,6 @@ module dex_v1::dex_v1 {
     }
 
     // Internal function
-
     fun add_liquidity_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_a: Coin<CoinTypeA>,
@@ -134,7 +124,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // 3. Remove Liquidity (Entry Function with Object ID)
     // =================================================================
-
     public entry fun remove_liquidity<CoinTypeA, CoinTypeB>(
         pool_id: address,
         lp_coin_id: address,
@@ -156,7 +145,6 @@ module dex_v1::dex_v1 {
     }
 
     // Internal function
-
     fun remove_liquidity_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         lp_coin: Coin<LP_TOKEN<CoinTypeA, CoinTypeB>>,
@@ -184,7 +172,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // 4. Swap A for B (Entry Function with Object ID and Amount)
     // =================================================================
-
     public entry fun swap_a_for_b<CoinTypeA, CoinTypeB>(
         pool_id: address,
         coin_in_id: address,
@@ -204,7 +191,6 @@ module dex_v1::dex_v1 {
     }
 
     // Internal function
-
     fun swap_a_for_b_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_in: Coin<CoinTypeA>,
@@ -225,7 +211,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // 5. Swap B for A (Entry Function with Object ID and Amount)
     // =================================================================
-
     public entry fun swap_b_for_a<CoinTypeA, CoinTypeB>(
         pool_id: address,
         coin_in_id: address,
@@ -245,7 +230,6 @@ module dex_v1::dex_v1 {
     }
 
     // Internal function
-
     fun swap_b_for_a_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_in: Coin<CoinTypeB>,
@@ -266,7 +250,6 @@ module dex_v1::dex_v1 {
     // =================================================================
     // Internal Math
     // =================================================================
-
     fun calculate_amount_out(
         amount_in: u64,
         reserve_in: u64,
@@ -287,7 +270,6 @@ module dex_v1::dex_v1 {
     // View Functions (Getters)
     // =================================================================
     /// Get Pool ID
-
     public fun get_pool_id<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): address {
@@ -295,7 +277,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Get Reserve A balance
-
     public fun get_reserve_a<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): u64 {
@@ -303,7 +284,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Get Reserve B balance
-
     public fun get_reserve_b<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): u64 {
@@ -311,7 +291,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Get Total LP Token Supply
-
     public fun get_lp_supply<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): u64 {
@@ -319,7 +298,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Get Fee Percent
-
     public fun get_fee_percent<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): u64 {
@@ -327,7 +305,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Get all pool information at once
-
     public fun get_pool_info<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
     ): (u64, u64, u64, u64) {
@@ -340,7 +317,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Calculate expected output amount for swapping A to B
-
     public fun get_swap_a_for_b_output<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
         amount_in: u64,
@@ -351,7 +327,6 @@ module dex_v1::dex_v1 {
     }
 
     /// Calculate expected output amount for swapping B to A
-
     public fun get_swap_b_for_a_output<CoinTypeA, CoinTypeB>(
         pool: &Pool<CoinTypeA, CoinTypeB>,
         amount_in: u64,
@@ -362,7 +337,6 @@ module dex_v1::dex_v1 {
     }
 
     #[test_only]
-
     public fun destroy_pool_for_testing<CoinTypeA, CoinTypeB>(
         pool: Pool<CoinTypeA, CoinTypeB>,
     ) {

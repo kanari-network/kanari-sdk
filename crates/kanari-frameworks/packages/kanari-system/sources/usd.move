@@ -57,7 +57,7 @@ module kanari_system::usd {
         cap: &mut TreasuryCap<USD>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let minted = coin::mint(cap, amount, ctx);
         transfer::public_transfer(minted, recipient);
@@ -68,7 +68,7 @@ module kanari_system::usd {
         c: &mut coin::Coin<USD>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         if (sender == recipient) { return };
@@ -81,7 +81,7 @@ module kanari_system::usd {
         cap: &mut TreasuryCap<USD>,
         c: &mut Coin<USD>,
         amount: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(cap, to_burn);
@@ -91,4 +91,3 @@ module kanari_system::usd {
         UNITS_PER_USD
     }
 }
-

@@ -5,46 +5,45 @@
 /// A variable-sized container that can hold any type. Indexing is 0-based, and
 /// vectors are growable. This module has many native functions.
 module std::vector {
-
     /// The index into the vector is out of bounds
     const EINDEX_OUT_OF_BOUNDS: u64 = 0x20000;
 
     #[bytecode_instruction]
     /// Create an empty vector.
-    native public fun empty<Element>(): vector<Element>;
+    public native fun empty<Element>(): vector<Element>;
 
     #[bytecode_instruction]
     /// Return the length of the vector.
-    native public fun length<Element>(v: &vector<Element>): u64;
+    public native fun length<Element>(v: &vector<Element>): u64;
 
     #[bytecode_instruction]
     /// Acquire an immutable reference to the `i`th element of the vector `v`.
     /// Aborts if `i` is out of bounds.
-    native public fun borrow<Element>(v: &vector<Element>, i: u64): &Element;
+    public native fun borrow<Element>(v: &vector<Element>, i: u64): &Element;
 
     #[bytecode_instruction]
     /// Add element `e` to the end of the vector `v`.
-    native public fun push_back<Element>(v: &mut vector<Element>, e: Element);
+    public native fun push_back<Element>(v: &mut vector<Element>, e: Element);
 
     #[bytecode_instruction]
     /// Return a mutable reference to the `i`th element in the vector `v`.
     /// Aborts if `i` is out of bounds.
-    native public fun borrow_mut<Element>(v: &mut vector<Element>, i: u64): &mut Element;
+    public native fun borrow_mut<Element>(v: &mut vector<Element>, i: u64): &mut Element;
 
     #[bytecode_instruction]
     /// Pop an element from the end of vector `v`.
     /// Aborts if `v` is empty.
-    native public fun pop_back<Element>(v: &mut vector<Element>): Element;
+    public native fun pop_back<Element>(v: &mut vector<Element>): Element;
 
     #[bytecode_instruction]
     /// Destroy the vector `v`.
     /// Aborts if `v` is not empty.
-    native public fun destroy_empty<Element>(v: vector<Element>);
+    public native fun destroy_empty<Element>(v: vector<Element>);
 
     #[bytecode_instruction]
     /// Swaps the elements at the `i`th and `j`th indices in the vector `v`.
     /// Aborts if `i` or `j` is out of bounds.
-    native public fun swap<Element>(v: &mut vector<Element>, i: u64, j: u64);
+    public native fun swap<Element>(v: &mut vector<Element>, i: u64, j: u64);
 
     /// Return an vector of size one containing element `e`.
     public fun singleton<Element>(e: Element): vector<Element> {

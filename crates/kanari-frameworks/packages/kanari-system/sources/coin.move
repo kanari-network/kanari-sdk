@@ -14,16 +14,22 @@ module kanari_system::coin {
     // --- Error Codes ---
     /// Invalid arguments are passed to a function.
     const EInvalidArg: u64 = 1;
+
     /// Trying to split a coin more times than its balance allows.
     const ENotEnough: u64 = 2;
+
     /// Amount must be greater than zero.
     const EZERO_AMOUNT: u64 = 3;
+
     /// Arithmetic overflow.
     const EOVERFLOW: u64 = 4;
+
     /// Arithmetic underflow.
     const EUNDERFLOW: u64 = 5;
+
     /// Invalid decimal count.
     const EINVALID_DECIMALS: u64 = 6;
+
     /// Split fan-out exceeds the per-call object cap.
     const ETOO_MANY_PARTS: u64 = 7;
 
@@ -42,13 +48,14 @@ module kanari_system::coin {
     /// Coin resource wrapper with balance (Removed `drop` for asset safety)
     struct Coin<phantom T> has key, store {
         id: object::UID,
-        balance: Balance<T>
+        balance: Balance<T>,
     }
 
     /// Capability allowing the bearer to mint and burn coins (Removed `drop`)
     struct TreasuryCap<phantom T> has key, store {
         id: object::UID,
-        total_supply: u64 // Tracking total supply directly in the cap
+        total_supply: u64,
+        // Tracking total supply directly in the cap,
     }
 
     /// Metadata resource for a currency (Removed `drop`)
@@ -58,7 +65,7 @@ module kanari_system::coin {
         name: string::String,
         symbol: ascii::String,
         description: string::String,
-        icon_url: option::Option<url::Url>
+        icon_url: option::Option<url::Url>,
     }
 
     // --- Public Functions ---
@@ -72,7 +79,7 @@ module kanari_system::coin {
         name_bytes: vector<u8>,
         description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): (TreasuryCap<T>, CoinMetadata<T>) {
         let _ = witness;
 
@@ -103,7 +110,7 @@ module kanari_system::coin {
         name_bytes: vector<u8>,
         description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): (
         TreasuryCap<T>, kanari_system::deny_list::DenyCap<T>, CoinMetadata<T>
     ) {
@@ -129,7 +136,9 @@ module kanari_system::coin {
 
     /// Mint new coins using TreasuryCap
     public fun mint<T>(
-        cap: &mut TreasuryCap<T>, amount: u64, ctx: &mut TxContext
+        cap: &mut TreasuryCap<T>,
+        amount: u64,
+        ctx: &mut TxContext,
     ): Coin<T> {
         assert!(amount > 0, EZERO_AMOUNT);
         let new_total = cap.total_supply + amount;
@@ -147,7 +156,7 @@ module kanari_system::coin {
         cap: &mut TreasuryCap<T>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let coin = mint(cap, amount, ctx);
         transfer::public_transfer(coin, recipient);
@@ -228,7 +237,9 @@ module kanari_system::coin {
 
     /// Split coin `self` into `n - 1` coins with equal balances.
     public fun divide_into_n<T>(
-        self: &mut Coin<T>, n: u64, ctx: &mut TxContext
+        self: &mut Coin<T>,
+        n: u64,
+        ctx: &mut TxContext,
     ): vector<Coin<T>> {
         assert!(n > 0, EInvalidArg);
         assert!(n <= MAX_SPLIT_PARTS, ETOO_MANY_PARTS);
@@ -250,31 +261,36 @@ module kanari_system::coin {
     public fun update_icon_url<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        url: option::Option<url::Url>
+        url: option::Option<url::Url>,
     ) {
         let _ = treasury;
         metadata.icon_url = url;
     }
 
     public fun update_name<T>(
-        treasury: &TreasuryCap<T>, metadata: &mut CoinMetadata<T>, name: string::String
+        treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        name: string::String,
     ) {
         let _ = treasury;
         metadata.name = name;
     }
 
     public fun update_symbol<T>(
-        treasury: &TreasuryCap<T>, metadata: &mut CoinMetadata<T>, symbol: ascii::String
+        treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        symbol: ascii::String,
     ) {
         let _ = treasury;
         metadata.symbol = symbol;
     }
 
     public fun update_description<T>(
-        treasury: &TreasuryCap<T>, metadata: &mut CoinMetadata<T>, description: string::String
+        treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        description: string::String,
     ) {
         let _ = treasury;
         metadata.description = description;
     }
 }
-

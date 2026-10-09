@@ -11,12 +11,12 @@ module kanari_system::deny_list {
 
     /// Deny list resource storing addresses
     struct DenyList has key, store, drop {
-        addresses: vector<address>
+        addresses: vector<address>,
     }
 
     /// Capability to mutate a DenyList for a specific coin type
     struct DenyCap<phantom T> has key, store, drop {
-        id: object::UID
+        id: object::UID,
     }
 
     /// Create a new empty DenyList
@@ -42,7 +42,10 @@ module kanari_system::deny_list {
 
     /// Add an address to the deny list
     public fun deny_list_add<T>(
-        d: &mut DenyList, _cap: &DenyCap<T>, addr: address, _ctx: &mut TxContext
+        d: &mut DenyList,
+        _cap: &DenyCap<T>,
+        addr: address,
+        _ctx: &mut TxContext,
     ) {
         // Check if address already exists in the deny list
         let len = vector::length(&d.addresses);
@@ -62,7 +65,10 @@ module kanari_system::deny_list {
 
     /// Remove an address from the deny list
     public fun deny_list_remove<T>(
-        d: &mut DenyList, _cap: &DenyCap<T>, addr: address, _ctx: &mut TxContext
+        d: &mut DenyList,
+        _cap: &DenyCap<T>,
+        addr: address,
+        _ctx: &mut TxContext,
     ) {
         let len = vector::length(&d.addresses);
         let i = 0;
@@ -104,4 +110,3 @@ module kanari_system::deny_list {
         *vector::borrow(&d.addresses, index)
     }
 }
-

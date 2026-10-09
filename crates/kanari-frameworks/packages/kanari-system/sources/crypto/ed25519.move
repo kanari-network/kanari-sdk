@@ -20,8 +20,10 @@ module kanari_system::ed25519 {
     ///
     /// If the signature is a valid Ed25519 signature of the message and public key, return true.
     /// Otherwise, return false.
-    native public fun verify(
-        signature: &vector<u8>, public_key: &vector<u8>, msg: &vector<u8>
+    public native fun verify(
+        signature: &vector<u8>,
+        public_key: &vector<u8>,
+        msg: &vector<u8>,
     ): bool;
 
     #[test]
@@ -67,4 +69,3 @@ module kanari_system::ed25519 {
         assert!(verify == false, 0)
     }
 }
-

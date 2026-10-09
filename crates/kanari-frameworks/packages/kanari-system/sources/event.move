@@ -10,4 +10,3 @@ module kanari_system::event {
     /// phantom parameters, eg `emit(MyEvent<phantom T>)`.
     public native fun emit<T: copy + drop>(event: T);
 }
-

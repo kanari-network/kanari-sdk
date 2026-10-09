@@ -18,13 +18,32 @@ export function print(path: AstPath, options: ParserOptions, print: printFn) {
             // author's blank lines like statement blocks do.
             return printMembers(path, node, print, statementSeparator, true);
         case 'module_definition':
-            return [
-                'module ',
-                path.call(print, 'namedChildren', 0), // module_identity
-                ' ',
-                path.call(print, 'namedChildren', 1), // module_body
-                hardline
-            ];
+            // A module may carry leading attributes (e.g. `#[test_only] module ...`);
+            // print them first so the identity/body that follow stay correct.
+            // (Printing by fixed indices here used to merge the attribute into
+            // the module line and drop the whole module body.)
+            const modChildren = node.namedChildren;
+            const modParts: Doc[] = [];
+            let modIndex = 0;
+            while (modIndex < modChildren.length) {
+                const modChild = modChildren[modIndex];
+                if (modChild === undefined || (modChild.type !== 'annotation' && modChild.type !== 'line_comment')) {
+                    break;
+                }
+                modParts.push(path.call(print, 'namedChildren', modIndex));
+                modParts.push(hardline);
+                modIndex++;
+            }
+            modParts.push('module ');
+            modParts.push(path.call(print, 'namedChildren', modIndex)); // module_identity
+            modIndex++;
+            modParts.push(' ');
+            while (modIndex < modChildren.length) {
+                modParts.push(path.call(print, 'namedChildren', modIndex));
+                modIndex++;
+            }
+            modParts.push(hardline);
+            return modParts;
         case 'module_identity':
             return [
                 path.call(print, 'namedChildren', 0),
@@ -38,7 +57,7 @@ export function print(path: AstPath, options: ParserOptions, print: printFn) {
             } else {
                 return [
                     '{',
-                    indent([[hardline, hardline], printMembers(path, node, print, (p, c, n) => memberSeparator(p, c, n), true)]),
+                    indent([hardline, printMembers(path, node, print, (p, c, n) => memberSeparator(p, c, n), true)]),
                     hardline,
                     '}'
                 ];

@@ -8,12 +8,13 @@ module std::option {
     /// Abstraction of a value that may or may not be present. Implemented with a vector of size
     /// zero or one because Move bytecode does not have ADTs.
     struct Option<Element> has copy, drop, store {
-        vec: vector<Element>
+        vec: vector<Element>,
     }
 
     /// The `Option` is in an invalid state for the operation attempted.
     /// The `Option` is `Some` while it should be `None`.
     const EOPTION_IS_SET: u64 = 0x40000;
+
     /// The `Option` is in an invalid state for the operation attempted.
     /// The `Option` is `None` while it should be `Some`.
     const EOPTION_NOT_SET: u64 = 0x40001;

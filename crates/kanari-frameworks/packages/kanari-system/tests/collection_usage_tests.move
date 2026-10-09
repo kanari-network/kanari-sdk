@@ -9,12 +9,12 @@ module kanari_system::collection_usage_tests {
     use kanari_system::tx_context;
 
     struct Host has key, store, drop {
-        id: UID
+        id: UID,
     }
 
     struct Child has key, store, drop {
         id: UID,
-        value: u64
+        value: u64,
     }
 
     fun new_host(ctx: &mut tx_context::TxContext): Host {
@@ -180,4 +180,3 @@ module kanari_system::collection_usage_tests {
         assert!(deny_list::contains(denylist_ref, @0x2), 45);
     }
 }
-

@@ -250,7 +250,7 @@ Returns <code>(<a href="collection.md#0x2_collection_Collection">Collection</a>,
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         remaining: max_supply,
         issued_counter: 0,
-        collection_id: collection_addr // ใช้ <b>address</b> ที่ดึงมา
+        collection_id: collection_addr // use the fetched <b>address</b>
     };
 
     <a href="event.md#0x2_event_emit">event::emit</a>(

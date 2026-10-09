@@ -2,14 +2,15 @@
 module 0xA::type_name_tests {
     #[test_only]
     use std::type_name::{get, into_string};
+
     #[test_only]
     use std::ascii::string;
 
     struct TestStruct {}
 
-    struct TestGenerics<phantom T> { }
+    struct TestGenerics<phantom T> {}
 
-    struct TestMultiGenerics<phantom T1, phantom T2, phantom T3> { }
+    struct TestMultiGenerics<phantom T1, phantom T2, phantom T3> {}
 
     #[test]
     fun test_ground_types() {

@@ -1,7 +1,6 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::balance {
-
     /// Error codes
     const ERR_INSUFFICIENT_BALANCE: u64 = 1;
     const ERR_OVERFLOW: u64 = 2;
@@ -11,13 +10,13 @@ module kanari_system::balance {
     /// Balance resource - Stores the balance value (generic per token type)
     /// REMOVED `drop` ability to enforce explicit destruction via `destroy()`
     struct Balance<phantom T> has store {
-        value: u64
+        value: u64,
     }
 
     /// Supply: mutable minting handle consumed to create balances
     /// REMOVED `drop` ability to prevent accidental loss of minting authority
     struct Supply<phantom T> has store {
-        total: u64
+        total: u64,
     }
 
     /// Create a new zero-value Balance
@@ -56,7 +55,9 @@ module kanari_system::balance {
 
     /// Transfer value from one Balance to another
     public fun transfer<T>(
-        from: &mut Balance<T>, to: &mut Balance<T>, amount: u64
+        from: &mut Balance<T>,
+        to: &mut Balance<T>,
+        amount: u64,
     ) {
         assert!(amount > 0, ERR_ZERO_AMOUNT);
         decrease<T>(from, amount);
@@ -138,10 +139,10 @@ module kanari_system::balance {
     // ==========================================
     #[test]
     fun test_balance_operations() {
-        let balance = create<u8>(1000); // ลบ mut ออก
+        let balance = create<u8>(1000); // no `mut` needed on the binding
         assert!(value(&balance) == 1000, 0);
 
-        increase<u8>(&mut balance, 500); // ส่ง &mut ได้ตามปกติ
+        increase<u8>(&mut balance, 500); // `&mut` borrows work as usual
         assert!(value(&balance) == 1500, 1);
 
         decrease<u8>(&mut balance, 300);
@@ -176,7 +177,7 @@ module kanari_system::balance {
     #[test]
     fun test_supply_operations() {
         let s = new_supply<u8>();
-        // ต้องรับค่า Balance ที่ถูก Mint ออกมาเสมอ เพราะไม่มี drop ability
+        // Always take ownership of the minted `Balance`: it has no `drop` ability
         let b1 = increase_supply<u8>(&mut s, 1000);
         assert!(supply_total(&s) == 1000, 0);
 
@@ -187,7 +188,7 @@ module kanari_system::balance {
         decrease_supply<u8>(&mut s, 800);
         assert!(supply_total(&s) == 700, 3);
 
-        destroy<u8>(b1); // ทำลายทิ้งให้ถูกต้อง
+        destroy<u8>(b1); // destroy it properly
         destroy<u8>(b2);
         destroy_supply_for_testing(s);
     }
@@ -196,7 +197,7 @@ module kanari_system::balance {
     #[expected_failure(abort_code = ERR_OVERFLOW)]
     fun test_supply_overflow() {
         let s = new_supply<u64>();
-        // ใช้ค่าตัวเลขสูงสุดของ u64 แทน u64::MAX
+        // use the max `u64` value instead of `u64::MAX`
         let b1 = increase_supply<u64>(&mut s, 18446744073709551615);
         let b2 = increase_supply<u64>(&mut s, 1);
         destroy<u64>(b1);
@@ -205,4 +206,3 @@ module kanari_system::balance {
         destroy_supply_for_testing(s);
     }
 }
-

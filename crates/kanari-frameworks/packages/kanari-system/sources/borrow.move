@@ -40,4 +40,3 @@ module kanari_system::borrow {
         borrow<T>(object::id_to_address(id))
     }
 }
-

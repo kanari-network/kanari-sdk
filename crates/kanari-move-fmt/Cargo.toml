@@ -1,0 +1,18 @@
+[package]
+name = "kanari-move-fmt"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+pretty = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-move = { path = "../../third_party/tree-sitter-move" }

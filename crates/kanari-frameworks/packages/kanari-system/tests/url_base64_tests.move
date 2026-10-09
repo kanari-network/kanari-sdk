@@ -48,4 +48,3 @@ module kanari_system::url_base64_tests {
         assert!(base64::encode(&ia) != base64::encode(&ib), 6);
     }
 }
-
