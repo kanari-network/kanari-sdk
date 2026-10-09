@@ -16,8 +16,14 @@ and rebranded for Kanari.
   theme — no theme switch needed)
 - Language server via `move-analyzer` built from this repository:
   diagnostics, go-to-definition, find references, hover, completion, document symbols
-- Commands: `Move: Show Server Version`, `Move: Build a Move package`,
-  `Move: Test a Move package` (run `kanari move build|test` in a terminal)
+- Move formatter (same rules as `kanari move fmt`): format on save for `.move`
+- Status bar pill + language status with Open Logs / Stop server / Restart server
+  (click the pill for the anchored menu, like Move on Aptos)
+- Auto-reload: the server restarts when `.move` files are added/deleted or
+  `Move.toml` changes (like rust-analyzer)
+- Commands: `Move on Kanari: Show Server Version`, `Build a Move package`,
+  `Test a Move package`, `Restart Language Server`, `Stop Language Server`,
+  `Open Logs` (build/test run `kanari move build|test` in a terminal)
 
 ## Settings
 

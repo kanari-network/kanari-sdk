@@ -29,9 +29,9 @@ impl Fmt {
         } else {
             let mut targets = Vec::new();
             for path in &self.paths {
-                let absolute = path.canonicalize().map_err(|_| {
-                    anyhow::anyhow!("path does not exist: {}", path.display())
-                })?;
+                let absolute = path
+                    .canonicalize()
+                    .map_err(|_| anyhow::anyhow!("path does not exist: {}", path.display()))?;
                 if absolute.is_dir() {
                     targets.extend(collect_move_files(&absolute));
                 } else if absolute.extension().is_some_and(|ext| ext == "move") {
@@ -81,10 +81,7 @@ impl Fmt {
                 );
             }
         } else {
-            eprintln!(
-                "formatted {formatted_count} of {} file(s)",
-                targets.len()
-            );
+            eprintln!("formatted {formatted_count} of {} file(s)", targets.len());
             Ok(())
         }
     }

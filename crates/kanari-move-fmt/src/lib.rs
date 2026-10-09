@@ -154,4 +154,36 @@ mod tests {
         let expected = "module james::euro {\n    use kanari_system::coin;\n    use kanari_system::transfer;\n\n    struct EURO has drop {}\n}\n";
         assert_eq!(out, expected);
     }
+
+    /// Every sample in the vendored grammar corpus must parse without
+    /// errors and format idempotently (formatting twice yields the same
+    /// output).
+    #[test]
+    fn vendored_grammar_samples() {
+        let dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../third_party/tree-sitter-move/tests/"
+        );
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .expect("grammar tests dir missing")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".move"))
+            .collect();
+        names.sort();
+        assert!(!names.is_empty(), "no grammar samples found");
+        for name in &names {
+            let source = std::fs::read_to_string(format!("{dir}{name}")).expect("sample missing");
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_move::language()).unwrap();
+            let tree = parser.parse(&source, None).expect("parse failed");
+            assert!(
+                !tree.root_node().has_error(),
+                "sample {name} has parse errors"
+            );
+            let once = format_source(&source, &FormatOptions::default()).unwrap();
+            let twice = format_source(&once, &FormatOptions::default()).unwrap();
+            assert_eq!(once, twice, "sample {name} is not idempotent");
+        }
+    }
 }

@@ -291,10 +291,12 @@ syn = { version = "3.0.6", features = ["full"] }
 # ============================================================================
 uniffi = { version = "0.32.2" }
 
-# ============================================================================
 
 tui = "0.19.0"
 crossterm = "0.29.0"
+
+# ============================================================================
+
 
 # ============================================================================
 # Workspace Members (Internal Crates)
@@ -356,6 +358,7 @@ move-stdlib-natives = { path = "third_party/move/crates/move-stdlib-natives" }
 move-vm-runtime = { path = "third_party/move/crates/move-vm-runtime" }
 move-coverage = { path = "third_party/move/crates/move-coverage" }
 move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifier" }
+
 
 [patch.crates-io]
 # libp2p-kad = { path = "third_party/patches/libp2p-kad-0.48.0" }
