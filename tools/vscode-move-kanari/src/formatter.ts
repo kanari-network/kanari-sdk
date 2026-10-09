@@ -29,11 +29,12 @@ export class MoveFormatter implements vscode.DocumentFormattingEditProvider {
     const text = document.getText();
     let formatted: string;
     try {
-      formatted = await prettier.format(text, {
-        parser: 'move-parse',
-        plugins: [this.plugin],
-        tabWidth: 4,
-      });
+            formatted = await prettier.format(text, {
+                parser: 'move-parse',
+                plugins: [this.plugin],
+                tabWidth: 4,
+                printWidth: 100,
+            });
     } catch (err) {
       void vscode.window.showErrorMessage(
         `Move formatting failed: ${err instanceof Error ? err.message : String(err)}`,
