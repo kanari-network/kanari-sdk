@@ -77,4 +77,3 @@ module kanari_system::clock_tests {
         clock::create(&mut user);
     }
 }
-

@@ -30,7 +30,7 @@ public fun create_token(ctx: &mut TxContext) {
         option::none(),                 // icon_url
         ctx
     );
-    
+
     // Transfer mint/burn cap to sender
     transfer::public_transfer(cap, tx_context::sender(ctx));
     transfer::public_freeze_object(metadata);
@@ -77,7 +77,7 @@ public fun get_tx_info(ctx: &TxContext): (address, u64, u64) {
     let sender = tx_context::sender(ctx);
     let epoch = tx_context::epoch(ctx);
     let timestamp = tx_context::timestamp_ms(ctx);
-    
+
     (sender, epoch, timestamp)
 }
 ```
@@ -161,7 +161,7 @@ struct SecureContract has key, store {
 public fun protected_operation(contract: &mut SecureContract) {
     assert!(!contract.locked, E_REENTRANCY);
     contract.locked = true;
-    
+
     // Perform operation
     contract.locked = false;
 }
@@ -179,7 +179,7 @@ const E_INVALID_STATE: u64 = 3;
 public fun validated_operation(amount: u64, balance: u64) {
     assert!(amount > 0, E_INVALID_AMOUNT);
     assert!(balance >= amount, E_INSUFFICIENT_BALANCE);
-    
+
     // Operation logic
 }
 ```
@@ -200,7 +200,7 @@ public fun batch_transfer(
 ) {
     let len = vector::length(&coins);
     assert!(len == vector::length(&recipients), E_LENGTH_MISMATCH);
-    
+
     let mut i = 0;
     while (i < len) {
         let coin = vector::pop_back(&mut coins);
@@ -257,11 +257,11 @@ public fun create_resource(ctx: &mut TxContext) {
 fun test_kanari_features() {
     let ctx = &mut tx_context::dummy();
     let sender = tx_context::sender(ctx);
-    
+
     // Test Kanari-specific functionality
     let asset = create_asset(ctx);
     assert!(asset.owner == sender, 0);
-    
+
     // Clean up resources
     transfer::public_transfer(asset, sender);
 }
@@ -274,15 +274,15 @@ fun test_kanari_features() {
 #[test]
 fun test_multi_module_interaction() {
     let ctx = &mut tx_context::dummy();
-    
+
     // Create coin
     let (cap, _) = coin::create_currency<KANARI>(
         KANARI {}, 9, b"TEST", b"Test", b"", option::none(), ctx
     );
-    
+
     // Mint tokens
     let coins = coin::mint(&mut cap, 1000, ctx);
-    
+
     // Transfer using Kanari transfer
     transfer::public_transfer(coins, @0x1);
 }

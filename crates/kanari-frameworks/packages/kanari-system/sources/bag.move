@@ -11,7 +11,7 @@ module kanari_system::bag {
     /// A Bag that stores heterogeneous key-value pairs dynamically
     struct Bag has key, store {
         id: UID,
-        size: u64
+        size: u64,
     }
 
     /// Creates a new, empty bag
@@ -54,4 +54,3 @@ module kanari_system::bag {
         object::delete(id);
     }
 }
-

@@ -10,14 +10,14 @@ The `friend` declaration in Move allows modules to grant special access privileg
 module my_package::token {
     // Grant friend access to another module
     friend my_package::treasury;
-    
+
     struct TOKEN has drop {}
-    
+
     // Private function - only accessible to this module and friends
     fun internal_mint(amount: u64): Coin<TOKEN> {
         // Internal minting logic
     }
-    
+
     // Public function
     public fun public_mint(amount: u64): Coin<TOKEN> {
         internal_mint(amount)
@@ -30,7 +30,7 @@ module my_package::token {
 ```move
 module my_package::treasury {
     use my_package::token;
-    
+
     // Can call private functions because we're a friend
     public fun mint_treasury_tokens(amount: u64): token::Coin<token::TOKEN> {
         token::internal_mint(amount) // Allowed!
@@ -48,18 +48,18 @@ Separate public API from internal implementation:
 module my_package::core {
     friend my_package::admin;
     friend my_package::governance;
-    
+
     struct Config has key, store {
         id: UID,
         max_supply: u64,
         fee_rate: u64,
     }
-    
+
     // Private: Only friends can modify
     fun update_config(config: &mut Config, new_max: u64) {
         config.max_supply = new_max;
     }
-    
+
     // Public: Anyone can read
     public fun get_max_supply(config: &Config): u64 {
         config.max_supply
@@ -68,7 +68,7 @@ module my_package::core {
 
 module my_package::admin {
     use my_package::core;
-    
+
     // Can update config (friend access)
     public entry fun update_max_supply(
         config: &mut core::Config,
@@ -80,7 +80,7 @@ module my_package::admin {
 
 module my_package::governance {
     use my_package::core;
-    
+
     // Can also update config (friend access)
     public entry fun governance_update(
         config: &mut core::Config,
@@ -98,16 +98,16 @@ Control who can create capabilities:
 ```move
 module my_package::capabilities {
     friend my_package::factory;
-    
+
     struct AdminCap has key, store {
         id: UID,
     }
-    
+
     // Private: Only factory can create
     fun create_admin_cap(ctx: &mut TxContext): AdminCap {
         AdminCap { id: object::new(ctx) }
     }
-    
+
     // Public: Anyone can use
     public fun requires_admin(_cap: &AdminCap) {
         // Admin-only operation
@@ -116,7 +116,7 @@ module my_package::capabilities {
 
 module my_package::factory {
     use my_package::capabilities;
-    
+
     // Can create admin caps (friend access)
     public fun initialize_system(ctx: &mut TxContext) {
         let cap = capabilities::create_admin_cap(ctx);
@@ -133,9 +133,9 @@ Provide test-only functionality:
 module my_package::token {
     #[test_only]
     friend my_package::token_tests;
-    
+
     struct TOKEN has drop {}
-    
+
     // Test-only function
     #[test_only]
     fun mint_for_testing(amount: u64, ctx: &mut TxContext): Coin<TOKEN> {
@@ -146,7 +146,7 @@ module my_package::token {
 #[test_only]
 module my_package::token_tests {
     use my_package::token;
-    
+
     #[test]
     fun test_token_operations() {
         let ctx = &mut tx_context::dummy();
@@ -164,7 +164,7 @@ module my_package::token_tests {
 // Core layer - business logic
 module my_package::core_logic {
     friend my_package::api_layer;
-    
+
     fun process_transaction(tx: Transaction): Result {
         // Complex business logic
     }
@@ -173,7 +173,7 @@ module my_package::core_logic {
 // API layer - public interface
 module my_package::api_layer {
     use my_package::core_logic;
-    
+
     public entry fun submit_transaction(tx: Transaction) {
         // Validate input
         // Call core logic (friend access)
@@ -189,7 +189,7 @@ module my_package::api_layer {
 ```move
 module my_package::implementation_v1 {
     friend my_package::proxy;
-    
+
     fun execute_operation(data: vector<u8>) {
         // Implementation details
     }
@@ -197,7 +197,7 @@ module my_package::implementation_v1 {
 
 module my_package::proxy {
     use my_package::implementation_v1;
-    
+
     public entry fun delegate_call(data: vector<u8>) {
         // Forward to implementation (friend access)
         implementation_v1::execute_operation(data);
@@ -212,13 +212,13 @@ module my_package::orchestrator {
     friend my_package::step_one;
     friend my_package::step_two;
     friend my_package::step_three;
-    
+
     struct WorkflowState has key, store {
         id: UID,
         current_step: u8,
         completed: bool,
     }
-    
+
     // Private: Only workflow steps can update
     fun advance_step(state: &mut WorkflowState) {
         state.current_step += 1;
@@ -227,7 +227,7 @@ module my_package::orchestrator {
 
 module my_package::step_one {
     use my_package::orchestrator;
-    
+
     public fun execute_step(state: &mut orchestrator::WorkflowState) {
         // Do step one work
         orchestrator::advance_step(state); // Friend access
@@ -302,11 +302,11 @@ friend my_package::verified_admin;
 ```move
 module secure::caps {
     friend secure::factory;
-    
+
     struct PowerfulCap has key, store {
         id: UID,
     }
-    
+
     // Private creation
     fun create_cap(ctx: &mut TxContext): PowerfulCap {
         PowerfulCap { id: object::new(ctx) }
@@ -316,7 +316,7 @@ module secure::caps {
 // Ensure factory properly controls distribution
 module secure::factory {
     use secure::caps;
-    
+
     public fun distribute_cap(recipient: address, ctx: &mut TxContext) {
         let cap = caps::create_cap(ctx);
         transfer::public_transfer(cap, recipient);

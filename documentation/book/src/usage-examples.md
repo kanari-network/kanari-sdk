@@ -30,10 +30,10 @@ public fun create_example_transfer(ctx: &mut TxContext) {
     let from = @0x100;
     let to = @0x200;
     let amount = 1000;
-    
+
     // This will validate that amount > 0 and from != to
     let transfer_record = transfer::create_transfer(from, to, amount);
-    
+
     assert!(transfer::get_amount(&transfer_record) == 1000, 0);
     assert!(transfer::get_from(&transfer_record) == from, 1);
     assert!(transfer::get_to(&transfer_record) == to, 2);
@@ -71,19 +71,19 @@ use std::vector;
 
 public fun calculate_batch_transfers(): u64 {
     let transfers = vector::empty<transfer::Transfer>();
-    
+
     // Add multiple transfers
-    vector::push_back(&mut transfers, 
+    vector::push_back(&mut transfers,
         transfer::create_transfer(@0x1, @0x2, 100));
-    vector::push_back(&mut transfers, 
+    vector::push_back(&mut transfers,
         transfer::create_transfer(@0x2, @0x3, 200));
-    vector::push_back(&mut transfers, 
+    vector::push_back(&mut transfers,
         transfer::create_transfer(@0x3, @0x4, 300));
-    
+
     // Calculate total amount
     let total = transfer::total_amount(&transfers);
     assert!(total == 600, 0);
-    
+
     total
 }
 ```
@@ -98,7 +98,7 @@ fun test_transfer_validation() {
     // Valid transfer
     let t = transfer::create_transfer(@0x1, @0x2, 500);
     assert!(transfer::is_valid_amount(500), 0);
-    
+
     // Invalid: zero amount
     assert!(!transfer::is_valid_amount(0), 1);
 }
@@ -146,7 +146,7 @@ public fun create_my_token(ctx: &mut TxContext): (
         option::none(),           // Icon URL (optional)
         ctx
     );
-    
+
     (treasury_cap, metadata)
 }
 ```
@@ -164,10 +164,10 @@ public fun mint_tokens(
 ): coin::Coin<MY_TOKEN> {
     // Mint new tokens
     let new_coins = coin::mint(treasury_cap, amount, ctx);
-    
+
     // Verify minting
     assert!(coin::value(&new_coins) == amount, 0);
-    
+
     new_coins
 }
 
@@ -192,10 +192,10 @@ public fun burn_tokens(
     coins_to_burn: coin::Coin<MY_TOKEN>
 ): u64 {
     let burned_amount = coin::burn(treasury_cap, coins_to_burn);
-    
+
     // Verify supply decreased
     assert!(burned_amount > 0, 0);
-    
+
     burned_amount
 }
 ```
@@ -214,11 +214,11 @@ public fun split_coin_example(
     // Split coin into two parts
     let original_value = coin::value(coin_obj);
     let new_coin = coin::split(coin_obj, split_amount, ctx);
-    
+
     // Verify split
     assert!(coin::value(coin_obj) == original_value - split_amount, 0);
     assert!(coin::value(&new_coin) == split_amount, 1);
-    
+
     new_coin
 }
 
@@ -228,10 +228,10 @@ public fun join_coins_example(
 ) {
     let value1_before = coin::value(coin1);
     let value2 = coin::value(&coin2);
-    
+
     // Join coin2 into coin1
     coin::join(coin1, coin2);
-    
+
     // Verify join
     assert!(coin::value(coin1) == value1_before + value2, 0);
 }
@@ -251,20 +251,20 @@ public fun update_token_metadata<T>(
     metadata: &mut coin::CoinMetadata<T>
 ) {
     // Update name
-    coin::update_name(treasury_cap, metadata, 
+    coin::update_name(treasury_cap, metadata,
         string::utf8(b"Updated Token Name"));
-    
+
     // Update symbol
-    coin::update_symbol(treasury_cap, metadata, 
+    coin::update_symbol(treasury_cap, metadata,
         ascii::string(b"UTK"));
-    
+
     // Update description
     coin::update_description(treasury_cap, metadata,
         string::utf8(b"Updated description"));
-    
+
     // Update icon URL
     let icon_url = url::new_unsafe(ascii::string(b"https://example.com/icon.png"));
-    coin::update_icon_url(treasury_cap, metadata, 
+    coin::update_icon_url(treasury_cap, metadata,
         option::some(icon_url));
 }
 ```
@@ -303,7 +303,7 @@ public fun create_nft_collection(
         max_supply,
         ctx
     );
-    
+
     (collection_obj, nft_cap)
 }
 ```
@@ -320,10 +320,10 @@ public fun mint_nft(
 ): collection::Nft {
     // Mint a new NFT
     let nft = collection::mint(cap, ctx);
-    
+
     // Check remaining supply
     assert!(cap.remaining > 0 || cap.remaining == 0, 0);
-    
+
     nft
 }
 ```
@@ -336,10 +336,10 @@ use kanari_system::collection;
 public fun manage_supply(cap: &mut collection::NftCap) {
     // Check how many NFTs can still be minted
     let remaining = collection::remaining(cap);
-    
+
     // Check total issued
     let issued = collection::issued_counter(cap);
-    
+
     // After burning an NFT, return supply to cap
     collection::return_from_burn(cap);
 }
@@ -359,7 +359,7 @@ public fun transfer_ownership(
 ) {
     // Transfer collection ownership
     collection::transfer_collection(collection_obj, new_owner, ctx);
-    
+
     // Transfer minting capability
     collection::transfer_cap(cap, new_owner, ctx);
 }
@@ -444,25 +444,25 @@ use kanari_system::tx_context::TxContext;
 public fun table_example(ctx: &mut TxContext) {
     // Create a new table
     let mut tbl = table::new<u64, address>(ctx);
-    
+
     // Insert values
     table::add(&mut tbl, 1, @0x100);
     table::add(&mut tbl, 2, @0x200);
-    
+
     // Check if key exists
     assert!(table::contains(&tbl, 1), 0);
-    
+
     // Get table length
     assert!(table::length(&tbl) == 2, 1);
-    
+
     // Borrow value
     let addr = table::borrow(&tbl, 1);
     assert!(*addr == @0x100, 2);
-    
+
     // Remove value
     let removed = table::remove(&mut tbl, 1);
     assert!(removed == @0x100, 3);
-    
+
     // Destroy empty table
     table::destroy_empty(tbl);
 }
@@ -477,24 +477,24 @@ use kanari_system::tx_context::TxContext;
 public fun bag_example(ctx: &mut TxContext) {
     // Create a bag (heterogeneous key-value store)
     let mut my_bag = bag::new(ctx);
-    
+
     // Add values with different key types
     bag::add(&mut my_bag, b"name", b"MyAsset");
     bag::add(&mut my_bag, b"value", 1000u64);
-    
+
     // Check if key exists
     assert!(bag::contains(&my_bag, b"name"), 0);
-    
+
     // Get bag size
     assert!(bag::length(&my_bag) == 2, 1);
-    
+
     // Borrow value
     let name = bag::borrow<vector<u8>>(&my_bag, b"name");
-    
+
     // Remove value
     let value = bag::remove<u64>(&mut my_bag, b"value");
     assert!(value == 1000, 2);
-    
+
     // Destroy empty bag
     bag::destroy_empty(my_bag);
 }
@@ -510,14 +510,14 @@ use kanari_system::tx_context::TxContext;
 public fun dynamic_field_example(parent_id: &UID, ctx: &mut TxContext) {
     // Add a dynamic field
     dynamic_field::add(parent_id, b"metadata", 100u64);
-    
+
     // Check if field exists
     assert!(dynamic_field::exists_<u64>(parent_id, b"metadata"), 0);
-    
+
     // Borrow field value
     let value = dynamic_field::borrow<u64>(parent_id, b"metadata");
     assert!(*value == 100, 1);
-    
+
     // Remove field
     let removed = dynamic_field::remove<u64>(parent_id, b"metadata");
     assert!(removed == 100, 2);
@@ -541,14 +541,14 @@ public fun dynamic_object_field_example(
 ) {
     // Add object as dynamic field
     dynamic_object_field::add(parent_id, b"child", child);
-    
+
     // Check existence
     assert!(dynamic_object_field::exists_<ChildObject>(parent_id, b"child"), 0);
-    
+
     // Borrow object
     let borrowed = dynamic_object_field::borrow<ChildObject>(parent_id, b"child");
     assert!(borrowed.value > 0, 1);
-    
+
     // Remove object
     let removed = dynamic_object_field::remove<ChildObject>(parent_id, b"child");
     assert!(removed.value > 0, 2);
@@ -605,19 +605,19 @@ use std::hash;
 public fun hash_examples(data: vector<u8>) {
     // SHA2-256
     let sha256_hash = hash::sha2_256(&data);
-    
+
     // SHA3-256
     let sha3_hash = hash::sha3_256(&data);
-    
+
     // Blake2b-256
     let blake2b_hash = hash::blake2b_256(&data);
-    
+
     // Blake3-256
     let blake3_hash = hash::blake3_256(&data);
-    
+
     // Keccak256 (Ethereum)
     let keccak_hash = hash::keccak256(&data);
-    
+
     // RIPEMD160
     let ripemd_hash = hash::ripemd160(&data);
 }
@@ -637,13 +637,13 @@ use kanari_system::tx_context::TxContext;
 public fun tx_info_example(ctx: &TxContext) {
     // Get transaction sender
     let sender = tx_context::sender(ctx);
-    
+
     // Get transaction hash
     let tx_hash = tx_context::hash(ctx);
-    
+
     // Get epoch number
     let epoch = tx_context::epoch(ctx);
-    
+
     // Get IDs created count
     let ids_created = tx_context::ids_created(ctx);
 }
@@ -658,7 +658,7 @@ public fun generate_object_id(ctx: &mut TxContext): address {
     // Derive unique object ID based on transaction hash and counter
     let tx_hash = tx_context::hash(ctx);
     let ids_created = tx_context::ids_created(ctx);
-    
+
     tx_context::derive_id(tx_hash, ids_created)
 }
 ```
@@ -678,23 +678,23 @@ public fun math_examples() {
     // Square root
     let sqrt = math::sqrt_u64(100);
     assert!(sqrt == 10, 0);
-    
+
     // Power
     let power = math::pow_u64(2, 8);
     assert!(power == 256, 1);
-    
+
     // Division with rounding up
     let result = math::divide_and_round_up_u64(10, 3);
     assert!(result == 4, 2); // 10/3 = 3.33, rounds up to 4
-    
+
     // Absolute difference
     let diff = math::diff_u64(100, 80);
     assert!(diff == 20, 3);
-    
+
     // Min/Max
     let min_val = math::min_u64(10, 20);
     assert!(min_val == 10, 4);
-    
+
     let max_val = math::max_u64(10, 20);
     assert!(max_val == 20, 5);
 }
@@ -728,9 +728,9 @@ module examples::simple_transfer {
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
     use std::option;
-    
+
     struct EXAMPLE_TOKEN has drop {}
-    
+
     /// Initialize token and send to user
     public entry fun initialize_and_send(
         recipient: address,
@@ -747,10 +747,10 @@ module examples::simple_transfer {
             option::none(),
             ctx
         );
-        
+
         // Freeze metadata
         transfer::public_freeze_object(metadata);
-        
+
         // Mint and transfer
         coin::mint_and_transfer(&mut treasury_cap, amount, recipient, ctx);
     }
@@ -766,14 +766,14 @@ module examples::nft_listing {
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
     use kanari_system::object;
-    
+
     struct Listing has key, store {
         id: object::UID,
         nft: collection::Nft,
         price: u64,
         seller: address,
     }
-    
+
     /// List NFT for sale
     public entry fun list_nft(
         nft: collection::Nft,
@@ -781,18 +781,18 @@ module examples::nft_listing {
         ctx: &mut TxContext
     ) {
         assert!(price > 0, 0);
-        
+
         let listing = Listing {
             id: object::new(ctx),
             nft,
             price,
             seller: tx_context::sender(ctx),
         };
-        
+
         // Share listing (make publicly accessible)
         transfer::share_object(listing);
     }
-    
+
     /// Purchase listed NFT
     public entry fun purchase_listing(
         listing: Listing,
@@ -800,15 +800,15 @@ module examples::nft_listing {
         ctx: &mut TxContext
     ) {
         assert!(coin::value(&payment) >= listing.price, 0);
-        
+
         let Listing { id, nft, price: _, seller } = listing;
-        
+
         // Transfer NFT to buyer
         transfer::public_transfer(nft, tx_context::sender(ctx));
-        
+
         // Transfer payment to seller
         transfer::public_transfer(payment, seller);
-        
+
         // Delete listing
         object::delete(id);
     }
@@ -822,14 +822,14 @@ module examples::multisig_wallet {
     use kanari_system::object;
     use kanari_system::tx_context::TxContext;
     use std::vector;
-    
+
     struct MultiSigWallet has key, store {
         id: object::UID,
         owners: vector<address>,
         threshold: u64,
         balance: u64,
     }
-    
+
     /// Create multi-sig wallet
     public entry fun create_wallet(
         owners: vector<address>,
@@ -838,24 +838,24 @@ module examples::multisig_wallet {
     ) {
         assert!(vector::length(&owners) >= threshold, 0);
         assert!(threshold > 0, 1);
-        
+
         let wallet = MultiSigWallet {
             id: object::new(ctx),
             owners,
             threshold,
             balance: 0,
         };
-        
+
         // Transfer wallet to first owner
         // In production, use proper ownership pattern
     }
-    
+
     /// Check if address is owner
     public fun is_owner(wallet: &MultiSigWallet, addr: address): bool {
         let len = vector::length(&wallet.owners);
         let i = 0;
         let found = false;
-        
+
         while (i < len) {
             let owner = vector::borrow(&wallet.owners, i);
             if (*owner == addr) {
@@ -863,7 +863,7 @@ module examples::multisig_wallet {
             };
             i = i + 1;
         };
-        
+
         found
     }
 }

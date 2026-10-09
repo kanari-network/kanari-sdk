@@ -36,7 +36,7 @@ public entry fun transfer_tokens(
 ) {
     // ctx contains the signer information
     let sender = tx_context::sender(ctx);
-    
+
     assert!(sender != recipient, E_CANNOT_SEND_TO_SELF);
     transfer::public_transfer(coins, recipient);
 }
@@ -54,10 +54,10 @@ struct AdminCap has key, store {
 /// Create admin capability - only callable by authorized address
 public fun create_admin_cap(ctx: &mut TxContext): AdminCap {
     let sender = tx_context::sender(ctx);
-    
+
     // Check if sender is authorized
     assert!(is_admin_address(sender), E_UNAUTHORIZED);
-    
+
     AdminCap {
         id: object::new(ctx),
     }
@@ -84,10 +84,10 @@ public fun transfer_nft(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Verify current owner is authorizing transfer
     assert!(nft.owner == sender, E_NOT_OWNER);
-    
+
     // Update ownership
     transfer::public_transfer(nft, new_owner);
 }
@@ -108,13 +108,13 @@ public fun execute_transaction(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Verify sender is one of the owners
     assert!(is_owner(wallet, sender), E_NOT_OWNER);
-    
+
     // Verify sufficient signatures
     assert!(vector::length(&signatures) >= wallet.threshold, E_INSUFFICIENT_SIGS);
-    
+
     // Execute transaction
 }
 
@@ -140,7 +140,7 @@ public fun create_delegation(
 ): DelegatedCap {
     let delegator = tx_context::sender(ctx);
     let expires = clock::timestamp_ms() + duration_ms;
-    
+
     DelegatedCap {
         id: object::new(ctx),
         delegator,
@@ -154,13 +154,13 @@ public fun use_delegated_authority(
     ctx: &mut TxContext
 ) {
     let caller = tx_context::sender(ctx);
-    
+
     // Verify caller is the delegatee
     assert!(cap.delegatee == caller, E_UNAUTHORIZED);
-    
+
     // Verify not expired
     assert!(clock::timestamp_ms() <= cap.expires_at, E_EXPIRED);
-    
+
     // Execute delegated action
 }
 ```
@@ -181,10 +181,10 @@ public fun mint_tokens(
     ctx: &mut TxContext
 ): Coin<TOKEN> {
     let sender = tx_context::sender(ctx);
-    
+
     // Verify cap owner is authorizing
     assert!(object::owner(&cap.id) == sender, E_UNAUTHORIZED);
-    
+
     coin::mint(cap, amount, ctx)
 }
 ```
@@ -200,7 +200,7 @@ struct Account has key, store {
 
 public fun create_account(ctx: &mut TxContext): Account {
     let owner = tx_context::sender(ctx);
-    
+
     Account {
         id: object::new(ctx),
         owner,
@@ -223,11 +223,11 @@ public fun withdraw_from_account(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Only owner can withdraw
     assert!(account.owner == sender, E_UNAUTHORIZED);
     assert!(account.balance >= amount, E_INSUFFICIENT_BALANCE);
-    
+
     account.balance -= amount;
 }
 ```
@@ -248,7 +248,7 @@ public fun cast_vote(
     ctx: &mut TxContext
 ) {
     let voter = tx_context::sender(ctx);
-    
+
     // Create vote tied to signer
     let vote = Vote {
         id: object::new(ctx),
@@ -256,7 +256,7 @@ public fun cast_vote(
         proposal_id,
         support,
     };
-    
+
     // Store vote
     transfer::public_transfer(vote, GOVERNANCE_ADDRESS);
 }
@@ -285,10 +285,10 @@ public fn protected_function(ctx: &mut TxContext) {
 public fn process_transaction(ctx: &mut TxContext) {
     // Get signer first
     let sender = tx_context::sender(ctx);
-    
+
     // Validate before expensive operations
     assert!(is_whitelisted(sender), E_NOT_WHITELISTED);
-    
+
     // Then proceed with logic
 }
 ```
@@ -312,10 +312,10 @@ public fn good_pattern(ctx: &mut TxContext) {
 
 ```move
 /// Mints new tokens
-/// 
+///
 /// # Authorization
 /// Requires minting capability owned by transaction sender
-/// 
+///
 /// # Arguments
 /// * `cap` - Mint capability
 /// * `amount` - Amount to mint
@@ -327,7 +327,7 @@ public fun mint(
 ) {
     let sender = tx_context::sender(ctx);
     assert!(object::owner(&cap.id) == sender, E_UNAUTHORIZED);
-    
+
     // Mint logic
 }
 ```
@@ -350,10 +350,10 @@ public fun withdraw(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     assert!(account.owner == sender, E_UNAUTHORIZED);
     assert!(!account.locked, E_REENTRANCY);
-    
+
     account.locked = true;
     account.balance -= amount;
     account.locked = false;
@@ -369,10 +369,10 @@ public fun execute_with_deadline(
     ctx: &mut TxContext
 ) {
     let current_time = clock::timestamp_ms();
-    
+
     // Protect against stale transactions
     assert!(current_time <= deadline, E_DEADLINE_EXCEEDED);
-    
+
     // Execute operation
 }
 ```
@@ -392,16 +392,16 @@ public fun execute_signed_message(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Check nonce hasn't been used
     assert!(!nonce_used(sender, nonce), E_NONCE_ALREADY_USED);
-    
+
     // Verify signature
     assert!(verify_signature(sender, &message, &signature), E_INVALID_SIGNATURE);
-    
+
     // Mark nonce as used
     mark_nonce_used(sender, nonce, ctx);
-    
+
     // Execute
 }
 ```
@@ -413,10 +413,10 @@ public fun execute_signed_message(
 fun test_signer_authorization() {
     let ctx = &mut tx_context::dummy();
     let sender = tx_context::sender(ctx);
-    
+
     // Sender should be valid address
     assert!(sender != @0x0, 0);
-    
+
     // Can use sender for operations
     let account = create_account_for(sender, ctx);
     assert!(account.owner == sender, 1);
@@ -426,7 +426,7 @@ fun test_signer_authorization() {
 #[expected_failure(abort_code = E_UNAUTHORIZED)]
 fun test_unauthorized_access() {
     let ctx = &mut tx_context::dummy();
-    
+
     // Try to access without proper authorization
     restricted_function(ctx);
 }

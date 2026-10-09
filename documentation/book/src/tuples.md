@@ -92,10 +92,10 @@ type Point = (u64, u64);
 public fun distance_squared(p1: Point, p2: Point): u64 {
     let (x1, y1) = p1;
     let (x2, y2) = p2;
-    
+
     let dx = if (x1 > x2) { x1 - x2 } else { x2 - x1 };
     let dy = if (y1 > y2) { y1 - y2 } else { y2 - y1 };
-    
+
     dx * dx + dy * dy
 }
 ```
@@ -177,14 +177,14 @@ if (success) {
 public fun find_item(items: &vector<u64>, target: u64): (bool, u64) {
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(items, i) == target) {
             return (true, i);
         };
         i = i + 1;
     };
-    
+
     (false, 0)
 }
 
@@ -206,7 +206,7 @@ public fun process_batch(
     let mut failed = 0;
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         if (process_item(vector::borrow(items, i))) {
             success = success + 1;
@@ -215,7 +215,7 @@ public fun process_batch(
         };
         i = i + 1;
     };
-    
+
     (success, failed)
 }
 ```
@@ -253,7 +253,7 @@ assert!(d == 4, 3);
 public fun add_points(p1: (u64, u64), p2: (u64, u64)): (u64, u64) {
     let (x1, y1) = p1;
     let (x2, y2) = p2;
-    
+
     (x1 + x2, y1 + y2)
 }
 ```
@@ -292,10 +292,10 @@ public fun account_status(addr: address): (bool, u64, bool) {
     if (!account_exists(addr)) {
         return (false, 0, false);
     };
-    
+
     let balance = get_balance(addr);
     let frozen = is_account_frozen(addr);
-    
+
     (true, balance, frozen)
 }
 ```
@@ -311,7 +311,7 @@ public fun get_paginated_items(
     let items = fetch_items(cursor, limit);
     let has_more = vector::length(&items) == limit;
     let next_cursor = cursor + limit;
-    
+
     (items, has_more, next_cursor)
 }
 ```

@@ -20,7 +20,7 @@ This whitepaper documents the implemented design and measured engineering behavi
 
 ## 1.1 Scope and terminology
 
-In this paper, *submitted* means accepted by an API, *executed* means evaluated by Move, and *committed* means that effects passed validation and were durably applied to canonical state and a checkpoint. Only committed state is externally final. A valid signature therefore does not guarantee execution success.
+In this paper, _submitted_ means accepted by an API, _executed_ means evaluated by Move, and _committed_ means that effects passed validation and were durably applied to canonical state and a checkpoint. Only committed state is externally final. A valid signature therefore does not guarantee execution success.
 
 Kanari is not presented as a permissionless deployment by default. Validator membership, genesis material, peer identity, upgrade policy, and key custody remain deployment decisions. The implementation provides audit points for those decisions; it does not remove operational risk.
 

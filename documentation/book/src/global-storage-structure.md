@@ -63,13 +63,13 @@ public entry fun withdraw_from_account(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Verify ownership
     assert!(account.owner == sender, E_UNAUTHORIZED);
     assert!(account.balance >= amount, E_INSUFFICIENT_BALANCE);
-    
+
     account.balance -= amount;
-    
+
     // Save back to storage
     transfer::public_transfer(account, sender);
 }
@@ -82,7 +82,7 @@ use kanari_system::object;
 
 public fun close_account(account: Account) {
     assert!(account.balance == 0, E_NONZERO_BALANCE);
-    
+
     // Extract and delete UID
     let Account { id, owner: _, balance: _ } = account;
     object::delete(id);
@@ -171,7 +171,7 @@ public fun update_config(
 ) {
     let sender = tx_context::sender(ctx);
     assert!(sender == config.admin, E_UNAUTHORIZED);
-    
+
     config.max_supply = new_max;
 }
 ```
@@ -254,7 +254,7 @@ public fun save_validated_data(data: ValidatedData, ctx: &mut TxContext) {
     // Validate first
     assert!(data.is_valid(), E_INVALID_DATA);
     assert!(data.size() <= MAX_SIZE, E_TOO_LARGE);
-    
+
     // Then store
     transfer::public_transfer(data, tx_context::sender(ctx));
 }
@@ -312,7 +312,7 @@ public fun update_protected(
 ) {
     let sender = tx_context::sender(ctx);
     assert!(sender == resource.owner, E_UNAUTHORIZED);
-    
+
     resource.data = new_value;
 }
 ```
@@ -334,9 +334,9 @@ public fun withdraw(
 ) {
     assert!(!account.locked, E_REENTRANCY);
     account.locked = true;
-    
+
     account.balance -= amount;
-    
+
     account.locked = false;
 }
 ```
@@ -359,14 +359,14 @@ public fun freeze_immutable(resource: MyResource) {
 fun test_resource_storage() {
     let ctx = &mut tx_context::dummy();
     let sender = tx_context::sender(ctx);
-    
+
     // Create resource
     let account = create_account(ctx);
     assert!(account.owner == sender, 0);
-    
+
     // Simulate storage by transferring
     transfer::public_transfer(account, sender);
-    
+
     // In real scenario, would retrieve from storage
 }
 
@@ -374,10 +374,10 @@ fun test_resource_storage() {
 fun test_resource_deletion() {
     let ctx = &mut tx_context::dummy();
     let account = create_empty_account(ctx);
-    
+
     // Delete resource
     close_account(account);
-    
+
     // Resource should be deleted
 }
 ```

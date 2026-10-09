@@ -59,17 +59,17 @@ module kanari_system::pay_tests {
 
     #[test]
     fun test_join_vec_and_transfer() {
-        let ctx = tx_context::dummy(); // สร้าง Context สำหรับทดสอบ
+        let ctx = tx_context::dummy(); // create a Context for testing
 
         let coin1 = coin::zero<KANARI>(&mut ctx);
         let coin2 = coin::zero<KANARI>(&mut ctx);
 
-        // ระบุ Type ให้ชัดเจน
+        // specify the type explicitly
         let v: vector<Coin<KANARI>> = vector::empty();
         vector::push_back(&mut v, coin1);
         vector::push_back(&mut v, coin2);
 
-        // ✅ ส่ง Argument ครบ 3 ตัว (ctx เป็น &TxContext)
+        // pass all 3 arguments (`ctx` is `&TxContext`)
         pay::join_vec_and_transfer(v, @0xB, &ctx);
     }
 
@@ -154,4 +154,3 @@ module kanari_system::pay_tests {
         cleanup(cap, meta);
     }
 }
-

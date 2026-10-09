@@ -260,9 +260,9 @@ module my_project::token {
     use kanari_system::coin;
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
-    
+
     struct TOKEN has drop {}
-    
+
     public fun initialize(ctx: &mut TxContext) {
         let (cap, meta) = coin::create_currency<TOKEN>(
             TOKEN {},
@@ -273,7 +273,7 @@ module my_project::token {
             option::none(),
             ctx
         );
-        
+
         transfer::public_freeze_object(meta);
         transfer::public_transfer(cap, tx_context::sender(ctx));
     }
@@ -288,7 +288,7 @@ module my_project::nft {
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
     use kanari_system::object::UID;
-    
+
     public fun create_collection(
         name: vector<u8>,
         description: vector<u8>,
@@ -301,7 +301,7 @@ module my_project::nft {
             max_supply,
             ctx
         );
-        
+
         transfer::public_transfer(col, tx_context::sender(ctx));
         transfer::public_transfer(cap, tx_context::sender(ctx));
     }
@@ -316,14 +316,14 @@ module my_project::dex {
     use kanari_system::balance;
     use kanari_system::table::{self, Table};
     use kanari_system::tx_context::TxContext;
-    
+
     struct Pool has key, store {
         id: UID,
         token_a_balance: balance::Balance<TOKEN_A>,
         token_b_balance: balance::Balance<TOKEN_B>,
         total_shares: u64,
     }
-    
+
     public fun swap(
         pool: &mut Pool,
         input_coins: Coin<TOKEN_A>,
@@ -368,7 +368,7 @@ public fun example() {
 #[test]
 fun test_with_imports() {
     use std::vector;
-    
+
     let v = vector[1u64, 2, 3];
     assert!(vector::length(&v) == 3, 0);
 }

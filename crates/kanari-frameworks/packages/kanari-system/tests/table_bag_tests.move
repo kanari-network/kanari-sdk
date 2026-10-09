@@ -75,4 +75,3 @@ module kanari_system::table_bag_tests {
         bag::destroy_empty(b);
     }
 }
-

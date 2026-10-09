@@ -10,19 +10,19 @@ module std::ascii {
     /// An invalid ASCII character was encountered when creating an ASCII string.
     const EINVALID_ASCII_CHARACTER: u64 = 0x10000;
 
-   /// The `String` struct holds a vector of bytes that all represent
-   /// valid ASCII characters. Note that these ASCII characters may not all
-   /// be printable. To determine if a `String` contains only "printable"
-   /// characters you should use the `all_characters_printable` predicate
-   /// defined in this module.
-   struct String has copy, drop, store {
-       bytes: vector<u8>,
-   }
+    /// The `String` struct holds a vector of bytes that all represent
+    /// valid ASCII characters. Note that these ASCII characters may not all
+    /// be printable. To determine if a `String` contains only "printable"
+    /// characters you should use the `all_characters_printable` predicate
+    /// defined in this module.
+    struct String has copy, drop, store {
+        bytes: vector<u8>,
+    }
 
-   /// An ASCII character.
-   struct Char has copy, drop, store {
-       byte: u8,
-   }
+    /// An ASCII character.
+    struct Char has copy, drop, store {
+        byte: u8,
+    }
 
     /// Convert a `byte` into a `Char` that is checked to make sure it is valid ASCII.
     public fun char(byte: u8): Char {
@@ -33,12 +33,12 @@ module std::ascii {
     /// Convert a vector of bytes `bytes` into an `String`. Aborts if
     /// `bytes` contains non-ASCII characters.
     public fun string(bytes: vector<u8>): String {
-       let x = try_string(bytes);
-       assert!(
+        let x = try_string(bytes);
+        assert!(
             option::is_some(&x),
             EINVALID_ASCII_CHARACTER
        );
-       option::destroy_some(x)
+        option::destroy_some(x)
     }
 
     /// Convert a vector of bytes `bytes` into an `String`. Returns
@@ -82,29 +82,29 @@ module std::ascii {
 
     /// Get the inner bytes of the `string` as a reference
     public fun as_bytes(string: &String): &vector<u8> {
-       &string.bytes
+        &string.bytes
     }
 
     /// Unpack the `string` to get its backing bytes
     public fun into_bytes(string: String): vector<u8> {
-       let String { bytes } = string;
-       bytes
+        let String { bytes } = string;
+        bytes
     }
 
     /// Unpack the `char` into its underlying byte.
     public fun byte(char: Char): u8 {
-       let Char { byte } = char;
-       byte
+        let Char { byte } = char;
+        byte
     }
 
     /// Returns `true` if `b` is a valid ASCII character. Returns `false` otherwise.
     public fun is_valid_char(b: u8): bool {
-       b <= 0x7F
+        b <= 0x7F
     }
 
     /// Returns `true` if `byte` is an printable ASCII character. Returns `false` otherwise.
     public fun is_printable_char(byte: u8): bool {
-       byte >= 0x20 && // Disallow metacharacters
+        byte >= 0x20 && // Disallow metacharacters
        byte <= 0x7E // Don't allow DEL metacharacter
     }
 }

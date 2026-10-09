@@ -117,7 +117,7 @@ const E_INVALID_AMOUNT: u64 = 1;
 public fun transfer(amount: u64, balance: u64) {
     assert!(amount > 0, E_INVALID_AMOUNT);
     assert!(balance >= amount, E_INSUFFICIENT_BALANCE);
-    
+
     // Transfer logic
 }
 ```
@@ -205,13 +205,13 @@ fun test_boolean_operations() {
     assert!(!(true && false), 1);
     assert!(!(false && true), 2);
     assert!(!(false && false), 3);
-    
+
     // OR truth table
     assert!(true || true, 4);
     assert!(true || false, 5);
     assert!(false || true, 6);
     assert!(!(false || false), 7);
-    
+
     // NOT
     assert!(!true == false, 8);
     assert!(!false == true, 9);

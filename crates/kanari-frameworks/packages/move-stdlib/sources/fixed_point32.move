@@ -5,7 +5,6 @@
 /// a 32-bit fractional part.
 
 module std::fixed_point32 {
-
     /// Define a fixed-point numeric type with 32 fractional bits.
     /// This is just a u64 integer but it is wrapped in a struct to
     /// make a unique type. This is a binary representation, so decimal
@@ -15,19 +14,25 @@ module std::fixed_point32 {
     /// floating-point has less than 16 decimal digits of precision, so
     /// be careful about using floating-point to convert these values to
     /// decimal.
-    struct FixedPoint32 has copy, drop, store { value: u64 }
+    struct FixedPoint32 has copy, drop, store {
+        value: u64,
+    }
 
     ///> TODO: This is a basic constant and should be provided somewhere centrally in the framework.
     const MAX_U64: u128 = 18446744073709551615;
 
     /// The denominator provided was zero
     const EDENOMINATOR: u64 = 0x10001;
+
     /// The quotient value would be too large to be held in a `u64`
     const EDIVISION: u64 = 0x20002;
+
     /// The multiplied value would be too large to be held in a `u64`
     const EMULTIPLICATION: u64 = 0x20003;
+
     /// A division by zero was encountered
     const EDIVISION_BY_ZERO: u64 = 0x10004;
+
     /// The computed ratio when converting to a `FixedPoint32` would be unrepresentable
     const ERATIO_OUT_OF_RANGE: u64 = 0x20005;
 

@@ -30,7 +30,7 @@ module kanari_system::tx_context {
         epoch_timestamp_ms: u64,
         /// Counter recording the number of fresh id's created while executing
         /// this transaction. Always 0 at the start of a transaction
-        ids_created: u64
+        ids_created: u64,
     }
 
     /// Return the address of the user that signed the current
@@ -74,7 +74,7 @@ module kanari_system::tx_context {
 
     /// Derive an object id.
     /// Hashes `tx_hash || ids_created` to produce a unique object address.
-    native public fun derive_id(tx_hash: vector<u8>, ids_created: u64): address;
+    public native fun derive_id(tx_hash: vector<u8>, ids_created: u64): address;
 
     // ==== test-only functions ====
     #[test_only]
@@ -84,7 +84,7 @@ module kanari_system::tx_context {
         tx_hash: vector<u8>,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64
+        ids_created: u64,
     ): TxContext {
         assert!(vector::length(&tx_hash) == TX_HASH_LENGTH, EBadTxHashLength);
         TxContext {
@@ -103,7 +103,7 @@ module kanari_system::tx_context {
         hint: u64,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64
+        ids_created: u64,
     ): TxContext {
         new(
             addr,
@@ -152,9 +152,9 @@ module kanari_system::tx_context {
 
     #[test_only]
     public fun increment_epoch_timestamp(
-        self: &mut TxContext, delta_ms: u64
+        self: &mut TxContext,
+        delta_ms: u64,
     ) {
         self.epoch_timestamp_ms = self.epoch_timestamp_ms + delta_ms
     }
 }
-

@@ -3,36 +3,39 @@ module james::thb {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::tx_context::{TxContext};
-
     use std::option;
     use kanari_system::transfer;
     use kanari_system::url;
-
     use std::string;
     use std::ascii;
-    
     /// Name of the coin
+
     struct THB has drop {}
 
     // ==========================================
     // DAO Configuration
     // ==========================================
-    
     /// DAO wallet address for collecting transfer fees (0.1%)
-    const DAO_ADDRESS: address = @0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350;
-    
+
+    const DAO_ADDRESS: address =
+        @0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350;
+
     /// Transfer fee rate: 0.1% = 1/1000 (in basis points: 10 out of 10000)
+
     const FEE_RATE_NUMERATOR: u64 = 1;
+
     const FEE_RATE_DENOMINATOR: u64 = 1000;
 
     #[allow(unused_function)]
+
     /// Initialize and register the THB currency.
     ///
     /// Runs exactly once: the runtime invokes `init` on fresh publish only
     /// (never on upgrade), with `tx_context::sender` set to the publisher,
     /// so TreasuryCap and metadata land with the deployer and no replayable
     /// setup entry needs to exist.
-    fun init(witness: THB ,ctx: &mut TxContext) {
+
+    fun init(witness: THB, ctx: &mut TxContext) {
         let (treasury, metadata) = coin::create_currency<THB>(
             witness,
             6,
@@ -47,91 +50,81 @@ module james::thb {
         transfer::public_transfer(metadata, sender);
     }
 
-
-/// Mint new THB tokens
+    /// Mint new THB tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>
-    /// 
+    ///
     /// This function mints tokens directly to the recipient's address
     /// The runtime will automatically create or update the recipient's Coin object
+
     public entry fun mint(
-    treasury_cap: &mut TreasuryCap<THB>,
+        treasury_cap: &mut TreasuryCap<THB>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         // Mint a new Coin with the specified amount
         let coin = coin::mint<THB>(treasury_cap, amount, ctx);
-        
         // Transfer the Coin to the recipient
         // The runtime will merge Coins of the same type automatically
         transfer::public_transfer(coin, recipient);
     }
 
-
     /// Transfer a specific `amount` of THB from a mutable Coin held by the caller
     /// Usage: provide the caller's coin, the amount to send, and the recipient
     /// A 0.1% fee is deducted and sent to the DAO wallet
+
     public entry fun transfer_amount(
         c: &mut coin::Coin<THB>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         // 1. Check if sender is the same as recipient, if so, do nothing
         let sender = kanari_system::tx_context::sender(ctx);
-
-       // 2. sender is not the same as recipient, proceed with transfer
+        // 2. sender is not the same as recipient, proceed with transfer
         if (sender == recipient) {
             return
         };
-
         // 3. Calculate the 0.1% fee
         let fee = calculate_fee(amount);
-        
         // 4. Ensure there's enough balance for amount + fee
         let total_required = amount + fee;
         assert!(coin::value(c) >= total_required, 0);
-
         // 5. Split the total amount (including fee) from sender's coin
         let split_coin = coin::split(c, total_required, ctx);
-        
         // 6. From the split coin, separate the fee portion
         let fee_coin = coin::split(&mut split_coin, fee, ctx);
-        
         // 7. Transfer the fee to DAO wallet
         transfer::public_transfer(fee_coin, DAO_ADDRESS);
-        
         // 8. Transfer the remaining amount to the recipient
         transfer::public_transfer(split_coin, recipient);
     }
 
     /// Calculate 0.1% fee from the given amount
     /// Formula: fee = (amount * 1) / 1000
+
     fun calculate_fee(amount: u64): u64 {
         if (amount == 0) {
             return 0
         };
-        
         // Calculate fee: amount * 1 / 1000
         let fee = (amount * FEE_RATE_NUMERATOR) / FEE_RATE_DENOMINATOR;
-        
         // Ensure minimum fee of 1 if amount > 0
         if (fee == 0 && amount > 0) {
             return 1
         };
-        
         fee
     }
 
-
     /// Burn a specific `amount` of THB from a mutable Coin held by the caller
     /// Usage: provide the TreasuryCap, a mutable coin owned by caller, amount to burn, and tx context
+
     public entry fun burn_amount(
-    treasury_cap: &mut TreasuryCap<THB>,
-    c: &mut Coin<THB>,
+        treasury_cap: &mut TreasuryCap<THB>,
+        c: &mut Coin<THB>,
         amount: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
@@ -140,8 +133,8 @@ module james::thb {
     // ==========================================
     // Entry wrappers for CLI calling
     // ==========================================
-
     /// Usage: kanari move call --function update_icon --args <TreasuryCap_ID> <Metadata_ID> "https://..."
+
     public entry fun update_icon(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
@@ -152,6 +145,7 @@ module james::thb {
     }
 
     /// Usage: kanari move call --function update_name --args <TreasuryCap_ID> <Metadata_ID> "Thai Baht"
+
     public entry fun update_name(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
@@ -162,6 +156,7 @@ module james::thb {
     }
 
     /// Usage: kanari move call --function update_symbol --args <TreasuryCap_ID> <Metadata_ID> "THB"
+
     public entry fun update_symbol(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
@@ -172,6 +167,7 @@ module james::thb {
     }
 
     /// Usage: kanari move call --function update_description --args <TreasuryCap_ID> <Metadata_ID> "My new THB description"
+
     public entry fun update_description(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,

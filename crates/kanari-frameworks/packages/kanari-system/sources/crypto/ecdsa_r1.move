@@ -5,6 +5,7 @@ module kanari_system::ecdsa_r1 {
 
     /// Compressed public key length for P-256
     const ECDSA_R1_COMPRESSED_PUBKEY_LENGTH: u64 = 33;
+
     /// Signature length (r, s)
     const ECDSA_R1_RAW_SIGNATURE_LENGTH: u64 = 64;
 
@@ -18,7 +19,9 @@ module kanari_system::ecdsa_r1 {
     /// Verifies an ECDSA signature over the secp256r1 (P-256) curve.
     /// The message will be hashed with SHA256 before verification.
     public fun verify(
-        signature: &vector<u8>, public_key: &vector<u8>, msg: &vector<u8>
+        signature: &vector<u8>,
+        public_key: &vector<u8>,
+        msg: &vector<u8>,
     ): bool {
         assert!(
             vector::length(signature) == ECDSA_R1_RAW_SIGNATURE_LENGTH,
@@ -35,7 +38,7 @@ module kanari_system::ecdsa_r1 {
         signature: &vector<u8>,
         public_key: &vector<u8>,
         msg: &vector<u8>,
-        hash_type: u8
+        hash_type: u8,
     ): bool;
 
     public fun public_key_length(): u64 {
@@ -119,4 +122,3 @@ module kanari_system::ecdsa_r1 {
         assert!(!result, 0);
     }
 }
-

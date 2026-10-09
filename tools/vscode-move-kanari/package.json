@@ -1,0 +1,176 @@
+{
+  "name": "move-kanari",
+  "displayName": "Move on Kanari",
+  "description": "Move language development for Kanari: syntax highlighting and move-analyzer language server.",
+  "publisher": "kanari-network",
+  "icon": "images/kanari.png",
+  "license": "Apache-2.0",
+  "version": "0.5.6",
+  "preview": true,
+  "repository": {
+    "url": "https://github.com/kanari-network/kanari-sdk",
+    "type": "git"
+  },
+  "bugs": {
+    "url": "https://github.com/kanari-network/kanari-sdk/issues"
+  },
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "move",
+    "kanari",
+    "kanari-sdk",
+    "language-server"
+  ],
+  "main": "./out/src/main.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "activationEvents": [
+    "workspaceContains:Move.toml",
+    "onLanguage:move"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "move-kanari.serverVersion",
+        "title": "Show Server Version",
+        "category": "Move on Kanari"
+      },
+      {
+        "command": "move-kanari.build",
+        "title": "Build a Move package",
+        "category": "Move on Kanari"
+      },
+      {
+        "command": "move-kanari.test",
+        "title": "Test a Move package",
+        "category": "Move on Kanari"
+      },
+      {
+        "command": "move-kanari.restartServer",
+        "title": "Restart Language Server",
+        "category": "Move on Kanari"
+      },
+      {
+        "command": "move-kanari.stopServer",
+        "title": "Stop Language Server",
+        "category": "Move on Kanari"
+      },
+      {
+        "command": "move-kanari.openLogs",
+        "title": "Open Logs",
+        "category": "Move on Kanari"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Move",
+      "properties": {
+        "move.lint": {
+          "type": "string",
+          "enum": [
+            "default",
+            "all",
+            "none"
+          ],
+          "default": "default",
+          "markdownDescription": "Move source code linting level."
+        },
+        "move.server.path": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "scope": "machine-overridable",
+          "default": null,
+          "markdownDescription": "Path to the move-analyzer executable (points to `~/.kanari/bin/move-analyzer` by default)."
+        },
+        "move.kanari.path": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "scope": "machine-overridable",
+          "default": null,
+          "markdownDescription": "Path to the Kanari CLI executable (by default assumes that `kanari` is on the system PATH)."
+        },
+        "move.trace.server": {
+          "type": "string",
+          "scope": "window",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "Do not log any messages.",
+            "Log short summaries of each message.",
+            "Log each message and its contents."
+          ],
+          "default": "off",
+          "description": "Traces the communication between the move-analyzer language server and Visual Studio Code. Note that this log can be very verbose, and so not recommended for anyone besides people working on or debugging move-analyzer itself."
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "move",
+        "aliases": [
+          "Move",
+          "move"
+        ],
+        "extensions": [
+          ".move"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/move-lang.svg",
+          "dark": "./images/move-lang.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "move",
+        "scopeName": "source.move",
+        "path": "./syntaxes/move.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.move.codeblock",
+        "path": "./syntaxes/move-markdown-injection.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.move": "move"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "npm run compile && vsce package -o move-kanari.vsix"
+  },
+  "dependencies": {
+    "command-exists": "^1.2.9",
+    "prettier": "^3.9.9",
+    "vscode-languageclient": "^10.1.2",
+    "web-tree-sitter": "^0.27.1"
+  },
+  "devDependencies": {
+    "@types/command-exists": "^1.2.3",
+    "@types/node": "^26.6.4",
+    "@types/vscode": "^1.140.0",
+    "typescript": "^7.0.2",
+    "vsce": "^2.15.0"
+  }
+}

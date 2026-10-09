@@ -133,11 +133,11 @@ public fun validate_and_process(amount: u64): bool {
     if (amount == 0) {
         return false;
     };
-    
+
     if (amount > 1000) {
         return false;
     };
-    
+
     // Process...
     true
 }
@@ -195,7 +195,7 @@ public fun withdraw(balance: &mut u64, amount: u64): bool {
     // Guard clauses
     if (amount == 0) return false;
     if (*balance < amount) return false;
-    
+
     *balance = *balance - amount;
     true
 }
@@ -243,7 +243,7 @@ public fun process_items<T>(
     let mut count = 0;
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         let item = vector::borrow(items, i);
         if (processor(item)) {
@@ -251,7 +251,7 @@ public fun process_items<T>(
         };
         i = i + 1;
     };
-    
+
     count
 }
 ```
@@ -288,7 +288,7 @@ fun test_min_max() {
     let (min, max) = min_max(10, 20);
     assert!(min == 10, 0);
     assert!(max == 20, 1);
-    
+
     let (min2, max2) = min_max(30, 15);
     assert!(min2 == 15, 2);
     assert!(max2 == 30, 3);
@@ -339,11 +339,11 @@ public fun process_transaction() { }
 
 ```move
 /// Transfer tokens from sender to recipient
-/// 
+///
 /// # Arguments
 /// * `coins` - The coins to transfer
 /// * `recipient` - The recipient address
-/// 
+///
 /// # Panics
 /// * If recipient is zero address
 public entry fun transfer_tokens(

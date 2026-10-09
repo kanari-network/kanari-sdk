@@ -184,14 +184,14 @@ public fun is_not_pending(status: Status): bool {
 public fun contains(items: &vector<u64>, target: u64): bool {
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(items, i) == target) {
             return true;
         };
         i = i + 1;
     };
-    
+
     false
 }
 ```
@@ -202,14 +202,14 @@ public fun contains(items: &vector<u64>, target: u64): bool {
 public fun index_of(items: &vector<u64>, target: u64): Option<u64> {
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(items, i) == target) {
             return option::some(i);
         };
         i = i + 1;
     };
-    
+
     option::none()
 }
 ```
@@ -300,22 +300,22 @@ public fun strings_equal_ignore_case(s1: &vector<u8>, s2: &vector<u8>): bool {
     if (vector::length(s1) != vector::length(s2)) {
         return false;
     };
-    
+
     let len = vector::length(s1);
     let mut i = 0;
-    
+
     while (i < len) {
         let c1 = *vector::borrow(s1, i);
         let c2 = *vector::borrow(s2, i);
-        
+
         // Convert to lowercase and compare
         if (to_lowercase(c1) != to_lowercase(c2)) {
             return false;
         };
-        
+
         i = i + 1;
     };
-    
+
     true
 }
 
@@ -433,7 +433,7 @@ fun test_vector_equality() {
     let v1 = vector[1u64, 2, 3];
     let v2 = vector[1u64, 2, 3];
     let v3 = vector[1u64, 2, 4];
-    
+
     assert!(v1 == v2, 0);
     assert!(v1 != v3, 1);
 }
@@ -443,7 +443,7 @@ fn test_struct_equality() {
     let p1 = Point { x: 10, y: 20 };
     let p2 = Point { x: 10, y: 20 };
     let p3 = Point { x: 10, y: 30 };
-    
+
     assert!(p1 == p2, 0);
     assert!(p1 != p3, 1);
 }

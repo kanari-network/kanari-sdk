@@ -170,12 +170,12 @@ public fun sum(numbers: &vector<u64>): u64 {
     let mut total = 0;
     let len = vector::length(numbers);
     let mut i = 0;
-    
+
     while (i < len) {
         total = total + *vector::borrow(numbers, i);
         i = i + 1;
     };
-    
+
     total
 }
 ```
@@ -194,7 +194,7 @@ public fun set_name(user: &mut User, name: vector<u8>) {
 public fun increment_all(counters: &mut vector<u64>) {
     let len = vector::length(counters);
     let mut i = 0;
-    
+
     while (i < len) {
         let counter = vector::borrow_mut(counters, i);
         *counter = *counter + 1;
@@ -286,7 +286,7 @@ public fun get_or_default(opt: &Option<u64>, default: u64): u64 {
 public fun for_each(items: &vector<u64>, f: |&u64|) {
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         let item = vector::borrow(items, i);
         f(item);
@@ -385,7 +385,7 @@ use(&data.field2);
 
 ```move
 /// Updates user balance
-/// 
+///
 /// # Arguments
 /// * `account` - Mutable reference to account
 /// * `amount` - Amount to add (must be > 0)

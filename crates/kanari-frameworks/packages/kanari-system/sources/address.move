@@ -82,4 +82,3 @@ module kanari_system::address {
         MAX
     }
 }
-

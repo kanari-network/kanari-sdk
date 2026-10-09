@@ -27,10 +27,10 @@ public entry fun retrieve_resource(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Verify ownership
     assert!(object::owner(&resource.id) == sender, E_UNAUTHORIZED);
-    
+
     // Use resource (it's moved from storage)
     process_resource(resource);
 }
@@ -64,13 +64,13 @@ public fun update_resource(
     ctx: &mut TxContext
 ) {
     let sender = tx_context::sender(ctx);
-    
+
     // Mutable borrow
     let resource = borrow_global_mut<MyResource>(resource_addr);
-    
+
     // Verify ownership
     assert!(object::owner(&resource.id) == sender, E_UNAUTHORIZED);
-    
+
     // Update
     resource.value = new_value;
 }
@@ -94,7 +94,7 @@ public fun get_or_create(
         let resource = create_default_resource(ctx);
         transfer::public_transfer(resource, addr);
     };
-    
+
     borrow_global_mut<MyResource>(addr)
 }
 ```
@@ -171,19 +171,19 @@ public fun get_singleton(): &Singleton {
 public fun update_singleton(value: u64, ctx: &mut TxContext) {
     let sender = tx_context::sender(ctx);
     assert!(sender == @0x1, E_UNAUTHORIZED); // Only admin
-    
+
     let singleton = borrow_global_mut<Singleton>(SINGLETON_ADDR);
     singleton.value = value;
 }
 
 public fun initialize_singleton(ctx: &mut TxContext) {
     assert!(!exists<Singleton>(SINGLETON_ADDR), E_ALREADY_EXISTS);
-    
+
     let singleton = Singleton {
         id: object::new(ctx),
         value: 0,
     };
-    
+
     transfer::public_transfer(singleton, SINGLETON_ADDR);
 }
 ```
@@ -220,9 +220,9 @@ public fun create_item(factory: &mut Factory, ctx: &mut TxContext): Item {
         creator: tx_context::sender(ctx),
         created_at: clock::timestamp_ms(),
     };
-    
+
     factory.created_count += 1;
-    
+
     item
 }
 ```
@@ -244,7 +244,7 @@ public fun safe_update(addr: address, value: u64): bool {
     if (!exists<MyResource>(addr)) {
         return false;
     };
-    
+
     let resource = borrow_global_mut<MyResource>(addr);
     resource.value = value;
     true
@@ -262,7 +262,7 @@ public fun must_exist(addr: address): &MyResource {
 public fun must_own(addr: address, ctx: &mut TxContext): &mut MyResource {
     let sender = tx_context::sender(ctx);
     let resource = borrow_global_mut<MyResource>(addr);
-    
+
     assert!(object::owner(&resource.id) == sender, E_UNAUTHORIZED);
     resource
 }
@@ -279,15 +279,15 @@ public fun batch_update(
 ) {
     let len = vector::length(&addresses);
     let mut i = 0;
-    
+
     while (i < len) {
         let addr = *vector::borrow(&addresses, i);
-        
+
         if (exists<MyResource>(addr)) {
             let resource = borrow_global_mut<MyResource>(addr);
             resource.value = value;
         };
-        
+
         i = i + 1;
     };
 }
@@ -305,13 +305,13 @@ struct Cache has key, store {
 public fun get_cached_or_compute(addr: address): u64 {
     if (exists<Cache>(addr)) {
         let cache = borrow_global<Cache>(addr);
-        
+
         // Check if cache is fresh
         if (clock::timestamp_ms() - cache.last_updated < CACHE_TTL) {
             return cache.cached_value;
         };
     };
-    
+
     // Compute and cache
     let value = expensive_computation(addr);
     update_cache(addr, value);
@@ -331,10 +331,10 @@ public fun secure_update(
 ) {
     let sender = tx_context::sender(ctx);
     let resource = borrow_global_mut<MyResource>(resource_addr);
-    
+
     // Always verify ownership
     assert!(object::owner(&resource.id) == sender, E_UNAUTHORIZED);
-    
+
     resource.value = new_value;
 }
 ```
@@ -368,10 +368,10 @@ struct GuardedResource has key, store {
 public fun guarded_operation(resource: &mut GuardedResource) {
     assert!(!resource.locked, E_REENTRANCY);
     resource.locked = true;
-    
+
     // Perform operation
     resource.value += 1;
-    
+
     resource.locked = false;
 }
 ```
@@ -383,14 +383,14 @@ public fun guarded_operation(resource: &mut GuardedResource) {
 fun test_exists_operator() {
     let ctx = &mut tx_context::dummy();
     let addr = tx_context::sender(ctx);
-    
+
     // Initially doesn't exist
     assert!(!exists<MyResource>(addr), 0);
-    
+
     // Create resource
     let resource = create_resource(ctx);
     transfer::public_transfer(resource, addr);
-    
+
     // Now exists
     assert!(exists<MyResource>(addr), 1);
 }
@@ -399,14 +399,14 @@ fun test_exists_operator() {
 fun test_borrow_operators() {
     let ctx = &mut tx_context::dummy();
     let addr = tx_context::sender(ctx);
-    
+
     let resource = create_resource_with_value(100, ctx);
     transfer::public_transfer(resource, addr);
-    
+
     // Immutable borrow
     let borrowed = borrow_global<MyResource>(addr);
     assert!(borrowed.value == 100, 0);
-    
+
     // Mutable borrow would require proper setup
 }
 

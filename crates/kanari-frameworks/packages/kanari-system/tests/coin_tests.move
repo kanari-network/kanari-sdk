@@ -132,7 +132,6 @@ module kanari_system::coin_tests {
     }
 
     // --- Decimals bound (THB incident: metadata decimals must be <= 9) ---
-
     #[test]
     #[expected_failure(location = kanari_system::coin, abort_code = 6)]
     fun test_create_currency_rejects_decimals_ten() {
@@ -184,7 +183,6 @@ module kanari_system::coin_tests {
     }
 
     // --- Supply edges ---
-
     #[test]
     #[expected_failure]
     fun test_mint_past_u64_max_traps() {
@@ -248,4 +246,3 @@ module kanari_system::coin_tests {
         cleanup(cap, meta);
     }
 }
-

@@ -325,7 +325,7 @@ module kanari_system::deny_list_tests {
     struct REG has drop {}
 
     fun setup_regulated(
-        ctx: &mut tx_context::TxContext
+        ctx: &mut tx_context::TxContext,
     ): (
         kanari_system::coin::TreasuryCap<REG>,
         kanari_system::deny_list::DenyCap<REG>,
@@ -391,4 +391,3 @@ module kanari_system::deny_list_tests {
         kanari_system::transfer::public_freeze_object(meta);
     }
 }
-

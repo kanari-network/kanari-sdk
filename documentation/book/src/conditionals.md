@@ -108,7 +108,7 @@ public fun withdraw(balance: &mut u64, amount: u64): bool {
     if (amount == 0) return false;
     if (*balance < amount) return false;
     if (amount > 10000) return false;
-    
+
     // Main logic (less nested)
     *balance -= amount;
     true
@@ -127,7 +127,7 @@ public fun validate_transfer(
     if (recipient == @0x0) return false;
     if (sender == recipient) return false;
     if (amount == 0) return false;
-    
+
     true
 }
 ```
@@ -187,9 +187,9 @@ if (!is_blocked) {
 ### Complex Conditions
 
 ```move
-if (balance >= amount && 
-    amount > 0 && 
-    !is_frozen && 
+if (balance >= amount &&
+    amount > 0 &&
+    !is_frozen &&
     (is_verified || amount < 1000)) {
     // Complex validation
     execute_transfer();
@@ -303,7 +303,7 @@ public fun transition_order(
             return OrderState::Delivered;
         };
     };
-    
+
     current // No valid transition
 }
 ```
@@ -329,10 +329,10 @@ public fun get_balance_or_default(opt_balance: Option<u64>): u64 {
 fun test_if_expression() {
     let x: u64 = 10;
     let y: u64 = 20;
-    
+
     let max_val = if (x > y) { x } else { y };
     assert!(max_val == 20, 0);
-    
+
     let min_val = if (x < y) { x } else { y };
     assert!(min_val == 10, 1);
 }
@@ -340,17 +340,17 @@ fun test_if_expression() {
 #[test]
 fun test_guard_clauses() {
     let mut balance: u64 = 1000;
-    
+
     // Valid withdrawal
     let success = withdraw(&mut balance, 500);
     assert!(success == true, 0);
     assert!(balance == 500, 1);
-    
+
     // Invalid: insufficient balance
     let fail = withdraw(&mut balance, 600);
     assert!(fail == false, 2);
     assert!(balance == 500, 3); // Unchanged
-    
+
     // Invalid: zero amount
     let fail2 = withdraw(&mut balance, 0);
     assert!(fail2 == false, 4);
@@ -424,7 +424,7 @@ public fun can_withdraw(user: &User, amount: u64): bool {
     if (user.is_frozen) return false;
     if (user.daily_withdrawn + amount > user.daily_limit) return false;
     if (amount > KYC_THRESHOLD && !user.kyc_verified) return false;
-    
+
     true
 }
 ```

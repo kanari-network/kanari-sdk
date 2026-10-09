@@ -1,5 +1,4 @@
 module test::structs {
-
     struct Empty {}
 
     public struct Public {}

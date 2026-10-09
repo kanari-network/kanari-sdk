@@ -6,7 +6,7 @@ module kanari_system::url {
     /// Standard Uniform Resource Locator (URL) string.
     struct Url has store, copy, drop {
         // TODO: validate URL format
-        url: String
+        url: String,
     }
 
     /// Create a `Url`, with no validation
@@ -31,4 +31,3 @@ module kanari_system::url {
         self.url = url;
     }
 }
-

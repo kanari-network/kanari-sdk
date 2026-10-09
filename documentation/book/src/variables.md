@@ -122,12 +122,12 @@ public fun sum(numbers: &vector<u64>): u64 {
     let mut total: u64 = 0;
     let len = vector::length(numbers);
     let mut i = 0;
-    
+
     while (i < len) {
         total = total + *vector::borrow(numbers, i);
         i = i + 1;
     };
-    
+
     total
 }
 ```
@@ -139,14 +139,14 @@ public fun count_items(items: &vector<u8>): u64 {
     let mut count: u64 = 0;
     let len = vector::length(items);
     let mut i = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(items, i) > 0) {
             count = count + 1;
         };
         i = i + 1;
     };
-    
+
     count
 }
 ```
@@ -163,13 +163,13 @@ struct Resource has key, store {
 
 public fun ownership_example(ctx: &mut TxContext) {
     let r1 = Resource { id: object::new(ctx), value: 100 };
-    
+
     // Move r1 to r2 (r1 is no longer valid)
     let r2 = r1;
-    
+
     // Error: r1 has been moved
     // let x = r1.value;
-    
+
     // r2 is now the owner
     assert!(r2.value == 100, 0);
 }
@@ -200,7 +200,7 @@ assert!(c3.value == 10, 2);
 public fun example_param(x: u64, y: u64): u64 {
     // Parameters are immutable by default
     // x = 20; // Error: cannot assign to immutable parameter
-    
+
     let mut result = x + y;
     result
 }
@@ -219,7 +219,7 @@ public fun multiple_returns(): (u64, u64, bool) {
     let x: u64 = 10;
     let y: u64 = 20;
     let success: bool = true;
-    
+
     (x, y, success)
 }
 
@@ -273,7 +273,7 @@ counter = counter + 1;
 ```move
 public fun cleanup_example(table: Table<u64, address>) {
     // Use table...
-    
+
     // Destroy when done
     table::destroy_empty(table);
 }
@@ -321,17 +321,17 @@ fun test_variable_basics() {
     // Test declaration
     let x: u64 = 10;
     assert!(x == 10, 0);
-    
+
     // Test mutation
     let mut y: u64 = 20;
     y = 30;
     assert!(y == 30, 1);
-    
+
     // Test shadowing
     let z: u64 = 40;
     let z: bool = true;
     assert!(z == true, 2);
-    
+
     // Test destructuring
     let (a, b) = (100, 200);
     assert!(a == 100, 3);

@@ -277,4 +277,3 @@ module kanari_system::rs256_test {
         assert!(!result, ErrorPrehashVerificationFailure);
     }
 }
-

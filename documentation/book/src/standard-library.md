@@ -330,7 +330,7 @@ public fun filter_positive(numbers: &vector<i64>): vector<u64> {
     let mut result = vector::empty<u64>();
     let len = vector::length(numbers);
     let mut i = 0;
-    
+
     while (i < len) {
         let num = *vector::borrow(numbers, i);
         if (num > 0) {
@@ -338,7 +338,7 @@ public fun filter_positive(numbers: &vector<i64>): vector<u64> {
         };
         i = i + 1;
     };
-    
+
     result
 }
 ```

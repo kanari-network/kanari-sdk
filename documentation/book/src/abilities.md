@@ -346,7 +346,7 @@ struct Certificate has key, store {
 public fun cleanup(resource: MyResource) {
     // Option 1: Transfer
     transfer::public_transfer(resource, recipient);
-    
+
     // Option 2: Delete (if has delete function)
     // object::delete(resource.id);
 }
@@ -426,11 +426,11 @@ struct Container has key, store {
 fun test_copy_ability() {
     #[derive(copy, drop)]
     struct Copyable { value: u64 }
-    
+
     let c1 = Copyable { value: 10 };
     let c2 = c1;
     let c3 = c1;
-    
+
     assert!(c1.value == 10, 0);
     assert!(c2.value == 10, 1);
 }
@@ -439,7 +439,7 @@ fun test_copy_ability() {
 fun test_drop_ability() {
     #[derive(drop)]
     struct Droppable { value: u64 }
-    
+
     let d = Droppable { value: 10 };
     // d is automatically dropped
 }
@@ -450,12 +450,12 @@ fun test_resource_creation(ctx: &mut TxContext) {
         id: UID,
         value: u64,
     }
-    
+
     let r = MyResource {
         id: object::new(ctx),
         value: 100,
     };
-    
+
     assert!(r.value == 100, 0);
     // Must handle resource - can't just drop
     transfer::public_transfer(r, @0x1);

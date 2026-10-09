@@ -52,9 +52,9 @@ cd my_package
 // sources/token.move
 module my_package::token {
     use kanari_system::coin;
-    
+
     struct TOKEN has drop {}
-    
+
     public fun initialize(ctx: &mut TxContext) {
         // Initialize token
     }
@@ -79,7 +79,7 @@ move test
 
 ```toml
 [dependencies]
-MoveStdlib = { 
+MoveStdlib = {
     git = "https://github.com/move-language/move.git",
     subdir = "language/move-stdlib",
     rev = "main"
@@ -105,19 +105,19 @@ MyLibrary = { local = "../my-library" }
 ```toml
 [dependencies]
 # Specific commit
-KanariSystem = { 
+KanariSystem = {
     git = "https://github.com/kanari/kanari-sdk.git",
     rev = "abc123def456"
 }
 
 # Tag
-KanariSystem = { 
+KanariSystem = {
     git = "https://github.com/kanari/kanari-sdk.git",
     tag = "v1.2.3"
 }
 
 # Branch (use cautiously)
-KanariSystem = { 
+KanariSystem = {
     git = "https://github.com/kanari/kanari-sdk.git",
     branch = "develop"
 }
@@ -219,13 +219,13 @@ version = "1.2.3"  # MAJOR.MINOR.PATCH
 
 ```toml
 # Good: Pin specific versions
-KanariSystem = { 
+KanariSystem = {
     git = "...",
     rev = "specific-commit-hash"
 }
 
 # Bad: Floating dependencies
-KanariSystem = { 
+KanariSystem = {
     git = "...",
     branch = "main"  # Can break unexpectedly
 }
@@ -275,16 +275,16 @@ fun test_token_mint() {
 fun test_full_workflow() {
     // Test across multiple modules
     let ctx = &mut tx_context::dummy();
-    
+
     // Create token
     let (cap, _) = token::create(ctx);
-    
+
     // Mint tokens
     let coins = token::mint_with_cap(&cap, 1000, ctx);
-    
+
     // Transfer
     token::transfer(coins, @0x2);
-    
+
     // Verify
     assert!(token::balance_of(@0x2) == 1000, 0);
 }

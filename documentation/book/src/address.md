@@ -141,14 +141,14 @@ public fun is_owner(wallet: &MultiSigWallet, addr: address): bool {
     let len = vector::length(&wallet.owners);
     let mut i = 0;
     let mut found = false;
-    
+
     while (i < len) {
         if (*vector::borrow(&wallet.owners, i) == addr) {
             found = true;
         };
         i = i + 1;
     };
-    
+
     found
 }
 ```
@@ -191,14 +191,14 @@ public fun is_whitelisted(list: &Whitelist, addr: address): bool {
 fun contains(list: &Whitelist, addr: address): bool {
     let len = vector::length(&list.allowed_addresses);
     let mut i = 0;
-    
+
     while (i < len) {
         if (*vector::borrow(&list.allowed_addresses, i) == addr) {
             return true;
         };
         i = i + 1;
     };
-    
+
     false
 }
 ```
@@ -229,12 +229,12 @@ fun test_address_operations() {
     let addr1: address = @0x1;
     let addr2: address = @0x2;
     let zero: address = @0x0;
-    
+
     // Test equality
     assert!(addr1 == @0x1, 0);
     assert!(addr1 != addr2, 1);
     assert!(zero == @0x0, 2);
-    
+
     // Test validation
     assert!(is_valid_address(addr1), 3);
     assert!(!is_valid_address(zero), 4);
@@ -271,10 +271,10 @@ struct Account has key, store {
 public fun withdraw(account: &mut Account, amount: u64) {
     assert!(!account.locked, E_REENTRANCY);
     account.locked = true;
-    
+
     // Perform withdrawal
     account.balance -= amount;
-    
+
     account.locked = false;
 }
 ```

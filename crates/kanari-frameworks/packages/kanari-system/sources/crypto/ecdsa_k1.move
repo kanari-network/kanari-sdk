@@ -3,7 +3,6 @@
 
 // TODO: rename ecdsa_k1 to secp256k1 due to signature types change
 module kanari_system::ecdsa_k1 {
-
     /// constant codes
     const ECDSA_K1_COMPRESSED_PUBKEY_LENGTH: u64 = 33;
     const ECDSA_K1_UNCOMPRESSED_PUBKEY_LENGTH: u64 = 65;
@@ -73,15 +72,17 @@ module kanari_system::ecdsa_k1 {
     /// If the signature is valid, return the corresponding recovered Secpk256k1 public
     /// key, otherwise throw error. This is similar to ecrecover in Ethereum, can only be
     /// applied to Ecdsa signatures.
-    native public fun ecrecover(
-        signature: &vector<u8>, msg: &vector<u8>, hash: u8
+    public native fun ecrecover(
+        signature: &vector<u8>,
+        msg: &vector<u8>,
+        hash: u8,
     ): vector<u8>;
 
     /// @param pubkey: A 33-bytes compressed public key, a prefix either 0x02 or 0x03 and a 256-bit integer.
     ///
     /// If the compressed public key is valid, return the 65-bytes uncompressed public key,
     /// otherwise throw error.
-    native public fun decompress_pubkey(pubkey: &vector<u8>): vector<u8>;
+    public native fun decompress_pubkey(pubkey: &vector<u8>): vector<u8>;
 
     /// @param signature: A 64-bytes signature in form (r, s) that is signed using
     /// Ecdsa. This is an non-recoverable signature without recovery id.
@@ -91,11 +92,11 @@ module kanari_system::ecdsa_k1 {
     /// TODO: @param sigtype: The signature type used to distinguish which signature to be used when verifying.
     ///
     /// If the signature is valid to the pubkey and hashed message, return true. Else false.
-    native public fun verify(
+    public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
         msg: &vector<u8>,
-        hash: u8
+        hash: u8,
     ): bool;
 
     #[test]
@@ -273,4 +274,3 @@ module kanari_system::ecdsa_k1 {
         addr
     }
 }
-

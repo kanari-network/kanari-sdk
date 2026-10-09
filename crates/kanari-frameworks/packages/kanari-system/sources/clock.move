@@ -27,7 +27,7 @@ module kanari_system::clock {
     /// Singleton shared object that exposes time to Move calls.
     struct Clock has key, store {
         id: UID,
-        timestamp_ms: u64
+        timestamp_ms: u64,
     }
 
     /// The `clock`'s current timestamp as a running total of
@@ -64,7 +64,9 @@ module kanari_system::clock {
     /// block timestamp. Only a transaction sent from `@0x0` may call it, and
     /// time must never move backwards.
     public fun consensus_commit_prologue(
-        clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext
+        clock: &mut Clock,
+        timestamp_ms: u64,
+        ctx: &TxContext,
     ) {
         // Requires that the call be made only through the System Validator.
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
@@ -99,4 +101,3 @@ module kanari_system::clock {
         object::delete(id);
     }
 }
-

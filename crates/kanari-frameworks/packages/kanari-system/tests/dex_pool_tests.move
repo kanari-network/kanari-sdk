@@ -198,7 +198,7 @@ module kanari_system::dex_pool_tests {
         reserve_b: u64,
         k_initial: u64,
         trades: &vector<u64>,
-        index: u64
+        index: u64,
     ): bool {
         let len = vector::length(trades);
 
@@ -245,7 +245,9 @@ module kanari_system::dex_pool_tests {
 
     /// Helper function to validate price impacts recursively
     fun validate_price_impacts(
-        reserve: u64, trade_sizes: &vector<u64>, index: u64
+        reserve: u64,
+        trade_sizes: &vector<u64>,
+        index: u64,
     ): bool {
         let len = vector::length(trade_sizes);
 
@@ -315,4 +317,3 @@ module kanari_system::dex_pool_tests {
         assert!(remaining_reserve_b > 0, EInsufficientLiquidity);
     }
 }
-

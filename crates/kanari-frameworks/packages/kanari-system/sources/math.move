@@ -65,12 +65,15 @@ module kanari_system::math {
     const BPS_SCALE: u128 = 10000;
     const BPS_SCALE_U64: u64 = 10000;
     const BPS_SCALE_U256: u256 = 10000;
+
     /// Percent scale: 100 = 100%.
     const PCT_SCALE: u128 = 100;
     const PCT_SCALE_U256: u256 = 100;
+
     /// WAD fixed point: 1e18 (e.g. ERC20-style 18 decimals).
     const WAD: u128 = 1000000000000000000;
     const WAD_U256: u256 = 1000000000000000000;
+
     /// RAY fixed point: 1e27 (e.g. Maker-style rates).
     const RAY: u128 = 1000000000000000000000000000;
     const RAY_U256: u256 = 1000000000000000000000000000;
@@ -81,22 +84,28 @@ module kanari_system::math {
 
     /// Floor sqrt of a u128.
     public native fun sqrt_u128(x: u128): u128;
+
     /// Floor sqrt of a u64.
     public native fun sqrt_u64(x: u64): u64;
+
     /// Floor sqrt of a u256.
     public native fun sqrt_u256(x: u256): u256;
 
     /// base ^ exponent. Aborts with E_OVERFLOW on overflow.
     public native fun pow_u64(base: u64, exponent: u8): u64;
+
     /// base ^ exponent. Aborts with E_OVERFLOW on overflow.
     public native fun pow_u128(base: u128, exponent: u32): u128;
+
     /// base ^ exponent. Aborts with E_OVERFLOW on overflow.
     public native fun pow_u256(base: u256, exponent: u32): u256;
 
     /// Non-aborting pow. Returns (success, value); (false, 0) on overflow.
     public native fun try_pow_u64(base: u64, exponent: u8): (bool, u64);
+
     /// Non-aborting pow. Returns (success, value); (false, 0) on overflow.
     public native fun try_pow_u128(base: u128, exponent: u32): (bool, u128);
+
     /// Non-aborting pow. Returns (success, value); (false, 0) on overflow.
     public native fun try_pow_u256(base: u256, exponent: u32): (bool, u256);
 
@@ -106,7 +115,10 @@ module kanari_system::math {
 
     /// (x * y) / z with explicit rounding: false = floor, true = ceil.
     public native fun mul_div_round_u128(
-        x: u128, y: u128, z: u128, round_up: bool
+        x: u128,
+        y: u128,
+        z: u128,
+        round_up: bool,
     ): u128;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
@@ -121,7 +133,10 @@ module kanari_system::math {
 
     /// (x * y) / z with explicit rounding: false = floor, true = ceil.
     public native fun mul_div_round_u256(
-        x: u256, y: u256, z: u256, round_up: bool
+        x: u256,
+        y: u256,
+        z: u256,
+        round_up: bool,
     ): u256;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
@@ -140,29 +155,37 @@ module kanari_system::math {
 
     /// Overflow-safe average, floor: (a & b) + ((a ^ b) >> 1).
     public native fun average_u64(a: u64, b: u64): u64;
+
     /// Overflow-safe average, floor.
     public native fun average_u128(a: u128, b: u128): u128;
+
     /// Overflow-safe average, floor.
     public native fun average_u256(a: u256, b: u256): u256;
 
     /// Clamp x into [lo, hi]. Aborts E_INVALID_ARG when lo > hi.
     public native fun clamp_u64(x: u64, lo: u64, hi: u64): u64;
+
     /// Clamp x into [lo, hi]. Aborts E_INVALID_ARG when lo > hi.
     public native fun clamp_u128(x: u128, lo: u128, hi: u128): u128;
+
     /// Clamp x into [lo, hi]. Aborts E_INVALID_ARG when lo > hi.
     public native fun clamp_u256(x: u256, lo: u256, hi: u256): u256;
 
     /// Floor log2. Aborts E_INVALID_ARG on 0.
     public native fun log2_u64(x: u64): u64;
+
     /// Floor log2. Aborts E_INVALID_ARG on 0.
     public native fun log2_u128(x: u128): u128;
+
     /// Floor log2. Aborts E_INVALID_ARG on 0.
     public native fun log2_u256(x: u256): u256;
 
     /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
     public native fun ceil_div_u64(x: u64, y: u64): u64;
+
     /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
     public native fun ceil_div_u128(x: u128, y: u128): u128;
+
     /// Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
     public native fun ceil_div_u256(x: u256, y: u256): u256;
 
@@ -841,7 +864,9 @@ module kanari_system::math {
     /// Constant-product quote: amount_out = amount_in * reserve_out / (reserve_in + amount_in).
     /// Floor rounding (favors pool). Aborts on zero reserves.
     public fun quote_amount_out(
-        amount_in: u128, reserve_in: u128, reserve_out: u128
+        amount_in: u128,
+        reserve_in: u128,
+        reserve_out: u128,
     ): u128 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u128(amount_in, reserve_out, reserve_in + amount_in)
@@ -849,7 +874,9 @@ module kanari_system::math {
 
     /// Same quote for u256 reserves (deep-liquidity pools).
     public fun quote_amount_out_u256(
-        amount_in: u256, reserve_in: u256, reserve_out: u256
+        amount_in: u256,
+        reserve_in: u256,
+        reserve_out: u256,
     ): u256 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u256(amount_in, reserve_out, reserve_in + amount_in)
@@ -862,7 +889,9 @@ module kanari_system::math {
     }
 
     public fun apply_price_u256(
-        amount: u256, price_num: u256, price_den: u256
+        amount: u256,
+        price_num: u256,
+        price_den: u256,
     ): u256 {
         mul_div_u256(amount, price_num, price_den)
     }
@@ -1800,4 +1829,3 @@ module kanari_system::math {
         }
     }
 }
-

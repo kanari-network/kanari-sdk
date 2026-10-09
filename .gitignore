@@ -24,3 +24,6 @@ coverage
 !**/.env.example
 .kanari-local
 .codex-runlogs
+
+.freebuff/
+
