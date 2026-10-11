@@ -5,7 +5,7 @@ the Kanari transaction network.
 
 The current node architecture uses:
 
-- Move VM execution through `kanari-move-runtime-v1`;
+- Move VM execution through `kanari-move-runtime-v2`;
 - Mysticeti DAG metadata and consensus integration;
 - transaction-driven blockchain checkpoints;
 - libp2p transaction and checkpoint propagation;
@@ -188,7 +188,7 @@ flowchart TB
     end
 
     subgraph L4["Execution Layer"]
-        RUNTIME["kanari-move-runtime-v1"]
+        RUNTIME["kanari-move-runtime-v2"]
         VM["Move VM"]
         SCHED["parallel scheduler"]
         NATIVE["kanari-system-natives"]
@@ -271,7 +271,7 @@ erDiagram
 ### Runtime and Consensus
 
 - `crates/kanari-core`: execution, checkpoints, DAG integration, persistence
-- `move-execution/v1/kanari-move-runtime-v1`: Move VM runtime and state manager
+- `move-execution/v2/kanari-move-runtime-v2`: Move VM runtime and state manager
 - `crates/mysticeti`: nested Mysticeti workspace used through path dependencies
 - `crates/smt`: Sparse Merkle Tree and Merkle utilities
 - `crates/kanari-db-common`: database helpers
