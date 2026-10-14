@@ -17,12 +17,12 @@
 /// - Proposals expire (`ttl_ms`, 0 = never) and can be cancelled by the
 ///   proposer or garbage-collected by anyone after expiry.
 module kanari_system::multisig {
-    use std::string;
     use std::vector;
+    use std::string;
     use kanari_system::bcs;
     use kanari_system::borrow;
     use kanari_system::coin::{Self, Coin};
-    use kanari_system::deny_list::{Self, DenyList};
+    use kanari_system::deny_list::DenyList;
     use kanari_system::event;
     use kanari_system::math;
     use kanari_system::object::{Self, UID};
@@ -443,7 +443,7 @@ module kanari_system::multisig {
         assert!(is_owner(wallet, sender), E_NOT_OWNER);
         assert!(!proposal.executed, E_TRANSACTION_ALREADY_EXECUTED);
         assert!(!is_expired(&proposal, ctx), E_PROPOSAL_EXPIRED);
-        assert!(has_enough_approvals(wallet, &proposal), E_THRESHOLD_NOT_MET);
+        assert!(has_enough_current_approvals(wallet, &proposal), E_THRESHOLD_NOT_MET);
 
         let wallet_id = wallet_address(wallet);
         let proposal_id = object::id_to_address(&object::uid_to_inner(&proposal.id));
@@ -509,9 +509,10 @@ module kanari_system::multisig {
     }
 
     /// Regulated execution: like `execute_transaction`, but transfer proposals
-    /// additionally abort `E_DENIED` when the recipient is on `deny`.
-    /// Non-transfer proposals ignore the list. Use this entry point whenever
-    /// the wallet custodies a regulated coin.
+    /// additionally abort `E_DENIED` when the recipient is on the shared
+    /// deny list for the wallet's coin type. Non-transfer proposals ignore
+    /// the list. Use this entry point whenever the wallet custodies a
+    /// regulated coin.
     public fun execute_transfer_checked<T>(
         wallet: &mut MultisigWallet<T>,
         proposal: TransactionProposal,
@@ -519,7 +520,8 @@ module kanari_system::multisig {
         ctx: &mut TxContext,
     ) {
         if (proposal.tx_type == TX_TYPE_TRANSFER) {
-            assert!(!deny_list::contains(deny, proposal.target_address), E_DENIED);
+            assert!(!coin::deny_list_contains<T>(deny, proposal.target_address), E_DENIED);
+            assert!(!coin::deny_list_paused<T>(deny), E_DENIED);
         };
         execute_transaction(wallet, proposal, ctx);
     }
@@ -619,6 +621,32 @@ module kanari_system::multisig {
         borrow::save(proposal);
     }
 
+    /// Regulated `execute_entry`: like `execute_entry`, but transfer
+    /// proposals additionally abort `E_DENIED` when the recipient is on the
+    /// shared deny list for the wallet's coin type. Pass the deny-list
+    /// object ID as `deny_id`. Non-transfer proposals ignore the list.
+    public entry fun execute_checked_entry<T>(
+        wallet_id: address,
+        proposal_id: address,
+        deny_id: address,
+        ctx: &mut TxContext,
+    ) {
+        borrow::assert_distinct(wallet_id, proposal_id);
+        let wallet = object::borrow_global_mut<MultisigWallet<T>>(wallet_id);
+        let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
+        let deny = object::borrow_global<DenyList>(deny_id);
+        if (proposal.tx_type == TX_TYPE_TRANSFER) {
+            assert!(
+                !coin::deny_list_contains<T>(deny, proposal.target_address),
+                E_DENIED
+            );
+            assert!(!coin::deny_list_paused<T>(deny), E_DENIED);
+        };
+        execute_borrowed(wallet, proposal, ctx);
+        borrow::save(wallet);
+        borrow::save(proposal);
+    }
+
     /// Cancel your own live proposal. Tombstones like `execute_entry`.
     public entry fun cancel_entry<T>(
         wallet_id: address,
@@ -643,7 +671,7 @@ module kanari_system::multisig {
         assert!(is_owner(wallet, sender), E_NOT_OWNER);
         assert!(!proposal.executed, E_TRANSACTION_ALREADY_EXECUTED);
         assert!(!is_expired(proposal, ctx), E_PROPOSAL_EXPIRED);
-        assert!(has_enough_approvals(wallet, proposal), E_THRESHOLD_NOT_MET);
+        assert!(has_enough_current_approvals(wallet, proposal), E_THRESHOLD_NOT_MET);
 
         let wallet_id = wallet_address(wallet);
         let proposal_id = object::id_to_address(&object::uid_to_inner(&proposal.id));
@@ -740,6 +768,31 @@ module kanari_system::multisig {
         proposal: &TransactionProposal,
     ): bool {
         (vector::length(&proposal.approvers) as u64) >= wallet.threshold
+    }
+
+    /// Approvals that still count: approvals cast by CURRENT owners only.
+    /// An owner removed after approving no longer contributes, so a proposal
+    /// approved under an old owner set cannot execute against a changed one.
+    /// Execution gates use this; `has_enough_approvals` stays as the raw read.
+    fun count_current_approvals<T>(
+        wallet: &MultisigWallet<T>,
+        proposal: &TransactionProposal,
+    ): u64 {
+        let (count, len, i) = (0u64, vector::length(&proposal.approvers), 0);
+        while (i < len) {
+            if (is_owner(wallet, *vector::borrow(&proposal.approvers, i))) {
+                count = count + 1;
+            };
+            i = i + 1;
+        };
+        count
+    }
+
+    fun has_enough_current_approvals<T>(
+        wallet: &MultisigWallet<T>,
+        proposal: &TransactionProposal,
+    ): bool {
+        count_current_approvals(wallet, proposal) >= wallet.threshold
     }
 
     public fun get_approval_count(proposal: &TransactionProposal): u64 {
@@ -958,24 +1011,14 @@ module kanari_system::multisig {
 
         // Anyone (even non-owner) can top up.
         let ctx2 = tx_context::new_from_hint(@0x9, 7, 0, 0, 0);
-        let (cap2, meta2) =
-            coin::create_currency(
-                TestCoin {},
-                6,
-                b"T2",
-                b"T2",
-                b"t2",
-                std::option::none(),
-                &mut ctx2
-            );
-        // NOTE: fresh currency => fresh cap; mint from it for the deposit check.
-        let extra = coin::mint(&mut cap2, 500, &mut ctx2);
+        // NOTE: one canonical currency per coin type — the second mint below
+        // reuses the same cap rather than creating a duplicate TreasuryCap.
+        let extra = coin::mint(&mut cap, 500, &mut ctx2);
         deposit(&mut wallet, extra, &ctx2);
         assert!(balance(&wallet) == 10_500, 3);
 
         destroy_wallet(wallet, &mut ctx);
         destroy_cap(cap, meta);
-        destroy_cap(cap2, meta2);
     }
 
     #[test]
@@ -1055,8 +1098,30 @@ module kanari_system::multisig {
     fun test_cross_wallet_execute_rejected() {
         // Approvals for wallet A must never drain wallet B.
         let ctx = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
-        let (wallet_a, cap_a, meta_a) = setup_funded_wallet(owners1(), 1, 10_000, &mut ctx);
-        let (wallet_b, cap_b, meta_b) = setup_funded_wallet(owners1(), 1, 10_000, &mut ctx);
+        // One currency funds both wallets. Claiming TestCoin twice in one transaction is itself
+        // rejected (one-time witness), so mint twice from a single claim, the way any real
+        // transaction holding two same-coin wallets must.
+        let (cap, meta) = coin::create_currency(
+            TestCoin {},
+            6,
+            b"TEST",
+            b"Test Coin",
+            b"multisig test coin",
+            std::option::none(),
+            &mut ctx
+        );
+        let wallet_a = create_wallet(
+            owners1(),
+            1,
+            coin::mint(&mut cap, 10_000, &mut ctx),
+            &mut ctx
+        );
+        let wallet_b = create_wallet(
+            owners1(),
+            1,
+            coin::mint(&mut cap, 10_000, &mut ctx),
+            &mut ctx
+        );
         let evil =
             propose_transfer(
                 &wallet_a,
@@ -1069,8 +1134,7 @@ module kanari_system::multisig {
         execute_transaction(&mut wallet_b, evil, &mut ctx);
         destroy_wallet(wallet_a, &mut ctx);
         destroy_wallet(wallet_b, &mut ctx);
-        destroy_cap(cap_a, meta_a);
-        destroy_cap(cap_b, meta_b);
+        destroy_cap(cap, meta);
     }
 
     #[test]
@@ -1376,8 +1440,8 @@ module kanari_system::multisig {
     ): (
         MultisigWallet<TestCoin>,
         coin::TreasuryCap<TestCoin>,
-        deny_list::DenyCap<TestCoin>,
-        deny_list::DenyList,
+        kanari_system::deny_list::DenyCap<TestCoin>,
+        DenyList,
         coin::CoinMetadata<TestCoin>
     ) {
         let (cap, denycap, meta) =
@@ -1392,7 +1456,7 @@ module kanari_system::multisig {
             );
         let funds = coin::mint(&mut cap, fund_amount, ctx);
         let wallet = create_wallet(owners, threshold, funds, ctx);
-        let deny = deny_list::new_denylist();
+        let deny = kanari_system::deny_list::new_for_testing(ctx);
         (wallet, cap, denycap, deny, meta)
     }
 
@@ -1401,7 +1465,7 @@ module kanari_system::multisig {
         let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
         let (wallet, cap, denycap, deny, meta) =
             setup_regulated_wallet(owners1(), 1, 1_000, &mut ctx1);
-        deny_list::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
+        coin::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
         let p = propose_transfer(
             &wallet,
             @0xCAFE,
@@ -1415,6 +1479,7 @@ module kanari_system::multisig {
         destroy_wallet(wallet, &mut ctx1);
         destroy_cap(cap, meta);
         transfer::public_freeze_object(denycap);
+        transfer::public_freeze_object(deny);
     }
 
     #[test]
@@ -1423,7 +1488,7 @@ module kanari_system::multisig {
         let ctx1 = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
         let (wallet, cap, denycap, deny, meta) =
             setup_regulated_wallet(owners1(), 1, 1_000, &mut ctx1);
-        deny_list::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
+        coin::deny_list_add(&mut deny, &denycap, @0xBAD, &mut ctx1);
         let p = propose_transfer(
             &wallet,
             @0xBAD,
@@ -1436,5 +1501,63 @@ module kanari_system::multisig {
         destroy_wallet(wallet, &mut ctx1);
         destroy_cap(cap, meta);
         transfer::public_freeze_object(denycap);
+        transfer::public_freeze_object(deny);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_THRESHOLD_NOT_MET)]
+    fun test_stale_approval_after_owner_removal_aborts() {
+        // 2-of-{A,B,C}: A proposes, B approves (threshold met), then B is
+        // removed. B's approval must stop counting: only A of {A,C}
+        // approved, so execution aborts instead of spending on stale assent.
+        let ctx_a = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, meta) =
+            setup_funded_wallet(owners3(), 2, 1_000, &mut ctx_a);
+
+        let t = propose_transfer(
+            &wallet, @0xCAFE, 100, string::utf8(b"stale?"), 60_000, &mut ctx_a
+        );
+        let ctx_b = tx_context::new_from_hint(@0x2, 2, 0, 1000, 0);
+        approve_transaction(&wallet, &mut t, &mut ctx_b);
+
+        let r = propose_remove_owner(
+            &wallet, @0x2, string::utf8(b"bye"), 60_000, &mut ctx_a
+        );
+        let ctx_c = tx_context::new_from_hint(@0x3, 3, 0, 1000, 0);
+        approve_transaction(&wallet, &mut r, &mut ctx_c);
+        execute_transaction(&mut wallet, r, &mut ctx_a);
+        assert!(owner_count(&wallet) == 2, 0);
+
+        execute_transaction(&mut wallet, t, &mut ctx_a);
+        destroy_wallet(wallet, &mut ctx_a);
+        destroy_cap(cap, meta);
+    }
+
+    #[test]
+    fun test_reapproval_after_removal_executes() {
+        // Same setup, but C (still an owner) approves after the removal:
+        // current approvals {A,C} meet threshold 2 and execution succeeds.
+        let ctx_a = tx_context::new_from_hint(@0x1, 1, 0, 1000, 0);
+        let (wallet, cap, meta) =
+            setup_funded_wallet(owners3(), 2, 1_000, &mut ctx_a);
+
+        let t = propose_transfer(
+            &wallet, @0xCAFE, 100, string::utf8(b"ok"), 60_000, &mut ctx_a
+        );
+        let ctx_b = tx_context::new_from_hint(@0x2, 2, 0, 1000, 0);
+        approve_transaction(&wallet, &mut t, &mut ctx_b);
+
+        let r = propose_remove_owner(
+            &wallet, @0x2, string::utf8(b"bye"), 60_000, &mut ctx_a
+        );
+        let ctx_c = tx_context::new_from_hint(@0x3, 3, 0, 1000, 0);
+        approve_transaction(&wallet, &mut r, &mut ctx_c);
+        execute_transaction(&mut wallet, r, &mut ctx_a);
+
+        approve_transaction(&wallet, &mut t, &mut ctx_c);
+        execute_transaction(&mut wallet, t, &mut ctx_a);
+        assert!(balance(&wallet) == 900, 0);
+        destroy_wallet(wallet, &mut ctx_a);
+        destroy_cap(cap, meta);
     }
 }

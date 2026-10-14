@@ -299,6 +299,10 @@ impl MoveRuntime {
             }
         }
 
+        // Denied owners may not use regulated coins as mutable inputs
+        // (split/join/burn/...), not just receive them.
+        self.enforce_coin_inputs(&loaded_mutable_objects, state_overlay.as_ref())?;
+
         // Extensions are already added by create_session_with_storage_ext() - no need to add again
         let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
         let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
@@ -342,6 +346,8 @@ impl MoveRuntime {
                     deleted: native_deleted,
                     dynamic_fields: native_dynamic_fields,
                     borrowed,
+                    witness_claims,
+                    child_links,
                 } = SessionNativeOutputs::drain(session.get_native_extensions());
 
                 let (res, _) = session.finish();
@@ -395,6 +401,8 @@ impl MoveRuntime {
                     transferred,
                     persist_runtime_state,
                     state_overlay.as_ref(),
+                    &native_dynamic_fields,
+                    sender,
                 )?;
 
                 SessionNativeOutputs::apply_simple_effects(
@@ -420,6 +428,8 @@ impl MoveRuntime {
                     self.apply_move_changeset(move_changeset)?;
                     self.persist_created_objects(&cs)?;
                     self.persist_deleted_objects(&cs)?;
+                    self.persist_witness_claims(witness_claims)?;
+                    self.persist_child_links(child_links)?;
                 }
 
                 let reads = match resolver_trace.lock() {
@@ -469,11 +479,13 @@ impl MoveRuntime {
         // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext(state_overlay));
+        extensions.add(self.dynamic_field_storage_ext(state_overlay.clone()));
         extensions.add(EventsExt::default());
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
         extensions.add(TransferredObjectsExt::default());
+        extensions.add(self.witness_claims_ext(state_overlay.clone()));
+        extensions.add(self.child_index_ext(state_overlay));
 
         // Track objects loaded and mutated through object native functions.
         extensions.add(LoadedObjectsExt::default());

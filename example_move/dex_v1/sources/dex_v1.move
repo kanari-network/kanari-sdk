@@ -36,7 +36,7 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ) {
         let uid = object::new(ctx);
-        let lp_supply = balance::new_supply<LP_TOKEN<CoinTypeA, CoinTypeB>>();
+        let lp_supply = balance::new_supply(LP_TOKEN {});
         let pool = Pool<CoinTypeA, CoinTypeB> {
             id: uid,
             reserve_a: balance::zero<CoinTypeA>(),
@@ -56,7 +56,7 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ): Pool<CoinTypeA, CoinTypeB> {
         let uid = object::new(ctx);
-        let lp_supply = balance::new_supply<LP_TOKEN<CoinTypeA, CoinTypeB>>();
+        let lp_supply = balance::new_supply(LP_TOKEN {});
         Pool<CoinTypeA, CoinTypeB> {
             id: uid,
             reserve_a: balance::zero<CoinTypeA>(),

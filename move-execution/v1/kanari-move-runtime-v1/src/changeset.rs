@@ -659,9 +659,7 @@ impl ChangeSet {
     }
 
     fn canonicalize_object_id(object_id: &str) -> String {
-        AccountAddress::from_hex_literal(object_id)
-            .map(|addr| addr.to_hex_literal())
-            .unwrap_or_else(|_| object_id.to_string())
+        crate::common::ids::canonical_object_id(object_id).unwrap_or_else(|| object_id.to_string())
     }
 
     /// Deterministic-access key for one object record.

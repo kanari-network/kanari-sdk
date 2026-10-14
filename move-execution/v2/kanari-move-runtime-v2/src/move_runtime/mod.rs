@@ -19,6 +19,7 @@ use crate::state::default_owner_kind_for_type;
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
+use kanari_system_natives::child::ChildIndexExt;
 use kanari_system_natives::dynamic_field::{DynamicFieldOp, DynamicFieldsExt};
 use kanari_system_natives::event::CapturedEvent;
 use kanari_system_natives::event::EventsExt;
@@ -27,6 +28,7 @@ use kanari_system_natives::object::{
     SavedObject, SavedObjectsExt,
 };
 use kanari_system_natives::transfer_natives::{TransferredObject, TransferredObjectsExt};
+use kanari_system_natives::types::ClaimedWitnessesExt;
 use kanari_types::clock::{Clock, ClockModule};
 
 use kanari_types::error::KanariUnwrapExt;
@@ -67,6 +69,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 mod constructors;
+mod deny_enforcement;
 mod entry;
 mod init;
 mod object_lifecycle;
@@ -121,6 +124,8 @@ struct SessionNativeOutputs {
     deleted: Vec<DeletedObject>,
     dynamic_fields: Vec<DynamicFieldOp>,
     borrowed: Vec<BorrowedObject>,
+    witness_claims: std::collections::BTreeSet<String>,
+    child_links: Vec<(String, Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl SessionNativeOutputs {
@@ -132,6 +137,8 @@ impl SessionNativeOutputs {
             deleted: exts.get_mut::<DeletedObjectsExt>().take_all(),
             dynamic_fields: exts.get_mut::<DynamicFieldsExt>().take_all(),
             borrowed: exts.get_mut::<BorrowedObjectsExt>().take_all(),
+            witness_claims: exts.get_mut::<ClaimedWitnessesExt>().take_pending(),
+            child_links: exts.get_mut::<ChildIndexExt>().take_pending(),
         }
     }
 

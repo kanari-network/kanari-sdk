@@ -5,12 +5,17 @@ module tester::dynamic_object_field_e2e {
     use kanari_system::tx_context::{Self, TxContext};
 
     struct Host has key, store {
-        id: UID
+        id: UID,
     }
 
     struct Child has key, store {
         id: UID,
-        value: u64
+        value: u64,
+    }
+
+    #[allow(unused_field)]
+    struct Other has key, store {
+        id: UID,
     }
 
     fun new_child(ctx: &mut TxContext, value: u64): Child {
@@ -23,7 +28,10 @@ module tester::dynamic_object_field_e2e {
     }
 
     public entry fun add_child(
-        host: &mut Host, key: u64, value: u64, ctx: &mut TxContext
+        host: &mut Host,
+        key: u64,
+        value: u64,
+        ctx: &mut TxContext,
     ) {
         let child = new_child(ctx, value);
         dynamic_object_field::add<u64, Child>(&mut host.id, key, child);
@@ -49,5 +57,16 @@ module tester::dynamic_object_field_e2e {
     public fun has_child(host: &Host, key: u64): bool {
         dynamic_object_field::exists_<u64>(&host.id, key)
     }
-}
 
+    public fun child_is_typed(host: &Host, key: u64): bool {
+        dynamic_object_field::exists_with_type<u64, Child>(&host.id, key)
+    }
+
+    public fun child_is_other_typed(host: &Host, key: u64): bool {
+        dynamic_object_field::exists_with_type<u64, Other>(&host.id, key)
+    }
+
+    public fun child_id_known(host: &Host, key: u64): bool {
+        std::option::is_some(&dynamic_object_field::id(&host.id, key))
+    }
+}

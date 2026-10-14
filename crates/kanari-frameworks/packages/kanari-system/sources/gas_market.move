@@ -17,8 +17,8 @@
 /// Price encoding: `price_usd_micros` = USD value of ONE whole token, scaled by
 /// 1e6. Example: KANARI at $2.00 -> 2_000_000.
 module kanari_system::gas_market {
-    use std::string::{Self, String};
     use std::vector;
+    use std::string::{Self, String};
     use kanari_system::math;
     use kanari_system::object;
     use kanari_system::transfer;
@@ -44,6 +44,15 @@ module kanari_system::gas_market {
 
     /// Caller is not the admin/feeder.
     const ENOT_AUTHORIZED: u64 = 5;
+
+    /// Quote arithmetic overflowed u64.
+    const EOVERFLOW_QUOTE: u64 = 6;
+
+    /// Batched vector arguments have different lengths.
+    const ELENGTH_MISMATCH: u64 = 7;
+
+    /// Coin decimals exceed the 9-decimal ceiling.
+    const EINVALID_DECIMALS: u64 = 8;
 
     /// Capability for whitelist + base-fee governance (held by DAO timelock).
     struct AdminCap has key, store {
@@ -103,7 +112,9 @@ module kanari_system::gas_market {
         gas_units: u64,
         usd_per_gas_unit_micros: u64,
     ): u64 {
-        gas_units * usd_per_gas_unit_micros
+        let fee = (gas_units as u128) * (usd_per_gas_unit_micros as u128);
+        assert!(fee <= 18446744073709551615, EOVERFLOW_QUOTE);
+        (fee as u64)
     }
 
     /// Convert a USD fee (micro-USD) into base units of a token with
@@ -126,6 +137,7 @@ module kanari_system::gas_market {
             );
         if (quoted == 0) { 1 }
         else {
+            assert!(quoted <= 18446744073709551615, EOVERFLOW_QUOTE);
             (quoted as u64)
         }
     }
@@ -163,6 +175,7 @@ module kanari_system::gas_market {
     ) {
         let name = string::utf8(coin_type);
         assert!(is_supported_gas_coin(&name), EUNSUPPORTED_GAS_COIN);
+        assert!(decimals <= 9, EINVALID_DECIMALS);
         let i = find_config(table, &name);
         if (i < vector::length(&table.configs)) {
             let cfg = vector::borrow_mut(&mut table.configs, i);
@@ -202,12 +215,14 @@ module kanari_system::gas_market {
         table.version = table.version + 1;
     }
 
-    /// Update the USD base fee. Admin (DAO vote) only.
+    /// Update the USD base fee. Admin (DAO vote) only. Zero would make every
+    /// quote free, so it is rejected.
     public fun set_usd_per_gas_unit(
         _: &AdminCap,
         table: &mut PriceTable,
         v: u64,
     ) {
+        assert!(v > 0, EZERO_INPUT);
         table.usd_per_gas_unit_micros = v;
         table.version = table.version + 1;
     }
@@ -222,7 +237,7 @@ module kanari_system::gas_market {
         checkpoint_seq: u64,
     ) {
         let len = vector::length(&coin_types);
-        assert!(len == vector::length(&prices_usd_micros), EZERO_INPUT);
+        assert!(len == vector::length(&prices_usd_micros), ELENGTH_MISMATCH);
         let i = 0;
         while (i < len) {
             let name = vector::borrow(&coin_types, i);
@@ -267,8 +282,10 @@ module kanari_system::gas_market {
                 cfg.decimals
             );
         // Slippage cap is expressed per gas unit in token base units.
+        // Compared in u128 so a huge cap cannot overflow-abort the check.
         assert!(
-            amount <= max_price_per_unit * gas_units, ESLIPPAGE_EXCEEDED
+            (amount as u128) <= (max_price_per_unit as u128) * (gas_units as u128),
+            ESLIPPAGE_EXCEEDED
         );
         amount
     }
@@ -316,5 +333,56 @@ module kanari_system::gas_market {
         assert!(is_supported_gas_coin(&kanari), EUNSUPPORTED_GAS_COIN);
         assert!(is_supported_gas_coin(&usd), EUNSUPPORTED_GAS_COIN);
         assert!(!is_supported_gas_coin(&usdc), EUNSUPPORTED_GAS_COIN);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EOVERFLOW_QUOTE)]
+    fun test_fee_quote_overflow_aborts() {
+        quote_usd_fee_micros(18446744073709551615, 18446744073709551615);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EOVERFLOW_QUOTE)]
+    fun test_token_quote_overflow_aborts() {
+        // Astronomically cheap token: the rounded-up quote cannot fit u64.
+        usd_to_token_amount(18446744073709551615, 1, 9);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EZERO_INPUT)]
+    fun test_zero_base_fee_rejected() {
+        let ctx = tx_context::dummy();
+        let admin = AdminCap { id: object::new(&mut ctx) };
+        let table = PriceTable {
+            id: object::new(&mut ctx),
+            version: 1,
+            usd_per_gas_unit_micros: 1,
+            configs: vector::empty(),
+            prices: vector::empty(),
+            max_staleness_checkpoints: 600
+        };
+        set_usd_per_gas_unit(&admin, &mut table, 0);
+        transfer::public_transfer(admin, tx_context::sender(&ctx));
+        transfer::share_object(table);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EINVALID_DECIMALS)]
+    fun test_register_coin_bad_decimals_aborts() {
+        let ctx = tx_context::dummy();
+        let admin = AdminCap { id: object::new(&mut ctx) };
+        let table = PriceTable {
+            id: object::new(&mut ctx),
+            version: 1,
+            usd_per_gas_unit_micros: 1,
+            configs: vector::empty(),
+            prices: vector::empty(),
+            max_staleness_checkpoints: 600
+        };
+        register_gas_coin(
+            &admin, &mut table, b"0x2::kanari::KANARI", 19, 1_000_000, 0, 0
+        );
+        transfer::public_transfer(admin, tx_context::sender(&ctx));
+        transfer::share_object(table);
     }
 }

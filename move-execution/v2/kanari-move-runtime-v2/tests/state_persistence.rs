@@ -274,17 +274,17 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
     );
     assert_eq!(
         reopened.get_owned_objects(&alice)?,
-        vec!["0xaaa1".to_string()]
+        vec![format!("0x{:0>64}", "aaa1")]
     );
     assert_eq!(
         reopened.get_owned_objects(&bob)?,
-        vec!["0xbbb2".to_string()]
+        vec![format!("0x{:0>64}", "bbb2")]
     );
     let object_index = reopened
         .load_internal::<Vec<String>>(b"object_index")?
         .invariant("object_index should be rebuilt");
-    assert!(object_index.contains(&"0xaaa1".to_string()));
-    assert!(object_index.contains(&"0xbbb2".to_string()));
+    assert!(object_index.contains(&format!("0x{:0>64}", "aaa1")));
+    assert!(object_index.contains(&format!("0x{:0>64}", "bbb2")));
     assert!(
         reopened
             .load_internal::<Vec<String>>(b"account_index")?

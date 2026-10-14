@@ -24,7 +24,8 @@
 -  [Function `split`](#0x2_balance_split)
 
 
-<pre><code></code></pre>
+<pre><code><b>use</b> <a href="types.md#0x2_types">0x2::types</a>;
+</code></pre>
 
 
 
@@ -91,15 +92,6 @@ REMOVED <code>drop</code> ability to prevent accidental loss of minting authorit
 ## Constants
 
 
-<a name="0x2_balance_ERR_OVERFLOW"></a>
-
-
-
-<pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 2;
-</code></pre>
-
-
-
 <a name="0x2_balance_ERR_INSUFFICIENT_BALANCE"></a>
 
 Error codes
@@ -115,6 +107,15 @@ Error codes
 
 
 <pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_SUPPLY">ERR_INSUFFICIENT_SUPPLY</a>: u64 = 4;
+</code></pre>
+
+
+
+<a name="0x2_balance_ERR_OVERFLOW"></a>
+
+
+
+<pre><code><b>const</b> <a href="balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 2;
 </code></pre>
 
 
@@ -157,7 +158,9 @@ Create a new zero-value Balance
 
 ## Function `create`
 
-Create a new Balance with an initial value
+Create a new Balance with an initial value.
+Friend-only: arbitrary public minting would forge value. <code><a href="coin.md#0x2_coin_mint">coin::mint</a></code>
+is the production path (backed by <code>TreasuryCap</code>).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
@@ -207,7 +210,8 @@ Get the current balance value
 
 ## Function `increase`
 
-Increase the balance value
+Increase the balance value.
+Friend-only: see <code>create</code>. Value-conserving callers use <code>merge</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
@@ -279,7 +283,9 @@ Transfer value from one Balance to another
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(
-    from: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, <b>to</b>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64
+    from: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
+    <b>to</b>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
+    amount: u64,
 ) {
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
     <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(from, amount);
@@ -346,10 +352,16 @@ Destroy the Balance and return its value
 
 ## Function `new_supply`
 
-Create a new (empty) supply handle
+Create a new (empty) supply handle. Requires a <code>witness: T</code>: only the
+module defining <code>T</code> can construct one (structs pack module-locally),
+so a supply for a foreign coin type cannot be forged. The witness
+type is additionally claimed once chain-wide (same registry as
+<code><a href="coin.md#0x2_coin_create_currency">coin::create_currency</a></code>): one canonical supply per coin type, so
+per-pool LP patterns should track shares with plain counters (see
+the <code>uniswap_amm</code> test package) instead of one <code><a href="balance.md#0x2_balance_Supply">Supply</a></code> per pool.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_new_supply">new_supply</a>&lt;T&gt;(): <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_new_supply">new_supply</a>&lt;T: drop&gt;(witness: T): <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;
 </code></pre>
 
 
@@ -358,7 +370,9 @@ Create a new (empty) supply handle
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_new_supply">new_supply</a>&lt;T&gt;(): <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_new_supply">new_supply</a>&lt;T: drop&gt;(witness: T): <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
+    kanari_system::types::claim_witness(&witness);
+    <b>let</b> _ = witness;
     <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; { total: 0 }
 }
 </code></pre>

@@ -188,6 +188,16 @@ Event emitted when a collection is created (for off-chain indexing)
 ## Constants
 
 
+<a name="0x2_collection_E_CAP_COLLECTION_MISMATCH"></a>
+
+Cap does not belong to the given collection.
+
+
+<pre><code><b>const</b> <a href="collection.md#0x2_collection_E_CAP_COLLECTION_MISMATCH">E_CAP_COLLECTION_MISMATCH</a>: u64 = 3;
+</code></pre>
+
+
+
 <a name="0x2_collection_E_NOT_COLLECTION_CREATOR"></a>
 
 
@@ -229,7 +239,7 @@ Returns <code>(<a href="collection.md#0x2_collection_Collection">Collection</a>,
     description: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    max_supply: u64
+    max_supply: u64,
 ): (<a href="collection.md#0x2_collection_Collection">Collection</a>, <a href="collection.md#0x2_collection_NftCap">NftCap</a>) {
     <b>let</b> id = <a href="object.md#0x2_object_new">object::new</a>(ctx);
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
@@ -250,7 +260,7 @@ Returns <code>(<a href="collection.md#0x2_collection_Collection">Collection</a>,
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         remaining: max_supply,
         issued_counter: 0,
-        collection_id: collection_addr // use the fetched <b>address</b>
+        collection_id: collection_addr // <b>use</b> the fetched <b>address</b>
     };
 
     <a href="event.md#0x2_event_emit">event::emit</a>(
@@ -389,7 +399,7 @@ may perform this mutation; supply and ownership are intentionally unchanged.
     c: &<b>mut</b> <a href="collection.md#0x2_collection_Collection">Collection</a>,
     banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ctx: &TxContext
+    ctx: &TxContext,
 ) {
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == c.creator, <a href="collection.md#0x2_collection_E_NOT_COLLECTION_CREATOR">E_NOT_COLLECTION_CREATOR</a>);
     c.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
@@ -482,10 +492,13 @@ Consume one supply unit from the cap for minting.
 
 ## Function `return_from_burn`
 
-Return one supply unit to cap (used on burn).
+Return one supply unit to cap (used on burn). Bound to the cap's own
+collection: the cap must belong to <code><a href="collection.md#0x2_collection">collection</a></code> and <code>remaining</code> must
+stay within <code>max_supply</code>, otherwise a transferred cap could inflate
+mint allowance past the collection cap.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_return_from_burn">return_from_burn</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_return_from_burn">return_from_burn</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>, <a href="collection.md#0x2_collection">collection</a>: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>)
 </code></pre>
 
 
@@ -494,7 +507,12 @@ Return one supply unit to cap (used on burn).
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_return_from_burn">return_from_burn</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a>) {
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_return_from_burn">return_from_burn</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a>, <a href="collection.md#0x2_collection">collection</a>: &<a href="collection.md#0x2_collection_Collection">Collection</a>) {
+    <b>assert</b>!(
+        cap.collection_id == <a href="object.md#0x2_object_uid_address">object::uid_address</a>(&<a href="collection.md#0x2_collection">collection</a>.id),
+        <a href="collection.md#0x2_collection_E_CAP_COLLECTION_MISMATCH">E_CAP_COLLECTION_MISMATCH</a>
+    );
+    <b>assert</b>!(cap.<a href="collection.md#0x2_collection_remaining">remaining</a> &lt; <a href="collection.md#0x2_collection">collection</a>.max_supply, <a href="collection.md#0x2_collection_E_NO_SUPPLY">E_NO_SUPPLY</a>);
     cap.remaining = cap.remaining + 1;
     // Note: issued_counter is intentionally not decremented; it records how many
     // items have been minted historically.
@@ -524,7 +542,9 @@ Transfer helpers using <code><a href="transfer.md#0x2_transfer_public_transfer">
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_collection">transfer_collection</a>(
-    c: <a href="collection.md#0x2_collection_Collection">Collection</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext
+    c: <a href="collection.md#0x2_collection_Collection">Collection</a>,
+    recipient: <b>address</b>,
+    _ctx: &<b>mut</b> TxContext,
 ) {
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(c, recipient)
 }
@@ -550,7 +570,9 @@ Transfer helpers using <code><a href="transfer.md#0x2_transfer_public_transfer">
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_cap">transfer_cap</a>(
-    cap: <a href="collection.md#0x2_collection_NftCap">NftCap</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> TxContext
+    cap: <a href="collection.md#0x2_collection_NftCap">NftCap</a>,
+    recipient: <b>address</b>,
+    _ctx: &<b>mut</b> TxContext,
 ) {
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(cap, recipient)
 }

@@ -56,9 +56,39 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         .publish_module(module_bytes, sender, None, None)
         .context("publish uniswap-like amm module")?;
 
-    // Faucet both sides of the pool.
-    let usd_coin = mint(&writer, &module_id, USD_TYPE, USD_INITIAL, &mut nonce)?;
-    let kan_coin = mint(&writer, &module_id, KAN_TYPE, KAN_INITIAL, &mut nonce)?;
+    // Create both mock currencies once (further creates abort), then
+    // faucet both sides of the pool from the setup caps.
+    let setup = entry(
+        &writer,
+        &module_id,
+        "setup_currencies",
+        vec![],
+        vec![],
+        vec![],
+        &mut nonce,
+    )?;
+    let usd_cap = find_created(&setup, |t| {
+        t.contains("USD_MOCK") && t.contains("TreasuryCap")
+    })?;
+    let kan_cap = find_created(&setup, |t| {
+        t.contains("KAN_MOCK") && t.contains("TreasuryCap")
+    })?;
+    let usd_coin = mint(
+        &writer,
+        &module_id,
+        USD_TYPE,
+        &usd_cap.id,
+        USD_INITIAL,
+        &mut nonce,
+    )?;
+    let kan_coin = mint(
+        &writer,
+        &module_id,
+        KAN_TYPE,
+        &kan_cap.id,
+        KAN_INITIAL,
+        &mut nonce,
+    )?;
 
     // Empty pool.
     let create = entry(
@@ -134,7 +164,14 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     );
 
     // Exact-in swap at the quoted rate.
-    let swap_in_coin = mint(&writer, &module_id, USD_TYPE, SWAP_IN, &mut nonce)?;
+    let swap_in_coin = mint(
+        &writer,
+        &module_id,
+        USD_TYPE,
+        &usd_cap.id,
+        SWAP_IN,
+        &mut nonce,
+    )?;
     let swap = entry(
         &writer,
         &module_id,
@@ -195,7 +232,14 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     );
 
     // Slippage floor above the new quote aborts and leaves state untouched.
-    let fail_coin = mint(&writer, &module_id, USD_TYPE, SWAP_IN, &mut nonce)?;
+    let fail_coin = mint(
+        &writer,
+        &module_id,
+        USD_TYPE,
+        &usd_cap.id,
+        SWAP_IN,
+        &mut nonce,
+    )?;
     let too_much = expected_out + 1;
     let err = entry(
         &writer,
@@ -329,20 +373,32 @@ fn entry(
 }
 
 /// Mint `amount` of `token` from the test faucet and return the new coin id.
+///
+/// The Move faucet exposes one concrete entry per mock coin backed by the
+/// setup cap for that token.
 fn mint(
     runtime: &MoveRuntime,
     module_id: &ModuleId,
     token: &str,
+    cap_id: &str,
     amount: u64,
     nonce: &mut Nonce,
 ) -> Result<String> {
+    let sender = *module_id.address();
+    let function = if token == USD_TYPE {
+        "mint_usd_mock"
+    } else if token == KAN_TYPE {
+        "mint_kan_mock"
+    } else {
+        anyhow::bail!("unknown test token {token}")
+    };
     let changes = entry(
         runtime,
         module_id,
-        "mint_test_coin",
-        type_tags(&[token])?,
-        vec![bcs::to_bytes(&amount)?],
+        function,
         vec![],
+        vec![object_arg(cap_id)?, bcs::to_bytes(&amount)?],
+        vec![owned_input(cap_id, sender, true)],
         nonce,
     )?;
     let coin = find_created(&changes, |t| t.contains("coin::Coin") && t.contains(token))?;
@@ -458,7 +514,7 @@ fn type_tags(tokens: &[&str]) -> Result<Vec<TypeTag>> {
 
 fn object_arg(object_id: &str) -> Result<Vec<u8>> {
     let clean = object_id.strip_prefix("0x").unwrap_or(object_id);
-    hex::decode(clean).context("decode object id argument")
+    hex::decode(clean).with_context(|| format!("decode object id argument: {object_id}"))
 }
 
 fn owned_input(id: &str, owner: AccountAddress, mutable: bool) -> ObjectInput {

@@ -5,23 +5,32 @@
 
 use move_core_types::account_address::AccountAddress;
 
-/// Canonicalize an object ID to its normalized hex literal form (e.g., `0x1`).
+/// Canonicalize an object ID to its full 32-byte hex literal form
+/// (`0x` + 64 lowercase hex chars).
+///
+/// Every subsystem (transfers, storage keys, access keys, harnesses) must key
+/// the same object identically. Short forms previously collided with
+/// full-form lookups and broke downstream hex decoding, so leading zeros are
+/// preserved, never stripped.
 /// Returns `None` if the ID is not a valid hex-encoded Move address.
 pub(crate) fn canonical_object_id(id: &str) -> Option<String> {
     let trimmed = id.trim();
-    // Reject non-hex characters early so the error is caught here instead of
-    // producing a misleading canonical form.
-    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
-        let hex_part = &trimmed[2..];
-        if hex_part.is_empty() || !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
-            return None;
-        }
-    } else if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+    let hex_part = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))?;
+    if hex_part.is_empty()
+        || hex_part.len() > AccountAddress::LENGTH * 2
+        || !hex_part.chars().all(|c| c.is_ascii_hexdigit())
+    {
         return None;
     }
-    AccountAddress::from_hex_literal(trimmed)
-        .ok()
-        .map(|addr| addr.to_hex_literal())
+    let mut out = String::with_capacity(2 + AccountAddress::LENGTH * 2);
+    out.push_str("0x");
+    for _ in 0..AccountAddress::LENGTH * 2 - hex_part.len() {
+        out.push('0');
+    }
+    out.push_str(&hex_part.to_ascii_lowercase());
+    Some(out)
 }
 
 pub(crate) fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {
@@ -34,5 +43,12 @@ pub(crate) fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {
     if arr.iter().all(|byte| *byte == 0) {
         return None;
     }
-    Some(AccountAddress::new(arr).to_hex_literal())
+    const HEXDIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(2 + AccountAddress::LENGTH * 2);
+    out.push_str("0x");
+    for byte in arr {
+        out.push(HEXDIGITS[(byte >> 4) as usize] as char);
+        out.push(HEXDIGITS[(byte & 0x0F) as usize] as char);
+    }
+    Some(out)
 }

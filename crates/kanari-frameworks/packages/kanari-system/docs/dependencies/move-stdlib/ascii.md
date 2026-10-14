@@ -148,12 +148,12 @@ Convert a vector of bytes <code>bytes</code> into an <code><a href="../../depend
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>(bytes: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a> {
-   <b>let</b> x = <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_try_string">try_string</a>(bytes);
-   <b>assert</b>!(
+    <b>let</b> x = <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_try_string">try_string</a>(bytes);
+    <b>assert</b>!(
         <a href="../../dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&x),
         <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_EINVALID_ASCII_CHARACTER">EINVALID_ASCII_CHARACTER</a>
    );
-   <a href="../../dependencies/move-stdlib/option.md#0x1_option_destroy_some">option::destroy_some</a>(x)
+    <a href="../../dependencies/move-stdlib/option.md#0x1_option_destroy_some">option::destroy_some</a>(x)
 }
 </code></pre>
 
@@ -317,7 +317,7 @@ Get the inner bytes of the <code><a href="../../dependencies/move-stdlib/string.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_as_bytes">as_bytes</a>(<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>: &<a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a>): &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt; {
-   &<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>.bytes
+    &<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>.bytes
 }
 </code></pre>
 
@@ -342,8 +342,8 @@ Unpack the <code><a href="../../dependencies/move-stdlib/string.md#0x1_string">s
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_into_bytes">into_bytes</a>(<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a>): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt; {
-   <b>let</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a> { bytes } = <a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>;
-   bytes
+    <b>let</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a> { bytes } = <a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>;
+    bytes
 }
 </code></pre>
 
@@ -368,8 +368,8 @@ Unpack the <code>char</code> into its underlying byte.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_byte">byte</a>(char: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">Char</a>): u8 {
-   <b>let</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">Char</a> { byte } = char;
-   byte
+    <b>let</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">Char</a> { byte } = char;
+    byte
 }
 </code></pre>
 
@@ -394,7 +394,7 @@ Returns <code><b>true</b></code> if <code>b</code> is a valid ASCII character. R
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_is_valid_char">is_valid_char</a>(b: u8): bool {
-   b &lt;= 0x7F
+    b &lt;= 0x7F
 }
 </code></pre>
 
@@ -419,7 +419,7 @@ Returns <code><b>true</b></code> if <code>byte</code> is an printable ASCII char
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_is_printable_char">is_printable_char</a>(byte: u8): bool {
-   byte &gt;= 0x20 && // Disallow metacharacters
+    byte &gt;= 0x20 && // Disallow metacharacters
    <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_byte">byte</a> &lt;= 0x7E // Don't allow DEL metacharacter
 }
 </code></pre>

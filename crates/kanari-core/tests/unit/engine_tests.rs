@@ -323,6 +323,7 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     let alice = generate_keypair(CurveType::Ed25519).unwrap();
     let bob = generate_keypair(CurveType::Ed25519).unwrap();
     let coin_id = "0xaaaa";
+    let coin_id_full = format!("0x{:0>64}", "aaaa");
     let alice_gas = "0x1001";
     let bob_gas = "0x1002";
     fund_sender_with_coin(&engine, &alice.address, coin_id, 3_000_000);
@@ -406,8 +407,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id_full));
+    assert!(owned_ids(&engine, &bob.address).contains(&coin_id_full));
 
     // Leg 2: Bob -> Alice (full balance, back).
     let leg2_hash = submit_full_transfer(&engine, &bob, coin_id, bob_gas, &alice.address, 1);
@@ -424,8 +425,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(owned_ids(&engine, &alice.address).contains(&coin_id_full));
+    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id_full));
 }
 
 #[test]

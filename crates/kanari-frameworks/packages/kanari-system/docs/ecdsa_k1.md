@@ -313,8 +313,10 @@ applied to Ecdsa signatures.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecrecover">ecrecover</a>(
-    signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecrecover">ecrecover</a>(
+    signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
 ): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
@@ -341,7 +343,7 @@ otherwise throw error.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_decompress_pubkey">decompress_pubkey</a>(pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_decompress_pubkey">decompress_pubkey</a>(pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -371,11 +373,11 @@ If the signature is valid to the pubkey and hashed message, return true. Else fa
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_verify">verify</a>(
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_verify">verify</a>(
     signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8
+    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
 ): bool;
 </code></pre>
 
@@ -399,7 +401,6 @@ If the signature is valid to the pubkey and hashed message, return true. Else fa
 
 
 <pre><code><b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecrecover_eth_address">ecrecover_eth_address</a>(sig: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt; {
-    <b>use</b> std::vector;
     <b>use</b> std::hash;
 
     // Normalize the last byte of the signature <b>to</b> be 0 or 1.

@@ -44,4 +44,12 @@ module kanari_system::dynamic_field {
         object: &UID,
         name: Name,
     ): bool;
+
+    /// Returns true if `object` has a dynamic field with key `name` whose
+    /// value type is exactly `Value`. Missing fields and type mismatches
+    /// both return false; this never aborts.
+    public native fun exists_with_type<Name: copy + drop + store, Value: store>(
+        object: &UID,
+        name: Name,
+    ): bool;
 }

@@ -50,6 +50,7 @@ proposer or garbage-collected by anyone after expiry.
 -  [Function `propose_transfer_entry`](#0x2_multisig_propose_transfer_entry)
 -  [Function `approve_entry`](#0x2_multisig_approve_entry)
 -  [Function `execute_entry`](#0x2_multisig_execute_entry)
+-  [Function `execute_checked_entry`](#0x2_multisig_execute_checked_entry)
 -  [Function `cancel_entry`](#0x2_multisig_cancel_entry)
 -  [Function `execute_borrowed`](#0x2_multisig_execute_borrowed)
 -  [Function `cancel_borrowed`](#0x2_multisig_cancel_borrowed)
@@ -58,6 +59,8 @@ proposer or garbage-collected by anyone after expiry.
 -  [Function `get_threshold`](#0x2_multisig_get_threshold)
 -  [Function `get_transaction_count`](#0x2_multisig_get_transaction_count)
 -  [Function `has_enough_approvals`](#0x2_multisig_has_enough_approvals)
+-  [Function `count_current_approvals`](#0x2_multisig_count_current_approvals)
+-  [Function `has_enough_current_approvals`](#0x2_multisig_has_enough_current_approvals)
 -  [Function `get_approval_count`](#0x2_multisig_get_approval_count)
 -  [Function `is_executed`](#0x2_multisig_is_executed)
 -  [Function `get_proposer`](#0x2_multisig_get_proposer)
@@ -855,7 +858,7 @@ Create a wallet funded with <code>initial_funds</code> (use <code><a href="coin.
     owners: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<b>address</b>&gt;,
     threshold: u64,
     initial_funds: Coin&lt;T&gt;,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt; {
     <b>let</b> owners_len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&owners);
     <b>assert</b>!(owners_len &gt; 0, <a href="multisig.md#0x2_multisig_E_EMPTY_OWNERS">E_EMPTY_OWNERS</a>);
@@ -908,7 +911,9 @@ Top up the wallet. Anyone can deposit.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_deposit">deposit</a>&lt;T&gt;(
-    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, funds: Coin&lt;T&gt;, ctx: &TxContext
+    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    funds: Coin&lt;T&gt;,
+    ctx: &TxContext,
 ) {
     <b>let</b> amount = <a href="coin.md#0x2_coin_value">coin::value</a>(&funds);
     <a href="coin.md#0x2_coin_join">coin::join</a>(&<b>mut</b> wallet.funds, funds);
@@ -975,7 +980,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
     payload: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a> {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <b>assert</b>!(<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, sender), <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>);
@@ -1043,7 +1048,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
     amount: u64,
     description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a> {
     <b>assert</b>!(amount &gt; 0, <a href="multisig.md#0x2_multisig_E_ZERO_AMOUNT">E_ZERO_AMOUNT</a>);
     <a href="multisig.md#0x2_multisig_new_proposal">new_proposal</a>(
@@ -1083,7 +1088,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
     new_owner: <b>address</b>,
     description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a> {
     <b>assert</b>!(new_owner != @0x0, <a href="multisig.md#0x2_multisig_E_ZERO_ADDRESS">E_ZERO_ADDRESS</a>);
     <b>assert</b>!(!<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, new_owner), <a href="multisig.md#0x2_multisig_E_ALREADY_OWNER">E_ALREADY_OWNER</a>);
@@ -1124,7 +1129,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
     owner_to_remove: <b>address</b>,
     description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a> {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&wallet.owners) &gt; 1, <a href="multisig.md#0x2_multisig_E_CANNOT_REMOVE_LAST_OWNER">E_CANNOT_REMOVE_LAST_OWNER</a>);
     <b>assert</b>!(<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, owner_to_remove), <a href="multisig.md#0x2_multisig_E_OWNER_NOT_FOUND">E_OWNER_NOT_FOUND</a>);
@@ -1165,7 +1170,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
     new_threshold: u64,
     description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a> {
     <b>assert</b>!(new_threshold &gt; 0, <a href="multisig.md#0x2_multisig_E_INVALID_THRESHOLD">E_INVALID_THRESHOLD</a>);
     <b>assert</b>!(new_threshold &lt;= <a href="multisig.md#0x2_multisig_owner_count">owner_count</a>(wallet), <a href="multisig.md#0x2_multisig_E_INVALID_THRESHOLD">E_INVALID_THRESHOLD</a>);
@@ -1202,7 +1207,9 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_approve_transaction">approve_transaction</a>&lt;T&gt;(
-    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &<b>mut</b> TxContext
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>(wallet, proposal);
@@ -1245,7 +1252,9 @@ Cancel a live proposal. Only the proposer may cancel.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_cancel_proposal">cancel_proposal</a>&lt;T&gt;(
-    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &TxContext
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &TxContext,
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>(wallet, &proposal);
@@ -1298,7 +1307,8 @@ Garbage-collect an expired proposal. Anyone may call; reclaims storage.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_delete_expired_proposal">delete_expired_proposal</a>(
-    proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &TxContext
+    proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &TxContext,
 ) {
     <b>assert</b>!(<a href="multisig.md#0x2_multisig_is_expired">is_expired</a>(&proposal, ctx), <a href="multisig.md#0x2_multisig_E_NOT_EXPIRED">E_NOT_EXPIRED</a>);
     <a href="event.md#0x2_event_emit">event::emit</a>(
@@ -1348,14 +1358,16 @@ All effects are re-validated here: balance, owner set, threshold bounds.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_execute_transaction">execute_transaction</a>&lt;T&gt;(
-    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &<b>mut</b> TxContext
+    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>(wallet, &proposal);
     <b>assert</b>!(<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, sender), <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>);
     <b>assert</b>!(!proposal.executed, <a href="multisig.md#0x2_multisig_E_TRANSACTION_ALREADY_EXECUTED">E_TRANSACTION_ALREADY_EXECUTED</a>);
     <b>assert</b>!(!<a href="multisig.md#0x2_multisig_is_expired">is_expired</a>(&proposal, ctx), <a href="multisig.md#0x2_multisig_E_PROPOSAL_EXPIRED">E_PROPOSAL_EXPIRED</a>);
-    <b>assert</b>!(<a href="multisig.md#0x2_multisig_has_enough_approvals">has_enough_approvals</a>(wallet, &proposal), <a href="multisig.md#0x2_multisig_E_THRESHOLD_NOT_MET">E_THRESHOLD_NOT_MET</a>);
+    <b>assert</b>!(<a href="multisig.md#0x2_multisig_has_enough_current_approvals">has_enough_current_approvals</a>(wallet, &proposal), <a href="multisig.md#0x2_multisig_E_THRESHOLD_NOT_MET">E_THRESHOLD_NOT_MET</a>);
 
     <b>let</b> wallet_id = <a href="multisig.md#0x2_multisig_wallet_address">wallet_address</a>(wallet);
     <b>let</b> proposal_id = <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&proposal.id));
@@ -1430,9 +1442,10 @@ All effects are re-validated here: balance, owner set, threshold bounds.
 ## Function `execute_transfer_checked`
 
 Regulated execution: like <code>execute_transaction</code>, but transfer proposals
-additionally abort <code><a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a></code> when the recipient is on <code>deny</code>.
-Non-transfer proposals ignore the list. Use this entry point whenever
-the wallet custodies a regulated coin.
+additionally abort <code><a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a></code> when the recipient is on the shared
+deny list for the wallet's coin type. Non-transfer proposals ignore
+the list. Use this entry point whenever the wallet custodies a
+regulated coin.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_execute_transfer_checked">execute_transfer_checked</a>&lt;T&gt;(wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1448,10 +1461,11 @@ the wallet custodies a regulated coin.
     wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
     proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
     deny: &DenyList,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>if</b> (proposal.tx_type == <a href="multisig.md#0x2_multisig_TX_TYPE_TRANSFER">TX_TYPE_TRANSFER</a>) {
-        <b>assert</b>!(!<a href="deny_list.md#0x2_deny_list_contains">deny_list::contains</a>(deny, proposal.target_address), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
+        <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, proposal.target_address), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
+        <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_paused">coin::deny_list_paused</a>&lt;T&gt;(deny), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
     };
     <a href="multisig.md#0x2_multisig_execute_transaction">execute_transaction</a>(wallet, proposal, ctx);
 }
@@ -1485,7 +1499,7 @@ new multisig wallet, the remainder is saved back. Pass the coin's
     threshold: u64,
     funds_id: <b>address</b>,
     amount: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> source = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;Coin&lt;T&gt;&gt;(funds_id);
     <b>let</b> initial_funds = <a href="coin.md#0x2_coin_split">coin::split</a>(source, amount, ctx);
@@ -1519,7 +1533,7 @@ Top up the wallet by splitting <code>amount</code> off a coin you own.
     wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
     funds_id: <b>address</b>,
     amount: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> source = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;Coin&lt;T&gt;&gt;(funds_id);
     <b>let</b> funds = <a href="coin.md#0x2_coin_split">coin::split</a>(source, amount, ctx);
@@ -1558,7 +1572,7 @@ address args, so every entry below takes IDs and borrows.
     amount: u64,
     description: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ttl_ms: u64,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> wallet = <a href="object.md#0x2_object_borrow_global">object::borrow_global</a>&lt;<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;&gt;(wallet_id);
     <b>let</b> proposal =
@@ -1595,7 +1609,9 @@ Approve someone else's proposal (proposer auto-approved at creation).
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_approve_entry">approve_entry</a>&lt;T&gt;(
-    wallet_id: <b>address</b>, proposal_id: <b>address</b>, ctx: &<b>mut</b> TxContext
+    wallet_id: <b>address</b>,
+    proposal_id: <b>address</b>,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> wallet = <a href="borrow.md#0x2_borrow_borrow">borrow::borrow</a>&lt;<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;&gt;(wallet_id);
     <b>let</b> proposal = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>&gt;(proposal_id);
@@ -1630,11 +1646,59 @@ stored object by value, and the flag blocks any re-execution.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_execute_entry">execute_entry</a>&lt;T&gt;(
-    wallet_id: <b>address</b>, proposal_id: <b>address</b>, ctx: &<b>mut</b> TxContext
+    wallet_id: <b>address</b>,
+    proposal_id: <b>address</b>,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <a href="borrow.md#0x2_borrow_assert_distinct">borrow::assert_distinct</a>(wallet_id, proposal_id);
     <b>let</b> wallet = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;&gt;(wallet_id);
     <b>let</b> proposal = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>&gt;(proposal_id);
+    <a href="multisig.md#0x2_multisig_execute_borrowed">execute_borrowed</a>(wallet, proposal, ctx);
+    <a href="borrow.md#0x2_borrow_save">borrow::save</a>(wallet);
+    <a href="borrow.md#0x2_borrow_save">borrow::save</a>(proposal);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_multisig_execute_checked_entry"></a>
+
+## Function `execute_checked_entry`
+
+Regulated <code>execute_entry</code>: like <code>execute_entry</code>, but transfer
+proposals additionally abort <code><a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a></code> when the recipient is on the
+shared deny list for the wallet's coin type. Pass the deny-list
+object ID as <code>deny_id</code>. Non-transfer proposals ignore the list.
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_execute_checked_entry">execute_checked_entry</a>&lt;T&gt;(wallet_id: <b>address</b>, proposal_id: <b>address</b>, deny_id: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_execute_checked_entry">execute_checked_entry</a>&lt;T&gt;(
+    wallet_id: <b>address</b>,
+    proposal_id: <b>address</b>,
+    deny_id: <b>address</b>,
+    ctx: &<b>mut</b> TxContext,
+) {
+    <a href="borrow.md#0x2_borrow_assert_distinct">borrow::assert_distinct</a>(wallet_id, proposal_id);
+    <b>let</b> wallet = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;&gt;(wallet_id);
+    <b>let</b> proposal = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>&gt;(proposal_id);
+    <b>let</b> deny = <a href="object.md#0x2_object_borrow_global">object::borrow_global</a>&lt;DenyList&gt;(deny_id);
+    <b>if</b> (proposal.tx_type == <a href="multisig.md#0x2_multisig_TX_TYPE_TRANSFER">TX_TYPE_TRANSFER</a>) {
+        <b>assert</b>!(
+            !<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, proposal.target_address),
+            <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>
+        );
+        <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_paused">coin::deny_list_paused</a>&lt;T&gt;(deny), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
+    };
     <a href="multisig.md#0x2_multisig_execute_borrowed">execute_borrowed</a>(wallet, proposal, ctx);
     <a href="borrow.md#0x2_borrow_save">borrow::save</a>(wallet);
     <a href="borrow.md#0x2_borrow_save">borrow::save</a>(proposal);
@@ -1662,7 +1726,9 @@ Cancel your own live proposal. Tombstones like <code>execute_entry</code>.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_cancel_entry">cancel_entry</a>&lt;T&gt;(
-    wallet_id: <b>address</b>, proposal_id: <b>address</b>, ctx: &TxContext
+    wallet_id: <b>address</b>,
+    proposal_id: <b>address</b>,
+    ctx: &TxContext,
 ) {
     <b>let</b> wallet = <a href="borrow.md#0x2_borrow_borrow">borrow::borrow</a>&lt;<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;&gt;(wallet_id);
     <b>let</b> proposal = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>&gt;(proposal_id);
@@ -1693,14 +1759,16 @@ Same checks and effects; tombstones instead of deleting.
 
 
 <pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_execute_borrowed">execute_borrowed</a>&lt;T&gt;(
-    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &<b>mut</b> TxContext
+    wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>(wallet, proposal);
     <b>assert</b>!(<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, sender), <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>);
     <b>assert</b>!(!proposal.executed, <a href="multisig.md#0x2_multisig_E_TRANSACTION_ALREADY_EXECUTED">E_TRANSACTION_ALREADY_EXECUTED</a>);
     <b>assert</b>!(!<a href="multisig.md#0x2_multisig_is_expired">is_expired</a>(proposal, ctx), <a href="multisig.md#0x2_multisig_E_PROPOSAL_EXPIRED">E_PROPOSAL_EXPIRED</a>);
-    <b>assert</b>!(<a href="multisig.md#0x2_multisig_has_enough_approvals">has_enough_approvals</a>(wallet, proposal), <a href="multisig.md#0x2_multisig_E_THRESHOLD_NOT_MET">E_THRESHOLD_NOT_MET</a>);
+    <b>assert</b>!(<a href="multisig.md#0x2_multisig_has_enough_current_approvals">has_enough_current_approvals</a>(wallet, proposal), <a href="multisig.md#0x2_multisig_E_THRESHOLD_NOT_MET">E_THRESHOLD_NOT_MET</a>);
 
     <b>let</b> wallet_id = <a href="multisig.md#0x2_multisig_wallet_address">wallet_address</a>(wallet);
     <b>let</b> proposal_id = <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&proposal.id));
@@ -1769,7 +1837,9 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 
 <pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_cancel_borrowed">cancel_borrowed</a>&lt;T&gt;(
-    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>, ctx: &TxContext
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+    ctx: &TxContext,
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>(wallet, proposal);
@@ -1910,9 +1980,75 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_has_enough_approvals">has_enough_approvals</a>&lt;T&gt;(
-    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
 ): bool {
     (<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&proposal.approvers) <b>as</b> u64) &gt;= wallet.threshold
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_multisig_count_current_approvals"></a>
+
+## Function `count_current_approvals`
+
+Approvals that still count: approvals cast by CURRENT owners only.
+An owner removed after approving no longer contributes, so a proposal
+approved under an old owner set cannot execute against a changed one.
+Execution gates use this; <code>has_enough_approvals</code> stays as the raw read.
+
+
+<pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_count_current_approvals">count_current_approvals</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_count_current_approvals">count_current_approvals</a>&lt;T&gt;(
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+): u64 {
+    <b>let</b> (count, len, i) = (0u64, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&proposal.approvers), 0);
+    <b>while</b> (i &lt; len) {
+        <b>if</b> (<a href="multisig.md#0x2_multisig_is_owner">is_owner</a>(wallet, *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&proposal.approvers, i))) {
+            count = count + 1;
+        };
+        i = i + 1;
+    };
+    count
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_multisig_has_enough_current_approvals"></a>
+
+## Function `has_enough_current_approvals`
+
+
+
+<pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_has_enough_current_approvals">has_enough_current_approvals</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_has_enough_current_approvals">has_enough_current_approvals</a>&lt;T&gt;(
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
+): bool {
+    <a href="multisig.md#0x2_multisig_count_current_approvals">count_current_approvals</a>(wallet, proposal) &gt;= wallet.threshold
 }
 </code></pre>
 
@@ -2179,7 +2315,8 @@ A proposal approved for one wallet must never execute against another.
 
 
 <pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_assert_bound">assert_bound</a>&lt;T&gt;(
-    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>
+    wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">MultisigWallet</a>&lt;T&gt;,
+    proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>,
 ) {
     <b>assert</b>!(
         proposal.wallet_id == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&wallet.id),

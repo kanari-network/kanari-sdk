@@ -46,6 +46,57 @@ impl MoveRuntime {
             anyhow::bail!("Module too large: {} bytes", module_bytes.len());
         }
 
+        // 4. Object-model rule (Sui parity): every `key` struct must declare
+        // `id: 0x2::object::UID` as its first field. Transfer tracking reads
+        // the UID from the first 32 bytes, so anything else silently breaks
+        // object identity.
+        Self::verify_key_structs_carry_uid(module)?;
+
+        Ok(())
+    }
+
+    fn verify_key_structs_carry_uid(module: &CompiledModule) -> Result<()> {
+        use move_binary_format::file_format::{SignatureToken, StructFieldInformation};
+
+        let system_addr = KanariAddress::kanari_system_account_address();
+        for def in module.struct_defs() {
+            let handle = module.struct_handle_at(def.struct_handle);
+            if !handle.abilities.has_key() {
+                continue;
+            }
+            let struct_name = module.identifier_at(handle.name).to_string();
+            let fields = match &def.field_information {
+                StructFieldInformation::Declared(fields) => fields,
+                StructFieldInformation::Native => {
+                    anyhow::bail!(
+                        "key struct {struct_name} has no declared fields; \
+                         key structs must declare `id: 0x2::object::UID` first"
+                    );
+                }
+            };
+            let Some(first) = fields.first() else {
+                anyhow::bail!(
+                    "key struct {struct_name} has no fields; \
+                     key structs must declare `id: 0x2::object::UID` first"
+                );
+            };
+            let is_uid = match &first.signature.0 {
+                SignatureToken::Struct(field_handle) => {
+                    let field_struct = module.struct_handle_at(*field_handle);
+                    let field_module = module.module_handle_at(field_struct.module);
+                    module.address_identifier_at(field_module.address) == &system_addr
+                        && module.identifier_at(field_module.name).as_str() == "object"
+                        && module.identifier_at(field_struct.name).as_str() == "UID"
+                }
+                _ => false,
+            };
+            if !is_uid {
+                anyhow::bail!(
+                    "key struct {struct_name} must declare `id: 0x2::object::UID` \
+                     as its first field"
+                );
+            }
+        }
         Ok(())
     }
 

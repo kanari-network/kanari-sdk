@@ -704,28 +704,29 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
 #[test]
 fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
-    let padded_id = format!("0x{:0>64}", "abcd");
-    let canonical_id = AccountAddress::from_hex_literal(&padded_id)?.to_hex_literal();
-    assert_ne!(padded_id, canonical_id);
+    // Canonical form is the full 32-byte id: leading zeros are preserved so
+    // short aliases (`0xabcd`) and full ids key the same object.
+    let full_id = format!("0x{:0>64}", "abcd");
+    let short_id = "0xabcd";
 
     let mut state = StateManager::new_in_memory();
     let mut init = ChangeSet::new();
     init.created_objects.push((
-        padded_id.clone(),
+        short_id.to_string(),
         address_owned_object(owner, "0x2::test::Object".to_string(), vec![1, 2, 3], 1),
     ));
     state.apply_changeset(&init)?;
 
-    assert_eq!(state.get_owned_objects(&owner)?, vec![canonical_id.clone()]);
+    assert_eq!(state.get_owned_objects(&owner)?, vec![full_id.clone()]);
 
     let mut update = ChangeSet::new();
     update.created_objects.push((
-        canonical_id.clone(),
+        full_id.clone(),
         address_owned_object(owner, "0x2::test::Object".to_string(), vec![4, 5, 6], 2),
     ));
     state.apply_changeset(&update)?;
 
-    assert_eq!(state.get_owned_objects(&owner)?, vec![canonical_id]);
+    assert_eq!(state.get_owned_objects(&owner)?, vec![full_id]);
 
     Ok(())
 }
@@ -1948,5 +1949,61 @@ fn token_holders_index_tracks_membership_incrementally() -> Result<()> {
     assert!(!state.token_holder_set(token)?.contains(&alice));
     assert!(state.token_holder_set(token)?.is_empty());
 
+    Ok(())
+}
+
+#[test]
+fn repair_short_object_ids_upgrades_keys_and_lists() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let full_aaa1 = format!("0x{:0>64}", "aaa1");
+    let full_bbb2 = format!("0x{:0>64}", "bbb2");
+
+    // Pre-canonical records, keyed and listed in short form, written
+    // straight to the store (the repair scans durable state, like the
+    // index rebuild does).
+    state.store().apply_raw_changes(
+        &[
+            (b"object:0xaaa1".to_vec(), bcs::to_bytes(&vec![1u8, 2, 3])?),
+            (
+                b"object_index".to_vec(),
+                bcs::to_bytes(&vec!["0xbbb2".to_string()])?,
+            ),
+            (
+                b"df:0xccc3:0123456789abcdef0123456789abcdef".to_vec(),
+                bcs::to_bytes(&vec![7u8])?,
+            ),
+            (b"children:0xddd4".to_vec(), bcs::to_bytes(&vec![9u8])?),
+        ],
+        &[],
+    )?;
+
+    assert!(state.repair_short_object_ids_on_startup()?);
+
+    // Object record moved to the full-form key, short key tombstoned.
+    // (Store loads BCS-decode one layer, matching how the values were
+    // written.)
+    let mut object_key = b"object:".to_vec();
+    object_key.extend_from_slice(full_aaa1.as_bytes());
+    state.commit()?;
+    let moved: Option<Vec<u8>> = state.store().load(&object_key)?;
+    assert_eq!(moved, Some(vec![1u8, 2, 3]));
+    let gone: Option<Vec<u8>> = state.store().load(b"object:0xaaa1")?;
+    assert_eq!(gone, None);
+    // Lists rewritten in place.
+    let index: Option<Vec<String>> = state.store().load(b"object_index")?;
+    assert!(index.map(|ids| ids.contains(&full_bbb2)).unwrap_or(false));
+    // Dynamic records re-keyed.
+    let mut df_key = b"df:".to_vec();
+    df_key.extend_from_slice(format!("0x{:0>64}", "ccc3").as_bytes());
+    df_key.extend_from_slice(b":0123456789abcdef0123456789abcdef");
+    let df: Option<Vec<u8>> = state.store().load(&df_key)?;
+    assert_eq!(df, Some(vec![7u8]));
+    let mut child_key = b"children:".to_vec();
+    child_key.extend_from_slice(format!("0x{:0>64}", "ddd4").as_bytes());
+    let child: Option<Vec<u8>> = state.store().load(&child_key)?;
+    assert_eq!(child, Some(vec![9u8]));
+
+    // Idempotent: a second pass over migrated state reports no change.
+    assert!(!state.repair_short_object_ids_on_startup()?);
     Ok(())
 }

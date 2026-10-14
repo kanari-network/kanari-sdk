@@ -27,40 +27,81 @@ module tester::uniswap_amm {
         id: UID,
         reserve_x: Balance<X>,
         reserve_y: Balance<Y>,
-        lp_supply: u64
+        lp_supply: u64,
     }
 
     /// LP position receipt; consumed (deleted) when liquidity is removed.
     /// Non-generic so entry binding can resolve its key ability.
     struct Receipt has key, store {
         id: UID,
-        shares: u64
+        shares: u64,
     }
 
     struct AddLiquidityEvent has copy, drop {
         sender: address,
-        shares: u64
+        shares: u64,
     }
 
     struct SwapEvent has copy, drop {
         sender: address,
         amount_in: u64,
-        amount_out: u64
+        amount_out: u64,
     }
 
     struct RemoveLiquidityEvent has copy, drop {
         sender: address,
         shares: u64,
         amount_x: u64,
-        amount_y: u64
+        amount_y: u64,
     }
 
-    /// Test-only faucet: this package exists solely for runtime tests and is
-    /// never deployed. Mints `amount` of `T` to the transaction sender.
-    public entry fun mint_test_coin<T>(amount: u64, ctx: &mut TxContext) {
-        assert!(amount > 0, E_ZERO_AMOUNT);
-        let coin = coin::from_balance(balance::create<T>(amount), ctx);
-        transfer::public_transfer(coin, tx_context::sender(ctx));
+    /// Test-only faucet setup: this package exists solely for runtime tests
+    /// and is never deployed. Creates both mock currencies once per chain
+    /// (further creates abort); both mint caps go to the sender.
+    public entry fun setup_currencies(ctx: &mut TxContext) {
+        let (usd_cap, usd_meta) = coin::create_currency(
+            USD_MOCK {},
+            6,
+            b"USDM",
+            b"USD mock",
+            b"runtime test faucet",
+            std::option::none(),
+            ctx
+        );
+        let (kan_cap, kan_meta) = coin::create_currency(
+            KAN_MOCK {},
+            6,
+            b"KANM",
+            b"KAN mock",
+            b"runtime test faucet",
+            std::option::none(),
+            ctx
+        );
+        let sender = tx_context::sender(ctx);
+        transfer::public_transfer(usd_cap, sender);
+        transfer::public_transfer(kan_cap, sender);
+        transfer::public_freeze_object(usd_meta);
+        transfer::public_freeze_object(kan_meta);
+    }
+
+    /// Faucet: mint `amount` of USD_MOCK to the transaction sender.
+    public entry fun mint_usd_mock(
+        cap: &mut coin::TreasuryCap<USD_MOCK>,
+        amount: u64,
+        ctx: &mut TxContext,
+    ) {
+        let minted = coin::mint(cap, amount, ctx);
+        transfer::public_transfer(minted, tx_context::sender(ctx));
+    }
+
+    /// Faucet: mint `amount` of KAN_MOCK to the transaction sender.
+    public entry fun mint_kan_mock(
+        cap: &mut coin::TreasuryCap<KAN_MOCK>,
+        amount: u64,
+        ctx: &mut TxContext,
+    ) {
+        let minted = coin::mint(cap, amount, ctx);
+        transfer::public_transfer(minted, tx_context::sender(ctx));
     }
 
     /// Create an empty `X`/`Y` pool owned by the sender.
@@ -84,7 +125,7 @@ module tester::uniswap_amm {
         pool: &mut Pool<X, Y>,
         coin_x: &mut Coin<X>,
         coin_y: &mut Coin<Y>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         let amount_x = coin::value(coin_x);
@@ -133,7 +174,7 @@ module tester::uniswap_amm {
         pool: &mut Pool<X, Y>,
         coin_in: &mut Coin<X>,
         min_out: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         let amount_in = coin::value(coin_in);
@@ -163,7 +204,9 @@ module tester::uniswap_amm {
     /// parameters through the explicit list) consumes it before the pool binds
     /// through the raw object-id path.
     public entry fun remove_liquidity<X, Y>(
-        receipt: Receipt, pool: &mut Pool<X, Y>, ctx: &mut TxContext
+        receipt: Receipt,
+        pool: &mut Pool<X, Y>,
+        ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         let Receipt { id, shares } = receipt;
@@ -224,4 +267,3 @@ module tester::uniswap_amm {
         (amount_out as u64)
     }
 }
-

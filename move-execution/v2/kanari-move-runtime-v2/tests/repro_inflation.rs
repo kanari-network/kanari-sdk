@@ -10,9 +10,11 @@ fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
 }
 
 fn canonical_object_id(object_id: &str) -> String {
-    AccountAddress::from_hex_literal(object_id)
-        .invariant("object id should be valid hex")
-        .to_hex_literal()
+    // Full 32-byte form, matching the runtime canonicalization: leading
+    // zeros are preserved so every keying path agrees on one id string.
+    let addr =
+        AccountAddress::from_hex_literal(object_id).invariant("object id should be valid hex");
+    format!("0x{:0>64}", addr.short_str_lossless())
 }
 
 #[test]

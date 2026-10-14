@@ -30,7 +30,7 @@
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_borrow_address">borrow_address</a>(s: &<a href="../../dependencies/move-stdlib/signer.md#0x1_signer">signer</a>): &<b>address</b>;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_borrow_address">borrow_address</a>(s: &<a href="../../dependencies/move-stdlib/signer.md#0x1_signer">signer</a>): &<b>address</b>;
 </code></pre>
 
 
@@ -79,7 +79,7 @@ projection, not an injection -- do not use it as a unique key.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_address_to_u64">address_to_u64</a>(a: <b>address</b>): u64;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_address_to_u64">address_to_u64</a>(a: <b>address</b>): u64;
 </code></pre>
 
 
@@ -103,7 +103,7 @@ Converts an <code><b>address</b></code> to its 32-byte big-endian representation
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_address_to_bytes">address_to_bytes</a>(a: <b>address</b>): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_address_to_bytes">address_to_bytes</a>(a: <b>address</b>): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 

@@ -15,8 +15,8 @@
 ///   chain learns nothing linkable beyond the public inputs (e.g. the
 ///   derived address).
 module kanari_system::zklogin {
-    use kanari_system::tx_context::{Self, TxContext};
     use std::vector;
+    use kanari_system::tx_context::{Self, TxContext};
 
     #[allow(unused_const)]
     /// JWT malformed or failed to parse.

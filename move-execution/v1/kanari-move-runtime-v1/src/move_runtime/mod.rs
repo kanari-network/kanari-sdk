@@ -42,6 +42,7 @@ use move_vm_runtime::native_extensions::NativeContextExtensions;
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_runtime::session::Session;
 use sha3::{Digest, Sha3_256};
+mod deny_enforcement;
 mod gas_ops;
 mod helpers;
 pub mod load_system_modules;
@@ -114,6 +115,8 @@ struct SessionNativeOutputs {
     deleted: Vec<DeletedObject>,
     dynamic_fields: Vec<DynamicFieldOp>,
     borrowed: Vec<BorrowedObject>,
+    witness_claims: std::collections::BTreeSet<String>,
+    child_links: Vec<(String, Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl SessionNativeOutputs {
@@ -125,6 +128,12 @@ impl SessionNativeOutputs {
             deleted: exts.get_mut::<DeletedObjectsExt>().take_all(),
             dynamic_fields: exts.get_mut::<DynamicFieldsExt>().take_all(),
             borrowed: exts.get_mut::<BorrowedObjectsExt>().take_all(),
+            witness_claims: exts
+                .get_mut::<kanari_system_natives::types::ClaimedWitnessesExt>()
+                .take_pending(),
+            child_links: exts
+                .get_mut::<kanari_system_natives::child::ChildIndexExt>()
+                .take_pending(),
         }
     }
 
@@ -302,6 +311,32 @@ impl ExecutionOptions {
         self.bypass_entry_check = true;
         self
     }
+}
+
+/// Mirror of `kanari_system::deny_list` storage structs for genesis
+/// construction. Field order must match the Move declarations.
+#[derive(serde::Serialize)]
+struct GenesisBag {
+    id: UIDRecord,
+    size: u64,
+}
+
+#[derive(serde::Serialize)]
+struct GenesisTable {
+    id: UIDRecord,
+    size: u64,
+}
+
+#[derive(serde::Serialize)]
+struct GenesisPerTypeList {
+    id: UIDRecord,
+    denied_count: GenesisTable,
+}
+
+#[derive(serde::Serialize)]
+struct GenesisDenyList {
+    id: UIDRecord,
+    lists: GenesisBag,
 }
 
 impl MoveRuntime {
@@ -1234,10 +1269,21 @@ impl MoveRuntime {
             deleted,
             dynamic_fields,
             borrowed,
+            witness_claims,
+            child_links,
         } = SessionNativeOutputs::drain(session.get_native_extensions());
 
-        self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
+        self.add_transferred_objects_to_changeset(
+            cs,
+            transferred,
+            false,
+            None,
+            &dynamic_fields,
+            Some(publisher),
+        )?;
         SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);
+        self.persist_witness_claims(witness_claims)?;
+        self.persist_child_links(child_links)?;
 
         let empty_mutables: Vec<LoadedMutableObject> = Vec::new();
         let mut processed_ids = HashSet::new();
@@ -1508,8 +1554,13 @@ impl MoveRuntime {
         data: Vec<u8>,
         source: &str,
     ) -> Result<()> {
-        let (owner, owner_kind, version) =
-            self.resolve_saved_owner_metadata(loaded_mutable_objects, object_id)?;
+        let Some((owner, owner_kind, version)) =
+            self.resolve_saved_owner_metadata(loaded_mutable_objects, object_id)?
+        else {
+            // Unknown (embedded) value: intentionally not persisted. See
+            // `resolve_saved_owner_metadata`.
+            return Ok(());
+        };
         self.upsert_created_object(
             cs,
             owner,
@@ -1573,27 +1624,33 @@ impl MoveRuntime {
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> anyhow::Result<(
-        AccountAddress,
-        kanari_types::transaction::ObjectOwnerKind,
-        u64,
-    )> {
+    ) -> anyhow::Result<
+        Option<(
+            AccountAddress,
+            kanari_types::transaction::ObjectOwnerKind,
+            u64,
+        )>,
+    > {
         if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
             .iter()
             .find(|(_, id, _, _, _, _)| id == object_id)
         {
-            return Ok((*owner, owner_kind.clone(), *version + 1));
+            return Ok(Some((*owner, owner_kind.clone(), *version + 1)));
         }
         if let Some(stored) = self.object_storage.get_object(object_id)? {
-            return Ok((stored.owner, stored.owner_kind, stored.version + 1));
+            return Ok(Some((stored.owner, stored.owner_kind, stored.version + 1)));
         }
-        Ok((
-            AccountAddress::ZERO,
-            kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                AccountAddress::ZERO.to_hex_literal(),
-            ),
-            1,
-        ))
+        // Unknown id: this is a `save_object` on an embedded (non-standalone)
+        // value, e.g. a coin nested inside a wallet. Persisting it would
+        // fabricate a ZERO-owned ghost duplicate alongside the real parent
+        // object (which carries the embedded bytes itself), so skip it.
+        // Genuine top-level objects always resolve through a declared input
+        // (transfer/save paths) or existing storage.
+        log::debug!(
+            "[RUNTIME] Skipping save of unknown object id {} (embedded value?)",
+            object_id
+        );
+        Ok(None)
     }
 
     fn build_created_object(
@@ -1657,6 +1714,21 @@ impl MoveRuntime {
         for obj_id in &cs.deleted_objects {
             self.object_storage
                 .delete_object(obj_id)
+                .map_err(anyhow::Error::new)?;
+        }
+        // A deleted parent must not leave its child-index entry behind:
+        // drop the whole per-parent link list (children themselves are
+        // unaffected — only the index entry goes).
+        let mut deletes = Vec::with_capacity(cs.deleted_objects.len());
+        for obj_id in &cs.deleted_objects {
+            let full =
+                crate::common::ids::canonical_object_id(obj_id).unwrap_or_else(|| obj_id.clone());
+            deletes.push(kanari_system_natives::child::children_key(&full));
+        }
+        if !deletes.is_empty() {
+            self.state
+                .store()
+                .apply_raw_changes(&[], &deletes)
                 .map_err(anyhow::Error::new)?;
         }
         Ok(())
@@ -1768,6 +1840,90 @@ impl MoveRuntime {
         self.persist_created_objects(&changeset)?;
         self.persist_deleted_objects(&changeset)?;
         state.set_system_clock_object_id(addr)?;
+        Ok(addr)
+    }
+
+    /// Well-known object id of the shared deny-list singleton (Sui parity:
+    /// Sui uses `0x403`). Fixed so transfer-time enforcement can find it
+    /// without discovery.
+    pub const DENY_LIST_OBJECT_ID_SHORT: &str = "0x403";
+
+    /// The fixed deny-list id in full 32-byte canonical form.
+    pub fn deny_list_object_id() -> String {
+        format!("0x{:0>64}", "403")
+    }
+
+    /// Derive a genesis child-object id the same way `tx_context::derive_id`
+    /// does: `Sha3_256(blake3(seed) || counter_le)`.
+    fn derive_genesis_object_id(seed: &[u8], counter: u64) -> Result<AccountAddress> {
+        let genesis_tx_hash = hash_data_blake3(seed);
+        let mut hasher = Sha3_256::new();
+        hasher.update(genesis_tx_hash);
+        hasher.update(counter.to_le_bytes());
+        let digest = hasher.finalize();
+        AccountAddress::from_bytes(&digest[..AccountAddress::LENGTH])
+            .context("Failed to derive genesis object id")
+    }
+
+    /// Ensure the shared deny-list singleton exists at its fixed id,
+    /// creating it via runtime insertion (Move `object::new` cannot target
+    /// an address). Idempotent: an existing entry is left untouched.
+    pub fn ensure_deny_list(&self, state: &mut StateManager) -> Result<AccountAddress> {
+        let addr = AccountAddress::from_hex_literal(Self::DENY_LIST_OBJECT_ID_SHORT)
+            .context("Invalid fixed deny-list object id")?;
+        let id_str = Self::deny_list_object_id();
+        if state.get_object(&id_str)?.is_some() {
+            return Ok(addr);
+        }
+
+        let seed = b"KANARI::GENESIS::DENYLIST";
+        let bag_id = Self::derive_genesis_object_id(seed, 1)?;
+        let list_id = Self::derive_genesis_object_id(seed, 2)?;
+        let table_id = Self::derive_genesis_object_id(seed, 3)?;
+
+        let deny_list = GenesisDenyList {
+            id: UIDRecord::new(addr),
+            lists: GenesisBag {
+                id: UIDRecord::new(bag_id),
+                size: 1,
+            },
+        };
+        // The bag entry (COIN_INDEX -> PerTypeList) lives as a dynamic
+        // field, exactly as Move `bag::add` would record it: the count
+        // table starts empty and entries arrive via `deny_list_add`.
+        let per_type_list = GenesisPerTypeList {
+            id: UIDRecord::new(list_id),
+            denied_count: GenesisTable {
+                id: UIDRecord::new(table_id),
+                size: 0,
+            },
+        };
+
+        let deny_type = format!(
+            "{}::deny_list::DenyList",
+            KanariAddress::kanari_system_account_address().to_hex_literal()
+        );
+        let mut changeset = ChangeSet::new();
+        changeset.created_objects.push((
+            id_str,
+            crate::changeset::CreatedObject {
+                owner: AccountAddress::ZERO,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::Shared,
+                uid: Some(deny_list.id.clone()),
+                id: None,
+                type_: deny_type,
+                data: bcs::to_bytes(&deny_list).context("Failed to encode deny list")?,
+                version: 1,
+            },
+        ));
+        changeset.added_dynamic_fields.push((
+            format!("0x{}", hex::encode(bag_id.as_ref())),
+            0u64.to_le_bytes().to_vec(),
+            bcs::to_bytes(&per_type_list).context("Failed to encode per-type list")?,
+        ));
+        state.apply_changeset_without_supply_validation(&changeset)?;
+        self.persist_created_objects(&changeset)?;
+        self.persist_deleted_objects(&changeset)?;
         Ok(addr)
     }
 
@@ -2113,6 +2269,10 @@ impl MoveRuntime {
             }
         }
 
+        // Denied owners may not use regulated coins as mutable inputs
+        // (split/join/burn/...), not just receive them.
+        self.enforce_coin_inputs(&loaded_mutable_objects, state_overlay.as_ref())?;
+
         // Extensions are already added by create_session_with_storage_ext() - no need to add again
         let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
         let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
@@ -2156,6 +2316,8 @@ impl MoveRuntime {
                     deleted: native_deleted,
                     dynamic_fields: native_dynamic_fields,
                     borrowed,
+                    witness_claims,
+                    child_links,
                 } = SessionNativeOutputs::drain(session.get_native_extensions());
 
                 let (res, _) = session.finish();
@@ -2209,6 +2371,8 @@ impl MoveRuntime {
                     transferred,
                     persist_runtime_state,
                     state_overlay.as_ref(),
+                    &native_dynamic_fields,
+                    sender,
                 )?;
 
                 SessionNativeOutputs::apply_simple_effects(
@@ -2234,6 +2398,8 @@ impl MoveRuntime {
                     self.apply_move_changeset(move_changeset)?;
                     self.persist_created_objects(&cs)?;
                     self.persist_deleted_objects(&cs)?;
+                    self.persist_witness_claims(witness_claims)?;
+                    self.persist_child_links(child_links)?;
                 }
 
                 let reads = match resolver_trace.lock() {
@@ -2283,11 +2449,13 @@ impl MoveRuntime {
         // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext(state_overlay));
+        extensions.add(self.dynamic_field_storage_ext(state_overlay.clone()));
         extensions.add(EventsExt::default());
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
         extensions.add(TransferredObjectsExt::default());
+        extensions.add(self.witness_claims_ext(state_overlay.clone()));
+        extensions.add(self.child_index_ext(state_overlay));
 
         // Track objects loaded and mutated through object native functions.
         extensions.add(LoadedObjectsExt::default());

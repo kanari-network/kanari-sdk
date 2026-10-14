@@ -395,6 +395,15 @@ impl StateManager {
                 .context("Failed to persist rebuilt derived indexes on startup")?;
         }
 
+        if state
+            .repair_short_object_ids_on_startup()
+            .context("Failed to migrate short object ids on startup")?
+        {
+            state
+                .commit()
+                .context("Failed to persist migrated object ids on startup")?;
+        }
+
         let wallet_supply_index_version = state
             .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
             .unwrap_or(0);

@@ -1,6 +1,5 @@
 // Kanari Labs NFT Module - Universal Standard Version
 module james::nft {
-
     use std::string::{String, utf8};
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
@@ -10,12 +9,11 @@ module james::nft {
     use kanari_system::object::UID;
     use kanari_system::collection;
     use kanari_system::event;
-    /// โครงสร้างสำหรับระบุความเป็นเจ้าของ (One-Time Witness)
 
+    /// โครงสร้างสำหรับระบุความเป็นเจ้าของ (One-Time Witness)
     struct NFT has drop {}
 
     /// โครงสร้าง NFT แบบมาตรฐานครอบจักรวาล
-
     struct KariKid has key, store {
         /// 1. ID ของวัตถุ (UID),
         id: UID,
@@ -36,7 +34,6 @@ module james::nft {
     }
 
     /// Event สำหรับการ Mint
-
     struct MintLog has copy, drop {
         object_id: address,
         creator: address,
@@ -46,10 +43,8 @@ module james::nft {
     const MAX_SUPPLY: u64 = 2000;
 
     #[allow(unused_function)]
-
     /// ฟังก์ชันสร้างคอลเลกชัน รันครั้งเดียวตอน publish โดย runtime
     /// (ไม่รันซ้ำตอน upgrade) โดยผู้ publish ได้รับ Collection และ NftCap
-
     public fun init(_otw: NFT, ctx: &mut TxContext) {
         let name = b"KariKid Collection";
         let description = b"The first official standardized NFT on Kanari Network.";
@@ -73,7 +68,6 @@ module james::nft {
 
     /// Replaces collection artwork without recreating the collection. Only the
     /// original collection creator is authorized by collection::update_metadata.
-
     public entry fun update_collection_metadata(
         coll: &mut collection::Collection,
         banner: vector<u8>,
@@ -84,7 +78,6 @@ module james::nft {
     }
 
     /// ฟังก์ชัน Mint ตามมาตรฐานสากล
-
     public entry fun mint(
         cap: &mut collection::NftCap,
         name: vector<u8>,
@@ -119,13 +112,13 @@ module james::nft {
     }
 
     /// การทำลาย NFT (Burn)
-
     public entry fun burn(
         cap: &mut collection::NftCap,
+        coll: &collection::Collection,
         nft: KariKid,
         _: &mut TxContext,
     ) {
-        collection::return_from_burn(cap);
+        collection::return_from_burn(cap, coll);
         let KariKid {
             id,
             name: _,
@@ -141,7 +134,6 @@ module james::nft {
     }
 
     /// การโอน NFT
-
     public entry fun transfer(
         nft: KariKid,
         recipient: address,
@@ -151,7 +143,6 @@ module james::nft {
     }
 
     /// อัปเดตคุณสมบัติ (Attributes)
-
     public entry fun update_attributes(
         nft: &mut KariKid,
         attribute_keys: vector<String>,

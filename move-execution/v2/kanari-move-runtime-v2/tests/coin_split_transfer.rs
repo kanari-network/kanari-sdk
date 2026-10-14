@@ -26,7 +26,6 @@ mod move_manifest;
 
 const TESTER_ADDR: &str = "0x4c";
 const MODULE_NAME: &str = "coin_split_transfer";
-const MOCK_TYPE: &str = "0x4c::coin_split_transfer::MOCK";
 const SYSTEM_PAY_ADDR: &str = "0x2";
 
 const MINT_AMOUNT: u64 = 1_000;
@@ -53,14 +52,25 @@ fn split_and_transfer_separates_objects() -> Result<()> {
         .publish_module(module_bytes, sender, None, None)
         .context("publish coin_split_transfer module")?;
 
-    // Faucet a single coin of MINT_AMOUNT to the sender.
+    // Create the test currency once (further creates abort), then faucet
+    // a single coin of MINT_AMOUNT to the sender.
+    let setup = entry(
+        &runtime,
+        &module_id,
+        "setup_currency",
+        vec![],
+        vec![],
+        vec![],
+        &mut nonce,
+    )?;
+    let cap = find_created(&setup, |t| t.contains("TreasuryCap"))?;
     let mint = entry(
         &runtime,
         &module_id,
         "mint",
         vec![],
-        vec![bcs::to_bytes(&MINT_AMOUNT)?],
-        vec![],
+        vec![object_arg(&cap.id)?, bcs::to_bytes(&MINT_AMOUNT)?],
+        vec![owned_input(&cap.id, sender, true)],
         &mut nonce,
     )?;
     let minted = find_created(&mint, |t| t.contains("coin::Coin") && t.contains("MOCK"))?;
@@ -157,13 +167,23 @@ fn system_pay_split_and_transfer_separates_objects() -> Result<()> {
         .publish_module(module_bytes, sender, None, None)
         .context("publish coin_split_transfer module")?;
 
+    let setup = entry(
+        &runtime,
+        &module_id,
+        "setup_currency",
+        vec![],
+        vec![],
+        vec![],
+        &mut nonce,
+    )?;
+    let cap = find_created(&setup, |t| t.contains("TreasuryCap"))?;
     let mint = entry(
         &runtime,
         &module_id,
         "mint",
         vec![],
-        vec![bcs::to_bytes(&MINT_AMOUNT)?],
-        vec![],
+        vec![object_arg(&cap.id)?, bcs::to_bytes(&MINT_AMOUNT)?],
+        vec![owned_input(&cap.id, sender, true)],
         &mut nonce,
     )?;
     let minted = find_created(&mint, |t| t.contains("coin::Coin") && t.contains("MOCK"))?;

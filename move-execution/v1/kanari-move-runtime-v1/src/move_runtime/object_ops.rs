@@ -18,9 +18,15 @@ impl super::MoveRuntime {
         transferred: Vec<TransferredObject>,
         persist_runtime_state: bool,
         state_overlay: crate::StateOverlayView<'_>,
+        pending_fields: &[kanari_system_natives::dynamic_field::DynamicFieldOp],
+        sender: Option<move_core_types::account_address::AccountAddress>,
     ) -> anyhow::Result<()> {
         let count = transferred.len();
         debug!("Processing {} transferred objects", count);
+
+        // Regulated-coin enforcement runs before anything is recorded, so a
+        // denied transfer persists nothing.
+        self.enforce_coin_deny_list(&transferred, pending_fields, state_overlay, sender)?;
 
         for obj in transferred {
             let id = obj.object_id;
@@ -63,19 +69,23 @@ impl super::MoveRuntime {
                 .as_ref()
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
-            let owner_kind = existing
-                .map(|existing| existing.owner_kind)
-                .unwrap_or_else(|| {
-                    if obj.is_frozen {
-                        kanari_types::transaction::ObjectOwnerKind::Immutable
-                    } else if obj.is_shared {
-                        kanari_types::transaction::ObjectOwnerKind::Shared
-                    } else {
+            // Freeze/share flags describe the object's *new* semantics and must
+            // override whatever owner kind it had before; otherwise freezing an
+            // already-persisted object would silently keep it address-owned and
+            // mutable. Only a plain transfer preserves the previous owner kind.
+            let owner_kind = if obj.is_frozen {
+                kanari_types::transaction::ObjectOwnerKind::Immutable
+            } else if obj.is_shared {
+                kanari_types::transaction::ObjectOwnerKind::Shared
+            } else {
+                existing
+                    .map(|existing| existing.owner_kind)
+                    .unwrap_or_else(|| {
                         kanari_types::transaction::ObjectOwnerKind::AddressOwner(
                             owner.to_hex_literal(),
                         )
-                    }
-                });
+                    })
+            };
 
             if persist_runtime_state {
                 let stored_obj = StoredObject {

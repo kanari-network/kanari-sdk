@@ -50,6 +50,13 @@ pub struct DynamicFieldScenario {
     pub read_fn: &'static str,
     /// View function reporting whether a field exists.
     pub has_fn: &'static str,
+    /// View function reporting whether the field's value type matches (typed
+    /// child queries). `None` for modules without typed views.
+    pub typed_fn: Option<&'static str>,
+    /// View function probing a wrong value type; must read false while live.
+    pub wrong_typed_fn: Option<&'static str>,
+    /// View function reporting whether the child's ID resolves.
+    pub id_known_fn: Option<&'static str>,
     /// Field key driven through every call.
     pub key: u64,
     /// Value written by `add_fn` and asserted by the first read.
@@ -114,6 +121,30 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
         .context("read persisted field value")?;
     assert_eq!(read_before_update, JsonValue::from(scenario.initial_value));
 
+    // Typed child queries against cold storage: exact type matches, a wrong
+    // `key` type reports false, and the child ID resolves.
+    if let Some(typed_fn) = scenario.typed_fn {
+        let is_typed = view(&second_runtime, scenario, &module_id, &host_id, typed_fn)
+            .context("check persisted field type")?;
+        assert_eq!(is_typed, JsonValue::from(1u64));
+    }
+    if let Some(wrong_typed_fn) = scenario.wrong_typed_fn {
+        let is_wrong_typed = view(
+            &second_runtime,
+            scenario,
+            &module_id,
+            &host_id,
+            wrong_typed_fn,
+        )
+        .context("check wrong field type reports false")?;
+        assert_eq!(is_wrong_typed, JsonValue::from(0u64));
+    }
+    if let Some(id_known_fn) = scenario.id_known_fn {
+        let id_known = view(&second_runtime, scenario, &module_id, &host_id, id_known_fn)
+            .context("check persisted child id resolves")?;
+        assert_eq!(id_known, JsonValue::from(1u64));
+    }
+
     let update_changes = call_with_host(
         &second_runtime,
         &module_id,
@@ -159,6 +190,18 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     )
     .context("check field absence after remove")?;
     assert_eq!(exists_after_remove, JsonValue::from(0u64));
+
+    // Typed queries join `exists` in reporting absence after removal.
+    if let Some(typed_fn) = scenario.typed_fn {
+        let typed_after_remove = view(&fourth_runtime, scenario, &module_id, &host_id, typed_fn)
+            .context("check field type absence after remove")?;
+        assert_eq!(typed_after_remove, JsonValue::from(0u64));
+    }
+    if let Some(id_known_fn) = scenario.id_known_fn {
+        let id_after_remove = view(&fourth_runtime, scenario, &module_id, &host_id, id_known_fn)
+            .context("check child id absence after remove")?;
+        assert_eq!(id_after_remove, JsonValue::from(0u64));
+    }
 
     Ok(())
 }

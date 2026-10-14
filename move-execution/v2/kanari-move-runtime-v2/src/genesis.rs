@@ -126,6 +126,10 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
         .ensure_system_clock(state)
         .context("Failed to initialize system clock during genesis")?;
     log::info!("System clock initialized");
+    runtime
+        .ensure_deny_list(state)
+        .context("Failed to initialize deny list during genesis")?;
+    log::info!("Deny list initialized");
     log::info!("=== Genesis initialization complete ===");
 
     // Commit the accumulated genesis overlay to persistent storage.

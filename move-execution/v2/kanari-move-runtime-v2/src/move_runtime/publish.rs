@@ -445,9 +445,18 @@ impl MoveRuntime {
             deleted,
             dynamic_fields,
             borrowed,
+            witness_claims,
+            child_links,
         } = SessionNativeOutputs::drain(session.get_native_extensions());
 
-        self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
+        self.add_transferred_objects_to_changeset(
+            cs,
+            transferred,
+            false,
+            None,
+            &dynamic_fields,
+            Some(publisher),
+        )?;
         SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);
 
         let empty_mutables: Vec<LoadedMutableObject> = Vec::new();
@@ -461,6 +470,8 @@ impl MoveRuntime {
             "init-borrowed",
             &mut processed_ids,
         )?;
+        self.persist_witness_claims(witness_claims)?;
+        self.persist_child_links(child_links)?;
         Ok(())
     }
 

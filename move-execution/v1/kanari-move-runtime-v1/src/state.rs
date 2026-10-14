@@ -542,6 +542,15 @@ impl StateManager {
                 .context("Failed to persist rebuilt derived indexes on startup")?;
         }
 
+        if state
+            .repair_short_object_ids_on_startup()
+            .context("Failed to migrate short object ids on startup")?
+        {
+            state
+                .commit()
+                .context("Failed to persist migrated object ids on startup")?;
+        }
+
         let wallet_supply_index_version = state
             .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
             .unwrap_or(0);
@@ -843,6 +852,88 @@ impl StateManager {
             }
         }
 
+        Ok(changed)
+    }
+
+    /// Rewrite pre-canonical short object ids (`0xabcd`) to full 32-byte
+    /// form everywhere they can appear as keys or list entries: `object:`
+    /// records, `df:`/`children:` dynamic records, the `object_index`, and
+    /// `owned_objects:` lists. Idempotent: full-form entries are untouched.
+    /// On key conflicts the full-form entry wins (canonical going forward).
+    pub(crate) fn repair_short_object_ids_on_startup(&mut self) -> Result<bool> {
+        fn full_id(id: &str) -> Option<String> {
+            match canonical_object_id(id) {
+                Some(full) if full != id => Some(full),
+                _ => None,
+            }
+        }
+
+        let entries = self
+            .store
+            .logical_entries()
+            .context("Failed to read state entries for id repair")?;
+        let mut changed = false;
+        for (key, value) in entries {
+            // Object records: `object:{id}`.
+            if let Some(id_bytes) = key.strip_prefix(b"object:") {
+                if let Ok(id) = String::from_utf8(id_bytes.to_vec())
+                    && let Some(full) = full_id(&id)
+                {
+                    log::warn!("[StateManager] Migrating short object id {id} to full form");
+                    let mut new_key = b"object:".to_vec();
+                    new_key.extend_from_slice(full.as_bytes());
+                    self.overlay.insert(new_key, Some(value));
+                    self.overlay.insert(key, None);
+                    changed = true;
+                }
+                continue;
+            }
+            // Dynamic-field records: `df:{id}:{hash}`.
+            if let Some(rest) = key.strip_prefix(b"df:") {
+                if let Some(colon) = rest.iter().rposition(|b| *b == b':')
+                    && let Ok(id) = String::from_utf8(rest[..colon].to_vec())
+                    && let Some(full) = full_id(&id)
+                {
+                    let mut new_key = b"df:".to_vec();
+                    new_key.extend_from_slice(full.as_bytes());
+                    new_key.extend_from_slice(&rest[colon..]);
+                    self.overlay.insert(new_key, Some(value));
+                    self.overlay.insert(key, None);
+                    changed = true;
+                }
+                continue;
+            }
+            // Child-index records: `children:{parent}`.
+            if let Some(parent) = key.strip_prefix(b"children:") {
+                if let Ok(id) = String::from_utf8(parent.to_vec())
+                    && let Some(full) = full_id(&id)
+                {
+                    let mut new_key = b"children:".to_vec();
+                    new_key.extend_from_slice(full.as_bytes());
+                    self.overlay.insert(new_key, Some(value));
+                    self.overlay.insert(key, None);
+                    changed = true;
+                }
+                continue;
+            }
+            // Id lists: `object_index` and `owned_objects:*`.
+            if key == b"object_index" || key.starts_with(b"owned_objects:") {
+                if let Ok(mut ids) = bcs::from_bytes::<Vec<String>>(&value) {
+                    let mut fixed = false;
+                    for id in ids.iter_mut() {
+                        if let Some(full) = full_id(id) {
+                            *id = full;
+                            fixed = true;
+                        }
+                    }
+                    if fixed {
+                        self.save_internal(&key, &ids)?;
+                        changed = true;
+                    }
+                }
+                continue;
+            }
+        }
         Ok(changed)
     }
 

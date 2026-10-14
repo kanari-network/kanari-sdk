@@ -1,6 +1,5 @@
 module tester::coin_split_transfer {
-    use kanari_system::balance;
-    use kanari_system::coin::{Self, Coin};
+    use kanari_system::coin::{Self, Coin, TreasuryCap};
     use kanari_system::transfer;
     use kanari_system::tx_context::{Self, TxContext};
 
@@ -8,10 +7,27 @@ module tester::coin_split_transfer {
     /// and is never deployed.
     struct MOCK has drop {}
 
+    /// Create the test currency once per chain. Further creates abort
+    /// (one canonical currency per coin type); the mint cap goes to the
+    /// sender for later faucet calls.
+    public entry fun setup_currency(ctx: &mut TxContext) {
+        let (cap, meta) = coin::create_currency(
+            MOCK {},
+            6,
+            b"MOCK",
+            b"Mock coin",
+            b"runtime test faucet",
+            std::option::none(),
+            ctx
+        );
+        transfer::public_transfer(cap, tx_context::sender(ctx));
+        transfer::public_freeze_object(meta);
+    }
+
     /// Faucet: mint `amount` of `MOCK` to the transaction sender.
-    public entry fun mint(amount: u64, ctx: &mut TxContext) {
-        let coin = coin::from_balance(balance::create<MOCK>(amount), ctx);
-        transfer::public_transfer(coin, tx_context::sender(ctx));
+    public entry fun mint(cap: &mut TreasuryCap<MOCK>, amount: u64, ctx: &mut TxContext) {
+        let minted = coin::mint(cap, amount, ctx);
+        transfer::public_transfer(minted, tx_context::sender(ctx));
     }
 
     /// Mirrors `kanari_system::pay::split_and_transfer`: split `amount` off

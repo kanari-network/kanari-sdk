@@ -3,7 +3,13 @@
 
 //! Internal helper functions for Move execution.
 
+use kanari_system_natives::child::{
+    ChildIndexExt, ChildIndexResolver, ChildLinkOps, ChildLinks, children_key,
+};
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
+use kanari_system_natives::types::{
+    CLAIMED_WITNESSES_KEY, ClaimedWitnessesExt, WitnessClaimResolver,
+};
 use kanari_types::coin::CoinModule;
 use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 
@@ -44,10 +50,57 @@ impl DynamicFieldResolver for RuntimeDynamicFieldResolver {
     }
 }
 
+struct RuntimeWitnessClaimResolver {
+    store: Arc<crate::storage::persistent_store::PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
+}
+
+impl WitnessClaimResolver for RuntimeWitnessClaimResolver {
+    fn claimed_witnesses(&self) -> Result<Vec<String>, String> {
+        if let Some(value) = self
+            .overlay
+            .as_ref()
+            .and_then(|overlay| overlay.get(CLAIMED_WITNESSES_KEY))
+        {
+            return match value {
+                Some(bytes) => bcs::from_bytes(bytes)
+                    .map_err(|error| format!("overlay witness-claim decode failed: {error}")),
+                None => Ok(Vec::new()),
+            };
+        }
+        self.store
+            .load::<Vec<String>>(CLAIMED_WITNESSES_KEY)
+            .map(|opt| opt.unwrap_or_default())
+            .map_err(|error| format!("persistent witness-claim read failed: {error}"))
+    }
+}
+
 /// Size of a Move object UID in bytes (address)
 const UID_SIZE: usize = 32;
 /// Size of a u64 field in bytes
 const U64_SIZE: usize = 8;
+
+struct RuntimeChildIndexResolver {
+    store: Arc<crate::storage::persistent_store::PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
+}
+
+impl ChildIndexResolver for RuntimeChildIndexResolver {
+    fn child_links(&self, parent_hex: &str) -> Result<ChildLinks, String> {
+        let key = children_key(parent_hex);
+        if let Some(value) = self.overlay.as_ref().and_then(|overlay| overlay.get(&key)) {
+            return match value {
+                Some(bytes) => bcs::from_bytes(bytes)
+                    .map_err(|error| format!("overlay child-index decode failed: {error}")),
+                None => Ok(Vec::new()),
+            };
+        }
+        self.store
+            .load::<ChildLinks>(&key)
+            .map(|opt| opt.unwrap_or_default())
+            .map_err(|error| format!("persistent child-index read failed: {error}"))
+    }
+}
 
 impl super::MoveRuntime {
     pub(crate) fn dynamic_field_storage_ext(
@@ -58,6 +111,96 @@ impl super::MoveRuntime {
             store: self.state.store(),
             overlay,
         }))
+    }
+
+    pub(crate) fn witness_claims_ext(
+        &self,
+        overlay: Option<crate::StateOverlay>,
+    ) -> ClaimedWitnessesExt {
+        ClaimedWitnessesExt::new(Arc::new(RuntimeWitnessClaimResolver {
+            store: self.state.store(),
+            overlay,
+        }))
+    }
+
+    /// Merge freshly claimed witness types into the durable registry.
+    pub(crate) fn persist_witness_claims(
+        &self,
+        pending: std::collections::BTreeSet<String>,
+    ) -> anyhow::Result<()> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let store = self.state.store();
+        let guard = store.transaction_guard();
+        let mut claimed: std::collections::BTreeSet<String> = store
+            .load::<Vec<String>>(CLAIMED_WITNESSES_KEY)
+            .map_err(|error| anyhow::anyhow!("witness claim registry read failed: {error}"))?
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        claimed.extend(pending);
+        let vec: Vec<String> = claimed.into_iter().collect();
+        store
+            .apply_raw_changes(
+                &[(
+                    CLAIMED_WITNESSES_KEY.to_vec(),
+                    bcs::to_bytes(&vec)
+                        .map_err(|error| anyhow::anyhow!("witness claim encode failed: {error}"))?,
+                )],
+                &[],
+            )
+            .map_err(|error| anyhow::anyhow!("witness claim persist failed: {error}"))?;
+        drop(guard);
+        Ok(())
+    }
+
+    pub(crate) fn child_index_ext(&self, overlay: Option<crate::StateOverlay>) -> ChildIndexExt {
+        ChildIndexExt::new(Arc::new(RuntimeChildIndexResolver {
+            store: self.state.store(),
+            overlay,
+        }))
+    }
+
+    /// Merge freshly recorded child links into the durable per-parent index.
+    pub(crate) fn persist_child_links(
+        &self,
+        pending: Vec<(String, Vec<u8>, Option<Vec<u8>>)>,
+    ) -> anyhow::Result<()> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let mut by_parent: std::collections::BTreeMap<String, ChildLinkOps> =
+            std::collections::BTreeMap::new();
+        for (parent, name, child) in pending {
+            by_parent.entry(parent).or_default().push((name, child));
+        }
+        let store = self.state.store();
+        let guard = store.transaction_guard();
+        let mut updates = Vec::with_capacity(by_parent.len());
+        for (parent, ops) in by_parent {
+            let key = children_key(&parent);
+            let mut pairs: ChildLinks = store
+                .load::<ChildLinks>(&key)
+                .map_err(|error| anyhow::anyhow!("child index read failed: {error}"))?
+                .unwrap_or_default();
+            for (name, child) in ops {
+                pairs.retain(|(existing, _)| existing != &name);
+                if let Some(child) = child {
+                    pairs.push((name, child));
+                }
+            }
+            updates.push((
+                key,
+                bcs::to_bytes(&pairs)
+                    .map_err(|error| anyhow::anyhow!("child index encode failed: {error}"))?,
+            ));
+        }
+        store
+            .apply_raw_changes(&updates, &[])
+            .map_err(|error| anyhow::anyhow!("child index persist failed: {error}"))?;
+        drop(guard);
+        Ok(())
     }
 
     pub(crate) fn get_object_for_execution(
