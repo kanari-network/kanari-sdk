@@ -238,6 +238,43 @@ fn discover_embedded_modules(
         .collect()
 }
 
+/// Fail closed (instead of panicking inside the vendored verifier's
+/// `dependency_map.get(..).unwrap()`) when the modules discovered on disk
+/// do not cover every immediate dependency — typically a torn read from a
+/// concurrent framework rebuild (`move test`/`move build` rewriting the
+/// shared `bytecode_modules` dir) or an env override pointing at a stale
+/// dir. Callers surface this as a descriptive error; retry once the
+/// rebuild settles.
+fn ensure_dependencies_discovered(
+    modules: &[DiscoveredModule],
+    extra_deps: &[&CompiledModule],
+    context: &str,
+) -> Result<()> {
+    use std::collections::HashSet;
+    let available: HashSet<ModuleId> = modules
+        .iter()
+        .map(|m| m.module_id.clone())
+        .chain(extra_deps.iter().map(|m| m.self_id()))
+        .collect();
+    let mut missing = BTreeSet::new();
+    for m in modules {
+        for dep in &m.deps {
+            if !available.contains(dep) {
+                missing.insert(format!("{} (needed by {})", dep, m.module_id));
+            }
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "{context}: framework modules on disk are missing dependencies: {}. \
+             The build dir may be mid-rebuild (concurrent `move test`/`move build`?) — retry once it settles",
+            missing.into_iter().collect::<Vec<_>>().join(", ")
+        ))
+    }
+}
+
 fn topo_sort_modules(
     modules: Vec<DiscoveredModule>,
 ) -> Result<Vec<DiscoveredModule>, anyhow::Error> {
@@ -517,6 +554,7 @@ impl super::MoveRuntime {
             ));
         }
 
+        ensure_dependencies_discovered(&modules, &[], "Move stdlib")?;
         for m in &modules {
             dependencies::verify_module(&m.compiled, modules.iter().map(|d| &d.compiled)).map_err(
                 |e| anyhow::anyhow!("Stdlib deps verify failed for {}: {:?}", m.file_name, e),
@@ -596,6 +634,14 @@ impl super::MoveRuntime {
             .map(|m| &m.compiled)
             .chain(modules.iter().map(|m| &m.compiled))
             .collect();
+        ensure_dependencies_discovered(
+            &modules,
+            &stdlib_modules
+                .iter()
+                .map(|m| &m.compiled)
+                .collect::<Vec<_>>(),
+            "Kanari system",
+        )?;
         for m in &modules {
             dependencies::verify_module(&m.compiled, all_deps.iter().copied()).map_err(|e| {
                 anyhow::anyhow!("System deps verify failed for {}: {:?}", m.file_name, e)
