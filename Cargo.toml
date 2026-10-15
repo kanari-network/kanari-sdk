@@ -81,7 +81,7 @@ description = "Kanari Network SDK"                                              
 # ============================================================================
 # Core Runtime & Concurrency
 # ============================================================================
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 rayon = "1.12.0"
 crossbeam-channel = "0.5.17"
 futures = "0.3.34"

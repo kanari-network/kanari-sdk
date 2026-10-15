@@ -138,9 +138,18 @@ impl MoveRuntime {
             state_overlay.as_deref(),
         )?;
 
+        // Object ids may arrive in short (`0x2`) or full (`0x00..02`) hex
+        // form depending on the caller, while `to_hex_literal()` strips
+        // leading zeros. Canonicalize to the full 32-byte form so the
+        // membership checks below do not miss ids with leading zero bytes
+        // (which otherwise leave a 32-byte address arg unbound and fail
+        // later with FAILED_TO_DESERIALIZE_ARGUMENT).
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
-            .map(|input| input.object_ref.object_id.clone())
+            .map(|input| {
+                crate::common::ids::canonical_object_id(&input.object_ref.object_id)
+                    .unwrap_or_else(|| input.object_ref.object_id.clone())
+            })
             .collect();
         let mut explicit_object_bindings = object_inputs.iter();
 
@@ -239,7 +248,9 @@ impl MoveRuntime {
                     else {
                         continue;
                     };
-                    let object_id = object_addr.to_hex_literal();
+                    // Full 32-byte hex form (preserves leading zeros), unlike
+                    // `to_hex_literal()` which strips them.
+                    let object_id = format!("0x{}", hex::encode(object_addr.as_ref()));
                     if !explicit_object_ids.is_empty() && !explicit_object_ids.contains(&object_id)
                     {
                         continue;

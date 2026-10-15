@@ -208,15 +208,28 @@ impl super::MoveRuntime {
         object_id: &str,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<Option<crate::storage::object_storage::StoredObject>> {
-        let key = crate::common::keys::object_key(object_id);
-        if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
-            return match value {
-                Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
-                None => Ok(None),
-            };
+        // Object ids arrive in short (`0x2`) or full (`0x00..02`) form from
+        // different callers, while storage keys preserve leading zeros.
+        // Resolve via the canonical full form first, then fall back to the
+        // raw input so both spellings hit.
+        let canonical = crate::common::ids::canonical_object_id(object_id)
+            .unwrap_or_else(|| object_id.to_string());
+        let mut candidates = Vec::with_capacity(2);
+        candidates.push(canonical.as_str());
+        if canonical.as_str() != object_id {
+            candidates.push(object_id);
         }
-        if let Some(object) = self.object_storage.get_object(object_id)? {
-            return Ok(Some(object));
+        for candidate in candidates {
+            let key = crate::common::keys::object_key(candidate);
+            if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
+                return match value {
+                    Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
+                    None => Ok(None),
+                };
+            }
+            if let Some(object) = self.object_storage.get_object(candidate)? {
+                return Ok(Some(object));
+            }
         }
 
         let object_addr =
@@ -262,8 +275,13 @@ impl super::MoveRuntime {
                     sender,
                     true,
                 );
+                // Natives resolve via full-form `0x`+64 hex, so preload
+                // under the canonical id to avoid short/long mismatches.
+                let canonical_id =
+                    crate::common::ids::canonical_object_id(&input.object_ref.object_id)
+                        .unwrap_or_else(|| input.object_ref.object_id.clone());
                 loaded_ext.insert(
-                    input.object_ref.object_id.clone(),
+                    canonical_id,
                     stored_obj.type_name,
                     stored_obj.data,
                     can_mutably_borrow,

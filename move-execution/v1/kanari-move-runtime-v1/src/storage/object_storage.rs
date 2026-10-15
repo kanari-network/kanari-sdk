@@ -243,6 +243,8 @@ impl ObjectStorage {
     }
 
     fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
+        // NOTE: ids are stored as-provided (no canonicalization) to preserve
+        // existing index contents; short/long resolution happens on lookup.
         let id = obj.id.clone();
         let owner = obj.owner;
         let mut old_owner = None;
@@ -342,18 +344,31 @@ impl ObjectStorage {
     }
 
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
-        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(obj) = state.objects.get(id) {
-            return Ok(Some(obj.clone()));
+        let canonical = crate::common::ids::canonical_object_id(id);
+        let mut candidates = Vec::with_capacity(2);
+        if let Some(ref full) = canonical {
+            candidates.push(full.as_str());
         }
-        drop(state);
-
-        if let Some(store) = &self.persistent
-            && let Some(obj) = store.load::<StoredObject>(&crate::common::keys::object_key(id))?
-        {
-            let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            write_state.objects.insert(id.to_string(), obj.clone());
-            return Ok(Some(obj));
+        if canonical.as_deref() != Some(id) {
+            candidates.push(id);
+        }
+        for candidate in candidates {
+            {
+                let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+                if let Some(obj) = state.objects.get(candidate) {
+                    return Ok(Some(obj.clone()));
+                }
+            }
+            if let Some(store) = &self.persistent
+                && let Some(obj) =
+                    store.load::<StoredObject>(&crate::common::keys::object_key(candidate))?
+            {
+                let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
+                write_state
+                    .objects
+                    .insert(candidate.to_string(), obj.clone());
+                return Ok(Some(obj));
+            }
         }
         Ok(None)
     }
@@ -384,6 +399,14 @@ impl ObjectStorage {
     }
 
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
+        let canonical = crate::common::ids::canonical_object_id(id);
+        let mut candidates = Vec::with_capacity(2);
+        if let Some(ref full) = canonical {
+            candidates.push(full.as_str());
+        }
+        if canonical.as_deref() != Some(id) {
+            candidates.push(id);
+        }
         let mut old_object = None;
         let transaction_guard = self
             .persistent
@@ -392,30 +415,55 @@ impl ObjectStorage {
 
         {
             let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-            if let Some(obj) = state.objects.get(id) {
-                old_object = Some(obj.clone());
+            for candidate in &candidates {
+                if let Some(obj) = state.objects.get(*candidate) {
+                    old_object = Some(obj.clone());
+                    break;
+                }
             }
         }
 
         if let Some(store) = &self.persistent {
             if old_object.is_none() {
-                old_object = store.load::<StoredObject>(&crate::common::keys::object_key(id))?;
+                for candidate in &candidates {
+                    if let Some(obj) =
+                        store.load::<StoredObject>(&crate::common::keys::object_key(candidate))?
+                    {
+                        old_object = Some(obj);
+                        break;
+                    }
+                }
             }
             let mut updates = Vec::new();
-            let deletes = vec![crate::common::keys::object_key(id)];
+            let deletes: Vec<Vec<u8>> = candidates
+                .iter()
+                .map(|c| crate::common::keys::object_key(c))
+                .collect();
 
             if let Some(object) = &old_object
                 && matches!(object.owner_kind, ObjectOwnerKind::AddressOwner(_))
             {
                 let owner_key = owned_objects_key(&object.owner);
                 let mut ids = Self::load_id_index(store, &owner_key)?;
-                if Self::remove_index_id(&mut ids, id) {
+                let mut changed = false;
+                for candidate in &candidates {
+                    if Self::remove_index_id(&mut ids, candidate) {
+                        changed = true;
+                    }
+                }
+                if changed {
                     updates.push(Self::encode_update(owner_key, &ids)?);
                 }
             }
 
             let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
-            if Self::remove_index_id(&mut ids, id) {
+            let mut changed = false;
+            for candidate in &candidates {
+                if Self::remove_index_id(&mut ids, candidate) {
+                    changed = true;
+                }
+            }
+            if changed {
                 updates.push(Self::encode_update(
                     Self::OBJECT_INDEX_KEY.as_bytes().to_vec(),
                     &ids,
@@ -425,11 +473,12 @@ impl ObjectStorage {
         }
 
         // Keep the old cache entry available if persistence failed above.
-        self.state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .objects
-            .remove(id);
+        {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            for candidate in &candidates {
+                state.objects.remove(*candidate);
+            }
+        }
 
         drop(transaction_guard);
         Ok(())
