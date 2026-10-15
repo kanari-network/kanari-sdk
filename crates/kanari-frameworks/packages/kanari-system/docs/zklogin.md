@@ -534,6 +534,8 @@ ceremony VK hash the contract trusts, then verifies the proof.
 Deployments hardcode their ceremony hash here (or pass it from a
 versioned config object); proofs against any other VK abort, so a
 locally-generated (toxic-waste) setup can never pass as canonical.
+The pin is checked BEFORE any pairing work, so untrusted keys burn
+no verifier gas beyond the hash.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_verify_pinned_proof">verify_pinned_proof</a>(expected_vk_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, vk_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): bool
@@ -552,9 +554,8 @@ locally-generated (toxic-waste) setup can never pass as canonical.
     proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(std::vector::length(&expected_vk_hash) == 32, <a href="zklogin.md#0x2_zklogin_E_VK_MISMATCH">E_VK_MISMATCH</a>);
-    <b>let</b> ok = <a href="zklogin.md#0x2_zklogin_verify_proof">verify_proof</a>(&vk_bytes, public_inputs_bytes, proof_bytes);
     <b>assert</b>!(std::hash::sha2_256(vk_bytes) == expected_vk_hash, <a href="zklogin.md#0x2_zklogin_E_VK_MISMATCH">E_VK_MISMATCH</a>);
-    ok
+    <a href="zklogin.md#0x2_zklogin_verify_proof">verify_proof</a>(&vk_bytes, public_inputs_bytes, proof_bytes)
 }
 </code></pre>
 

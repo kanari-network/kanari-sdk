@@ -34,7 +34,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1973cfbc1a2daf9cf550e74e1f088c28e7f7d8c1e1418fb6c9dc5184b7e84c99"
 dependencies = [
  "crypto-common 0.2.2",
- "inout 0.2.2",
+ "inout 0.2.3",
 ]
 
 [[package]]
@@ -600,9 +600,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.18.1"
+version = "1.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
+checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -610,9 +610,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.45.0"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
+checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
 dependencies = [
  "cc",
  "cmake",
@@ -1154,9 +1154,9 @@ checksum = "df8670b8c7b9dae1793364eafadf7239c40d669904660c5960d74cfd80b46a53"
 
 [[package]]
 name = "cc"
-version = "1.6.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f74872d07caf508b30a21f6836e7d7016a2eaf7d9ff4f48deaa58cd8a0407630"
+checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1253,7 +1253,7 @@ checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
 dependencies = [
  "block-buffer 0.12.1",
  "crypto-common 0.2.2",
- "inout 0.2.2",
+ "inout 0.2.3",
 ]
 
 [[package]]
@@ -1879,9 +1879,9 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.5.8"
+version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 dependencies = [
  "serde_core",
 ]
@@ -2259,9 +2259,9 @@ dependencies = [
 
 [[package]]
 name = "equivalent"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "erased-discriminant"
@@ -3312,9 +3312,9 @@ dependencies = [
 
 [[package]]
 name = "inout"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
+checksum = "d8c0d789294fb457b791f7797a04478704788f30b407e5d0b01deaa846572d9f"
 dependencies = [
  "hybrid-array",
 ]
@@ -3538,7 +3538,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3579,7 +3579,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-auth"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3604,7 +3604,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "ed25519-dalek 3.0.0",
@@ -3619,7 +3619,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3628,7 +3628,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3664,7 +3664,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -3717,7 +3717,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3727,7 +3727,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-e2e-tests"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3761,7 +3761,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-faucet"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3774,14 +3774,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3801,7 +3801,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-indexer"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3816,7 +3816,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3827,7 +3827,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-fmt"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "pretty",
@@ -3837,7 +3837,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3869,7 +3869,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v2"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3901,7 +3901,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3941,7 +3941,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3950,7 +3950,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3959,7 +3959,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3968,7 +3968,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -3980,7 +3980,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3991,7 +3991,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
@@ -4004,7 +4004,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -4015,7 +4015,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -4041,7 +4041,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "ark-std",
  "base64 0.23.1",
@@ -4071,7 +4071,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bcs",
@@ -4467,9 +4467,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.29"
+version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85bc9657773828b90eeb625adff10eeac83cc21bbfd8e23a03eaa8a33c9e28d9"
+checksum = "f710a23e6dbf193214fd46ca56a9d6864e550abe86202184532ae7275e46de19"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4490,9 +4490,9 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "litrs"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "lock_api"
@@ -6651,7 +6651,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -6694,7 +6694,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -6751,9 +6751,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -6765,9 +6765,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-native-certs"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
 dependencies = [
  "openssl-probe",
  "rustls-pki-types",
@@ -6891,9 +6891,9 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a"
+checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
  "dyn-clone",
  "ref-cast",
@@ -7128,7 +7128,7 @@ dependencies = [
  "indexmap 2.14.2",
  "jiff",
  "schemars 0.9.0",
- "schemars 1.2.2",
+ "schemars 1.2.3",
  "serde_core",
  "serde_json",
  "time",
@@ -7406,7 +7406,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -7861,9 +7861,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.19"
+version = "0.7.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
+checksum = "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b"
 dependencies = [
  "bytes",
  "futures-core",
@@ -8161,9 +8161,9 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.26"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unicode-normalization"
@@ -8476,7 +8476,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "kanari-crypto",
 ]
@@ -9061,18 +9061,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.61"
+version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879fb705ce98c32e41ebdb970fbe1204f8492423b314c6ab0354c3e7b5542866"
+checksum = "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.61"
+version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708882a28301d604fa039cc7727607a98d04c4b86dc76ec9cc683f805d709759"
+checksum = "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f"
 dependencies = [
  "proc-macro2",
  "quote",
