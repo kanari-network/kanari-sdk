@@ -18,9 +18,9 @@ module dex_v1::dex_v1 {
     // =================================================================
     // Structs
     // =================================================================
-    public struct LP_TOKEN<phantom CoinTypeA, phantom CoinTypeB> has drop {}
+    struct LP_TOKEN<phantom CoinTypeA, phantom CoinTypeB> has drop {}
 
-    public struct Pool<phantom CoinTypeA, phantom CoinTypeB> has key, store {
+    struct Pool<phantom CoinTypeA, phantom CoinTypeB> has key, store {
         id: UID,
         reserve_a: Balance<CoinTypeA>,
         reserve_b: Balance<CoinTypeB>,
@@ -42,11 +42,9 @@ module dex_v1::dex_v1 {
             reserve_a: balance::zero<CoinTypeA>(),
             reserve_b: balance::zero<CoinTypeB>(),
             lp_supply,
-            fee_percent,
+            fee_percent
         };
-        // ส่งตัวอ้างอิง (&pool) ไปบันทึกลง Database ของคุณ
         object::save_object(&pool);
-        // 🚨 ส่งตัว Pool ตัวจริง (pool) ไปให้ผู้สร้าง (Sender) ถือครองไว้
         transfer::public_transfer(pool, tx_context::sender(ctx));
     }
 
@@ -62,7 +60,7 @@ module dex_v1::dex_v1 {
             reserve_a: balance::zero<CoinTypeA>(),
             reserve_b: balance::zero<CoinTypeB>(),
             lp_supply,
-            fee_percent,
+            fee_percent
         }
     }
 
@@ -78,10 +76,13 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ) {
         // Load Pool object from storage
-        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> =
+            object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
         // Load Coin objects from storage
-        let coin_a: &mut Coin<CoinTypeA> = object::borrow_global_mut<Coin<CoinTypeA>>(coin_a_id);
-        let coin_b: &mut Coin<CoinTypeB> = object::borrow_global_mut<Coin<CoinTypeB>>(coin_b_id);
+        let coin_a: &mut Coin<CoinTypeA> =
+            object::borrow_global_mut<Coin<CoinTypeA>>(coin_a_id);
+        let coin_b: &mut Coin<CoinTypeB> =
+            object::borrow_global_mut<Coin<CoinTypeB>>(coin_b_id);
         // Split specific amounts from coins
         let coin_a_obj = coin::split(coin_a, amount_a, ctx);
         let coin_b_obj = coin::split(coin_b, amount_b, ctx);
@@ -100,7 +101,9 @@ module dex_v1::dex_v1 {
     ): Coin<LP_TOKEN<CoinTypeA, CoinTypeB>> {
         let amount_a = coin::value(&coin_a);
         let amount_b = coin::value(&coin_b);
-        assert!(amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT);
+        assert!(
+            amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT
+        );
         let reserve_a = balance::value(&pool.reserve_a);
         let reserve_b = balance::value(&pool.reserve_b);
         let total_lp_supply = balance::supply_total(&pool.lp_supply);
@@ -130,9 +133,11 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ) {
         // Load Pool object from storage
-        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> =
+            object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
         // Load LP Coin object from storage
-        let lp_coin: &mut Coin<LP_TOKEN<CoinTypeA, CoinTypeB>> = object::borrow_global_mut<Coin<LP_TOKEN<CoinTypeA, CoinTypeB>>>(lp_coin_id);
+        let lp_coin: &mut Coin<LP_TOKEN<CoinTypeA, CoinTypeB>> =
+            object::borrow_global_mut<Coin<LP_TOKEN<CoinTypeA, CoinTypeB>>>(lp_coin_id);
         // Get amount first before splitting
         let lp_amount = coin::value(lp_coin);
         // Split LP coin to get the full amount
@@ -157,7 +162,9 @@ module dex_v1::dex_v1 {
         let total_lp_supply = balance::supply_total(&pool.lp_supply);
         let amount_a = math::mul_div_u64(liquidity, reserve_a, total_lp_supply);
         let amount_b = math::mul_div_u64(liquidity, reserve_b, total_lp_supply);
-        assert!(amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT);
+        assert!(
+            amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT
+        );
         let lp_balance = coin::into_balance(lp_coin);
         let burned_amount = balance::destroy(lp_balance);
         balance::decrease_supply(&mut pool.lp_supply, burned_amount);
@@ -179,9 +186,11 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ) {
         // Load Pool object from storage
-        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> =
+            object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
         // Load input Coin object from storage
-        let coin_in: &mut Coin<CoinTypeA> = object::borrow_global_mut<Coin<CoinTypeA>>(coin_in_id);
+        let coin_in: &mut Coin<CoinTypeA> =
+            object::borrow_global_mut<Coin<CoinTypeA>>(coin_in_id);
         // Split specific amount from coin
         let coin_in_obj = coin::split(coin_in, amount_in, ctx);
         // Call internal function
@@ -200,7 +209,13 @@ module dex_v1::dex_v1 {
         assert!(amount_in > 0, E_INSUFFICIENT_AMOUNT);
         let reserve_in = balance::value(&pool.reserve_a);
         let reserve_out = balance::value(&pool.reserve_b);
-        let amount_out = calculate_amount_out(amount_in, reserve_in, reserve_out, pool.fee_percent);
+        let amount_out =
+            calculate_amount_out(
+                amount_in,
+                reserve_in,
+                reserve_out,
+                pool.fee_percent
+            );
         assert!(amount_out > 0, E_INSUFFICIENT_OUTPUT_AMOUNT);
         assert!(amount_out < reserve_out, E_INSUFFICIENT_LIQUIDITY);
         balance::merge(&mut pool.reserve_a, coin::into_balance(coin_in));
@@ -218,9 +233,11 @@ module dex_v1::dex_v1 {
         ctx: &mut TxContext,
     ) {
         // Load Pool object from storage
-        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> =
+            object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
         // Load input Coin object from storage
-        let coin_in: &mut Coin<CoinTypeB> = object::borrow_global_mut<Coin<CoinTypeB>>(coin_in_id);
+        let coin_in: &mut Coin<CoinTypeB> =
+            object::borrow_global_mut<Coin<CoinTypeB>>(coin_in_id);
         // Split specific amount from coin
         let coin_in_obj = coin::split(coin_in, amount_in, ctx);
         // Call internal function
@@ -239,7 +256,13 @@ module dex_v1::dex_v1 {
         assert!(amount_in > 0, E_INSUFFICIENT_AMOUNT);
         let reserve_in = balance::value(&pool.reserve_b);
         let reserve_out = balance::value(&pool.reserve_a);
-        let amount_out = calculate_amount_out(amount_in, reserve_in, reserve_out, pool.fee_percent);
+        let amount_out =
+            calculate_amount_out(
+                amount_in,
+                reserve_in,
+                reserve_out,
+                pool.fee_percent
+            );
         assert!(amount_out > 0, E_INSUFFICIENT_OUTPUT_AMOUNT);
         assert!(amount_out < reserve_out, E_INSUFFICIENT_LIQUIDITY);
         balance::merge(&mut pool.reserve_b, coin::into_balance(coin_in));
@@ -323,7 +346,12 @@ module dex_v1::dex_v1 {
     ): u64 {
         let reserve_in = balance::value(&pool.reserve_a);
         let reserve_out = balance::value(&pool.reserve_b);
-        calculate_amount_out(amount_in, reserve_in, reserve_out, pool.fee_percent)
+        calculate_amount_out(
+            amount_in,
+            reserve_in,
+            reserve_out,
+            pool.fee_percent
+        )
     }
 
     /// Calculate expected output amount for swapping B to A
@@ -333,14 +361,25 @@ module dex_v1::dex_v1 {
     ): u64 {
         let reserve_in = balance::value(&pool.reserve_b);
         let reserve_out = balance::value(&pool.reserve_a);
-        calculate_amount_out(amount_in, reserve_in, reserve_out, pool.fee_percent)
+        calculate_amount_out(
+            amount_in,
+            reserve_in,
+            reserve_out,
+            pool.fee_percent
+        )
     }
 
     #[test_only]
     public fun destroy_pool_for_testing<CoinTypeA, CoinTypeB>(
         pool: Pool<CoinTypeA, CoinTypeB>,
     ) {
-        let Pool { id, reserve_a: ra, reserve_b: rb, lp_supply: ls, fee_percent: _ } = pool;
+        let Pool {
+            id,
+            reserve_a: ra,
+            reserve_b: rb,
+            lp_supply: ls,
+            fee_percent: _
+        } = pool;
         let _ = balance::destroy<CoinTypeA>(ra);
         let _ = balance::destroy<CoinTypeB>(rb);
         balance::destroy_supply_for_testing(ls);

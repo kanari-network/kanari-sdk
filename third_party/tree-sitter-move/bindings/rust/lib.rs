@@ -6,7 +6,7 @@
 //! ```
 //! let code = "";
 //! let mut parser = tree_sitter::Parser::new();
-//! parser.set_language(tree_sitter_move::language()).expect("Error loading move grammar");
+//! parser.set_language(&tree_sitter_move::language()).expect("Error loading move grammar");
 //! let tree = parser.parse(code, None).unwrap();
 //! ```
 //!
