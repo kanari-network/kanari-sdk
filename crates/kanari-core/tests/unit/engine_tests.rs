@@ -1474,7 +1474,7 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
         max_epoch: 1000,
         kind: ZkAuthKind::Jwt(JwtAuth {
             jwt,
-            jwks,
+            jwks: jwks.clone(),
             iss: ISS_GOOGLE.to_string(),
             aud: "kanari-test-client".to_string(),
             randomness: [7u8; 32],
@@ -1483,6 +1483,21 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
     };
     let mut signed_tx = SignedTransaction::new(tx);
     signed_tx.signature = encode_zklogin_tx_signature(&auth).unwrap();
+
+    // Chain admission policy for zkLogin senders (fail-closed without it):
+    // the engine-generated provider JWKS is pinned and only the fixture
+    // issuer/audience are allowed. Replay TTL stays 0 so the durable
+    // pending-duplicate and committed-tx guards below stay the deciders.
+    kanari_crypto::signatures::zk_authenticator::install_zklogin_admission_policy(
+        kanari_crypto::signatures::zk_authenticator::ZkLoginAdmissionPolicy {
+            vk_pin: None,
+            allowed_issuers: vec![ISS_GOOGLE.to_string()],
+            allowed_audiences: vec!["kanari-test-client".to_string()],
+            pinned_jwks: Some(jwks),
+            current_epoch: 0,
+            replay_ttl_secs: 0,
+        },
+    );
 
     // Accepted, then duplicate rejected while pending.
     engine

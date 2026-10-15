@@ -90,34 +90,49 @@ soundness. When operators are ready, implement transcript chaining per
 
 ## 2. Chain acceptance of zkLogin transactions
 
-Status: **dispatch implemented and tested; ingestion NOT wired.**
+Status: **fail-closed admission enforced; ingestion wired.**
 
 What exists today (`kanari-crypto`):
 
 - `CurveType::ZkLogin` + `ZkLogin:0x...` tagged senders route through the
   SAME `SignedTransaction::verify_signature()` the mempool already calls
-  (`into_verified`), via `verify_zklogin_tx_signature`:
-  bundle JSON parse (version-checked) → ephemeral Ed25519 over the tx hash
-  → JWT (sig/kid/iss/aud/exp + nonce binding) or Groth16 proof (+ address
-  extraction and expected-address match) → recovered address compared with
-  the sender. Fail-closed at every step (see `tagged_dispatch_*` tests).
+  (`into_verified`), via `verify_zklogin_tx_signature`, which now enforces
+  the process-global `ZkLoginAdmissionPolicy` (installed once at node
+  startup from `KANARI_ZKLOGIN_*`; see `zklogin_admission_policy_from_env`):
+  bundle JSON parse (version-checked) → `max_epoch` vs the policy epoch →
+  process-global replay guard → mode verification bound to chain trust
+  roots (proof mode REQUIRES the ceremony `vk_pin`; JWT mode REQUIRES the
+  chain-pinned JWKS plus allow-listed `iss`/`aud`, bundle values ignored
+  for trust) → recovered address compared with the sender. With NO policy
+  installed every zkLogin bundle is rejected. Fail-closed at every step
+  (see `tagged_dispatch_*` and `dispatch_rejects_*` tests).
 - `sign_message` / keygen / mnemonic paths REJECT ZkLogin (no private key
   exists by design).
+- `admit_zklogin_tx` (with `AdmitOptions` carrying `vk_pin` + JWT
+  allow-lists + pinned JWKS) remains the explicit-call-site admission
+  function with caller-owned epoch and `ReplayCache`; the dispatch above
+  is built on the same admitted verifier. The RAW
+  `verify_zklogin_authenticator` (bundle trust roots) is offline-tooling
+  only and documented as NOT admission-safe.
 
 What remains for a node to accept such transactions:
 
 1. **Client**: build `ZkLogin:` senders with bundle signatures
    (`encode_zklogin_tx_signature` exists; no CLI transfer path yet).
-2. **Ingestion**: call `admit_zklogin_tx` (NOT the raw pieces) with the
-   chain epoch and a `ReplayCache`. It enforces, in order: bundle v1,
-   `max_epoch >= current_epoch` (both modes — the ONLY timeliness bound
-   proof mode has), replay TTL, mode verification (proof mode REQUIRES
-   `AdmitOptions.vk_pin`; demo toxic-waste setups cannot pass), and
-   sender match. Covered by the `admit_*` tests.
-3. **Replay**: `admit_zklogin_tx` + `ReplayCache` bounds rapid resubmission
-   in-memory; tx-hash dedup (`mempool.rs`) drops identical resubmits.
+2. **Ingestion**: node startup installs the policy from chain config
+   (`kanari-node` wires `zklogin_admission_policy_from_env` in
+   `configure_engine_environment`; malformed config aborts startup, absent
+   config keeps zkLogin disabled). Operators MUST advance the policy epoch
+   via `set_zklogin_chain_epoch` as the chain progresses — proof-mode
+   sessions carry no JWT `exp`, so the policy epoch is their ONLY
+   timeliness bound at admission (Move `verify_session` re-enforces it
+   against `tx_context::epoch` at execution).
+3. **Replay**: the process-global admission guard (TTL from policy) plus
+   `admit_zklogin_tx` + caller `ReplayCache` bound rapid resubmission
+   in-memory; tx-hash dedup (`mempool.rs`), the sender-nonce watermark,
+   and the committed-tx index remain the durable layers.
    What the engine MUST still add: persist the replay log across restarts
-   (a restart wipes the cache) and reject re-execution at the execution
+   (a restart wipes the caches) and reject re-execution at the execution
    layer (object versions / sender nonce). Until then, keep TTL sized to
    the bundle lifetime (JWT `exp` window; epoch-length x span for proofs).
 4. **Epoch binding (Move side)**: DONE. `verify_session` takes

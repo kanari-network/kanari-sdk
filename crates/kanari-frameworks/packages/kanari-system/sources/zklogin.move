@@ -173,6 +173,8 @@ module kanari_system::zklogin {
     /// Deployments hardcode their ceremony hash here (or pass it from a
     /// versioned config object); proofs against any other VK abort, so a
     /// locally-generated (toxic-waste) setup can never pass as canonical.
+    /// The pin is checked BEFORE any pairing work, so untrusted keys burn
+    /// no verifier gas beyond the hash.
     public fun verify_pinned_proof(
         expected_vk_hash: vector<u8>,
         vk_bytes: vector<u8>,
@@ -180,9 +182,8 @@ module kanari_system::zklogin {
         proof_bytes: &vector<u8>,
     ): bool {
         assert!(std::vector::length(&expected_vk_hash) == 32, E_VK_MISMATCH);
-        let ok = verify_proof(&vk_bytes, public_inputs_bytes, proof_bytes);
         assert!(std::hash::sha2_256(vk_bytes) == expected_vk_hash, E_VK_MISMATCH);
-        ok
+        verify_proof(&vk_bytes, public_inputs_bytes, proof_bytes)
     }
 
     /// Private session check: Groth16 proof valid AND ephemeral sig valid.
