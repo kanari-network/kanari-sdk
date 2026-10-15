@@ -53,9 +53,11 @@ The Kanari System is built on top of the Move programming language, providing a 
 -  [`0x2::event`](event.md#0x2_event)
 -  [`0x2::falcon1024`](falcon1024.md#0x2_falcon1024)
 -  [`0x2::falcon512`](falcon512.md#0x2_falcon512)
+-  [`0x2::gas_market`](gas_market.md#0x2_gas_market)
 -  [`0x2::hex`](hex.md#0x2_hex)
 -  [`0x2::k256_dilithium3`](k256_dilithium3.md#0x2_k256_dilithium3)
 -  [`0x2::kanari`](kanari.md#0x2_kanari)
+-  [`0x2::linked_table`](linked_table.md#0x2_linked_table)
 -  [`0x2::math`](math.md#0x2_math)
 -  [`0x2::multisig`](multisig.md#0x2_multisig)
 -  [`0x2::object`](object.md#0x2_object)
@@ -66,7 +68,11 @@ The Kanari System is built on top of the Move programming language, providing a 
 -  [`0x2::table`](table.md#0x2_table)
 -  [`0x2::transfer`](transfer.md#0x2_transfer)
 -  [`0x2::tx_context`](tx_context.md#0x2_tx_context)
+-  [`0x2::types`](types.md#0x2_types)
 -  [`0x2::url`](url.md#0x2_url)
+-  [`0x2::usd`](usd.md#0x2_usd)
+-  [`0x2::vec_map`](vec_map.md#0x2_vec_map)
+-  [`0x2::vec_set`](vec_set.md#0x2_vec_set)
 -  [`0x2::zklogin`](zklogin.md#0x2_zklogin)
 
 

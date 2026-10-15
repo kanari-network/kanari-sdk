@@ -83,6 +83,11 @@
           "default": "default",
           "markdownDescription": "Move source code linting level."
         },
+        "move.restartOnSave": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Restart the language server (debounced) whenever a .move file is saved, so stale red squiggles clear without a manual restart."
+        },
         "move.server.path": {
           "type": [
             "null",
@@ -162,13 +167,13 @@
   },
   "dependencies": {
     "command-exists": "^1.2.9",
-    "prettier": "^3.9.9",
+    "prettier": "^3.9.10",
     "vscode-languageclient": "^10.1.2",
     "web-tree-sitter": "^0.27.1"
   },
   "devDependencies": {
     "@types/command-exists": "^1.2.3",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/vscode": "^1.140.0",
     "typescript": "^7.0.2",
     "vsce": "^2.15.0"

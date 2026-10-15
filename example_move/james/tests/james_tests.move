@@ -1,4 +1,2 @@
 #[test_only]
-module james::james_tests {
-
-}
+module james::james_tests {}

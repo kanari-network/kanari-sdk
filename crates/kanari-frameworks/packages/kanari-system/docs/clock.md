@@ -200,7 +200,9 @@ time must never move backwards.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="clock.md#0x2_clock_consensus_commit_prologue">consensus_commit_prologue</a>(
-    <a href="clock.md#0x2_clock">clock</a>: &<b>mut</b> <a href="clock.md#0x2_clock_Clock">Clock</a>, timestamp_ms: u64, ctx: &TxContext
+    <a href="clock.md#0x2_clock">clock</a>: &<b>mut</b> <a href="clock.md#0x2_clock_Clock">Clock</a>,
+    timestamp_ms: u64,
+    ctx: &TxContext,
 ) {
     // Requires that the call be made only through the System Validator.
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="clock.md#0x2_clock_E_NOT_SYSTEM_ADDRESS">E_NOT_SYSTEM_ADDRESS</a>);

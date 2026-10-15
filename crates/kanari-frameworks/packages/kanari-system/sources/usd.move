@@ -14,10 +14,10 @@
 /// `kanari move call --package 0x2 --module usd --function mint \
 ///   --args <treasury_cap_object_id> 100000000 <recipient>`
 module kanari_system::usd {
+    use std::option;
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::tx_context::{Self, TxContext};
-    use std::option;
     use kanari_system::transfer;
     use kanari_system::url;
 

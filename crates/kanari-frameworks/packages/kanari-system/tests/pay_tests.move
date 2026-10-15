@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::pay_tests {
+    use std::vector;
     use kanari_system::coin::Coin;
     use kanari_system::coin::{Self, TreasuryCap, CoinMetadata};
     use kanari_system::pay;
     use kanari_system::transfer;
     use kanari_system::tx_context;
-    use std::vector;
     use kanari_system::kanari::KANARI;
 
     struct TEST has drop {}
@@ -131,10 +131,11 @@ module kanari_system::pay_tests {
         let (cap, meta) = setup(&mut ctx);
         let coin_val = coin::mint(&mut cap, 1000, &mut ctx);
         let sender = tx_context::sender(&ctx);
-        let denylist = &kanari_system::deny_list::new_denylist();
-        pay::split_and_transfer_checked(&mut coin_val, 300, sender, denylist, &mut ctx);
-        transfer::public_transfer(coin_val, @0x1);
+        let denylist = kanari_system::deny_list::new_for_testing(&mut ctx);
+        pay::split_and_transfer_checked(&mut coin_val, 300, sender, &denylist, &mut ctx);
+        transfer::public_transfer(coin_val, @0x100);
         cleanup(cap, meta);
+        transfer::public_freeze_object(denylist);
     }
 
     // Splitting then re-joining the same coin is deliberately allowed: it is a

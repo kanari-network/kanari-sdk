@@ -175,7 +175,7 @@ Transfer a specific amount of KANARI using the same Move coin path as other toke
     c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;,
     amount: u64,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ) {
     <a href="pay.md#0x2_pay_split_and_transfer">pay::split_and_transfer</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;(c, amount, recipient, ctx);
 }
@@ -202,7 +202,8 @@ Burns KANARI tokens, decreasing total supply
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="kanari.md#0x2_kanari_burn">burn</a>(
-    treasury_cap: &<b>mut</b> TreasuryCap&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;, <a href="coin.md#0x2_coin">coin</a>: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;
+    treasury_cap: &<b>mut</b> TreasuryCap&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;,
+    <a href="coin.md#0x2_coin">coin</a>: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt;,
 ) {
     <a href="coin.md#0x2_coin_burn">coin::burn</a>(treasury_cap, <a href="coin.md#0x2_coin">coin</a>);
 }

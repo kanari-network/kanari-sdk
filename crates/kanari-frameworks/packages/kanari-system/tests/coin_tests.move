@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::coin_tests {
+    use std::option;
     use kanari_system::coin::{Self, Coin, TreasuryCap, CoinMetadata};
     use kanari_system::transfer;
     use kanari_system::tx_context;
-    use std::option;
     use std::string;
 
     struct TEST has drop {}

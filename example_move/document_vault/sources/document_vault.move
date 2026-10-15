@@ -17,7 +17,6 @@ module document_vault::document_vault {
     const E_GRANT_NOT_FOUND: u64 = 5;
     const E_BAD_PUBLIC_KEY_LENGTH: u64 = 6;
     const E_BAD_SIGNATURE_LENGTH: u64 = 7;
-
     const HASH_LEN_BLAKE3_256: u64 = 32;
 
     /// On-chain proof/metadata for one off-chain document.

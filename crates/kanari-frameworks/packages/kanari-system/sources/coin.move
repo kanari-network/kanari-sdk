@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::coin {
     use std::option;
+    use std::vector;
     use std::string;
     use std::ascii;
-    use std::vector;
+    use std::type_name;
     use kanari_system::url;
     use kanari_system::object;
     use kanari_system::balance::Balance;
+    use kanari_system::deny_list::{Self, DenyList, DenyCap};
     use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
 
@@ -81,6 +83,9 @@ module kanari_system::coin {
         icon_url: option::Option<url::Url>,
         ctx: &mut TxContext,
     ): (TreasuryCap<T>, CoinMetadata<T>) {
+        // One canonical currency per coin type: the host rejects a second
+        // claim for `T`, so mint authority cannot fragment across caps.
+        kanari_system::types::claim_witness(&witness);
         let _ = witness;
 
         assert!(decimals <= 9, EINVALID_DECIMALS);
@@ -102,7 +107,20 @@ module kanari_system::coin {
         (treasury_cap, metadata)
     }
 
-    /// Create a regulated currency (compatibility with kanari)
+    /// Create a regulated currency, returning the mint `TreasuryCap`, a
+    /// `DenyCap` for managing a per-currency deny list, and the metadata.
+    ///
+    /// Enforcement model: this creates the *capability* to maintain deny
+    /// entries in the shared `deny_list::DenyList` singleton; it does not by
+    /// itself block transfers. Entries are managed with the returned
+    /// `DenyCap<T>` via `deny_list_add`/`deny_list_remove` and enforced by
+    /// the `*_checked` transfer paths (`pay::split_and_transfer_checked`,
+    /// `pay::join_vec_and_transfer_checked`,
+    /// `multisig::execute_transfer_checked`), which consult the shared list
+    /// through `deny_list_contains`. The plain `coin::*` and
+    /// `pay::split_and_transfer`/`join_vec_and_transfer` paths stay
+    /// permissionless and skip the check, so a regulated coin must be moved
+    /// through the checked paths to be enforceable.
     public fun create_regulated_currency<T: drop>(
         witness: T,
         decimals: u8,
@@ -114,6 +132,8 @@ module kanari_system::coin {
     ): (
         TreasuryCap<T>, kanari_system::deny_list::DenyCap<T>, CoinMetadata<T>
     ) {
+        // One canonical currency per coin type (see `create_currency`).
+        kanari_system::types::claim_witness(&witness);
         let _ = witness;
         assert!(decimals <= 9, EINVALID_DECIMALS);
 
@@ -132,6 +152,77 @@ module kanari_system::coin {
             icon_url
         };
         (treasury_cap, denycap, metadata)
+    }
+
+    /// Canonical deny-list key for `T`: its `type_name` bytes
+    /// (e.g. `0x2::my_coin::MY_COIN`, never the `Coin<...>` wrapper).
+    fun deny_type_key<T>(): vector<u8> {
+        let name = type_name::get<T>();
+        *ascii::as_bytes(type_name::borrow_string(&name))
+    }
+
+    #[test_only]
+    /// Exposes the deny key so tests pin the exact byte format the
+    /// runtime's transfer-time enforcement must reproduce.
+    public fun type_key_for_testing<T>(): vector<u8> {
+        deny_type_key<T>()
+    }
+
+    /// Add `addr` to `T`'s deny entries in the shared deny list. Requires
+    /// `&DenyCap<T>` minted by `create_regulated_currency`, so a capability
+    /// for one coin can never touch another coin's entries.
+    public fun deny_list_add<T>(
+        deny_list: &mut DenyList,
+        _cap: &DenyCap<T>,
+        addr: address,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v1_add(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr, ctx);
+    }
+
+    /// Remove `addr` from `T`'s deny entries. Aborts when not denied.
+    public fun deny_list_remove<T>(
+        deny_list: &mut DenyList,
+        _cap: &DenyCap<T>,
+        addr: address,
+        _ctx: &mut TxContext,
+    ) {
+        deny_list::v1_remove(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr);
+    }
+
+    /// Open membership read used by the `*_checked` transfer paths.
+    public fun deny_list_contains<T>(deny_list: &DenyList, addr: address): bool {
+        deny_list::v1_contains(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr)
+    }
+
+    /// Pause all regulated flows for `T` (fail-closed kill-switch).
+    /// Requires `&DenyCap<T>`, like deny entries.
+    public fun deny_list_pause<T>(
+        deny_list: &mut DenyList,
+        _cap: &DenyCap<T>,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v2_enable_global_pause(
+            deny_list,
+            deny_list::coin_index(),
+            deny_type_key<T>(),
+            ctx
+        );
+    }
+
+    /// Lift the pause for `T`. Requires `&DenyCap<T>`.
+    public fun deny_list_unpause<T>(
+        deny_list: &mut DenyList,
+        _cap: &DenyCap<T>,
+        _ctx: &mut TxContext,
+    ) {
+        deny_list::v2_disable_global_pause(deny_list, deny_list::coin_index(), deny_type_key<T>());
+    }
+
+    /// Open read: true iff `T` is currently paused. The `*_checked`
+    /// transfer paths reject paused types alongside denied addresses.
+    public fun deny_list_paused<T>(deny_list: &DenyList): bool {
+        deny_list::v2_is_global_pause_enabled(deny_list, deny_list::coin_index(), deny_type_key<T>())
     }
 
     /// Mint new coins using TreasuryCap

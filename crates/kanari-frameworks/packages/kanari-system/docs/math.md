@@ -875,7 +875,10 @@ Aborts E_DIVIDE_BY_ZERO when z == 0, E_OVERFLOW when result > MAX_U128.
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_round_u128">mul_div_round_u128</a>(
-    x: u128, y: u128, z: u128, round_up: bool
+    x: u128,
+    y: u128,
+    z: u128,
+    round_up: bool,
 ): u128;
 </code></pre>
 
@@ -970,7 +973,10 @@ Aborts E_DIVIDE_BY_ZERO when z == 0, E_OVERFLOW when result > MAX_U256.
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_round_u256">mul_div_round_u256</a>(
-    x: u256, y: u256, z: u256, round_up: bool
+    x: u256,
+    y: u256,
+    z: u256,
+    round_up: bool,
 ): u256;
 </code></pre>
 
@@ -4386,7 +4392,9 @@ Floor rounding (favors pool). Aborts on zero reserves.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_quote_amount_out">quote_amount_out</a>(
-    amount_in: u128, reserve_in: u128, reserve_out: u128
+    amount_in: u128,
+    reserve_in: u128,
+    reserve_out: u128,
 ): u128 {
     <b>assert</b>!(reserve_in &gt; 0 && reserve_out &gt; 0, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
     <a href="math.md#0x2_math_mul_div_u128">mul_div_u128</a>(amount_in, reserve_out, reserve_in + amount_in)
@@ -4414,7 +4422,9 @@ Same quote for u256 reserves (deep-liquidity pools).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_quote_amount_out_u256">quote_amount_out_u256</a>(
-    amount_in: u256, reserve_in: u256, reserve_out: u256
+    amount_in: u256,
+    reserve_in: u256,
+    reserve_out: u256,
 ): u256 {
     <b>assert</b>!(reserve_in &gt; 0 && reserve_out &gt; 0, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
     <a href="math.md#0x2_math_mul_div_u256">mul_div_u256</a>(amount_in, reserve_out, reserve_in + amount_in)
@@ -4467,7 +4477,9 @@ returns amount * price_num / price_den with floor rounding.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_apply_price_u256">apply_price_u256</a>(
-    amount: u256, price_num: u256, price_den: u256
+    amount: u256,
+    price_num: u256,
+    price_den: u256,
 ): u256 {
     <a href="math.md#0x2_math_mul_div_u256">mul_div_u256</a>(amount, price_num, price_den)
 }

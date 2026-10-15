@@ -113,21 +113,21 @@ Transfer record
 ## Constants
 
 
+<a name="0x2_transfer_ERR_OVERFLOW"></a>
+
+
+
+<pre><code><b>const</b> <a href="transfer.md#0x2_transfer_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 3;
+</code></pre>
+
+
+
 <a name="0x2_transfer_ERR_INVALID_AMOUNT"></a>
 
 Error codes
 
 
 <pre><code><b>const</b> <a href="transfer.md#0x2_transfer_ERR_INVALID_AMOUNT">ERR_INVALID_AMOUNT</a>: u64 = 1;
-</code></pre>
-
-
-
-<a name="0x2_transfer_ERR_OVERFLOW"></a>
-
-
-
-<pre><code><b>const</b> <a href="transfer.md#0x2_transfer_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 3;
 </code></pre>
 
 

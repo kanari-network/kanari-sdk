@@ -240,7 +240,7 @@ Aborts with the codes above on malformed input.
     jwks_json: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    now_secs: u64
+    now_secs: u64,
 ): bool {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(jwt) &gt; 0, <a href="zklogin.md#0x2_zklogin_E_INVALID_JWT">E_INVALID_JWT</a>);
     <a href="zklogin.md#0x2_zklogin_native_verify">native_verify</a>(jwt, jwks_json, iss, aud, now_secs)
@@ -271,7 +271,7 @@ Aborts with the codes above on malformed input.
     jwks_json: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    now_secs: u64
+    now_secs: u64,
 ): bool;
 </code></pre>
 
@@ -300,7 +300,9 @@ with a real vector (swapped order returns false).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_verify_ephemeral">verify_ephemeral</a>(
-    sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(ephemeral_pubkey) == <a href="zklogin.md#0x2_zklogin_EPHEMERAL_PUBKEY_LENGTH">EPHEMERAL_PUBKEY_LENGTH</a>,
@@ -331,7 +333,9 @@ with a real vector (swapped order returns false).
 
 
 <pre><code><b>native</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_native_verify_ephemeral">native_verify_ephemeral</a>(
-    sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool;
 </code></pre>
 
@@ -356,7 +360,10 @@ Derive the 32-byte zkLogin address from claims + salt.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_derive_address">derive_address</a>(
-    iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, sub: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, salt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    sub: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    salt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt; {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(salt) == <a href="zklogin.md#0x2_zklogin_SALT_LENGTH">SALT_LENGTH</a>, <a href="zklogin.md#0x2_zklogin_E_CLAIM_MISMATCH">E_CLAIM_MISMATCH</a>);
     <a href="zklogin.md#0x2_zklogin_native_derive_address">native_derive_address</a>(iss, aud, sub, salt)
@@ -383,7 +390,10 @@ Derive the 32-byte zkLogin address from claims + salt.
 
 
 <pre><code><b>native</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_native_derive_address">native_derive_address</a>(
-    iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, sub: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, salt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    iss: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    aud: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    sub: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    salt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
@@ -411,7 +421,7 @@ True iff the JWT <code>nonce</code> claim equals the ephemeral binding.
     jwt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     max_epoch: u64,
-    randomness: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    randomness: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(ephemeral_pubkey) == <a href="zklogin.md#0x2_zklogin_EPHEMERAL_PUBKEY_LENGTH">EPHEMERAL_PUBKEY_LENGTH</a>,
@@ -444,7 +454,7 @@ True iff the JWT <code>nonce</code> claim equals the ephemeral binding.
     jwt: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     max_epoch: u64,
-    randomness: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    randomness: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool;
 </code></pre>
 
@@ -475,7 +485,9 @@ Aborts <code><a href="zklogin.md#0x2_zklogin_E_INVALID_PROOF">E_INVALID_PROOF</a
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_verify_proof">verify_proof</a>(
-    vk_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    vk_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(vk_bytes) &gt; 0, <a href="zklogin.md#0x2_zklogin_E_INVALID_PROOF">E_INVALID_PROOF</a>);
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(proof_bytes) &gt; 0, <a href="zklogin.md#0x2_zklogin_E_INVALID_PROOF">E_INVALID_PROOF</a>);
@@ -503,7 +515,9 @@ Aborts <code><a href="zklogin.md#0x2_zklogin_E_INVALID_PROOF">E_INVALID_PROOF</a
 
 
 <pre><code><b>native</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_native_verify_proof">native_verify_proof</a>(
-    vk_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    vk_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool;
 </code></pre>
 
@@ -520,6 +534,8 @@ ceremony VK hash the contract trusts, then verifies the proof.
 Deployments hardcode their ceremony hash here (or pass it from a
 versioned config object); proofs against any other VK abort, so a
 locally-generated (toxic-waste) setup can never pass as canonical.
+The pin is checked BEFORE any pairing work, so untrusted keys burn
+no verifier gas beyond the hash.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_verify_pinned_proof">verify_pinned_proof</a>(expected_vk_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, vk_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): bool
@@ -535,12 +551,11 @@ locally-generated (toxic-waste) setup can never pass as canonical.
     expected_vk_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     vk_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     public_inputs_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(std::vector::length(&expected_vk_hash) == 32, <a href="zklogin.md#0x2_zklogin_E_VK_MISMATCH">E_VK_MISMATCH</a>);
-    <b>let</b> ok = <a href="zklogin.md#0x2_zklogin_verify_proof">verify_proof</a>(&vk_bytes, public_inputs_bytes, proof_bytes);
     <b>assert</b>!(std::hash::sha2_256(vk_bytes) == expected_vk_hash, <a href="zklogin.md#0x2_zklogin_E_VK_MISMATCH">E_VK_MISMATCH</a>);
-    ok
+    <a href="zklogin.md#0x2_zklogin_verify_proof">verify_proof</a>(&vk_bytes, public_inputs_bytes, proof_bytes)
 }
 </code></pre>
 
@@ -578,7 +593,7 @@ only if you re-check the pin yourself.
     proof_bytes: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ephemeral_pubkey: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ephemeral_sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    ephemeral_sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <a href="zklogin.md#0x2_zklogin_verify_pinned_proof">verify_pinned_proof</a>(expected_vk_hash, vk_bytes, public_inputs_bytes, proof_bytes)
         && <a href="zklogin.md#0x2_zklogin_verify_ephemeral">verify_ephemeral</a>(ephemeral_sig, ephemeral_pubkey, msg)
@@ -622,7 +637,7 @@ timeliness bound proof-mode sessions have (they carry no JWT <code>exp</code>).
     randomness: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ephemeral_sig: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ctx: &TxContext
+    ctx: &TxContext,
 ): bool {
     <b>assert</b>!(max_epoch &gt;= <a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx), <a href="zklogin.md#0x2_zklogin_E_EXPIRED">E_EXPIRED</a>);
     <a href="zklogin.md#0x2_zklogin_verify">verify</a>(jwt, jwks_json, iss, aud, now_secs)

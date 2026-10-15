@@ -39,6 +39,9 @@ module kanari_system::collection {
     const E_NO_SUPPLY: u64 = 1;
     const E_NOT_COLLECTION_CREATOR: u64 = 2;
 
+    /// Cap does not belong to the given collection.
+    const E_CAP_COLLECTION_MISMATCH: u64 = 3;
+
     /// Create a collection and its corresponding `NftCap`.
     /// Returns `(Collection, NftCap)` so callers can persist one or both.
     public fun create_collection(
@@ -131,8 +134,16 @@ module kanari_system::collection {
         object::save_object(cap);
     }
 
-    /// Return one supply unit to cap (used on burn).
-    public fun return_from_burn(cap: &mut NftCap) {
+    /// Return one supply unit to cap (used on burn). Bound to the cap's own
+    /// collection: the cap must belong to `collection` and `remaining` must
+    /// stay within `max_supply`, otherwise a transferred cap could inflate
+    /// mint allowance past the collection cap.
+    public fun return_from_burn(cap: &mut NftCap, collection: &Collection) {
+        assert!(
+            cap.collection_id == object::uid_address(&collection.id),
+            E_CAP_COLLECTION_MISMATCH
+        );
+        assert!(cap.remaining < collection.max_supply, E_NO_SUPPLY);
         cap.remaining = cap.remaining + 1;
         // Note: issued_counter is intentionally not decremented; it records how many
         // items have been minted historically.
@@ -182,12 +193,65 @@ module kanari_system::collection {
         assert!(issued(&cap) == 1, 3);
 
         // burn and return supply
-        return_from_burn(&mut cap);
+        return_from_burn(&mut cap, &coll);
         assert!(remaining(&cap) == 2, 4);
 
         // transfer cap and collection to sender (moves objects)
         transfer_cap(cap, tx_context::sender(&ctx), &mut ctx);
         transfer_collection(coll, tx_context::sender(&ctx), &mut ctx);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_NO_SUPPLY)]
+    fun test_return_from_burn_past_max_supply_aborts() {
+        let ctx = tx_context::dummy();
+        let (coll, cap) =
+            create_collection(
+                &mut ctx,
+                b"N",
+                b"D",
+                b"https://banner",
+                b"https://web",
+                1
+            );
+        consume_for_mint(&mut cap);
+        return_from_burn(&mut cap, &coll);
+        // remaining == max_supply already: one more return would inflate
+        // mint allowance past the collection cap.
+        return_from_burn(&mut cap, &coll);
+        transfer_cap(cap, tx_context::sender(&ctx), &mut ctx);
+        transfer_collection(coll, tx_context::sender(&ctx), &mut ctx);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_CAP_COLLECTION_MISMATCH)]
+    fun test_return_from_burn_wrong_collection_aborts() {
+        let ctx = tx_context::dummy();
+        let (coll_a, cap_a) =
+            create_collection(
+                &mut ctx,
+                b"A",
+                b"D",
+                b"https://banner",
+                b"https://web",
+                10
+            );
+        let (coll_b, cap_b) =
+            create_collection(
+                &mut ctx,
+                b"B",
+                b"D",
+                b"https://banner",
+                b"https://web",
+                10
+            );
+        consume_for_mint(&mut cap_a);
+        // cap_a belongs to coll_a, not coll_b.
+        return_from_burn(&mut cap_a, &coll_b);
+        transfer_cap(cap_a, tx_context::sender(&ctx), &mut ctx);
+        transfer_cap(cap_b, tx_context::sender(&ctx), &mut ctx);
+        transfer_collection(coll_a, tx_context::sender(&ctx), &mut ctx);
+        transfer_collection(coll_b, tx_context::sender(&ctx), &mut ctx);
     }
 
     // Test functions that require constructing a `TxContext` are executed
