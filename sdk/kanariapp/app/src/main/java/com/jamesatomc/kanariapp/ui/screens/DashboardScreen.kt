@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -306,23 +307,34 @@ fun WalletCard(
                     ),
                     color = Color.White.copy(alpha = 0.9f)
                 )
-                Row(verticalAlignment = Alignment.Bottom) {
+                val balanceStr = formatAmountExactOrUnknown(t?.getEffectiveAmount() ?: 0L, t?.decimals ?: 9)
+                val balanceTextStyle = when {
+                    balanceStr.length > 15 -> MaterialTheme.typography.titleLarge
+                    balanceStr.length > 10 -> MaterialTheme.typography.headlineSmall
+                    else -> MaterialTheme.typography.headlineMedium
+                }.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = 0.5.sp,
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.4f),
+                        offset = Offset(0f, 4f),
+                        blurRadius = 8f
+                    )
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
+                ) {
                     Text(
-                        // No fallback: 0 ต้องการ decimals อยู่แล้ว ส่วน KANARI มาจาก API (9)
-                        if (t == null) "0" else formatAmountExactOrUnknown(t.getEffectiveAmount(), t.decimals),
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            letterSpacing = 0.5.sp,
-                            shadow = Shadow(
-                                color = Color.Black.copy(alpha = 0.4f),
-                                offset = Offset(0f, 4f),
-                                blurRadius = 8f
-                            )
-                        )
+                        text = balanceStr,
+                        style = balanceTextStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Text(
-                        " KANARI",
+                        text = " KANARI",
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White.copy(alpha = 0.75f),
@@ -332,6 +344,8 @@ fun WalletCard(
                                 blurRadius = 4f
                             )
                         ),
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
                     )
                 }
@@ -405,7 +419,11 @@ fun AssetItem(token: com.jamesatomc.kanariapp.network.models.TokenBalance) {
                 )
             },
             trailingContent = {
-                val decimals = token.decimals ?: if (token.tokenType == "0x2::kanari::KANARI" || token.symbol.equals("KANARI", true)) 9 else null
+                val decimals = token.decimals ?: if (token.tokenType == "0x2::kanari::KANARI" || token.symbol.equals(
+                        "KANARI",
+                        true
+                    )
+                ) 9 else null
                 Text(
                     formatAmountExactOrUnknown(token.getEffectiveAmount(), decimals),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
@@ -425,7 +443,7 @@ fun ObjectItem(obj: com.jamesatomc.kanariapp.network.models.ObjectInfo) {
             Text(
                 obj.id,
                 maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis
             )
         },
         leadingContent = { Icon(Icons.Default.Public, contentDescription = null) })
