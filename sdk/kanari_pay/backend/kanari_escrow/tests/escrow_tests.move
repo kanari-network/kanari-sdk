@@ -25,7 +25,7 @@ module kanari_escrow::escrow_tests {
             option::none(),
             ctx,
         );
-        
+
         // Mint coins using the treasury cap
         coin::mint(&mut treasury_cap, amount, ctx)
     }
@@ -39,10 +39,10 @@ module kanari_escrow::escrow_tests {
     fun test_create_deal_with_usdc_basic() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         // Create TestUSDC coin for testing
         let buyer_coin = create_test_usdc_coin(10000, &mut ctx);
-        
+
         // Create escrow deal using Coin object directly
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_001"),
@@ -52,7 +52,7 @@ module kanari_escrow::escrow_tests {
             &mut buyer_coin,
             &mut ctx
         );
-        
+
         // If no panic, test passes
     }
 
@@ -63,9 +63,9 @@ module kanari_escrow::escrow_tests {
     fun test_create_multiple_deals_with_usdc() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(10000, &mut ctx);
-        
+
         // Create first deal
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_001"),
@@ -75,7 +75,7 @@ module kanari_escrow::escrow_tests {
             &mut buyer_coin,
             &mut ctx
         );
-        
+
         // Create second deal
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_002"),
@@ -85,7 +85,7 @@ module kanari_escrow::escrow_tests {
             &mut buyer_coin,
             &mut ctx
         );
-        
+
         // Create third deal
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_003"),
@@ -104,9 +104,9 @@ module kanari_escrow::escrow_tests {
     fun test_deal_with_special_characters() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
-        
+
         // Test deal ID and description with special characters
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal-2024-001"),
@@ -125,9 +125,9 @@ module kanari_escrow::escrow_tests {
     fun test_deal_with_long_description() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(1000000, &mut ctx);
-        
+
         // Test with longer description
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"long_desc_deal"),
@@ -146,12 +146,12 @@ module kanari_escrow::escrow_tests {
     fun test_timestamp_is_set() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
-        
+
         // Get initial timestamp
         let initial_ts = tx_context::epoch_timestamp_ms(&ctx);
-        
+
         // Create deal
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"timestamp_test"),
@@ -161,10 +161,10 @@ module kanari_escrow::escrow_tests {
             &mut buyer_coin,
             &mut ctx
         );
-        
+
         // Get timestamp after creation
         let final_ts = tx_context::epoch_timestamp_ms(&ctx);
-        
+
         // Verify timestamp advanced
         assert!(final_ts >= initial_ts, 0);
     }
@@ -175,7 +175,7 @@ module kanari_escrow::escrow_tests {
     #[test]
     fun test_various_amounts() {
         let seller_addr = @0x2;
-        
+
         // Test with amount = 1 (minimum)
         let ctx1 = tx_context::dummy();
         let coin1 = create_test_usdc_coin(1, &mut ctx1);
@@ -187,7 +187,7 @@ module kanari_escrow::escrow_tests {
             &mut coin1,
             &mut ctx1
         );
-        
+
         // Test with amount = 1000
         let ctx2 = tx_context::dummy();
         let coin2 = create_test_usdc_coin(1000, &mut ctx2);
@@ -199,7 +199,7 @@ module kanari_escrow::escrow_tests {
             &mut coin2,
             &mut ctx2
         );
-        
+
         // Test with large amount
         let ctx3 = tx_context::dummy();
         let coin3 = create_test_usdc_coin(1000000000, &mut ctx3);
@@ -219,12 +219,12 @@ module kanari_escrow::escrow_tests {
     #[test]
     fun test_different_sellers() {
         let ctx = tx_context::dummy();
-        
+
         // Test with different seller addresses
         let seller1 = @0x1;
         let seller2 = @0x2;
         let seller3 = @0xdeadbeef;
-        
+
         let coin1 = create_test_usdc_coin(100, &mut ctx);
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_1"),
@@ -234,7 +234,7 @@ module kanari_escrow::escrow_tests {
             &mut coin1,
             &mut ctx
         );
-        
+
         let coin2 = create_test_usdc_coin(200, &mut ctx);
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_2"),
@@ -244,7 +244,7 @@ module kanari_escrow::escrow_tests {
             &mut coin2,
             &mut ctx
         );
-        
+
         let coin3 = create_test_usdc_coin(300, &mut ctx);
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_3"),
@@ -263,9 +263,9 @@ module kanari_escrow::escrow_tests {
     fun test_empty_strings() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
-        
+
         // Test with empty deal ID and description
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b""),
@@ -284,15 +284,15 @@ module kanari_escrow::escrow_tests {
     fun test_unicode_content() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
-        
+
         let buyer_coin = create_test_usdc_coin(500, &mut ctx);
-        
+
         // Test with UTF-8 content (emoji, special chars)
         escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"unicode_deal_✅"),
             seller_addr,
             500,
-            string::utf8(b"การทดสอบ escrow with emoji 🎉"),
+            string::utf8(b"Testing escrow with emoji 🎉"),
             &mut buyer_coin,
             &mut ctx
         );

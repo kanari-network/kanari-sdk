@@ -1,33 +1,46 @@
-# JAMES Token - การใช้งาน
+# JAMES Token - Usage Guide (Simple)
 
-## สถาปัตยกรรมใหม่
+## How the new system works
 
-ระบบ token ถูกออกแบบให้ **flexible** และ **ใช้งานผ่าน CLI** เท่านั้น:
+The token system is designed to be used via CLI only:
 
-1. **ไม่ auto mint** - เมื่อ publish module จะไม่มีการ mint token อัตโนมัติ
-2. **ใช้ `init` function** - รันเมื่อ publish เพื่อสร้าง TreasuryCap
-3. **TreasuryCap** ถูกส่งไปที่ publisher - ใช้สำหรับ mint ภายหลัง
-4. **เรียก `mint` ผ่าน CLI** - ยืดหยุ่น, ควบคุมได้
+1. **No auto mint** — publishing the module does not mint tokens automatically
+2. **Use `init` function** — runs on publish to create TreasuryCap
+3. **TreasuryCap is sent to the publisher** — used to mint tokens later
+4. **Call `mint` via CLI** — flexible, controllable
 
-## ขั้นตอนการใช้งาน
+---
 
-### 1. Publish Module
+## Usage Steps
+
+### Step 1: Publish the module
 
 ```bash
 cd james
 kanari move publish --sender <YOUR_ADDRESS> --password <PASSWORD>
 ```
 
-**ผลลัพธ์:**
+What happens:
 
-- Module `james::james` ถูก publish
-- `init()` function รันอัตโนมัติ
-- TreasuryCap<JAMES> ถูกสร้างและส่งไปที่ YOUR_ADDRESS
-- **ยังไม่มี token ถูก mint**
+- Module `james::james` is published
+- `init()` runs automatically
+- TreasuryCap<JAMES> is created and sent to your address
+- **No tokens are minted yet**
 
-### 2. Mint Token
+### Step 2: Mint tokens
 
-หลัง publish แล้ว ใช้ CLI mint token:
+After publishing, use the CLI to mint tokens:
+
+```bash
+kanari move call \
+  --sender <YOUR_ADDRESS> \
+  --password <PASSWORD> \
+  --module "<YOUR_MODULE_ADDRESS>::james" \
+  --function mint \
+  --args <TREASURY_CAP_OBJECT_ID> <token_amount> <recipient_address>
+```
+
+Example:
 
 ```bash
 kanari move call \
@@ -38,19 +51,19 @@ kanari move call \
   --args <TREASURY_CAP_OBJECT_ID> 1000000000 0x840512ff2c03135d82d55098f7461579cfe87f5c10c62718f818c0beeca138ea
 ```
 
-**Parameters:**
+Parameter descriptions:
 
-- `<TREASURY_CAP_OBJECT_ID>` - Object ID ของ TreasuryCap (ดูจาก getAccount)
-- `1000000000` - จำนวน token ที่จะ mint (1 billion JAMES)
-- `0x840512ff...` - Address ที่จะรับ token
+- `<TREASURY_CAP_OBJECT_ID>` — Object ID of TreasuryCap (check via `kanari account get`)
+- `<token_amount>` — Amount of tokens to mint, e.g. `1000000000` (1 billion JAMES)
+- `<recipient_address>` — Address that will receive the tokens
 
-### 3. ตรวจสอบ Balance
+### Step 3: Check balance
 
 ```bash
-kanari account get --address 0x840512ff2c03135d82d55098f7461579cfe87f5c10c62718f818c0beeca138ea
+kanari account get --address <YOUR_ADDRESS>
 ```
 
-**ผลลัพธ์:**
+Example output:
 
 ```json
 {
@@ -64,102 +77,90 @@ kanari account get --address 0x840512ff2c03135d82d55098f7461579cfe87f5c10c62718f
 }
 ```
 
-### 4. Transfer Token
+### Step 4: Transfer tokens
 
 ```bash
 kanari move call \
-  --sender 0x840512ff... \
-  --password 12345678 \
-  --module "0x840512ff...::james" \
-  --function transfer \
-  --args <COIN_OBJECT_ID> <RECIPIENT_ADDRESS>
+  --sender <YOUR_ADDRESS> \
+  --password <PASSWORD> \
+  --module "<YOUR_MODULE_ADDRESS>::james" \
+  --function transfer_amount \
+  --args <COIN_OBJECT_ID> <amount> <recipient_address> <DenyList_OBJECT_ID>
 ```
 
-## ข้อดีของวิธีใหม่
+---
 
-### ✅ Flexible
+## Why the new approach is better
 
-- ไม่ lock amount ตอน deploy
-- Mint ได้หลายครั้ง
-- ควบคุม supply ได้ตลอด
+| Benefit   | Description                                                          |
+| --------- | -------------------------------------------------------------------- |
+| Flexible  | No locked amount at deploy time, mint multiple times                 |
+| Universal | Same pattern for all tokens, no need to change code often            |
+| Secure    | Only TreasuryCap owner can mint, deny list supported, burn supported |
 
-### ✅ Universal
+---
 
-- ใครก็ deploy token ของตัวเองได้
-- ไม่ต้องแก้ code ทุกครั้ง
-- Pattern เดียวกันสำหรับ token ทุกตัว
-
-### ✅ Security
-
-- เฉพาะคนที่มี TreasuryCap mint ได้
-- TreasuryCap transfer ได้ (ถ้าต้องการเปลี่ยน owner)
-- Burn ได้ (ลด supply)
-
-## Function รายละเอียด
+## Key functions
 
 ### `init(witness: JAMES, ctx: &mut TxContext)`
 
-- **Auto-run** เมื่อ publish module
-- สร้าง currency metadata
-- Freeze metadata (ไม่สามารถแก้ไขได้)
-- Transfer TreasuryCap ไปที่ publisher
+Runs automatically when publishing the module — creates regulated currency + metadata and sends TreasuryCap + DenyCap to the publisher.
 
 ### `mint(treasury_cap: &mut TreasuryCap<JAMES>, amount: u64, recipient: address, ctx: &mut TxContext)`
 
-- **Public entry** - เรียกจาก CLI ได้
-- ต้องมี TreasuryCap
-- Mint coin และส่งไปที่ recipient
-- **ตัวอย่าง:** Mint 1M JAMES = `1000000` (ไม่นับ decimals)
+Mints tokens and sends them to the recipient — requires TreasuryCap.
 
-### `transfer(c: Coin<JAMES>, recipient: address)`
+### `transfer_amount(c: &mut Coin<JAMES>, amount: u64, recipient: address, deny_list: &DenyList, ctx: &mut TxContext)`
 
-- Transfer coin object ไปที่ recipient
-- ต้องมี Coin<JAMES> object
+Regulated transfer — checks deny list before transferring — requires the shared DenyList object (`@0x403`).
 
 ### `burn(treasury_cap: &mut TreasuryCap<JAMES>, coin: Coin<JAMES>)`
 
-- Burn coin (ลด total supply)
-- ต้องมี TreasuryCap
+Burns tokens (reduces total supply) — requires TreasuryCap.
 
-## ตัวอย่างการใช้งาน Complete Flow
+---
+
+## Complete workflow example
 
 ```bash
-# 1. Start node
+# 1. Start the node
 cargo run -p kanari-node
 
-# 2. Create account
+# 2. Create an account
 kanari account create --password 12345678
 
 # 3. Publish module
 cd james
-kanari move publish --sender 0x840512ff... --password 12345678
+kanari move publish --sender <YOUR_ADDRESS> --password 12345678
 
-# 4. Get account info (เช็ค TreasuryCap object ID)
-kanari account get --address 0x840512ff...
+# 4. Get account info (find TreasuryCap object ID)
+kanari account get --address <YOUR_ADDRESS>
 
 # 5. Mint tokens
 kanari move call \
-  --sender 0x840512ff... \
+  --sender <YOUR_ADDRESS> \
   --password 12345678 \
-  --module "0x840512ff...::james" \
+  --module "<YOUR_MODULE_ADDRESS>::james" \
   --function mint \
-  --args <TREASURY_CAP_ID> 1000000000 0x840512ff...
+  --args <TREASURY_CAP_ID> 1000000000 <YOUR_ADDRESS>
 
 # 6. Check balance
-kanari account get --address 0x840512ff...
+kanari account get --address <YOUR_ADDRESS>
 
-# 7. Transfer (ถ้ามี recipient อื่น)
+# 7. Transfer tokens (must attach DenyList @0x403)
 kanari move call \
-  --sender 0x840512ff... \
+  --sender <YOUR_ADDRESS> \
   --password 12345678 \
-  --module "0x840512ff...::james" \
-  --function transfer \
-  --args <COIN_OBJECT_ID> 0xcad2d7c...
+  --module "<YOUR_MODULE_ADDRESS>::james" \
+  --function transfer_amount \
+  --args <COIN_OBJECT_ID> 1000 <recipient_address> 0x403
 ```
 
-## การ Deploy Token อื่น
+---
 
-ใครก็สามารถ copy pattern นี้ไปใช้ได้:
+## Deploying other tokens
+
+Copy this pattern to use for other tokens:
 
 ```move
 module mytoken::mytoken {
@@ -199,28 +200,26 @@ module mytoken::mytoken {
 }
 ```
 
-## Notes
+---
 
-- **Object Storage**: Coin objects จะถูกเก็บใน object storage
-- **Token Balances**: ระบบจะ sync จาก object storage อัตโนมัติ
-- **Event Processing**: Events จาก Move VM จะถูก process เพื่ออัพเดท state
-- **Gas Fees**: ทุก transaction ต้องจ่าย gas ใน KANARI
+## Frequently asked questions
 
-## Troubleshooting
+**Where is TreasuryCap?**
 
-### TreasuryCap หายไปไหน?
+```
+kanari account get --address <YOUR_ADDRESS>
+```
 
-- Check `kanari account get --address <YOUR_ADDRESS>`
-- ดูใน objects list
+Check the objects list.
 
-### Mint ไม่ได้
+**Cannot mint?**
 
-- ต้องมี TreasuryCap object
-- ตรวจสอบว่า object ID ถูกต้อง
-- ตรวจสอบว่า sender เป็น owner ของ TreasuryCap
+- You must have a TreasuryCap object
+- Check that the object ID is correct
+- Check that the sender is the owner of the TreasuryCap
 
-### Balance ไม่อัพเดท
+**Balance not updating?**
 
-- ตรวจสอบว่า transaction success
-- Check events ใน transaction receipt
-- Restart node ถ้าจำเป็น
+- Check that the transaction succeeded
+- Check events in the transaction receipt
+- Restart the node if necessary

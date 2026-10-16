@@ -342,6 +342,8 @@ impl MoveRuntime {
                     deleted: native_deleted,
                     dynamic_fields: native_dynamic_fields,
                     borrowed,
+                    claimed_witnesses,
+                    child_links,
                 } = SessionNativeOutputs::drain(session.get_native_extensions());
 
                 let (res, _) = session.finish();
@@ -403,6 +405,13 @@ impl MoveRuntime {
                     native_deleted,
                     native_dynamic_fields,
                 );
+
+                self.record_session_metadata_writes(
+                    &mut cs,
+                    claimed_witnesses,
+                    child_links,
+                    state_overlay.as_deref(),
+                )?;
 
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1;
@@ -469,7 +478,7 @@ impl MoveRuntime {
         // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext(state_overlay));
+        extensions.add(self.dynamic_field_storage_ext(state_overlay.clone()));
         extensions.add(EventsExt::default());
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
@@ -478,6 +487,10 @@ impl MoveRuntime {
         // Track objects loaded and mutated through object native functions.
         extensions.add(LoadedObjectsExt::default());
         extensions.add(BorrowedObjectsExt::default());
+
+        // Type-convention and dynamic-object-field metadata registries.
+        extensions.add(self.claim_witness_ext(state_overlay.clone()));
+        extensions.add(self.child_index_ext(state_overlay));
 
         vm_guard.new_session_with_extensions(resolver, extensions)
     }

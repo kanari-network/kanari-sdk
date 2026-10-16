@@ -166,6 +166,13 @@ module kanari_system::deny_list {
         ctx: &mut TxContext,
     ) {
         assert!(!is_reserved(addr), EInvalidAddress);
+        // The genesis singleton is created with an empty `lists` bag (its
+        // object id must be the well-known `deny_list_object_id()`, which
+        // `create`'s `object::new` cannot produce); materialize the per-type
+        // list on first use.
+        if (!bag::contains(&deny_list.lists, per_type_index)) {
+            bag::add(&mut deny_list.lists, per_type_index, per_type_list(ctx));
+        };
         let key = DenyKey { per_type_index, per_type_key: `type` };
         if (ofield::exists_(&deny_list.id, key)) {
             let set: &mut TypeDenySet = ofield::borrow_mut(&mut deny_list.id, key);

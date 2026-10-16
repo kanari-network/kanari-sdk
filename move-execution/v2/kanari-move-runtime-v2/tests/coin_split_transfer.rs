@@ -26,7 +26,6 @@ mod move_manifest;
 
 const TESTER_ADDR: &str = "0x4c";
 const MODULE_NAME: &str = "coin_split_transfer";
-const MOCK_TYPE: &str = "0x4c::coin_split_transfer::MOCK";
 const SYSTEM_PAY_ADDR: &str = "0x2";
 
 const MINT_AMOUNT: u64 = 1_000;

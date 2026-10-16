@@ -445,7 +445,11 @@ impl MoveRuntime {
             deleted,
             dynamic_fields,
             borrowed,
+            claimed_witnesses,
+            child_links,
         } = SessionNativeOutputs::drain(session.get_native_extensions());
+
+        self.record_session_metadata_writes(cs, claimed_witnesses, child_links, None)?;
 
         self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
         SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);

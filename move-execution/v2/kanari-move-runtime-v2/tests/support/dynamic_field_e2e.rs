@@ -50,6 +50,16 @@ pub struct DynamicFieldScenario {
     pub read_fn: &'static str,
     /// View function reporting whether a field exists.
     pub has_fn: &'static str,
+    /// Optional view function reporting the parent's live child count. Set only
+    /// for the dynamic-object-field module, which backs the host child index.
+    pub children_fn: Option<&'static str>,
+    /// Optional view function reporting a typed existence check
+    /// (`exists_with_type`): true only when the field exists with the exact
+    /// expected value type.
+    pub has_type_fn: Option<&'static str>,
+    /// Optional view function probing the same key with a mismatched value
+    /// type: must return false without aborting.
+    pub has_mismatched_type_fn: Option<&'static str>,
     /// Field key driven through every call.
     pub key: u64,
     /// Value written by `add_fn` and asserted by the first read.
@@ -114,6 +124,33 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
         .context("read persisted field value")?;
     assert_eq!(read_before_update, JsonValue::from(scenario.initial_value));
 
+    // The host child index is persisted separately from the dynamic-field
+    // value, so a fresh runtime must still list the child added above.
+    if let Some(children_fn) = scenario.children_fn {
+        let child_count = view_fn(&second_runtime, scenario, &module_id, &host_id, children_fn)
+            .context("count children after add")?;
+        assert_eq!(child_count, JsonValue::from(1u64));
+    }
+
+    // `exists_with_type` must agree with the untyped check on a fresh boot:
+    // true for the exact value type, false (not an abort) for a mismatch.
+    if let Some(has_type_fn) = scenario.has_type_fn {
+        let typed = view_fn(&second_runtime, scenario, &module_id, &host_id, has_type_fn)
+            .context("typed field existence after add")?;
+        assert_eq!(typed, JsonValue::from(1u64));
+    }
+    if let Some(mismatched_fn) = scenario.has_mismatched_type_fn {
+        let mismatched = view_fn(
+            &second_runtime,
+            scenario,
+            &module_id,
+            &host_id,
+            mismatched_fn,
+        )
+        .context("mismatched typed field existence after add")?;
+        assert_eq!(mismatched, JsonValue::from(0u64));
+    }
+
     let update_changes = call_with_host(
         &second_runtime,
         &module_id,
@@ -135,6 +172,14 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     let read_after_update = read_field(&third_runtime, scenario, &module_id, &host_id)
         .context("read updated field value")?;
     assert_eq!(read_after_update, JsonValue::from(scenario.updated_value));
+
+    // Mutating the value must not change its type: the typed check still
+    // holds on a fresh runtime.
+    if let Some(has_type_fn) = scenario.has_type_fn {
+        let typed = view_fn(&third_runtime, scenario, &module_id, &host_id, has_type_fn)
+            .context("typed field existence after update")?;
+        assert_eq!(typed, JsonValue::from(1u64));
+    }
 
     let remove_changes = call_with_host(
         &third_runtime,
@@ -159,6 +204,18 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     )
     .context("check field absence after remove")?;
     assert_eq!(exists_after_remove, JsonValue::from(0u64));
+
+    if let Some(children_fn) = scenario.children_fn {
+        let child_count = view_fn(&fourth_runtime, scenario, &module_id, &host_id, children_fn)
+            .context("count children after remove")?;
+        assert_eq!(child_count, JsonValue::from(0u64));
+    }
+
+    if let Some(has_type_fn) = scenario.has_type_fn {
+        let typed = view_fn(&fourth_runtime, scenario, &module_id, &host_id, has_type_fn)
+            .context("typed field existence after remove")?;
+        assert_eq!(typed, JsonValue::from(0u64));
+    }
 
     Ok(())
 }
@@ -190,6 +247,17 @@ fn call_with_host(
 
 /// Call a view function on the host object as an immutable declared input.
 fn view(
+    runtime: &MoveRuntime,
+    scenario: &DynamicFieldScenario,
+    module_id: &ModuleId,
+    host_id: &str,
+    function: &str,
+) -> Result<JsonValue> {
+    view_fn(runtime, scenario, module_id, host_id, function)
+}
+
+/// Call a named view function on the host object as an immutable declared input.
+fn view_fn(
     runtime: &MoveRuntime,
     scenario: &DynamicFieldScenario,
     module_id: &ModuleId,

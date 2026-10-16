@@ -1,6 +1,8 @@
 module james::james {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
+    use kanari_system::deny_list::{DenyCap, DenyList};
+    use kanari_system::pay;
     use kanari_system::tx_context::{TxContext};
     use std::option;
     use kanari_system::transfer;
@@ -10,15 +12,15 @@ module james::james {
     struct JAMES has drop {}
 
     #[allow(unused_function)]
-    /// Initialize and register the JAMES currency.
+    /// Initialize and register the JAMES currency as a *regulated* coin.
     ///
     /// Runs exactly once: the runtime invokes `init` on fresh publish only
     /// (never on upgrade), with `tx_context::sender` set to the publisher,
-    /// so TreasuryCap and metadata land with the deployer and no replayable
-    /// setup entry needs to exist.
+    /// so TreasuryCap, DenyCap and metadata land with the deployer and no
+    /// replayable setup entry needs to exist.
     fun init(witness: JAMES, ctx: &mut TxContext) {
-        let (treasury, metadata) =
-            coin::create_currency<JAMES>(
+        let (treasury, deny_cap, metadata) =
+            coin::create_regulated_currency<JAMES>(
                 witness,
                 9,
                 b"JAMES",
@@ -33,6 +35,7 @@ module james::james {
             );
         let sender = kanari_system::tx_context::sender(ctx);
         transfer::public_transfer(treasury, sender);
+        transfer::public_transfer(deny_cap, sender);
         transfer::public_transfer(metadata, sender);
     }
 
@@ -55,21 +58,24 @@ module james::james {
         transfer::public_transfer(coin, recipient);
     }
 
-    /// Transfer a specific `amount` of JAMES from a mutable Coin held by the caller
-    /// Usage: provide the caller's coin, the amount to send, and the recipient
+    /// Transfer a specific `amount` of JAMES from a mutable Coin held by the caller.
+    /// Regulated path: aborts when `recipient` is on the JAMES deny list or
+    /// JAMES is globally paused. Takes the shared `DenyList` singleton
+    /// (`@0x403`) as a read-only reference.
+    /// Usage: provide the caller's coin, the amount to send, the recipient,
+    /// the shared deny-list object, and the tx context.
     public entry fun transfer_amount(
         c: &mut coin::Coin<JAMES>,
         amount: u64,
         recipient: address,
+        deny_list: &DenyList,
         ctx: &mut TxContext,
     ) {
         // 1. Check if sender is the same as recipient, if so, do nothing
         let sender = kanari_system::tx_context::sender(ctx);
-        // 2. sender is not the same as recipient, proceed with transfer
+        // 2. sender is not the same as recipient, proceed with the checked transfer
         if (sender == recipient) { return };
-        // 3. Split the specified amount from the sender's coin
-        let split_coin = coin::split(c, amount, ctx);
-        transfer::public_transfer(split_coin, recipient);
+        pay::split_and_transfer_checked(c, amount, recipient, deny_list, ctx);
     }
 
     /// Burn a specific `amount` of JAMES from a mutable Coin held by the caller
@@ -96,5 +102,76 @@ module james::james {
         let new_url_obj = url::new_unsafe_from_bytes(new_url);
         // Use TreasuryCap to obtain authorization to update the icon_url in the Metadata
         coin::update_icon_url<JAMES>(treasury_cap, metadata, option::some(new_url_obj));
+    }
+
+    // ==========================================
+    // Deny-list management (regulated coin)
+    // ==========================================
+    /// Deny-list operations are gated by `&DenyCap<JAMES>` minted in `init`,
+    /// so only the deployer (or whoever holds the cap) can maintain entries.
+
+    /// Add `addr` to the JAMES deny list.
+    public entry fun deny_add(
+        deny_list: &mut DenyList,
+        cap: &DenyCap<JAMES>,
+        addr: address,
+        ctx: &mut TxContext,
+    ) {
+        coin::deny_list_add(deny_list, cap, addr, ctx);
+    }
+
+    /// Remove `addr` from the JAMES deny list. Aborts when not denied.
+    public entry fun deny_remove(
+        deny_list: &mut DenyList,
+        cap: &DenyCap<JAMES>,
+        addr: address,
+        ctx: &mut TxContext,
+    ) {
+        coin::deny_list_remove(deny_list, cap, addr, ctx);
+    }
+
+    /// Pause all regulated JAMES flows (fail-closed kill-switch).
+    public entry fun deny_pause(
+        deny_list: &mut DenyList,
+        cap: &DenyCap<JAMES>,
+        ctx: &mut TxContext,
+    ) {
+        coin::deny_list_pause(deny_list, cap, ctx);
+    }
+
+    /// Lift the JAMES pause.
+    public entry fun deny_unpause(
+        deny_list: &mut DenyList,
+        cap: &DenyCap<JAMES>,
+        ctx: &mut TxContext,
+    ) {
+        coin::deny_list_unpause(deny_list, cap, ctx);
+    }
+
+    /// Open read: true iff `addr` is denied for JAMES.
+    public fun is_denied(deny_list: &DenyList, addr: address): bool {
+        coin::deny_list_contains<JAMES>(deny_list, addr)
+    }
+
+    /// Open read: true iff JAMES is globally paused.
+    public fun is_paused(deny_list: &DenyList): bool {
+        coin::deny_list_paused<JAMES>(deny_list)
+    }
+
+    #[test_only]
+    /// Mint a fresh regulated JAMES currency for tests (the real `init` runs
+    /// only on publish, so tests build the same objects directly).
+    public fun create_regulated_for_test(
+        ctx: &mut TxContext,
+    ): (TreasuryCap<JAMES>, DenyCap<JAMES>, coin::CoinMetadata<JAMES>) {
+        coin::create_regulated_currency(
+            JAMES {},
+            9,
+            b"JAMES",
+            b"James Token",
+            b"",
+            option::none(),
+            ctx,
+        )
     }
 }

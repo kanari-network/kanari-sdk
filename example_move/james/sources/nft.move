@@ -1,6 +1,9 @@
 // Kanari Labs NFT Module - Universal Standard Version
 module james::nft {
+    use std::ascii;
     use std::string::{String, utf8};
+    use std::type_name;
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
     use kanari_system::transfer;
@@ -41,6 +44,21 @@ module james::nft {
     }
 
     const MAX_SUPPLY: u64 = 2000;
+
+    /// Deny-list bag index for the KariKid family. Coin entries live under
+    /// `deny_list::coin_index()` (0); object families use their own index so
+    /// the two never collide.
+    const NFT_DENY_INDEX: u64 = 1;
+
+    /// Abort code when the recipient is denied or KariKid transfers pause.
+    const EDENIED: u64 = 1;
+
+    /// Canonical deny-list key for KariKid: its `type_name` bytes, mirroring
+    /// `coin::deny_type_key` so tooling can reproduce the exact format.
+    fun nft_type_key(): vector<u8> {
+        let name = type_name::get<KariKid>();
+        *ascii::as_bytes(type_name::borrow_string(&name))
+    }
 
     #[allow(unused_function)]
     /// Function to create a collection; executed once by the runtime during publication
@@ -133,12 +151,17 @@ module james::nft {
         object::delete(id);
     }
 
-    /// NFT transfer
+    /// NFT transfer (regulated): aborts `EDENIED` when `recipient` is on the
+    /// KariKid deny list or KariKid transfers are globally paused. Takes the
+    /// shared `DenyList` singleton (`@0x403`) as a read-only reference.
     public entry fun transfer(
         nft: KariKid,
         recipient: address,
+        deny_list: &DenyList,
         _: &mut TxContext,
     ) {
+        assert!(!is_denied(deny_list, recipient), EDENIED);
+        assert!(!is_paused(deny_list), EDENIED);
         transfer::public_transfer(nft, recipient)
     }
 
@@ -151,5 +174,82 @@ module james::nft {
     ) {
         nft.attribute_keys = attribute_keys;
         nft.attribute_values = attribute_values;
+    }
+
+    // ==========================================
+    // Deny-list management (regulated NFT)
+    // ==========================================
+    /// The shared `deny_list::v1_*` functions are permissionless at the
+    /// framework level, so this module gates every write with
+    /// `&collection::NftCap`: only the collection issuer can maintain
+    /// KariKid entries — the same role separation `coin::DenyCap` gives
+    /// regulated coins.
+
+    /// Add `addr` to the KariKid deny list. Only the NftCap holder.
+    public entry fun deny_add(
+        deny_list: &mut DenyList,
+        _cap: &collection::NftCap,
+        addr: address,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v1_add(deny_list, NFT_DENY_INDEX, nft_type_key(), addr, ctx);
+    }
+
+    /// Remove `addr` from the KariKid deny list. Aborts when not denied.
+    public entry fun deny_remove(
+        deny_list: &mut DenyList,
+        _cap: &collection::NftCap,
+        addr: address,
+    ) {
+        deny_list::v1_remove(deny_list, NFT_DENY_INDEX, nft_type_key(), addr);
+    }
+
+    /// Pause all KariKid transfers (fail-closed kill-switch).
+    public entry fun deny_pause(
+        deny_list: &mut DenyList,
+        _cap: &collection::NftCap,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v2_enable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key(), ctx);
+    }
+
+    /// Lift the KariKid pause.
+    public entry fun deny_unpause(
+        deny_list: &mut DenyList,
+        _cap: &collection::NftCap,
+    ) {
+        deny_list::v2_disable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key());
+    }
+
+    /// Open read: true iff `addr` is denied for KariKid.
+    public fun is_denied(deny_list: &DenyList, addr: address): bool {
+        deny_list::v1_contains(deny_list, NFT_DENY_INDEX, nft_type_key(), addr)
+    }
+
+    /// Open read: true iff KariKid transfers are globally paused.
+    public fun is_paused(deny_list: &DenyList): bool {
+        deny_list::v2_is_global_pause_enabled(deny_list, NFT_DENY_INDEX, nft_type_key())
+    }
+
+    #[test_only]
+    /// Mint a KariKid straight into the caller's hands for tests (the
+    /// `mint` entry transfers to the tx sender, which unit tests cannot
+    /// retrieve objects from).
+    public fun mint_for_test(
+        cap: &mut collection::NftCap,
+        ctx: &mut TxContext,
+    ): KariKid {
+        collection::consume_for_mint(cap);
+        KariKid {
+            id: object::new(ctx),
+            name: utf8(b"Test Kid"),
+            image_url: url::new_unsafe_from_bytes(b"https://james-project.com/test.png"),
+            description: utf8(b"test nft"),
+            attribute_keys: vector[],
+            attribute_values: vector[],
+            number: utf8(b"0"),
+            collection_id: collection::cap_collection_id(cap),
+            creator: tx_context::sender(ctx),
+        }
     }
 }

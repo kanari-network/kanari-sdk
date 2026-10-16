@@ -323,7 +323,7 @@ kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 smt = { path = "crates/smt" }
 
 # Move Runtime
-kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
+# kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
 kanari-move-runtime-v2 = { path = "move-execution/v2/kanari-move-runtime-v2" }
 
 # Move dependencies

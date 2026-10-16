@@ -3,13 +3,17 @@
 
 //! Internal helper functions for Move execution.
 
+use kanari_system_natives::child::{ChildIndexExt, ChildIndexResolver, ChildLinks, children_key};
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
+use kanari_system_natives::types::{
+    CLAIMED_WITNESSES_KEY, ClaimedWitnessesExt, WitnessClaimResolver,
+};
 use kanari_types::coin::CoinModule;
 use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::StructTag;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 struct RuntimeDynamicFieldResolver {
@@ -44,6 +48,58 @@ impl DynamicFieldResolver for RuntimeDynamicFieldResolver {
     }
 }
 
+/// Read a durable metadata entry, letting a transaction's state overlay shadow
+/// the persistent store. Returns `None` when the key is absent (or tombstones
+/// a store entry with overlay `None`).
+///
+/// Canonical storage keys written through `ChangeSet::move_writes` hold a
+/// length-prefixed `Vec<u8>` blob (see `StateManager::save_internal`), so the
+/// raw bytes are unwrapped before decoding the typed metadata value.
+fn load_metadata<T: serde::de::DeserializeOwned>(
+    store: &crate::storage::persistent_store::PersistentStore,
+    overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+    key: &[u8],
+) -> anyhow::Result<Option<T>> {
+    let raw: Option<Vec<u8>> = match overlay.and_then(|overlay| overlay.get(key)) {
+        Some(Some(bytes)) => Some(bcs::from_bytes(bytes)?),
+        Some(None) => return Ok(None),
+        None => store.load::<Vec<u8>>(key)?,
+    };
+    match raw {
+        Some(bytes) => Ok(Some(bcs::from_bytes(&bytes)?)),
+        None => Ok(None),
+    }
+}
+
+/// Host view of the persisted one-time-witness claim registry.
+struct RuntimeWitnessClaimResolver {
+    store: Arc<crate::storage::persistent_store::PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
+}
+
+impl WitnessClaimResolver for RuntimeWitnessClaimResolver {
+    fn claimed_witnesses(&self) -> Result<Vec<String>, String> {
+        load_metadata::<Vec<String>>(&self.store, self.overlay.as_deref(), CLAIMED_WITNESSES_KEY)
+            .map(|claimed| claimed.unwrap_or_default())
+            .map_err(|error| format!("persistent witness-claim read failed: {error}"))
+    }
+}
+
+/// Host view of the persisted child-object link index.
+struct RuntimeChildIndexResolver {
+    store: Arc<crate::storage::persistent_store::PersistentStore>,
+    overlay: Option<crate::StateOverlay>,
+}
+
+impl ChildIndexResolver for RuntimeChildIndexResolver {
+    fn child_links(&self, parent_hex: &str) -> Result<ChildLinks, String> {
+        let key = children_key(parent_hex);
+        load_metadata::<ChildLinks>(&self.store, self.overlay.as_deref(), &key)
+            .map(|links| links.unwrap_or_default())
+            .map_err(|error| format!("persistent child-index read failed: {error}"))
+    }
+}
+
 /// Size of a Move object UID in bytes (address)
 const UID_SIZE: usize = 32;
 /// Size of a u64 field in bytes
@@ -58,6 +114,82 @@ impl super::MoveRuntime {
             store: self.state.store(),
             overlay,
         }))
+    }
+
+    /// Extension giving `kanari_system::types` natives read access to the
+    /// durable witness-claim registry.
+    pub(crate) fn claim_witness_ext(
+        &self,
+        overlay: Option<crate::StateOverlay>,
+    ) -> ClaimedWitnessesExt {
+        ClaimedWitnessesExt::new(Arc::new(RuntimeWitnessClaimResolver {
+            store: self.state.store(),
+            overlay,
+        }))
+    }
+
+    /// Extension giving `kanari_system::dynamic_object_field` natives read
+    /// access to the durable child-object link index.
+    pub(crate) fn child_index_ext(&self, overlay: Option<crate::StateOverlay>) -> ChildIndexExt {
+        ChildIndexExt::new(Arc::new(RuntimeChildIndexResolver {
+            store: self.state.store(),
+            overlay,
+        }))
+    }
+
+    /// Translate this transaction's drained witness-claim and child-link
+    /// mutations into canonical storage writes (`ChangeSet::move_writes`), so
+    /// they commit with the rest of the changeset exactly once. Base state is
+    /// read from the overlay (shadowing the store) so a replayed transaction
+    /// merges against the state it observed.
+    pub(crate) fn record_session_metadata_writes(
+        &self,
+        cs: &mut crate::changeset::ChangeSet,
+        claimed_witnesses: BTreeSet<String>,
+        child_links: Vec<(String, Vec<u8>, Option<Vec<u8>>)>,
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+    ) -> anyhow::Result<()> {
+        let store = self.state.store();
+
+        if !claimed_witnesses.is_empty() {
+            let mut claimed: BTreeSet<String> =
+                load_metadata::<Vec<String>>(&store, overlay, CLAIMED_WITNESSES_KEY)?
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+            claimed.extend(claimed_witnesses);
+            let rendered: Vec<String> = claimed.into_iter().collect();
+            cs.record_move_write(
+                CLAIMED_WITNESSES_KEY.to_vec(),
+                Some(bcs::to_bytes(&rendered)?),
+            );
+        }
+
+        // Apply each parent's ops in call order over its durable base, then
+        // write the merged list once per parent.
+        let mut parents: Vec<String> = Vec::new();
+        for (parent, _, _) in &child_links {
+            if !parents.iter().any(|existing| existing == parent) {
+                parents.push(parent.clone());
+            }
+        }
+        for parent in parents {
+            let key = children_key(&parent);
+            let mut links: ChildLinks =
+                load_metadata::<ChildLinks>(&store, overlay, &key)?.unwrap_or_default();
+            for (_, name, child) in child_links
+                .iter()
+                .filter(|(op_parent, _, _)| op_parent == &parent)
+            {
+                links.retain(|(existing, _)| existing != name);
+                if let Some(child) = child {
+                    links.push((name.clone(), child.clone()));
+                }
+            }
+            cs.record_move_write(key, Some(bcs::to_bytes(&links)?));
+        }
+
+        Ok(())
     }
 
     pub(crate) fn get_object_for_execution(

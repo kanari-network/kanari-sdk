@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Well-known shared object id of the deny-list singleton, mirroring
+/// `kanari_system::deny_list::deny_list_object_id()`.
+const DENY_LIST_OBJECT_ID: &str = "0x403";
+
 impl MoveRuntime {
     /// Convert an object-id string into a `UIDRecord` when possible.
     fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
@@ -313,6 +317,67 @@ impl MoveRuntime {
         self.persist_deleted_objects(&changeset)?;
         state.set_system_clock_object_id(addr)?;
         Ok(addr)
+    }
+
+    /// Ensure the shared deny-list singleton exists at `deny_list_object_id()`
+    /// (`@0x403`), creating it natively at genesis if absent.
+    ///
+    /// `kanari_system::deny_list::create` derives its object id from
+    /// `object::new(ctx)`, so it can never land on the documented well-known
+    /// address. Instead we build the exact `DenyList { id, lists }` BCS
+    /// (`DenyList` = `UID` ++ `Bag`, `Bag` = `UID` ++ `u64`) with the outer id
+    /// pinned to `0x403`. The embedded `Bag` starts empty; `deny_list::v1_add`
+    /// creates the per-type list lazily on first use.
+    pub fn ensure_deny_list(&self, state: &mut StateManager) -> Result<AccountAddress> {
+        let deny_addr = AccountAddress::from_hex_literal(DENY_LIST_OBJECT_ID)
+            .context("invalid deny-list well-known object id")?;
+        let deny_id_hex = deny_addr.to_hex_literal();
+        if state.get_object(&deny_id_hex)?.is_some() {
+            return Ok(deny_addr);
+        }
+
+        // Deterministic address for the embedded `Bag` sub-object, domain
+        // separated from the clock so the two never collide.
+        let bag_seed = hash_data_blake3(b"KANARI::GENESIS::DENY_LIST::BAG");
+        let mut hasher = Sha3_256::new();
+        hasher.update(bag_seed);
+        hasher.update(0u64.to_le_bytes());
+        let bag_digest = hasher.finalize();
+        let bag_addr = AccountAddress::from_bytes(&bag_digest[..AccountAddress::LENGTH])
+            .context("Failed to derive native deny-list bag id")?;
+
+        // `DenyList { id: UID, lists: Bag { id: UID, size: u64 } }`, BCS-encoded.
+        let mut data = Vec::with_capacity(2 * AccountAddress::LENGTH + 8);
+        data.extend_from_slice(deny_addr.as_ref());
+        data.extend_from_slice(bag_addr.as_ref());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let deny_type = {
+            let module_id = kanari_types::deny_list::DenyListModule::get_module_id()?;
+            format!(
+                "{}::{}::DenyList",
+                module_id.address().to_hex_literal(),
+                module_id.name()
+            )
+        };
+
+        let mut changeset = ChangeSet::new();
+        changeset.created_objects.push((
+            deny_id_hex,
+            crate::changeset::CreatedObject {
+                owner: AccountAddress::ZERO,
+                owner_kind: ObjectOwnerKind::Shared,
+                uid: Some(UIDRecord::new(deny_addr)),
+                id: None,
+                type_: deny_type,
+                data,
+                version: 1,
+            },
+        ));
+        state.apply_changeset_without_supply_validation(&changeset)?;
+        self.persist_created_objects(&changeset)?;
+        self.persist_deleted_objects(&changeset)?;
+        Ok(deny_addr)
     }
 
     /// Build a consensus commit prologue changeset for the native clock object.
