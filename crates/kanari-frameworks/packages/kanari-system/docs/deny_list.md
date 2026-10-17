@@ -23,6 +23,7 @@ consult this list via <code><a href="coin.md#0x2_coin_deny_list_contains">coin::
 -  [Resource `DenyCap`](#0x2_deny_list_DenyCap)
 -  [Constants](#@Constants_0)
 -  [Function `deny_list_object_id`](#0x2_deny_list_deny_list_object_id)
+-  [Function `borrow_singleton`](#0x2_deny_list_borrow_singleton)
 -  [Function `coin_index`](#0x2_deny_list_coin_index)
 -  [Function `is_reserved`](#0x2_deny_list_is_reserved)
 -  [Function `create`](#0x2_deny_list_create)
@@ -302,6 +303,36 @@ Transfer-time enforcement consults the list at this address.
 
 </details>
 
+<a name="0x2_deny_list_borrow_singleton"></a>
+
+## Function `borrow_singleton`
+
+Borrow the shared singleton without receiving it as a transaction
+argument. The runtime preloads <code>@0x403</code> for every execution, so entry
+functions stay free of deny-list parameters. Aborts when the
+singleton is absent (e.g. the bare Move unit runner, which has no
+genesis state): unit tests should build a local list with
+<code>new_for_testing</code> and pass it explicitly instead.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_borrow_singleton">borrow_singleton</a>(): &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_borrow_singleton">borrow_singleton</a>(): &<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> {
+    <a href="object.md#0x2_object_borrow_global">object::borrow_global</a>&lt;<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>&gt;(<a href="deny_list.md#0x2_deny_list_deny_list_object_id">deny_list_object_id</a>())
+}
+</code></pre>
+
+
+
+</details>
+
 <a name="0x2_deny_list_coin_index"></a>
 
 ## Function `coin_index`
@@ -475,6 +506,13 @@ per-type set object is created on first use.
     ctx: &<b>mut</b> TxContext,
 ) {
     <b>assert</b>!(!<a href="deny_list.md#0x2_deny_list_is_reserved">is_reserved</a>(addr), <a href="deny_list.md#0x2_deny_list_EInvalidAddress">EInvalidAddress</a>);
+    // The genesis singleton is created <b>with</b> an empty `lists` <a href="bag.md#0x2_bag">bag</a> (its
+    // <a href="object.md#0x2_object">object</a> id must be the well-known `<a href="deny_list.md#0x2_deny_list_deny_list_object_id">deny_list_object_id</a>()`, which
+    // `create`'s `<a href="object.md#0x2_object_new">object::new</a>` cannot produce); materialize the per-type
+    // list on first <b>use</b>.
+    <b>if</b> (!<a href="bag.md#0x2_bag_contains">bag::contains</a>(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index)) {
+        <a href="bag.md#0x2_bag_add">bag::add</a>(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index, <a href="deny_list.md#0x2_deny_list_per_type_list">per_type_list</a>(ctx));
+    };
     <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
     <b>if</b> (ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) {
         <b>let</b> set: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow_mut(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);

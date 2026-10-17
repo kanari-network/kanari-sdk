@@ -1,7 +1,7 @@
 module james::euro {
     use kanari_system::coin;
-    use kanari_system::coin::{Coin, TreasuryCap};
-    use kanari_system::deny_list::{DenyCap, DenyList};
+    use kanari_system::coin::{Coin, DenyCapV2, TreasuryCap};
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::pay;
     use kanari_system::tx_context::{TxContext};
     use std::option;
@@ -20,7 +20,7 @@ module james::euro {
     /// replayable setup entry needs to exist.
     fun init(witness: EURO, ctx: &mut TxContext) {
         let (treasury, deny_cap, metadata) =
-            coin::create_regulated_currency<EURO>(
+            coin::create_regulated_currency_v2<EURO>(
                 witness,
                 6,
                 b"EURO",
@@ -31,6 +31,7 @@ module james::euro {
                         b"https://assets.coingecko.com/coins/images/26045/standard/EURC.png?1769615705"
                     )
                 ),
+                true,
                 ctx
             );
         let sender = kanari_system::tx_context::sender(ctx);
@@ -60,11 +61,22 @@ module james::euro {
 
     /// Transfer a specific `amount` of EURO from a mutable Coin held by the caller.
     /// Regulated path: aborts when `recipient` is on the EURO deny list or
-    /// EURO is globally paused. Takes the shared `DenyList` singleton
-    /// (`@0x403`) as a read-only reference.
+    /// EURO is globally paused. The shared `DenyList` singleton (`@0x403`)
+    /// is borrowed by the framework, so callers pass no deny-list argument.
     /// Usage: provide the caller's coin, the amount to send, the recipient,
-    /// the shared deny-list object, and the tx context.
+    /// and the tx context.
     public entry fun transfer_amount(
+        c: &mut coin::Coin<EURO>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        transfer_amount_with_list(c, amount, recipient, deny_list::borrow_singleton(), ctx);
+    }
+
+    /// Same transfer against an explicitly passed list. Used by unit tests,
+    /// which run without a genesis singleton to borrow.
+    public fun transfer_amount_with_list(
         c: &mut coin::Coin<EURO>,
         amount: u64,
         recipient: address,
@@ -99,49 +111,49 @@ module james::euro {
     /// Add `addr` to the EURO deny list.
     public entry fun deny_add(
         deny_list: &mut DenyList,
-        cap: &DenyCap<EURO>,
+        cap: &DenyCapV2<EURO>,
         addr: address,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_add(deny_list, cap, addr, ctx);
+        coin::deny_list_v2_add(deny_list, cap, addr, ctx);
     }
 
     /// Remove `addr` from the EURO deny list. Aborts when not denied.
     public entry fun deny_remove(
         deny_list: &mut DenyList,
-        cap: &DenyCap<EURO>,
+        cap: &DenyCapV2<EURO>,
         addr: address,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_remove(deny_list, cap, addr, ctx);
+        coin::deny_list_v2_remove(deny_list, cap, addr, ctx);
     }
 
     /// Pause all regulated EURO flows (fail-closed kill-switch).
     public entry fun deny_pause(
         deny_list: &mut DenyList,
-        cap: &DenyCap<EURO>,
+        cap: &DenyCapV2<EURO>,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_pause(deny_list, cap, ctx);
+        coin::deny_list_v2_enable_global_pause(deny_list, cap, ctx);
     }
 
     /// Lift the EURO pause.
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
-        cap: &DenyCap<EURO>,
+        cap: &DenyCapV2<EURO>,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_unpause(deny_list, cap, ctx);
+        coin::deny_list_v2_disable_global_pause(deny_list, cap, ctx);
     }
 
     /// Open read: true iff `addr` is denied for EURO.
     public fun is_denied(deny_list: &DenyList, addr: address): bool {
-        coin::deny_list_contains<EURO>(deny_list, addr)
+        coin::deny_list_v2_contains<EURO>(deny_list, addr)
     }
 
     /// Open read: true iff EURO is globally paused.
     public fun is_paused(deny_list: &DenyList): bool {
-        coin::deny_list_paused<EURO>(deny_list)
+        coin::deny_list_v2_is_global_pause_enabled<EURO>(deny_list)
     }
 
     #[test_only]
@@ -149,14 +161,15 @@ module james::euro {
     /// only on publish, so tests build the same objects directly).
     public fun create_regulated_for_test(
         ctx: &mut TxContext,
-    ): (TreasuryCap<EURO>, DenyCap<EURO>, coin::CoinMetadata<EURO>) {
-        coin::create_regulated_currency(
+    ): (TreasuryCap<EURO>, DenyCapV2<EURO>, coin::CoinMetadata<EURO>) {
+        coin::create_regulated_currency_v2(
             EURO {},
             6,
             b"EURO",
             b"EURO Token",
             b"",
             option::none(),
+            true,
             ctx,
         )
     }

@@ -332,16 +332,23 @@ impl MoveRuntime {
         match param_type {
             // Generic object types such as Coin<T> can lose their key-ability
             // information while resolving a published package's dependency
-            // graph. They are still object references when passed by ref.
+            // graph. Concrete object types can lose it as well. Entry
+            // references to structs (except TxContext) are object inputs.
             RuntimeType::Reference(inner)
                 if is_key_struct(inner)
-                    || matches!(&**inner, RuntimeType::StructInstantiation(_)) =>
+                    || matches!(
+                        &**inner,
+                        RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
+                    ) =>
             {
                 Some(false)
             }
             RuntimeType::MutableReference(inner)
                 if is_key_struct(inner)
-                    || matches!(&**inner, RuntimeType::StructInstantiation(_)) =>
+                    || matches!(
+                        &**inner,
+                        RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
+                    ) =>
             {
                 Some(true)
             }

@@ -185,12 +185,21 @@ impl Call {
         };
 
         if let Some(raw_hex) = hex_part
-            && raw_hex.len() == AccountAddress::LENGTH * 2
+            && !raw_hex.is_empty()
+            && raw_hex.len() <= AccountAddress::LENGTH * 2
             && raw_hex.chars().all(|c| c.is_ascii_hexdigit())
         {
-            let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
+            // Zero-pad short addresses (e.g. `0x403` for the `@0x403` singleton)
+            // to a full 32-byte object ID so the server can resolve them as
+            // object inputs. Full 64-char IDs pass through unchanged.
+            let padded = if raw_hex.len() == AccountAddress::LENGTH * 2 {
+                raw_hex.to_string()
+            } else {
+                format!("{:0>width$}", raw_hex, width = AccountAddress::LENGTH * 2)
+            };
+            let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", padded))
                 .require("Invalid object ID format")?;
-            eprintln!("[CLI] object-id argument detected: 0x{}", raw_hex);
+            eprintln!("[CLI] object-id argument detected: 0x{}", padded);
             return Ok(obj_id.to_vec());
         }
 

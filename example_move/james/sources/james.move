@@ -1,7 +1,7 @@
 module james::james {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
-    use kanari_system::deny_list::{DenyCap, DenyList};
+    use kanari_system::deny_list::{Self, DenyCap, DenyList};
     use kanari_system::pay;
     use kanari_system::tx_context::{TxContext};
     use std::option;
@@ -60,11 +60,22 @@ module james::james {
 
     /// Transfer a specific `amount` of JAMES from a mutable Coin held by the caller.
     /// Regulated path: aborts when `recipient` is on the JAMES deny list or
-    /// JAMES is globally paused. Takes the shared `DenyList` singleton
-    /// (`@0x403`) as a read-only reference.
+    /// JAMES is globally paused. The shared `DenyList` singleton (`@0x403`)
+    /// is borrowed by the framework, so callers pass no deny-list argument.
     /// Usage: provide the caller's coin, the amount to send, the recipient,
-    /// the shared deny-list object, and the tx context.
+    /// and the tx context.
     public entry fun transfer_amount(
+        c: &mut coin::Coin<JAMES>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        transfer_amount_with_list(c, amount, recipient, deny_list::borrow_singleton(), ctx);
+    }
+
+    /// Same transfer against an explicitly passed list. Used by unit tests,
+    /// which run without a genesis singleton to borrow.
+    public fun transfer_amount_with_list(
         c: &mut coin::Coin<JAMES>,
         amount: u64,
         recipient: address,

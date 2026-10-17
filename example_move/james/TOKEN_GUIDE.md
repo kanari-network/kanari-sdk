@@ -85,7 +85,7 @@ kanari move call \
   --password <PASSWORD> \
   --module "<YOUR_MODULE_ADDRESS>::james" \
   --function transfer_amount \
-  --args <COIN_OBJECT_ID> <amount> <recipient_address> <DenyList_OBJECT_ID>
+  --args <COIN_OBJECT_ID> <amount> <recipient_address>
 ```
 
 ---
@@ -104,19 +104,23 @@ kanari move call \
 
 ### `init(witness: JAMES, ctx: &mut TxContext)`
 
-Runs automatically when publishing the module — creates regulated currency + metadata and sends TreasuryCap + DenyCap to the publisher.
+Runs automatically when publishing the module — creates regulated currency + metadata and sends TreasuryCap + DenyCapV2 to the publisher.
 
 ### `mint(treasury_cap: &mut TreasuryCap<JAMES>, amount: u64, recipient: address, ctx: &mut TxContext)`
 
 Mints tokens and sends them to the recipient — requires TreasuryCap.
 
-### `transfer_amount(c: &mut Coin<JAMES>, amount: u64, recipient: address, deny_list: &DenyList, ctx: &mut TxContext)`
+### `transfer_amount(c: &mut Coin<JAMES>, amount: u64, recipient: address, ctx: &mut TxContext)`
 
-Regulated transfer — checks deny list before transferring — requires the shared DenyList object (`@0x403`).
+Regulated transfer — checks deny list before transferring. The shared DenyList singleton (`@0x403`) is borrowed by the framework; callers pass no deny-list argument.
 
 ### `burn(treasury_cap: &mut TreasuryCap<JAMES>, coin: Coin<JAMES>)`
 
 Burns tokens (reduces total supply) — requires TreasuryCap.
+
+### Deny-list management (`deny_add` / `deny_remove` / `deny_pause` / `deny_unpause`)
+
+Deny-list writes require the coin's **DenyCapV2** or **DenyCap** (legacy), or the collection **NftCap** (KariKid NFT, which keeps its own entries under a separate deny-list index so they never collide with coin entries). The standard functions accept DenyCapV2. If you already have a legacy `0x2::deny_list::DenyCap<JAMES>`, use `deny_add_legacy`, `deny_remove_legacy`, `deny_pause_legacy`, or `deny_unpause_legacy`; no cap migration is needed. Reads are open: `is_denied(deny_list, addr)`, `is_paused(deny_list)`.
 
 ---
 
@@ -147,13 +151,13 @@ kanari move call \
 # 6. Check balance
 kanari account get --address <YOUR_ADDRESS>
 
-# 7. Transfer tokens (must attach DenyList @0x403)
+# 7. Transfer tokens (deny list is resolved by the framework)
 kanari move call \
   --sender <YOUR_ADDRESS> \
   --password 12345678 \
   --module "<YOUR_MODULE_ADDRESS>::james" \
   --function transfer_amount \
-  --args <COIN_OBJECT_ID> 1000 <recipient_address> 0x403
+  --args <COIN_OBJECT_ID> 1000 <recipient_address>
 ```
 
 ---

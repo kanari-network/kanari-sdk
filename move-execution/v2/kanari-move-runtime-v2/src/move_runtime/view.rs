@@ -34,6 +34,9 @@ impl MoveRuntime {
         // Preload only object refs explicitly declared by the request.
         self.preload_objects_for_execution(&mut session, object_inputs, None, None)
             .require("Failed to preload objects")?;
+        // Well-known singletons (deny list) resolve without being declared.
+        self.preload_well_known_singletons(&mut session, None)
+            .require("Failed to preload singletons")?;
 
         // Parse and load type arguments before invocation.
         let mut ty_args_loaded = Vec::with_capacity(type_args.len());

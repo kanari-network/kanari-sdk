@@ -69,6 +69,54 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish deny_list_e2e module")?;
 
+    // Exercise the same two-object entry signature used by regulated coin
+    // deny_add: a mutable shared DenyList, a borrowed generic DenyCap, an
+    // address, and the runtime-injected TxContext.
+    let create_cap_changes = call_entry_no_objects(&runtime, &module_id, "create_cap", vec![])
+        .context("create legacy deny cap")?;
+    let (cap_id, cap_object) = create_cap_changes
+        .created_objects
+        .iter()
+        .find(|(_, object)| {
+            object.type_.contains("::deny_list::DenyCap<")
+                && object.type_.contains("::deny_list_e2e::TEST_COIN")
+        })
+        .context("legacy deny cap should be created")?;
+    let cap_input = ObjectInput {
+        object_ref: cap_object.object_ref(cap_id),
+        owner: Some(ObjectOwnerKind::AddressOwner(
+            cap_object.owner.to_hex_literal(),
+        )),
+        mutable: true,
+    };
+    state.apply_changeset(&create_cap_changes)?;
+    let state_overlay = Some(Arc::new(state.overlay.clone()));
+    state.commit()?;
+
+    let cap_add_changes = runtime
+        .execute_entry_function_with_object_context_and_persistence(
+            &module_id,
+            "add_with_cap",
+            vec![],
+            vec![
+                object_arg(DENY_LIST_ID)?,
+                object_arg(cap_id)?,
+                bcs::to_bytes(&AccountAddress::from_hex_literal(SUBJECT)?)?,
+            ],
+            EntryFunctionObjectContext {
+                object_inputs: vec![shared_object_input(DENY_LIST_ID, true), cap_input],
+                sender: Some(*module_id.address()),
+                gas_info: None,
+                timestamp: None,
+                tx_hash: None,
+                persist_runtime_state: true,
+                state_overlay,
+            },
+        )
+        .context("deny add with legacy cap")?;
+    state.apply_changeset(&cap_add_changes)?;
+    state.commit()?;
+
     let subject = AccountAddress::from_hex_literal(SUBJECT)?;
 
     // --- add ------------------------------------------------------------
@@ -95,6 +143,35 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "denied address should read back as contained after a fresh boot"
     );
 
+    // --- singleton auto-borrow (no declared object input) -----------------
+    // The runtime preloads `@0x403` for every execution, so framework code
+    // borrowing the singleton must observe the same state.
+    assert_eq!(
+        view_auto(
+            &rt_read,
+            "contains_auto",
+            vec![
+                bcs::to_bytes(&PER_TYPE_INDEX)?,
+                bcs::to_bytes(&type_key())?,
+                bcs::to_bytes(&subject)?,
+            ],
+        )?,
+        JsonValue::from(1u64),
+        "singleton borrow should see the denied address without an object input"
+    );
+    call_entry_no_objects(
+        &rt_read,
+        &module_id,
+        "assert_not_denied",
+        vec![
+            bcs::to_bytes(&PER_TYPE_INDEX)?,
+            bcs::to_bytes(&type_key())?,
+            bcs::to_bytes(&subject)?,
+        ],
+    )
+    .err()
+    .context("singleton entry guard should abort for a denied address")?;
+
     // --- remove ---------------------------------------------------------
     let remove_changes = call_entry(
         &rt_read,
@@ -117,6 +194,32 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         JsonValue::from(0u64),
         "removed address should no longer be contained"
     );
+    assert_eq!(
+        view_auto(
+            &rt_after_remove,
+            "contains_auto",
+            vec![
+                bcs::to_bytes(&PER_TYPE_INDEX)?,
+                bcs::to_bytes(&type_key())?,
+                bcs::to_bytes(&subject)?,
+            ],
+        )?,
+        JsonValue::from(0u64),
+        "singleton borrow should see the removal without an object input"
+    );
+    let guard_changes = call_entry_no_objects(
+        &rt_after_remove,
+        &module_id,
+        "assert_not_denied",
+        vec![
+            bcs::to_bytes(&PER_TYPE_INDEX)?,
+            bcs::to_bytes(&type_key())?,
+            bcs::to_bytes(&subject)?,
+        ],
+    )
+    .context("singleton entry guard should pass for a removed address")?;
+    state.apply_changeset(&guard_changes)?;
+    state.commit()?;
 
     // --- pause ----------------------------------------------------------
     let pause_changes = call_entry(
@@ -139,6 +242,15 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         JsonValue::from(1u64),
         "paused type should read back as paused after a fresh boot"
     );
+    assert_eq!(
+        view_auto(
+            &rt_paused,
+            "paused_auto",
+            vec![bcs::to_bytes(&PER_TYPE_INDEX)?, bcs::to_bytes(&type_key())?,],
+        )?,
+        JsonValue::from(1u64),
+        "singleton borrow should see the pause without an object input"
+    );
 
     // --- unpause --------------------------------------------------------
     let unpause_changes = call_entry(
@@ -160,6 +272,15 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         read_paused(&rt_unpaused)?,
         JsonValue::from(0u64),
         "unpaused type should read back as not paused"
+    );
+    assert_eq!(
+        view_auto(
+            &rt_unpaused,
+            "paused_auto",
+            vec![bcs::to_bytes(&PER_TYPE_INDEX)?, bcs::to_bytes(&type_key())?,],
+        )?,
+        JsonValue::from(0u64),
+        "singleton borrow should see the unpause without an object input"
     );
 
     Ok(())
@@ -217,6 +338,35 @@ fn read_paused(runtime: &MoveRuntime) -> Result<JsonValue> {
         ],
         &[shared_object_input(DENY_LIST_ID, false)],
     )
+}
+
+/// Call a singleton-borrowing entry function with no declared object inputs.
+fn call_entry_no_objects(
+    runtime: &MoveRuntime,
+    module_id: &ModuleId,
+    function: &str,
+    args: Vec<Vec<u8>>,
+) -> Result<ChangeSet> {
+    runtime.execute_entry_function_with_object_context_and_persistence(
+        module_id,
+        function,
+        vec![],
+        args,
+        EntryFunctionObjectContext {
+            object_inputs: vec![],
+            sender: Some(*module_id.address()),
+            gas_info: None,
+            timestamp: None,
+            tx_hash: None,
+            persist_runtime_state: true,
+            state_overlay: None,
+        },
+    )
+}
+
+/// Call a singleton-borrowing view function with no declared object inputs.
+fn view_auto(runtime: &MoveRuntime, function: &str, args: Vec<Vec<u8>>) -> Result<JsonValue> {
+    runtime.execute_view_function(TESTER_ADDR, MODULE_NAME, function, &[], &args, &[])
 }
 
 fn create_test_package() -> Result<PathBuf> {

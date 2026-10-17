@@ -152,14 +152,26 @@ module james::nft {
     }
 
     /// NFT transfer (regulated): aborts `EDENIED` when `recipient` is on the
-    /// KariKid deny list or KariKid transfers are globally paused. Takes the
-    /// shared `DenyList` singleton (`@0x403`) as a read-only reference.
+    /// KariKid deny list or KariKid transfers are globally paused. The
+    /// shared `DenyList` singleton (`@0x403`) is borrowed by the framework,
+    /// so callers pass no deny-list argument.
     public entry fun transfer(
         nft: KariKid,
         recipient: address,
-        deny_list: &DenyList,
-        _: &mut TxContext,
+        ctx: &mut TxContext,
     ) {
+        transfer_with_list(nft, recipient, deny_list::borrow_singleton(), ctx);
+    }
+
+    /// Same transfer against an explicitly passed list. Used by unit tests,
+    /// which run without a genesis singleton to borrow.
+    public fun transfer_with_list(
+        nft: KariKid,
+        recipient: address,
+        deny_list: &DenyList,
+        ctx: &mut TxContext,
+    ) {
+        let _ = ctx;
         assert!(!is_denied(deny_list, recipient), EDENIED);
         assert!(!is_paused(deny_list), EDENIED);
         transfer::public_transfer(nft, recipient)

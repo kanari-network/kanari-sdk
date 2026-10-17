@@ -44,6 +44,16 @@ module kanari_system::deny_list {
         @0x403
     }
 
+    /// Borrow the shared singleton without receiving it as a transaction
+    /// argument. The runtime preloads `@0x403` for every execution, so entry
+    /// functions stay free of deny-list parameters. Aborts when the
+    /// singleton is absent (e.g. the bare Move unit runner, which has no
+    /// genesis state): unit tests should build a local list with
+    /// `new_for_testing` and pass it explicitly instead.
+    public fun borrow_singleton(): &DenyList {
+        object::borrow_global<DenyList>(deny_list_object_id())
+    }
+
     /// A shared object holding every per-type deny list. Like Sui, it uses
     /// both stores: the `lists` bag holds one `PerTypeList` per object
     /// family (fast `denied_count` skip table), while each per-type address

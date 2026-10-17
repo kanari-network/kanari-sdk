@@ -36,13 +36,28 @@ module james::deny_list_tests {
     }
 
     #[test]
+    fun test_james_legacy_deny_cap() {
+        let ctx = &mut tx_context::dummy();
+        let cap = deny_list::new_denycap_for_testing<james::JAMES>(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
+
+        james::deny_add(&mut deny_list, &cap, ALICE, ctx);
+        assert!(james::is_denied(&deny_list, ALICE), 0);
+        james::deny_remove(&mut deny_list, &cap, ALICE, ctx);
+        assert!(!james::is_denied(&deny_list, ALICE), 1);
+
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(deny_list);
+    }
+
+    #[test]
     fun test_james_checked_transfer_ok() {
         let ctx = &mut tx_context::dummy();
         let (treasury, cap, metadata) = james::create_regulated_for_test(ctx);
         let deny_list = deny_list::new_for_testing(ctx);
 
         let c = coin::mint(&mut treasury, 1000, ctx);
-        james::transfer_amount(&mut c, 400, ALICE, &deny_list, ctx);
+        james::transfer_amount_with_list(&mut c, 400, ALICE, &deny_list, ctx);
         assert!(coin::value(&c) == 600, 0);
 
         transfer::public_transfer(c, @0x1);
@@ -61,7 +76,7 @@ module james::deny_list_tests {
         james::deny_add(&mut deny_list, &cap, ALICE, ctx);
 
         let c = coin::mint(&mut treasury, 1000, ctx);
-        james::transfer_amount(&mut c, 400, ALICE, &deny_list, ctx);
+        james::transfer_amount_with_list(&mut c, 400, ALICE, &deny_list, ctx);
 
         transfer::public_transfer(c, @0x1);
         transfer::public_freeze_object(treasury);
@@ -98,7 +113,7 @@ module james::deny_list_tests {
 
         // BOB is not denied, but the paused coin still blocks the transfer.
         let c = coin::mint(&mut treasury, 1000, ctx);
-        james::transfer_amount(&mut c, 400, BOB, &deny_list, ctx);
+        james::transfer_amount_with_list(&mut c, 400, BOB, &deny_list, ctx);
 
         transfer::public_transfer(c, @0x1);
         transfer::public_freeze_object(treasury);
@@ -119,7 +134,7 @@ module james::deny_list_tests {
         assert!(!euro::is_denied(&deny_list, ALICE), 1);
 
         let c = coin::mint(&mut treasury, 500, ctx);
-        euro::transfer_amount(&mut c, 200, ALICE, &deny_list, ctx);
+        euro::transfer_amount_with_list(&mut c, 200, ALICE, &deny_list, ctx);
         assert!(coin::value(&c) == 300, 2);
 
         transfer::public_transfer(c, @0x1);
@@ -138,7 +153,7 @@ module james::deny_list_tests {
         euro::deny_add(&mut deny_list, &cap, BOB, ctx);
 
         let c = coin::mint(&mut treasury, 500, ctx);
-        euro::transfer_amount(&mut c, 200, BOB, &deny_list, ctx);
+        euro::transfer_amount_with_list(&mut c, 200, BOB, &deny_list, ctx);
 
         transfer::public_transfer(c, @0x1);
         transfer::public_freeze_object(treasury);
@@ -156,7 +171,7 @@ module james::deny_list_tests {
 
         // amount 1000 -> 0.1% fee = 1; 2000 - 1001 leaves 999 with the sender.
         let c = coin::mint(&mut treasury, 2000, ctx);
-        thb::transfer_amount(&mut c, 1000, ALICE, &deny_list, ctx);
+        thb::transfer_amount_with_list(&mut c, 1000, ALICE, &deny_list, ctx);
         assert!(coin::value(&c) == 999, 0);
 
         transfer::public_transfer(c, @0x1);
@@ -175,7 +190,7 @@ module james::deny_list_tests {
         thb::deny_add(&mut deny_list, &cap, ALICE, ctx);
 
         let c = coin::mint(&mut treasury, 2000, ctx);
-        thb::transfer_amount(&mut c, 1000, ALICE, &deny_list, ctx);
+        thb::transfer_amount_with_list(&mut c, 1000, ALICE, &deny_list, ctx);
 
         transfer::public_transfer(c, @0x1);
         transfer::public_freeze_object(treasury);
@@ -223,7 +238,7 @@ module james::deny_list_tests {
         let deny_list = deny_list::new_for_testing(ctx);
 
         let nft = nft::mint_for_test(&mut cap, ctx);
-        nft::transfer(nft, BOB, &deny_list, ctx);
+        nft::transfer_with_list(nft, BOB, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
@@ -239,7 +254,7 @@ module james::deny_list_tests {
         nft::deny_add(&mut deny_list, &cap, ALICE, ctx);
 
         let nft = nft::mint_for_test(&mut cap, ctx);
-        nft::transfer(nft, ALICE, &deny_list, ctx);
+        nft::transfer_with_list(nft, ALICE, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
@@ -273,7 +288,7 @@ module james::deny_list_tests {
 
         // BOB is not denied, but the pause still blocks the transfer.
         let nft = nft::mint_for_test(&mut cap, ctx);
-        nft::transfer(nft, BOB, &deny_list, ctx);
+        nft::transfer_with_list(nft, BOB, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);

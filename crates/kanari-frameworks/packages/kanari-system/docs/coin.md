@@ -8,6 +8,8 @@
 -  [Resource `Coin`](#0x2_coin_Coin)
 -  [Resource `TreasuryCap`](#0x2_coin_TreasuryCap)
 -  [Resource `CoinMetadata`](#0x2_coin_CoinMetadata)
+-  [Resource `DenyCapV2`](#0x2_coin_DenyCapV2)
+-  [Resource `RegulatedCoinMetadata`](#0x2_coin_RegulatedCoinMetadata)
 -  [Constants](#@Constants_0)
 -  [Function `max_split_parts`](#0x2_coin_max_split_parts)
 -  [Function `create_currency`](#0x2_coin_create_currency)
@@ -19,6 +21,16 @@
 -  [Function `deny_list_pause`](#0x2_coin_deny_list_pause)
 -  [Function `deny_list_unpause`](#0x2_coin_deny_list_unpause)
 -  [Function `deny_list_paused`](#0x2_coin_deny_list_paused)
+-  [Function `is_denied`](#0x2_coin_is_denied)
+-  [Function `is_paused`](#0x2_coin_is_paused)
+-  [Function `create_regulated_currency_v2`](#0x2_coin_create_regulated_currency_v2)
+-  [Function `deny_cap_v2_allows_global_pause`](#0x2_coin_deny_cap_v2_allows_global_pause)
+-  [Function `deny_list_v2_add`](#0x2_coin_deny_list_v2_add)
+-  [Function `deny_list_v2_remove`](#0x2_coin_deny_list_v2_remove)
+-  [Function `deny_list_v2_contains`](#0x2_coin_deny_list_v2_contains)
+-  [Function `deny_list_v2_enable_global_pause`](#0x2_coin_deny_list_v2_enable_global_pause)
+-  [Function `deny_list_v2_disable_global_pause`](#0x2_coin_deny_list_v2_disable_global_pause)
+-  [Function `deny_list_v2_is_global_pause_enabled`](#0x2_coin_deny_list_v2_is_global_pause_enabled)
 -  [Function `mint`](#0x2_coin_mint)
 -  [Function `mint_and_transfer`](#0x2_coin_mint_and_transfer)
 -  [Function `burn`](#0x2_coin_burn)
@@ -179,9 +191,99 @@ Metadata resource for a currency (Removed <code>drop</code>)
 
 </details>
 
+<a name="0x2_coin_DenyCapV2"></a>
+
+## Resource `DenyCapV2`
+
+Capability allowing the bearer to deny addresses for a regulated
+currency. When <code>allow_global_pause</code> is true the bearer may also
+toggle the global pause; otherwise pause calls abort with
+<code><a href="coin.md#0x2_coin_EGlobalPauseNotAllowed">EGlobalPauseNotAllowed</a></code>.
+
+
+<pre><code><b>struct</b> <a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt; <b>has</b> store, key
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="object.md#0x2_object_UID">object::UID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>allow_global_pause: bool</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_coin_RegulatedCoinMetadata"></a>
+
+## Resource `RegulatedCoinMetadata`
+
+Immutable link between a regulated coin's metadata and its deny cap.
+Frozen at creation; discoverable off-chain without holding the cap.
+(<code>key, store</code> only because the host freeze primitive requires both;
+freezing makes it immutable all the same.)
+
+
+<pre><code><b>struct</b> <a href="coin.md#0x2_coin_RegulatedCoinMetadata">RegulatedCoinMetadata</a>&lt;T&gt; <b>has</b> store, key
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="object.md#0x2_object_UID">object::UID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>coin_metadata_object: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>deny_cap_object: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
 <a name="@Constants_0"></a>
 
 ## Constants
+
+
+<a name="0x2_coin_EGlobalPauseNotAllowed"></a>
+
+Kill switch was not allowed at the creation of the DenyCapV2.
+
+
+<pre><code><b>const</b> <a href="coin.md#0x2_coin_EGlobalPauseNotAllowed">EGlobalPauseNotAllowed</a>: u64 = 8;
+</code></pre>
+
 
 
 <a name="0x2_coin_EINVALID_DECIMALS"></a>
@@ -609,6 +711,322 @@ transfer paths reject paused types alongside denied addresses.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_paused">deny_list_paused</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &DenyList): bool {
+    <a href="deny_list.md#0x2_deny_list_v2_is_global_pause_enabled">deny_list::v2_is_global_pause_enabled</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;())
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_is_denied"></a>
+
+## Function `is_denied`
+
+Singleton-based deny read: like <code>deny_list_contains</code>, but resolves
+the shared list itself, so entry functions need no <code>&DenyList</code>
+parameter. Aborts when the genesis singleton is absent.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_is_denied">is_denied</a>&lt;T&gt;(addr: <b>address</b>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_is_denied">is_denied</a>&lt;T&gt;(addr: <b>address</b>): bool {
+    <a href="deny_list.md#0x2_deny_list_v1_contains">deny_list::v1_contains</a>(
+        <a href="deny_list.md#0x2_deny_list_borrow_singleton">deny_list::borrow_singleton</a>(),
+        <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(),
+        <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(),
+        addr,
+    )
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_is_paused"></a>
+
+## Function `is_paused`
+
+Singleton-based pause read: like <code>deny_list_paused</code>, but resolves
+the shared list itself.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_is_paused">is_paused</a>&lt;T&gt;(): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_is_paused">is_paused</a>&lt;T&gt;(): bool {
+    <a href="deny_list.md#0x2_deny_list_v2_is_global_pause_enabled">deny_list::v2_is_global_pause_enabled</a>(
+        <a href="deny_list.md#0x2_deny_list_borrow_singleton">deny_list::borrow_singleton</a>(),
+        <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(),
+        <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(),
+    )
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_create_regulated_currency_v2"></a>
+
+## Function `create_regulated_currency_v2`
+
+Create a regulated currency with a v2 deny cap. Like
+<code>create_regulated_currency</code>, but the returned cap carries the
+<code>allow_global_pause</code> flag and a frozen <code><a href="coin.md#0x2_coin_RegulatedCoinMetadata">RegulatedCoinMetadata</a></code>
+linking metadata and cap is published.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_create_regulated_currency_v2">create_regulated_currency_v2</a>&lt;T: drop&gt;(witness: T, decimals: u8, symbol_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, name_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, description_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, icon_url: <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="url.md#0x2_url_Url">url::Url</a>&gt;, allow_global_pause: bool, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, <a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;, <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_create_regulated_currency_v2">create_regulated_currency_v2</a>&lt;T: drop&gt;(
+    witness: T,
+    decimals: u8,
+    symbol_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    name_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    description_bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    icon_url: <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="url.md#0x2_url_Url">url::Url</a>&gt;,
+    allow_global_pause: bool,
+    ctx: &<b>mut</b> TxContext,
+): (<a href="coin.md#0x2_coin_TreasuryCap">TreasuryCap</a>&lt;T&gt;, <a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;, <a href="coin.md#0x2_coin_CoinMetadata">CoinMetadata</a>&lt;T&gt;) {
+    // `create_currency` claims the witness: one canonical currency per T.
+    <b>let</b> (treasury_cap, metadata) = <a href="coin.md#0x2_coin_create_currency">create_currency</a>(
+        witness,
+        decimals,
+        symbol_bytes,
+        name_bytes,
+        description_bytes,
+        icon_url,
+        ctx,
+    );
+    <b>let</b> deny_cap = <a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), allow_global_pause };
+    <a href="transfer.md#0x2_transfer_freeze_object">transfer::freeze_object</a>(<a href="coin.md#0x2_coin_RegulatedCoinMetadata">RegulatedCoinMetadata</a>&lt;T&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        coin_metadata_object: <a href="object.md#0x2_object_uid_address">object::uid_address</a>(&metadata.id),
+        deny_cap_object: <a href="object.md#0x2_object_uid_address">object::uid_address</a>(&deny_cap.id),
+    });
+    (treasury_cap, deny_cap, metadata)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_cap_v2_allows_global_pause"></a>
+
+## Function `deny_cap_v2_allows_global_pause`
+
+Whether this v2 cap permits toggling the global pause.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_cap_v2_allows_global_pause">deny_cap_v2_allows_global_pause</a>&lt;T&gt;(cap: &<a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_cap_v2_allows_global_pause">deny_cap_v2_allows_global_pause</a>&lt;T&gt;(cap: &<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;): bool {
+    cap.allow_global_pause
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_add"></a>
+
+## Function `deny_list_v2_add`
+
+v2 deny-list add, gated by <code>&<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;</code>. Takes effect immediately.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_add">deny_list_v2_add</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;, addr: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_add">deny_list_v2_add</a>&lt;T&gt;(
+    <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> DenyList,
+    _cap: &<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;,
+    addr: <b>address</b>,
+    ctx: &<b>mut</b> TxContext,
+) {
+    <a href="deny_list.md#0x2_deny_list_v1_add">deny_list::v1_add</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(), addr, ctx);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_remove"></a>
+
+## Function `deny_list_v2_remove`
+
+v2 deny-list remove. Aborts when <code>addr</code> is not denied.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_remove">deny_list_v2_remove</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, _cap: &<a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;, addr: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_remove">deny_list_v2_remove</a>&lt;T&gt;(
+    <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> DenyList,
+    _cap: &<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;,
+    addr: <b>address</b>,
+    _ctx: &<b>mut</b> TxContext,
+) {
+    <a href="deny_list.md#0x2_deny_list_v1_remove">deny_list::v1_remove</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(), addr);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_contains"></a>
+
+## Function `deny_list_v2_contains`
+
+Open membership read used by the <code>*_checked</code> transfer paths.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_contains">deny_list_v2_contains</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, addr: <b>address</b>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_contains">deny_list_v2_contains</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &DenyList, addr: <b>address</b>): bool {
+    <a href="deny_list.md#0x2_deny_list_v1_contains">deny_list::v1_contains</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(), addr)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_enable_global_pause"></a>
+
+## Function `deny_list_v2_enable_global_pause`
+
+Enable the global pause for <code>T</code>. Aborts <code><a href="coin.md#0x2_coin_EGlobalPauseNotAllowed">EGlobalPauseNotAllowed</a></code>
+unless the cap was created with <code>allow_global_pause</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_enable_global_pause">deny_list_v2_enable_global_pause</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, cap: &<a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_enable_global_pause">deny_list_v2_enable_global_pause</a>&lt;T&gt;(
+    <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> DenyList,
+    cap: &<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;,
+    ctx: &<b>mut</b> TxContext,
+) {
+    <b>assert</b>!(cap.allow_global_pause, <a href="coin.md#0x2_coin_EGlobalPauseNotAllowed">EGlobalPauseNotAllowed</a>);
+    <a href="deny_list.md#0x2_deny_list_v2_enable_global_pause">deny_list::v2_enable_global_pause</a>(
+        <a href="deny_list.md#0x2_deny_list">deny_list</a>,
+        <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(),
+        <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;(),
+        ctx
+    );
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_disable_global_pause"></a>
+
+## Function `deny_list_v2_disable_global_pause`
+
+Disable the global pause for <code>T</code>. Same gating as enable.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_disable_global_pause">deny_list_v2_disable_global_pause</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, cap: &<a href="coin.md#0x2_coin_DenyCapV2">coin::DenyCapV2</a>&lt;T&gt;, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_disable_global_pause">deny_list_v2_disable_global_pause</a>&lt;T&gt;(
+    <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> DenyList,
+    cap: &<a href="coin.md#0x2_coin_DenyCapV2">DenyCapV2</a>&lt;T&gt;,
+    _ctx: &<b>mut</b> TxContext,
+) {
+    <b>assert</b>!(cap.allow_global_pause, <a href="coin.md#0x2_coin_EGlobalPauseNotAllowed">EGlobalPauseNotAllowed</a>);
+    <a href="deny_list.md#0x2_deny_list_v2_disable_global_pause">deny_list::v2_disable_global_pause</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;());
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_deny_list_v2_is_global_pause_enabled"></a>
+
+## Function `deny_list_v2_is_global_pause_enabled`
+
+Open read: true iff the global pause is enabled for <code>T</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_is_global_pause_enabled">deny_list_v2_is_global_pause_enabled</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_deny_list_v2_is_global_pause_enabled">deny_list_v2_is_global_pause_enabled</a>&lt;T&gt;(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &DenyList): bool {
     <a href="deny_list.md#0x2_deny_list_v2_is_global_pause_enabled">deny_list::v2_is_global_pause_enabled</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>, <a href="deny_list.md#0x2_deny_list_coin_index">deny_list::coin_index</a>(), <a href="coin.md#0x2_coin_deny_type_key">deny_type_key</a>&lt;T&gt;())
 }
 </code></pre>

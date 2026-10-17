@@ -100,6 +100,9 @@ impl ChildIndexResolver for RuntimeChildIndexResolver {
     }
 }
 
+/// Well-known shared deny-list singleton id, mirroring
+/// `kanari_system::deny_list::deny_list_object_id()`.
+const DENY_LIST_SINGLETON_ID: &str = "0x403";
 /// Size of a Move object UID in bytes (address)
 const UID_SIZE: usize = 32;
 /// Size of a u64 field in bytes
@@ -197,30 +200,56 @@ impl super::MoveRuntime {
         object_id: &str,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<Option<crate::storage::object_storage::StoredObject>> {
-        let key = crate::common::keys::object_key(object_id);
-        if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
-            return match value {
-                Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
-                None => Ok(None),
-            };
+        let canonical_id = crate::common::ids::canonical_object_id(object_id)
+            .unwrap_or_else(|| object_id.to_owned());
+        let mut object_ids = vec![canonical_id.clone(), object_id.to_owned()];
+        if let Ok(address) =
+            move_core_types::account_address::AccountAddress::from_hex_literal(object_id)
+        {
+            let full_id = format!("0x{}", hex::encode(address.as_ref()));
+            if !object_ids.contains(&full_id) {
+                object_ids.push(full_id);
+            }
         }
-        if let Some(object) = self.object_storage.get_object(object_id)? {
+
+        for candidate_id in &object_ids {
+            let key = crate::common::keys::object_key(candidate_id);
+            if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
+                return match value {
+                    Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
+                    None => Ok(None),
+                };
+            }
+        }
+
+        for candidate_id in &object_ids {
+            if let Some(object) = self.object_storage.get_object(candidate_id)? {
+                return Ok(Some(object));
+            }
+        }
+
+        let store = self.state.store();
+        for candidate_id in &object_ids {
+            let key = crate::common::keys::object_key(candidate_id);
+            if let Some(object) =
+                store.load::<crate::storage::object_storage::StoredObject>(&key)?
+            {
+                let _ = self.object_storage.store_object(object.clone());
+                return Ok(Some(object));
+            }
+        }
+
+        let Ok(object_addr) =
+            move_core_types::account_address::AccountAddress::from_hex_literal(&canonical_id)
+        else {
+            return Ok(None);
+        };
+        if let Some(object) = self.state.try_get_stored_object(&object_addr)? {
+            let _ = self.object_storage.store_object(object.clone());
             return Ok(Some(object));
         }
 
-        let object_addr =
-            match move_core_types::account_address::AccountAddress::from_hex_literal(object_id) {
-                Ok(addr) => addr,
-                Err(_) => return Ok(None),
-            };
-        let Some(object) = self.state.try_get_stored_object(&object_addr)? else {
-            return Ok(None);
-        };
-
-        // Hydrate the runtime object cache so subsequent object-native borrows
-        // in this process do not miss objects that already exist in state.
-        let _ = self.object_storage.store_object(object.clone());
-        Ok(Some(object))
+        Ok(None)
     }
 
     /// Preload potential object arguments into LoadedObjectsExt before execution
@@ -358,6 +387,54 @@ impl super::MoveRuntime {
 
     pub(crate) fn is_coin_object_type(object_type: &str) -> bool {
         object_type.contains("::coin::Coin<") || object_type.contains("::coin::coin::Coin<")
+    }
+
+    /// Canonical full-hex object id of the deny-list singleton, matching
+    /// native borrow key construction (`0x` + 64 hex digits).
+    pub(crate) fn deny_list_singleton_full_id() -> String {
+        let addr = AccountAddress::from_hex_literal(DENY_LIST_SINGLETON_ID)
+            .expect("hardcoded deny-list singleton id is valid");
+        format!("0x{}", hex::encode(addr.to_vec()))
+    }
+
+    /// Preload well-known system singletons so framework code can borrow them
+    /// without the transaction declaring them (e.g.
+    /// `kanari_system::deny_list::borrow_singleton()`).
+    ///
+    /// Read-only: entries are inserted with `can_mutably_borrow = false` and
+    /// never overwrite an explicitly declared input, so writes still require
+    /// a declared object input. Missing singletons (stores predating genesis
+    /// support) are skipped silently; the borrow then fails in-VM as before.
+    pub(crate) fn preload_well_known_singletons(
+        &self,
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+    ) -> anyhow::Result<()> {
+        use kanari_system_natives::object::LoadedObjectsExt;
+
+        let object_id = Self::deny_list_singleton_full_id();
+        let loaded_ext = session
+            .get_native_extensions()
+            .get_mut::<LoadedObjectsExt>();
+        if loaded_ext.get(&object_id).is_some() {
+            return Ok(());
+        }
+        let Some(stored_obj) = self.get_object_for_execution(&object_id, overlay)? else {
+            return Ok(());
+        };
+        loaded_ext.insert(
+            object_id.clone(),
+            stored_obj.type_name,
+            stored_obj.data,
+            false,
+        );
+        log::debug!(
+            "[RUNTIME] Preloaded well-known singleton {} into LoadedObjectsExt",
+            object_id
+        );
+        Ok(())
     }
 
     /// Check if struct tag represents a treasury resource

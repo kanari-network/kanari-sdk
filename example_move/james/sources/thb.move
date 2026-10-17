@@ -1,7 +1,7 @@
 module james::thb {
     use kanari_system::coin;
-    use kanari_system::coin::{Coin, TreasuryCap};
-    use kanari_system::deny_list::{DenyCap, DenyList};
+    use kanari_system::coin::{Coin, DenyCapV2, TreasuryCap};
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::tx_context::{TxContext};
     use std::option;
     use kanari_system::transfer;
@@ -34,13 +34,14 @@ module james::thb {
     /// so TreasuryCap, DenyCap and metadata land with the deployer and no
     /// replayable setup entry needs to exist.
     fun init(witness: THB, ctx: &mut TxContext) {
-        let (treasury, deny_cap, metadata) = coin::create_regulated_currency<THB>(
+        let (treasury, deny_cap, metadata) = coin::create_regulated_currency_v2<THB>(
             witness,
             6,
             b"THB",
             b"THB Token",
             b"",
             option::none<kanari_system::url::Url>(),
+            true,
             ctx,
         );
         let sender = kanari_system::tx_context::sender(ctx);
@@ -71,9 +72,21 @@ module james::thb {
     /// Transfer a specific `amount` of THB from a mutable Coin held by the caller
     /// A 0.1% fee is deducted and sent to the DAO wallet.
     /// Regulated path: aborts `EDENIED` when `recipient` is on the THB deny
-    /// list or THB is globally paused. Takes the shared `DenyList` singleton
-    /// (`@0x403`) as a read-only reference.
+    /// list or THB is globally paused. The shared `DenyList` singleton
+    /// (`@0x403`) is borrowed by the framework, so callers pass no
+    /// deny-list argument.
     public entry fun transfer_amount(
+        c: &mut coin::Coin<THB>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        transfer_amount_with_list(c, amount, recipient, deny_list::borrow_singleton(), ctx);
+    }
+
+    /// Same transfer against an explicitly passed list. Used by unit tests,
+    /// which run without a genesis singleton to borrow.
+    public fun transfer_amount_with_list(
         c: &mut coin::Coin<THB>,
         amount: u64,
         recipient: address,
@@ -88,8 +101,8 @@ module james::thb {
         };
         // 3. Regulated check first: denied recipients and paused coin abort
         // before any balance is touched.
-        assert!(!coin::deny_list_contains<THB>(deny_list, recipient), EDENIED);
-        assert!(!coin::deny_list_paused<THB>(deny_list), EDENIED);
+        assert!(!coin::deny_list_v2_contains<THB>(deny_list, recipient), EDENIED);
+        assert!(!coin::deny_list_v2_is_global_pause_enabled<THB>(deny_list), EDENIED);
         // 4. Calculate the 0.1% fee
         let fee = calculate_fee(amount);
         // 5. Ensure there's enough balance for amount + fee
@@ -184,49 +197,49 @@ module james::thb {
     /// Add `addr` to the THB deny list.
     public entry fun deny_add(
         deny_list: &mut DenyList,
-        cap: &DenyCap<THB>,
+        cap: &DenyCapV2<THB>,
         addr: address,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_add(deny_list, cap, addr, ctx);
+        coin::deny_list_v2_add(deny_list, cap, addr, ctx);
     }
 
     /// Remove `addr` from the THB deny list. Aborts when not denied.
     public entry fun deny_remove(
         deny_list: &mut DenyList,
-        cap: &DenyCap<THB>,
+        cap: &DenyCapV2<THB>,
         addr: address,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_remove(deny_list, cap, addr, ctx);
+        coin::deny_list_v2_remove(deny_list, cap, addr, ctx);
     }
 
     /// Pause all regulated THB flows (fail-closed kill-switch).
     public entry fun deny_pause(
         deny_list: &mut DenyList,
-        cap: &DenyCap<THB>,
+        cap: &DenyCapV2<THB>,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_pause(deny_list, cap, ctx);
+        coin::deny_list_v2_enable_global_pause(deny_list, cap, ctx);
     }
 
     /// Lift the THB pause.
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
-        cap: &DenyCap<THB>,
+        cap: &DenyCapV2<THB>,
         ctx: &mut TxContext,
     ) {
-        coin::deny_list_unpause(deny_list, cap, ctx);
+        coin::deny_list_v2_disable_global_pause(deny_list, cap, ctx);
     }
 
     /// Open read: true iff `addr` is denied for THB.
     public fun is_denied(deny_list: &DenyList, addr: address): bool {
-        coin::deny_list_contains<THB>(deny_list, addr)
+        coin::deny_list_v2_contains<THB>(deny_list, addr)
     }
 
     /// Open read: true iff THB is globally paused.
     public fun is_paused(deny_list: &DenyList): bool {
-        coin::deny_list_paused<THB>(deny_list)
+        coin::deny_list_v2_is_global_pause_enabled<THB>(deny_list)
     }
 
     #[test_only]
@@ -234,14 +247,15 @@ module james::thb {
     /// only on publish, so tests build the same objects directly).
     public fun create_regulated_for_test(
         ctx: &mut TxContext,
-    ): (TreasuryCap<THB>, DenyCap<THB>, coin::CoinMetadata<THB>) {
-        coin::create_regulated_currency(
+    ): (TreasuryCap<THB>, DenyCapV2<THB>, coin::CoinMetadata<THB>) {
+        coin::create_regulated_currency_v2(
             THB {},
             6,
             b"THB",
             b"THB Token",
             b"",
             option::none(),
+            true,
             ctx,
         )
     }

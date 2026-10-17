@@ -3,12 +3,17 @@
 #[test_only]
 module kanari_system::coin_tests {
     use std::option;
-    use kanari_system::coin::{Self, Coin, TreasuryCap, CoinMetadata};
+    use kanari_system::coin::{Self, Coin, TreasuryCap, CoinMetadata, DenyCapV2};
+    use kanari_system::deny_list;
     use kanari_system::transfer;
     use kanari_system::tx_context;
     use std::string;
 
     struct TEST has drop {}
+
+    struct TESTV2 has drop {}
+
+    struct TESTV2_NOPAUSE has drop {}
 
     fun setup(ctx: &mut tx_context::TxContext): (TreasuryCap<TEST>, CoinMetadata<TEST>) {
         coin::create_currency(
@@ -244,5 +249,91 @@ module kanari_system::coin_tests {
         transfer::public_transfer(c, @0x1);
         transfer::public_transfer(part, @0x1);
         cleanup(cap, meta);
+    }
+
+    // ================= Regulated currency v2 =================
+    fun setup_v2(
+        ctx: &mut tx_context::TxContext,
+    ): (TreasuryCap<TESTV2>, DenyCapV2<TESTV2>, CoinMetadata<TESTV2>) {
+        coin::create_regulated_currency_v2(
+            TESTV2 {},
+            6,
+            b"TESTV2",
+            b"Test Coin V2",
+            b"coin v2 tests",
+            option::none(),
+            true,
+            ctx,
+        )
+    }
+
+    fun cleanup_v2(
+        cap: TreasuryCap<TESTV2>,
+        deny_cap: DenyCapV2<TESTV2>,
+        meta: CoinMetadata<TESTV2>,
+    ) {
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(deny_cap);
+        transfer::public_freeze_object(meta);
+    }
+
+    #[test]
+    fun test_regulated_v2_add_contains_remove() {
+        let ctx = tx_context::dummy();
+        let (cap, deny_cap, meta) = setup_v2(&mut ctx);
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+
+        assert!(!coin::deny_list_v2_contains<TESTV2>(&deny_list, @0x100), 0);
+        coin::deny_list_v2_add(&mut deny_list, &deny_cap, @0x100, &mut ctx);
+        assert!(coin::deny_list_v2_contains<TESTV2>(&deny_list, @0x100), 1);
+        assert!(!coin::deny_list_v2_contains<TESTV2>(&deny_list, @0x200), 2);
+        coin::deny_list_v2_remove(&mut deny_list, &deny_cap, @0x100, &mut ctx);
+        assert!(!coin::deny_list_v2_contains<TESTV2>(&deny_list, @0x100), 3);
+
+        transfer::public_freeze_object(deny_list);
+        cleanup_v2(cap, deny_cap, meta);
+    }
+
+    #[test]
+    fun test_regulated_v2_pause_toggle_when_allowed() {
+        let ctx = tx_context::dummy();
+        let (cap, deny_cap, meta) = setup_v2(&mut ctx);
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+
+        assert!(coin::deny_cap_v2_allows_global_pause(&deny_cap), 0);
+        assert!(!coin::deny_list_v2_is_global_pause_enabled<TESTV2>(&deny_list), 1);
+        coin::deny_list_v2_enable_global_pause(&mut deny_list, &deny_cap, &mut ctx);
+        assert!(coin::deny_list_v2_is_global_pause_enabled<TESTV2>(&deny_list), 2);
+        coin::deny_list_v2_disable_global_pause(&mut deny_list, &deny_cap, &mut ctx);
+        assert!(!coin::deny_list_v2_is_global_pause_enabled<TESTV2>(&deny_list), 3);
+
+        transfer::public_freeze_object(deny_list);
+        cleanup_v2(cap, deny_cap, meta);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::coin, abort_code = 8)]
+    fun test_regulated_v2_pause_forbidden_aborts() {
+        // EGlobalPauseNotAllowed: the cap opted out of the kill switch.
+        let ctx = tx_context::dummy();
+        let (cap, deny_cap, meta) = coin::create_regulated_currency_v2(
+            TESTV2_NOPAUSE {},
+            6,
+            b"NOPAUSE",
+            b"No Pause Coin",
+            b"coin v2 no-pause tests",
+            option::none(),
+            false,
+            &mut ctx,
+        );
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+
+        assert!(!coin::deny_cap_v2_allows_global_pause(&deny_cap), 0);
+        coin::deny_list_v2_enable_global_pause(&mut deny_list, &deny_cap, &mut ctx);
+
+        transfer::public_freeze_object(deny_list);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(deny_cap);
+        transfer::public_freeze_object(meta);
     }
 }
