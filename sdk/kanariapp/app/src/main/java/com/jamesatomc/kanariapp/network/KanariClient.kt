@@ -14,6 +14,11 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+// Requested gas price in Mist per gas unit. The active v3.1 gas model
+// discounts any requested price fivefold (floor 1), so the protocol
+// minimum request settles at an effective 1 Mist/unit.
+private const val DEFAULT_GAS_PRICE: ULong = 1uL
+
 class KanariClient(private val environment: KanariEnvironment) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -119,7 +124,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         recipient: String,
         amount: ULong,
         gasLimit: ULong = 100000uL,
-        gasPrice: ULong = 1000uL
+        gasPrice: ULong = DEFAULT_GAS_PRICE
     ): ObjectTransferData? {
         val request = RpcRequest(
             method = "kanari_buildNativeTransfer",
@@ -143,7 +148,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         tokenType: String,
         amount: ULong,
         gasLimit: ULong = 100000uL,
-        gasPrice: ULong = 1000uL
+        gasPrice: ULong = DEFAULT_GAS_PRICE
     ): CallFunctionData? {
         val normalizedTokenType = normalizeTokenType(tokenType)
         val request = RpcRequest(
