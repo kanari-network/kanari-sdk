@@ -37,10 +37,12 @@ impl PayModule {
             split: "split",
             split_vec: "split_vec",
             split_and_transfer: "split_and_transfer",
+            split_and_transfer_checked: "split_and_transfer_checked",
             divide_and_keep: "divide_and_keep",
             join: "join",
             join_vec: "join_vec",
             join_vec_and_transfer: "join_vec_and_transfer",
+            join_vec_and_transfer_checked: "join_vec_and_transfer_checked",
         }
     }
 
@@ -63,10 +65,12 @@ pub struct PayFunctions {
     pub split: &'static str,
     pub split_vec: &'static str,
     pub split_and_transfer: &'static str,
+    pub split_and_transfer_checked: &'static str,
     pub divide_and_keep: &'static str,
     pub join: &'static str,
     pub join_vec: &'static str,
     pub join_vec_and_transfer: &'static str,
+    pub join_vec_and_transfer_checked: &'static str,
 }
 
 #[cfg(test)]
@@ -92,10 +96,18 @@ mod tests {
         assert_eq!(names.split, "split");
         assert_eq!(names.split_vec, "split_vec");
         assert_eq!(names.split_and_transfer, "split_and_transfer");
+        assert_eq!(
+            names.split_and_transfer_checked,
+            "split_and_transfer_checked"
+        );
         assert_eq!(names.divide_and_keep, "divide_and_keep");
         assert_eq!(names.join, "join");
         assert_eq!(names.join_vec, "join_vec");
         assert_eq!(names.join_vec_and_transfer, "join_vec_and_transfer");
+        assert_eq!(
+            names.join_vec_and_transfer_checked,
+            "join_vec_and_transfer_checked"
+        );
         assert_eq!(
             PayModule::split_and_transfer_path(),
             "0x2::pay::split_and_transfer"

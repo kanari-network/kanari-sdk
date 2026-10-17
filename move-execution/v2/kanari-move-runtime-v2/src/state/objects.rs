@@ -49,7 +49,7 @@ impl StateManager {
         }
         let supply_bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
         Some((
-            Self::normalize_token_type(&token_type),
+            CoinModule::normalize_token_type(&token_type),
             u64::from_le_bytes(supply_bytes),
         ))
     }
@@ -143,7 +143,7 @@ impl StateManager {
         }
         let token_type = token_type_from_struct_tag(&struct_tag)?;
         let amount = extract_balance_from_object_bytes(data, &struct_tag)?;
-        Some((Self::normalize_token_type(&token_type), amount))
+        Some((CoinModule::normalize_token_type(&token_type), amount))
     }
 
     /// Get all object IDs owned by an address

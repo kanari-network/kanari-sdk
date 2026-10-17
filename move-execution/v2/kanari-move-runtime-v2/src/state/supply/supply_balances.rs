@@ -113,7 +113,7 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<u64> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         Ok(self
             .resolve_owner_token_balances(owner)?
             .get(&token_type)

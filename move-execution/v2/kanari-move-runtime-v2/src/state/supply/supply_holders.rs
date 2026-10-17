@@ -41,7 +41,7 @@ impl StateManager {
     /// built yet, a missing key is meaningless and the caller must fall back
     /// to a full scan. Once built, a missing key means no recorded holders.
     pub fn token_holder_set(&self, token_type: &str) -> Result<BTreeSet<AccountAddress>> {
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         Ok(self
             .load_internal::<BTreeSet<AccountAddress>>(&Self::holders_key(&normalized))?
             .unwrap_or_default())
@@ -72,7 +72,7 @@ impl StateManager {
         tokens.extend(old_balances.keys().cloned());
         tokens.extend(new_balances.keys().cloned());
         for token in tokens {
-            let normalized = Self::normalize_token_type(&token);
+            let normalized = CoinModule::normalize_token_type(&token);
             let new_amount = Self::holder_amount(new_balances, &token, &normalized);
             let key = Self::holders_key(&normalized);
             if new_amount > 0 {

@@ -32,7 +32,20 @@ impl UsdModule {
 
     /// Fully qualified `transfer_amount` entry point used by the faucet.
     pub fn transfer_entry() -> (String, String) {
-        (Self::module_path(), "transfer_amount".to_string())
+        (
+            Self::module_path(),
+            Self::function_names().transfer_amount.to_string(),
+        )
+    }
+
+    /// Get function names used in `usd.move`.
+    pub fn function_names() -> UsdFunctions {
+        UsdFunctions {
+            mint: "mint",
+            transfer_amount: "transfer_amount",
+            burn_amount: "burn_amount",
+            units_per_usd: "units_per_usd",
+        }
     }
 
     /// Parse a decimal USD amount (`"12.5"`) into exact base units.
@@ -104,9 +117,30 @@ impl UsdModule {
     }
 }
 
+/// USD module function names (all four public functions of `usd.move`).
+pub struct UsdFunctions {
+    pub mint: &'static str,
+    pub transfer_amount: &'static str,
+    pub burn_amount: &'static str,
+    pub units_per_usd: &'static str,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usd_function_names_match_move_module() {
+        let fns = UsdModule::function_names();
+        assert_eq!(fns.mint, "mint");
+        assert_eq!(fns.transfer_amount, "transfer_amount");
+        assert_eq!(fns.burn_amount, "burn_amount");
+        assert_eq!(fns.units_per_usd, "units_per_usd");
+        assert_eq!(
+            UsdModule::transfer_entry(),
+            ("0x2::usd".to_string(), "transfer_amount".to_string())
+        );
+    }
 
     #[test]
     fn usd_constants_match_move_module() {

@@ -19,7 +19,7 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::address::Address as KanariAddress;
 
 const MULTISIG_MODULE: &str = "multisig";
-const KANARI_COIN_TYPE: &str = "0x2::kanari::KANARI";
+const KANARI_COIN_TYPE: &str = kanari_types::gas_coin::GAS_COIN;
 
 fn system_package() -> String {
     KanariAddress::KANARI_SYSTEM_ADDRESS.to_string()
@@ -396,7 +396,7 @@ async fn list_coins(
 ) -> Result<Vec<ListedCoin>> {
     // Normalize so `0x02::…` input matches canonically stored objects.
     let inner = kanari_types::coin::CoinModule::normalize_token_type(coin_type.trim());
-    let wrapper = format!("0x2::coin::Coin<{}>", inner);
+    let wrapper = kanari_types::coin::CoinModule::coin_type(&inner);
     let response = client
         .get_objects(kanari_rpc_api::GetObjectsRequest {
             owner: Some(owner_normalized.to_string()),
@@ -409,7 +409,7 @@ async fn list_coins(
         .context("Failed to list coin objects from API")?;
     let mut coins = Vec::new();
     for obj in response.objects {
-        if !obj.type_.contains("::coin::Coin<") {
+        if !kanari_types::coin::CoinModule::is_coin_object_type(&obj.type_) {
             continue;
         }
         let balance = coin_balance_from_data(&obj.data).unwrap_or(0);

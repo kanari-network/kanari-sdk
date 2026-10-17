@@ -13,6 +13,8 @@ use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use kanari_rpc_api::{BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest};
 use kanari_rpc_client::RpcClient;
+use kanari_types::address::Address as KanariAddress;
+use kanari_types::gas_coin::GasModule;
 use std::time::Duration;
 
 const MAX_AUTO_CONSOLIDATION_STEPS: usize = 16;
@@ -94,9 +96,9 @@ impl Burn {
             match client
                 .build_call_function(BuildCallFunctionRequest {
                     sender: sender_for_tx.clone(),
-                    package: "0x2".to_string(),
-                    module: "kanari".to_string(),
-                    function: "burn".to_string(),
+                    package: KanariAddress::KANARI_SYSTEM_ADDRESS.to_string(),
+                    module: GasModule::GAS_MODULE.to_string(),
+                    function: GasModule::function_names().burn.to_string(),
                     type_args: vec![],
                     args: burn_args.clone(),
                     object_inputs: None,

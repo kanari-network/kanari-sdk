@@ -8,7 +8,7 @@ use super::*;
 impl StateManager {
     /// Get a summary of the total, visible, locked, and untracked supply for a token.
     pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         let total_supply = self.issued_supply_for_token(&token_type)?;
         let cached_visible = self
             .global_token_supplies
@@ -61,7 +61,7 @@ impl StateManager {
     ) -> Result<Vec<TokenSupplySummary>> {
         let normalized: Vec<String> = token_types
             .iter()
-            .map(|t| Self::normalize_token_type(t))
+            .map(|t| CoinModule::normalize_token_type(t))
             .collect();
         let index_version = self
             .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?

@@ -23,6 +23,7 @@ use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
     SignedTransaction, Transaction,
 };
+use kanari_types::usd_coin::UsdModule;
 use kanari_types::{effective_gas_price, gas_price_is_valid};
 use move_binary_format::{
     CompiledModule,
@@ -202,7 +203,7 @@ fn fresh_nonce(nonce: Option<u64>, min_nonce: Option<u64>) -> anyhow::Result<u64
 /// and let worthless attacker tokens appear as transfers/holders.
 fn is_canonical_coin_outer(outer: &str) -> bool {
     let outer = outer.trim();
-    if !(outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin")) {
+    if !CoinModule::is_coin_outer(outer) {
         return false;
     }
     // Outer address must be the kanari system address (0x2, any spelling).
@@ -233,8 +234,8 @@ fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
     }
 
     if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(object_type)
-        && st.module.as_str() == "coin"
-        && st.name.as_str() == "Coin"
+        && st.module.as_str() == CoinModule::COIN_MODULE
+        && st.name.as_str() == CoinModule::COIN_STRUCT
         && let Some(TypeTag::Struct(inner)) = st.type_params.first()
     {
         let expected =
@@ -521,7 +522,9 @@ fn build_call_native_burn_amount(build_data: &BuildCallFunctionRequest) -> Optio
     if normalize_addr(&build_data.package) != normalize_addr(Address::KANARI_SYSTEM_ADDRESS) {
         return None;
     }
-    if build_data.module != "kanari" || build_data.function != GasModule::function_names().burn {
+    if build_data.module != GasModule::GAS_MODULE
+        || build_data.function != GasModule::function_names().burn
+    {
         return None;
     }
     if build_data.args.len() != 1 {
@@ -832,7 +835,10 @@ fn token_transfer_details(
         return None;
     };
 
-    if function != "transfer_amount" && function != "transfer" || args.len() < 3 {
+    if function != UsdModule::function_names().transfer_amount
+        && function != GasModule::function_names().transfer
+        || args.len() < 3
+    {
         return None;
     }
     // Native KANARI transfers go through `native_call`; don't double-report here.
@@ -2560,7 +2566,7 @@ pub async fn handle_build_token_transfer(
             // Token modules expose the amount-based transfer entry point.
             // Keep the coin selection and gas policy in the RPC layer while
             // passing only the canonical Move call to the client.
-            function: "transfer_amount".to_string(),
+            function: UsdModule::function_names().transfer_amount.to_string(),
             type_args: vec![],
             args: vec![coin_object_id, amount, recipient],
             object_inputs: Some(vec![object_input]),

@@ -20,7 +20,7 @@ use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::object::{IDRecord, UIDRecord};
 use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
-use move_core_types::language_storage::{StructTag, TypeTag};
+use move_core_types::language_storage::StructTag;
 use rocksdb::WriteBatch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -442,9 +442,9 @@ pub(crate) fn default_owner_kind_for_type(
     type_name: &str,
     owner: AccountAddress,
 ) -> ObjectOwnerKind {
-    if type_name.contains("::clock::Clock") {
+    if ClockModule::is_clock_type(type_name) {
         ObjectOwnerKind::Shared
-    } else if type_name.contains("::coin::CoinMetadata<") {
+    } else if CoinModule::is_coin_metadata_type(type_name) {
         ObjectOwnerKind::Immutable
     } else {
         ObjectOwnerKind::AddressOwner(owner.to_hex_literal())

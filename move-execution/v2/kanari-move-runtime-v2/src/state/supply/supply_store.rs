@@ -9,7 +9,7 @@ impl StateManager {
     /// Build the database key for a token supply record.
     /// Always canonical so `0x02`/`0x2` spellings share one record.
     pub(crate) fn supply_key(token_type: &str) -> Vec<u8> {
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         let mut key = b"supply:".to_vec();
         key.extend_from_slice(normalized.as_bytes());
         key
@@ -75,7 +75,7 @@ impl StateManager {
 
     /// Get the total issued supply for a token type.
     pub(crate) fn issued_supply_for_token(&self, token_type: &str) -> Result<u64> {
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         if normalized == GAS_COIN {
             return Ok(self.total_supply);
         }
@@ -106,7 +106,7 @@ impl StateManager {
 
     /// Compute wallet-visible supply by scanning all owners and objects.
     pub(crate) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         let mut owners = self.owner_addresses()?.into_iter().collect::<BTreeSet<_>>();
         let mut object_balances = BTreeMap::<AccountAddress, u64>::new();
         // Gas fees are credited to the DAO owner ledger. The DAO may not have

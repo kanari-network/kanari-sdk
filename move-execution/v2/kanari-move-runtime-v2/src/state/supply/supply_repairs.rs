@@ -113,7 +113,7 @@ impl StateManager {
     }
 
     pub(crate) fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         self.load_object_locked_coin_records()?
             .into_iter()
             .filter(|record| record.token_type == token_type)

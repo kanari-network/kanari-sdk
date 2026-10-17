@@ -102,6 +102,13 @@ impl TxContextModule {
             epoch_timestamp_ms: "epoch_timestamp_ms",
             fresh_object_address: "fresh_object_address",
             derive_id: "derive_id",
+            new: "new",
+            new_from_hint: "new_from_hint",
+            dummy: "dummy",
+            get_ids_created: "get_ids_created",
+            last_created_object_id: "last_created_object_id",
+            increment_epoch_number: "increment_epoch_number",
+            increment_epoch_timestamp: "increment_epoch_timestamp",
         }
     }
 }
@@ -114,6 +121,14 @@ pub struct TxContextFunctions {
     pub epoch_timestamp_ms: &'static str,
     pub fresh_object_address: &'static str,
     pub derive_id: &'static str,
+    /// The remaining seven are `#[test_only]` in `tx_context.move`.
+    pub new: &'static str,
+    pub new_from_hint: &'static str,
+    pub dummy: &'static str,
+    pub get_ids_created: &'static str,
+    pub last_created_object_id: &'static str,
+    pub increment_epoch_number: &'static str,
+    pub increment_epoch_timestamp: &'static str,
 }
 
 #[cfg(test)]

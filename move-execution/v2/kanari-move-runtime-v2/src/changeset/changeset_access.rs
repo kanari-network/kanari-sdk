@@ -4,6 +4,7 @@
 //! Deterministic access manifests for conflict validation.
 
 use crate::changeset::{ChangeSet, OwnerDelta, StateAccessSet};
+use kanari_types::collection::CollectionModule;
 use move_core_types::account_address::AccountAddress;
 
 impl ChangeSet {
@@ -79,11 +80,12 @@ impl ChangeSet {
             access.write(key.clone());
         }
         for event in &self.events {
-            if event.type_tag.to_string().contains("::nft::MintLog") && event.event_data.len() >= 96
+            if CollectionModule::is_mint_log_type(&event.type_tag)
+                && let Some((_, collection_id)) = CollectionModule::mint_log_ids(&event.event_data)
             {
                 access.write(format!(
                     "collection_members:0x{}",
-                    hex::encode(&event.event_data[64..96])
+                    hex::encode(collection_id.as_ref())
                 ));
             }
         }

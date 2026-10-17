@@ -92,6 +92,8 @@ impl ObjectModule {
             uid_to_bytes: "uid_to_bytes",
             id_bytes: "id_bytes",
             save_object: "save_object",
+            borrow_global_mut: "borrow_global_mut",
+            borrow_global: "borrow_global",
             delete: "delete",
         }
     }
@@ -109,6 +111,8 @@ pub struct ObjectFunctions {
     pub uid_to_bytes: &'static str,
     pub id_bytes: &'static str,
     pub save_object: &'static str,
+    pub borrow_global_mut: &'static str,
+    pub borrow_global: &'static str,
     pub delete: &'static str,
 }
 

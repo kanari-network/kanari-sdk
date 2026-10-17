@@ -66,11 +66,27 @@ impl DenyCapRecord {
     }
 }
 
-/// DenyList module constants and utilities
+/// DenyList module constants and utilities, mirroring
+/// `kanari-system/sources/deny_list.move`.
 pub struct DenyListModule;
 
 impl DenyListModule {
     pub const DENYLIST_MODULE: &'static str = "deny_list";
+    /// Name of the DenyList struct in Move
+    pub const DENYLIST_STRUCT: &'static str = "DenyList";
+
+    /// Well-known object id of the shared deny-list singleton, mirroring
+    /// `kanari_system::deny_list::deny_list_object_id()` (`@0x403`, the same
+    /// address Sui uses).
+    ///
+    /// Genesis, the runtime singleton preload and protocol-level coin input
+    /// policy all read this one definition, so they cannot disagree about where
+    /// the shared `DenyList` lives.
+    pub const DENY_LIST_OBJECT_ID: &'static str = "0x403";
+
+    /// Bag index reserved for coin deny entries, mirroring
+    /// `kanari_system::deny_list::coin_index()`.
+    pub const COIN_INDEX: u64 = 0;
 
     /// Get the module ID for kanari_system::deny_list
     pub fn get_module_id() -> Result<ModuleId> {
@@ -83,23 +99,58 @@ impl DenyListModule {
         Ok(ModuleId::new(address, module_name))
     }
 
+    /// Fully qualified `DenyList` object type (`0x2::deny_list::DenyList`).
+    pub fn type_path() -> String {
+        format!(
+            "{}::{}::{}",
+            Address::KANARI_SYSTEM_ADDRESS,
+            Self::DENYLIST_MODULE,
+            Self::DENYLIST_STRUCT
+        )
+    }
+
+    /// Well-known object id of the shared `DenyList` singleton.
+    pub fn deny_list_object_id() -> Result<AccountAddress> {
+        AccountAddress::from_hex_literal(Self::DENY_LIST_OBJECT_ID)
+            .context("Invalid deny-list singleton object id")
+    }
+
     /// Get function names used in deny_list module
     pub fn function_names() -> DenyListFunctions {
         DenyListFunctions {
-            new_denylist: "new_denylist",
+            deny_list_object_id: "deny_list_object_id",
+            borrow_singleton: "borrow_singleton",
+            coin_index: "coin_index",
+            create_for_test: "create_for_test",
+            new_for_testing: "new_for_testing",
             new_denycap: "new_denycap",
-            deny_list_add: "deny_list_add",
-            deny_list_remove: "deny_list_remove",
+            new_denycap_for_testing: "new_denycap_for_testing",
+            v1_add: "v1_add",
+            v1_remove: "v1_remove",
+            v1_contains: "v1_contains",
+            v2_enable_global_pause: "v2_enable_global_pause",
+            v2_disable_global_pause: "v2_disable_global_pause",
+            v2_is_global_pause_enabled: "v2_is_global_pause_enabled",
         }
     }
 }
 
-/// DenyList module function names
+/// DenyList module function names, mirroring the public API of `deny_list.move`
+/// in source order.
 pub struct DenyListFunctions {
-    pub new_denylist: &'static str,
+    pub deny_list_object_id: &'static str,
+    pub borrow_singleton: &'static str,
+    pub coin_index: &'static str,
+    pub create_for_test: &'static str,
+    pub new_for_testing: &'static str,
     pub new_denycap: &'static str,
-    pub deny_list_add: &'static str,
-    pub deny_list_remove: &'static str,
+    pub new_denycap_for_testing: &'static str,
+    pub v1_add: &'static str,
+    pub v1_remove: &'static str,
+    pub v1_contains: &'static str,
+    pub v2_enable_global_pause: &'static str,
+    pub v2_disable_global_pause: &'static str,
+    pub v2_is_global_pause_enabled: &'static str,
 }
 
 #[cfg(test)]
@@ -117,8 +168,17 @@ mod tests {
     #[test]
     fn test_functions() {
         let fns = DenyListModule::function_names();
-        assert_eq!(fns.new_denylist, "new_denylist");
-        assert_eq!(fns.deny_list_add, "deny_list_add");
+        assert_eq!(fns.deny_list_object_id, "deny_list_object_id");
+        assert_eq!(fns.borrow_singleton, "borrow_singleton");
+        assert_eq!(fns.v1_add, "v1_add");
+        assert_eq!(fns.v2_is_global_pause_enabled, "v2_is_global_pause_enabled");
+    }
+
+    #[test]
+    fn test_singleton_object_id() {
+        let id = DenyListModule::deny_list_object_id().expect("0x403 parses as an address");
+        assert_eq!(id.to_hex_literal(), DenyListModule::DENY_LIST_OBJECT_ID);
+        assert_eq!(DenyListModule::COIN_INDEX, 0);
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! Changeset application logic for the blockchain state.
 
 use super::*;
+use kanari_types::coin::CoinModule;
+use kanari_types::collection::CollectionModule;
 use kanari_types::transaction::ObjectOwnerKind;
 
 mod apply_balances;
@@ -303,10 +305,10 @@ impl StateManager {
                     Self::balance_token_amount(&existing.type_name, &existing.data);
                 let existing_native_coin =
                     existing_balance.as_ref().is_some_and(|(token_type, _)| {
-                        Self::normalize_token_type(token_type) == GAS_COIN
+                        CoinModule::normalize_token_type(token_type) == GAS_COIN
                     });
                 if let Some((token_type, amount)) = existing_balance
-                    && Self::normalize_token_type(&token_type) == GAS_COIN
+                    && CoinModule::normalize_token_type(&token_type) == GAS_COIN
                 {
                     let owner_balance = native_object_before_from_changes
                         .entry(existing.owner)
@@ -399,7 +401,7 @@ impl StateManager {
             );
             if let Some((token_type, amount)) =
                 Self::balance_token_amount(&new_obj.type_, &new_obj.data)
-                && Self::normalize_token_type(&token_type) == GAS_COIN
+                && CoinModule::normalize_token_type(&token_type) == GAS_COIN
             {
                 if existing_stored_id.is_none() {
                     native_object_created_owners.insert(new_obj.owner);
@@ -447,7 +449,7 @@ impl StateManager {
                 }
             }
 
-            if new_obj.type_.contains("::coin::CoinMetadata<")
+            if CoinModule::is_coin_metadata_type(&new_obj.type_)
                 && let Some(start) = new_obj.type_.find('<')
                 && let Some(end) = new_obj.type_.rfind('>')
             {
@@ -467,7 +469,7 @@ impl StateManager {
         // type (native KANARI by default). Native fees keep the ledger-backed
         // debit; other coins debit the `Coin<T>` object directly while the DAO
         // fee pool (not an owner ledger) receives the credit.
-        let gas_coin_normalized = Self::normalize_token_type(changeset.gas_coin_type());
+        let gas_coin_normalized = CoinModule::normalize_token_type(changeset.gas_coin_type());
         let is_native_gas = gas_coin_normalized == GAS_COIN;
         let sender_token_debit = |owner: &AccountAddress| -> Result<u64> {
             if is_native_gas {
@@ -507,7 +509,7 @@ impl StateManager {
             else {
                 continue;
             };
-            if Self::normalize_token_type(&token_type) != gas_coin_normalized {
+            if CoinModule::normalize_token_type(&token_type) != gas_coin_normalized {
                 continue;
             }
             ensure!(
@@ -559,7 +561,7 @@ impl StateManager {
             );
             if let Some((token_type, amount)) =
                 Self::balance_token_amount(&next_object.type_name, &next_object.data)
-                && Self::normalize_token_type(&token_type) == GAS_COIN
+                && CoinModule::normalize_token_type(&token_type) == GAS_COIN
             {
                 let owner_balance = native_object_after_from_changes
                     .entry(next_object.owner)
@@ -735,9 +737,9 @@ impl StateManager {
             if Self::canonical_owned_object_id(&gas_ref.object_id) != canonical_object_id {
                 return Ok(false);
             }
-            if !Self::balance_token_amount(&created.type_, &created.data)
-                .is_some_and(|(token_type, _)| Self::normalize_token_type(&token_type) == GAS_COIN)
-            {
+            if !Self::balance_token_amount(&created.type_, &created.data).is_some_and(
+                |(token_type, _)| CoinModule::normalize_token_type(&token_type) == GAS_COIN,
+            ) {
                 return Ok(false);
             }
 
@@ -775,7 +777,8 @@ impl StateManager {
             let (token_type, object_balance) =
                 Self::balance_token_amount(&created.type_, &created.data)
                     .context("Native owned batch coin object has invalid balance bytes")?;
-            if Self::normalize_token_type(&token_type) != GAS_COIN || object_balance < sender_debit
+            if CoinModule::normalize_token_type(&token_type) != GAS_COIN
+                || object_balance < sender_debit
             {
                 return Ok(false);
             }

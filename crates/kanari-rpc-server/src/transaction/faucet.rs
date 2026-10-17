@@ -38,6 +38,7 @@ use kanari_rpc_api::{
     RequestUsdFaucetResponse, methods,
 };
 use kanari_types::address::Address;
+use kanari_types::coin::CoinModule;
 use kanari_types::transaction::ObjectInput;
 use kanari_types::usd_coin::{USD_COIN, UsdModule};
 use move_core_types::account_address::AccountAddress;
@@ -53,11 +54,6 @@ const FAUCET_GAS_LIMIT: u64 = 100_000;
 const FAUCET_GAS_PRICE: u64 = 1_000;
 const COMMIT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const COMMIT_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Canonical shared-cap object type gating the permissionless mint.
-fn treasury_cap_type() -> String {
-    format!("0x2::coin::TreasuryCap<{USD_COIN}>")
-}
 
 #[derive(Debug, Clone)]
 struct FaucetConfig {
@@ -211,7 +207,8 @@ async fn wait_for_commit(state: &RpcServerState, tx_hash: &[u8], timeout: Durati
 
 /// Shared `TreasuryCap<USD>` object id (the permissionless mint authority).
 fn shared_cap_id(state: &RpcServerState) -> Result<kanari_rpc_api::ObjectInfo> {
-    let wanted = treasury_cap_type();
+    // Canonical shared-cap object type gating the permissionless mint.
+    let wanted = CoinModule::treasury_cap_type(USD_COIN);
     let objects = state
         .engine
         .query_objects(None, None, Some(&wanted), None, None)
@@ -241,7 +238,7 @@ fn faucet_build_request(
         sender: sender_tagged.to_string(),
         package: Address::KANARI_SYSTEM_ADDRESS.to_string(),
         module: UsdModule::USD_MODULE.to_string(),
-        function: "mint".to_string(),
+        function: UsdModule::function_names().mint.to_string(),
         type_args: vec![],
         args: vec![
             cap_id_bytes,
@@ -568,7 +565,7 @@ mod tests {
 
         assert_eq!(request.package, Address::KANARI_SYSTEM_ADDRESS);
         assert_eq!(request.module, UsdModule::USD_MODULE);
-        assert_eq!(request.function, "mint");
+        assert_eq!(request.function, UsdModule::function_names().mint);
         assert_eq!(request.args.len(), 3);
         assert_eq!(bcs::from_bytes::<u64>(&request.args[1]).unwrap(), 5_000_000);
         let inputs = request.object_inputs.unwrap();

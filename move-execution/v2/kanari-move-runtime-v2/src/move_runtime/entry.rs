@@ -3,6 +3,8 @@
 
 use super::*;
 
+use kanari_types::coin::CoinModule;
+
 impl MoveRuntime {
     /// Execute a Move entry function with the given arguments and context.
     pub fn execute_entry_function(
@@ -574,18 +576,6 @@ impl MoveRuntime {
         vm_guard.new_session_with_extensions(resolver, extensions)
     }
 
-    /// Extract the inner coin type `T` from a `Coin<T>` object type string
-    /// (e.g. `0x2::coin::Coin<0xabc::my_coin::MY_COIN>` ->
-    /// `0xabc::my_coin::MY_COIN`). Returns `None` for non-coin types and
-    /// malformed strings. Pure helper: unit-tested, no state access.
-    pub(crate) fn coin_inner_type(object_type: &str) -> Option<String> {
-        if !Self::is_coin_object_type(object_type) {
-            return None;
-        }
-        let start = object_type.find("Coin<")? + "Coin<".len();
-        object_type[start..].strip_suffix('>').map(str::to_string)
-    }
-
     /// Execute a framework `deny_list_*` read and decode its `bool` result.
     ///
     /// A read that cannot be performed (unloadable or failing function) is
@@ -669,7 +659,7 @@ impl MoveRuntime {
         for input in object_inputs {
             if let Some(stored) =
                 self.get_object_for_execution(&input.object_ref.object_id, overlay)?
-                && let Some(inner) = Self::coin_inner_type(&stored.type_name)
+                && let Some(inner) = CoinModule::inner_type(&stored.type_name)
             {
                 coin_types.push(inner);
             }
@@ -680,7 +670,7 @@ impl MoveRuntime {
             }
             let object_id = format!("0x{}", hex::encode(arg));
             if let Some(stored) = self.get_object_for_execution(&object_id, overlay)?
-                && let Some(inner) = Self::coin_inner_type(&stored.type_name)
+                && let Some(inner) = CoinModule::inner_type(&stored.type_name)
             {
                 coin_types.push(inner);
             }
@@ -699,8 +689,9 @@ impl MoveRuntime {
         };
         let coin_module = ModuleId::new(
             kanari_types::address::Address::kanari_system_account_address(),
-            move_core_types::identifier::Identifier::new("coin")?,
+            move_core_types::identifier::Identifier::new(CoinModule::COIN_MODULE)?,
         );
+        let coin_fns = CoinModule::function_names();
         let sender_bytes = bcs::to_bytes(&sender)?;
         let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(1_000_000);
 
@@ -730,7 +721,7 @@ impl MoveRuntime {
             let paused = Self::read_deny_list_flag(
                 session,
                 &coin_module,
-                "deny_list_paused",
+                coin_fns.deny_list_paused,
                 ty.clone(),
                 vec![singleton.data.clone()],
                 &mut policy_gas,
@@ -748,7 +739,7 @@ impl MoveRuntime {
             let denied = Self::read_deny_list_flag(
                 session,
                 &coin_module,
-                "deny_list_contains",
+                coin_fns.deny_list_contains,
                 ty,
                 vec![singleton.data.clone(), sender_bytes.clone()],
                 &mut policy_gas,

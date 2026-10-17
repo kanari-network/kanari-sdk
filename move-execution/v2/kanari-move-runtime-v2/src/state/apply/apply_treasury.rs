@@ -14,7 +14,7 @@ impl StateManager {
     ) -> Result<bool> {
         // supply_key normalizes internally; treasury keys normalized here so
         // 0x02/0x2 spellings share one record going forward.
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         let key = Self::supply_key(&normalized);
         self.save_internal(&key, &TreasuryCap { total_supply })?;
 
@@ -23,7 +23,7 @@ impl StateManager {
         self.save_internal(&key_owner, &owner)?;
         self.add_to_index_list(b"treasury_index", format!("treasury:{}", normalized))?;
 
-        if Self::normalize_token_type(token_type) == GAS_COIN {
+        if CoinModule::normalize_token_type(token_type) == GAS_COIN {
             self.save_native_total_supply(total_supply)?;
         }
 

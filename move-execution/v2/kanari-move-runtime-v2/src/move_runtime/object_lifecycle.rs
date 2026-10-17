@@ -335,7 +335,7 @@ impl MoveRuntime {
         let (object_id, _) = cs
             .created_objects
             .iter()
-            .find(|(_, created)| created.type_.contains("::clock::Clock"))
+            .find(|(_, created)| ClockModule::is_clock_type(&created.type_))
             .require("Clock object was not created by clock::create")?;
 
         let addr = AccountAddress::from_hex_literal(object_id)?;
@@ -386,9 +386,8 @@ impl MoveRuntime {
     /// pinned to `0x403`. The embedded `Bag` starts empty; `deny_list::v1_add`
     /// creates the per-type list lazily on first use.
     pub fn ensure_deny_list(&self, state: &mut StateManager) -> Result<AccountAddress> {
-        let deny_addr =
-            AccountAddress::from_hex_literal(crate::common::ids::DENY_LIST_SINGLETON_ID)
-                .context("invalid deny-list well-known object id")?;
+        let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
+            .context("invalid deny-list well-known object id")?;
         let deny_id_hex = deny_addr.to_hex_literal();
         if state.get_object(&deny_id_hex)?.is_some() {
             return Ok(deny_addr);
@@ -404,14 +403,7 @@ impl MoveRuntime {
         data.extend_from_slice(bag_addr.as_ref());
         data.extend_from_slice(&0u64.to_le_bytes());
 
-        let deny_type = {
-            let module_id = kanari_types::deny_list::DenyListModule::get_module_id()?;
-            format!(
-                "{}::{}::DenyList",
-                module_id.address().to_hex_literal(),
-                module_id.name()
-            )
-        };
+        let deny_type = kanari_types::deny_list::DenyListModule::type_path();
 
         let mut changeset = ChangeSet::new();
         changeset.created_objects.push((

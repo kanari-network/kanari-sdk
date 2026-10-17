@@ -383,18 +383,14 @@ impl super::MoveRuntime {
         // explicit object input so the transaction exposes its dependency to
         // validation/scheduling. Raw address arguments are intentionally scoped
         // to the sender's own owned objects.
-        allow_cross_owner_non_coin && !Self::is_coin_object_type(object_type)
-    }
-
-    pub(crate) fn is_coin_object_type(object_type: &str) -> bool {
-        object_type.contains("::coin::Coin<") || object_type.contains("::coin::coin::Coin<")
+        allow_cross_owner_non_coin && !CoinModule::is_coin_object_type(object_type)
     }
 
     /// Canonical full-hex object id of the deny-list singleton, matching
     /// native borrow key construction (`0x` + 64 hex digits).
     pub(crate) fn deny_list_singleton_full_id() -> String {
-        let addr = AccountAddress::from_hex_literal(crate::common::ids::DENY_LIST_SINGLETON_ID)
-            .expect("hardcoded deny-list singleton id is valid");
+        let addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
+            .expect("deny-list singleton object id from kanari-types is valid");
         format!("0x{}", hex::encode(addr.to_vec()))
     }
 

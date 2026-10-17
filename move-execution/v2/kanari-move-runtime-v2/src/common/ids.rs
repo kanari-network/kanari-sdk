@@ -5,14 +5,6 @@
 
 use move_core_types::account_address::AccountAddress;
 
-/// Well-known shared object id of the deny-list singleton, mirroring
-/// `kanari_system::deny_list::deny_list_object_id()`.
-///
-/// The genesis creator, the singleton preload and the protocol-level coin
-/// input policy all read this one definition, so they cannot disagree about
-/// where the shared `DenyList` lives.
-pub(crate) const DENY_LIST_SINGLETON_ID: &str = "0x403";
-
 /// Canonicalize an object ID to its normalized hex literal form (e.g., `0x1`).
 /// Returns `None` if the ID is not a valid hex-encoded Move address.
 pub(crate) fn canonical_object_id(id: &str) -> Option<String> {

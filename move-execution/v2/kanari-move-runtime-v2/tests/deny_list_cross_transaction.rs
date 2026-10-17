@@ -33,7 +33,7 @@ mod move_manifest;
 
 const TESTER_ADDR: &str = "0x43";
 const MODULE_NAME: &str = "deny_list_e2e";
-const DENY_LIST_ID: &str = "0x403";
+const DENY_LIST_ID: &str = kanari_types::deny_list::DenyListModule::DENY_LIST_OBJECT_ID;
 const PER_TYPE_INDEX: u64 = 0;
 const MOVE_SOURCE: &str = include_str!("move_packages/deny_list_e2e/sources/deny_list_e2e.move");
 

@@ -12,10 +12,10 @@ impl StateManager {
         token_types.insert(GAS_COIN.to_string());
 
         for (_, token_type, _) in &changeset.treasuries {
-            token_types.insert(Self::normalize_token_type(token_type));
+            token_types.insert(CoinModule::normalize_token_type(token_type));
         }
         for (_, token_type, _) in &changeset.token_balance_sets {
-            token_types.insert(Self::normalize_token_type(token_type));
+            token_types.insert(CoinModule::normalize_token_type(token_type));
         }
         for (_, created) in &changeset.created_objects {
             if let Some((token_type, _)) = Self::balance_token_amount(&created.type_, &created.data)
@@ -28,7 +28,7 @@ impl StateManager {
     }
 
     pub(crate) fn visible_supply_snapshot(&self, token_type: &str) -> Result<u64> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         let cached = self
             .global_token_supplies
             .get(&token_type)

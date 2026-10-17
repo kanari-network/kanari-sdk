@@ -525,7 +525,7 @@ impl super::MoveRuntime {
 
         verify_framework_hash(
             &self.state,
-            "0x1",
+            KanariAddress::STD_ADDRESS,
             &modules,
             "KANARI_FRAMEWORK_EXPECTED_HASH_0X1",
             "Warning: stdlib framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
@@ -535,7 +535,7 @@ impl super::MoveRuntime {
 
         tracing::info!(
             modules = count,
-            address = "0x1",
+            address = KanariAddress::STD_ADDRESS,
             "Move stdlib modules loaded"
         );
         Ok(())
@@ -575,7 +575,7 @@ impl super::MoveRuntime {
 
         verify_framework_hash(
             &self.state,
-            "0x2",
+            KanariAddress::KANARI_SYSTEM_ADDRESS,
             &modules,
             "KANARI_FRAMEWORK_EXPECTED_HASH_0X2",
             "Warning: system framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
@@ -607,7 +607,7 @@ impl super::MoveRuntime {
 
         tracing::info!(
             modules = count,
-            address = "0x2",
+            address = KanariAddress::KANARI_SYSTEM_ADDRESS,
             "Kanari system modules loaded"
         );
         Ok(())

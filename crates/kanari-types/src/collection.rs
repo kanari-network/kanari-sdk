@@ -111,6 +111,21 @@ impl CollectionModule {
     pub const COLLECTION_STRUCT: &'static str = "Collection";
     pub const NFTCAP_STRUCT: &'static str = "NftCap";
 
+    /// Module name of the NFT mint event emitter, mirroring `nft::MintLog`.
+    pub const NFT_MODULE: &'static str = "nft";
+    /// Event struct emitted on every NFT mint. Mirrors
+    /// `nft::MintLog { object_id, creator, collection_id }` — three addresses
+    /// in source order, so the payload is `3 * 32` bytes.
+    pub const MINT_LOG_EVENT: &'static str = "MintLog";
+    /// Byte offset of the minted NFT object id inside a `MintLog` payload.
+    pub const MINT_LOG_OBJECT_ID_OFFSET: usize = 0;
+    /// Byte offset of the creator address inside a `MintLog` payload.
+    pub const MINT_LOG_CREATOR_OFFSET: usize = 32;
+    /// Byte offset of the collection id inside a `MintLog` payload.
+    pub const MINT_LOG_COLLECTION_ID_OFFSET: usize = 64;
+    /// BCS size of a `MintLog` payload.
+    pub const MINT_LOG_EVENT_SIZE: usize = 96;
+
     /// Get the module ID for kanari_system::collection
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
@@ -122,6 +137,40 @@ impl CollectionModule {
         Ok(ModuleId::new(address, module_name))
     }
 
+    /// Whether a type name is a `Collection` object type.
+    pub fn is_collection_type(type_name: &str) -> bool {
+        type_name.contains(&format!(
+            "::{}::{}",
+            Self::COLLECTION_MODULE,
+            Self::COLLECTION_STRUCT
+        ))
+    }
+
+    /// Whether a type name is an `nft::MintLog` mint event.
+    pub fn is_mint_log_type(type_name: &str) -> bool {
+        type_name.contains(&format!("::{}::{}", Self::NFT_MODULE, Self::MINT_LOG_EVENT))
+    }
+
+    /// Parse `(minted NFT id, collection id)` out of a `MintLog` payload.
+    /// Returns `None` for short or corrupt payloads.
+    pub fn mint_log_ids(event_data: &[u8]) -> Option<(AccountAddress, AccountAddress)> {
+        if event_data.len() < Self::MINT_LOG_EVENT_SIZE {
+            return None;
+        }
+        Some((
+            Self::mint_log_address(event_data, Self::MINT_LOG_OBJECT_ID_OFFSET)?,
+            Self::mint_log_address(event_data, Self::MINT_LOG_COLLECTION_ID_OFFSET)?,
+        ))
+    }
+
+    fn mint_log_address(event_data: &[u8], offset: usize) -> Option<AccountAddress> {
+        let bytes: [u8; AccountAddress::LENGTH] = event_data
+            .get(offset..offset + AccountAddress::LENGTH)?
+            .try_into()
+            .ok()?;
+        Some(AccountAddress::new(bytes))
+    }
+
     /// Get function names used in collection module
     pub fn function_names() -> CollectionFunctions {
         CollectionFunctions {
@@ -130,6 +179,7 @@ impl CollectionModule {
             cap_collection_id: "cap_collection_id",
             collection_creator: "collection_creator",
             max_supply: "max_supply",
+            update_metadata: "update_metadata",
             remaining: "remaining",
             issued: "issued",
             consume_for_mint: "consume_for_mint",
@@ -147,6 +197,7 @@ pub struct CollectionFunctions {
     pub cap_collection_id: &'static str,
     pub collection_creator: &'static str,
     pub max_supply: &'static str,
+    pub update_metadata: &'static str,
     pub remaining: &'static str,
     pub issued: &'static str,
     pub consume_for_mint: &'static str,

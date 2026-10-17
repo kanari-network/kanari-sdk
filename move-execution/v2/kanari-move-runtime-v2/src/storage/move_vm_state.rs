@@ -5,6 +5,8 @@
 
 use anyhow::Result;
 #[cfg(test)]
+use kanari_types::coin::CoinModule;
+#[cfg(test)]
 use kanari_types::error::KanariUnwrapExt;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -208,7 +210,9 @@ impl MoveVMState {
             .require("Failed to persist Move VM resource")?;
 
         // Keep coin objects in sync with the latest resource bytes.
-        if tag.module.as_str() == "coin" && tag.name.as_str() == "Coin" {
+        if tag.module.as_str() == CoinModule::COIN_MODULE
+            && tag.name.as_str() == CoinModule::COIN_STRUCT
+        {
             let obj_key = Self::object_key(address);
 
             if let Some(mut stored_object) = self.store.load::<StoredObject>(obj_key.as_bytes())? {
