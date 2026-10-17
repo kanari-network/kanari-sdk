@@ -56,21 +56,11 @@ impl StateManager {
 
     // Helper to construct DB key for object
 
-    pub(crate) fn object_lookup_ids(id: &str) -> Vec<String> {
-        let mut ids = vec![id.to_string()];
-        if let Some(canonical_id) = canonical_object_id(id)
-            && canonical_id != id
-        {
-            ids.push(canonical_id);
-        }
-        ids
-    }
-
     pub(crate) fn load_stored_object_by_any_id(
         &self,
         object_id: &str,
     ) -> Result<Option<(String, StoredObject)>> {
-        for candidate_id in Self::object_lookup_ids(object_id) {
+        for candidate_id in crate::common::ids::object_id_variants(object_id) {
             let obj_key = object_key(&candidate_id);
             if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
                 return Ok(Some((candidate_id, stored)));
@@ -170,7 +160,7 @@ impl StateManager {
         let Some((stored_id, stored)) = self.load_stored_object_by_any_id(object_id)? else {
             return Ok(None);
         };
-        let normalized_id = canonical_object_id(&stored_id).unwrap_or(stored_id.clone());
+        let normalized_id = canonical_object_id_or_raw(&stored_id);
         let uid = AccountAddress::from_hex_literal(&normalized_id)
             .ok()
             .map(UIDRecord::new);

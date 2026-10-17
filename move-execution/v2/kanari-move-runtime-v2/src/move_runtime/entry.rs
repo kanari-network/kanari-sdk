@@ -141,8 +141,7 @@ impl MoveRuntime {
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
             .map(|input| {
-                crate::common::ids::canonical_object_id(&input.object_ref.object_id)
-                    .unwrap_or_else(|| input.object_ref.object_id.clone())
+                crate::common::ids::canonical_object_id_or_raw(&input.object_ref.object_id)
             })
             .collect();
         let mut used_explicit_object_bindings = HashSet::new();
@@ -289,10 +288,8 @@ impl MoveRuntime {
                     let object_id = object_addr.to_hex_literal();
                     if !bound_from_explicit_input
                         && !explicit_object_ids.is_empty()
-                        && !explicit_object_ids.contains(
-                            &crate::common::ids::canonical_object_id(&object_id)
-                                .unwrap_or_else(|| object_id.clone()),
-                        )
+                        && !explicit_object_ids
+                            .contains(&crate::common::ids::canonical_object_id_or_raw(&object_id))
                     {
                         continue;
                     }
@@ -310,8 +307,7 @@ impl MoveRuntime {
                         // function.
                         let declared_explicitly = bound_from_explicit_input
                             || explicit_object_ids.contains(
-                                &crate::common::ids::canonical_object_id(&object_id)
-                                    .unwrap_or_else(|| object_id.clone()),
+                                &crate::common::ids::canonical_object_id_or_raw(&object_id),
                             );
                         if !declared_explicitly && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
@@ -511,9 +507,7 @@ impl MoveRuntime {
                 cs.set_gas_used(cs.gas_used.max(vm_gas_used));
 
                 if persist_runtime_state {
-                    self.apply_move_changeset(move_changeset)?;
-                    self.persist_created_objects(&cs)?;
-                    self.persist_deleted_objects(&cs)?;
+                    self.apply_and_persist_move_changeset(move_changeset, &cs)?;
                 }
 
                 let reads = match resolver_trace.lock() {
@@ -590,6 +584,46 @@ impl MoveRuntime {
         }
         let start = object_type.find("Coin<")? + "Coin<".len();
         object_type[start..].strip_suffix('>').map(str::to_string)
+    }
+
+    /// Execute a framework `deny_list_*` read and decode its `bool` result.
+    ///
+    /// A read that cannot be performed (unloadable or failing function) is
+    /// logged and yields `Ok(None)`; the caller decides how to fail open. Real
+    /// state errors surface from the main execution path itself.
+    fn read_deny_list_flag(
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        coin_module: &ModuleId,
+        function_name: &str,
+        coin_type: RuntimeType,
+        args: Vec<Vec<u8>>,
+        gas: &mut crate::kanari_gas_meter::KanariGasMeter,
+        coin_type_name: &str,
+    ) -> Result<Option<bool>> {
+        let ident = IdentStr::new(function_name)?;
+        match session.execute_function_bypass_visibility(
+            coin_module,
+            ident,
+            vec![coin_type],
+            args,
+            gas,
+        ) {
+            Ok(values) => Ok(Some(
+                values
+                    .return_values
+                    .first()
+                    .map(|(bytes, _)| !bytes.is_empty() && bytes[0] != 0)
+                    .unwrap_or(false),
+            )),
+            Err(error) => {
+                log::warn!(
+                    "[RUNTIME] deny policy read {function_name} failed for {coin_type_name}: {error:?}"
+                );
+                Ok(None)
+            }
+        }
     }
 
     /// Protocol-level regulated-coin input policy.
@@ -691,27 +725,18 @@ impl MoveRuntime {
                 }
             };
 
-            let paused_ident = IdentStr::new("deny_list_paused")?;
-            let paused = match session.execute_function_bypass_visibility(
+            // Each read fails open individually: a read that cannot run skips
+            // the rest of this coin type's checks, as before.
+            let paused = Self::read_deny_list_flag(
+                session,
                 &coin_module,
-                paused_ident,
-                vec![ty.clone()],
+                "deny_list_paused",
+                ty.clone(),
                 vec![singleton.data.clone()],
                 &mut policy_gas,
-            ) {
-                Ok(values) => values
-                    .return_values
-                    .first()
-                    .map(|(bytes, _)| !bytes.is_empty() && bytes[0] != 0)
-                    .unwrap_or(false),
-                Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy pause read failed for {inner}: {:?}",
-                        error
-                    );
-                    continue;
-                }
-            };
+                inner,
+            )?;
+            let Some(paused) = paused else { continue };
             if paused {
                 anyhow::bail!(
                     "transaction sender {} is blocked: regulated coin type {} is globally paused (deny-list policy)",
@@ -720,27 +745,16 @@ impl MoveRuntime {
                 );
             }
 
-            let contains_ident = IdentStr::new("deny_list_contains")?;
-            let denied = match session.execute_function_bypass_visibility(
+            let denied = Self::read_deny_list_flag(
+                session,
                 &coin_module,
-                contains_ident,
-                vec![ty],
+                "deny_list_contains",
+                ty,
                 vec![singleton.data.clone(), sender_bytes.clone()],
                 &mut policy_gas,
-            ) {
-                Ok(values) => values
-                    .return_values
-                    .first()
-                    .map(|(bytes, _)| !bytes.is_empty() && bytes[0] != 0)
-                    .unwrap_or(false),
-                Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy membership read failed for {inner}: {:?}",
-                        error
-                    );
-                    continue;
-                }
-            };
+                inner,
+            )?;
+            let Some(denied) = denied else { continue };
             if denied {
                 anyhow::bail!(
                     "transaction sender {} is denied for regulated coin {} (deny-list policy)",

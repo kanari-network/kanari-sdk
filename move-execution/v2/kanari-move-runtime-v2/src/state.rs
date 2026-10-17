@@ -5,7 +5,7 @@ use crate::changeset::{ChangeSet, CreatedObject, StateAccessSet};
 use crate::common::balance::{
     extract_balance_from_object_bytes, is_balance_struct, token_type_from_struct_tag,
 };
-use crate::common::ids::canonical_object_id;
+use crate::common::ids::{canonical_object_id, canonical_object_id_or_raw};
 use crate::common::keys::{dynamic_field_key, metadata_key, object_key, owned_objects_key};
 use crate::storage::object_storage::StoredObject;
 use crate::storage::persistent_store::PersistentStore;

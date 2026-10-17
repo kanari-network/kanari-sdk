@@ -30,8 +30,10 @@ impl StateManager {
         Ok(true)
     }
 
+    /// Canonical owned-object id used as the index key: the normalized hex
+    /// form when `object_id` parses, otherwise the input unchanged.
     pub(crate) fn canonical_owned_object_id(object_id: &str) -> String {
-        canonical_object_id(object_id).unwrap_or_else(|| object_id.to_string())
+        crate::common::ids::canonical_object_id_or_raw(object_id)
     }
 
     pub(crate) fn remove_owned_object_index_variants(

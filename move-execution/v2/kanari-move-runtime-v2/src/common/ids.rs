@@ -5,6 +5,14 @@
 
 use move_core_types::account_address::AccountAddress;
 
+/// Well-known shared object id of the deny-list singleton, mirroring
+/// `kanari_system::deny_list::deny_list_object_id()`.
+///
+/// The genesis creator, the singleton preload and the protocol-level coin
+/// input policy all read this one definition, so they cannot disagree about
+/// where the shared `DenyList` lives.
+pub(crate) const DENY_LIST_SINGLETON_ID: &str = "0x403";
+
 /// Canonicalize an object ID to its normalized hex literal form (e.g., `0x1`).
 /// Returns `None` if the ID is not a valid hex-encoded Move address.
 pub(crate) fn canonical_object_id(id: &str) -> Option<String> {
@@ -22,6 +30,38 @@ pub(crate) fn canonical_object_id(id: &str) -> Option<String> {
     AccountAddress::from_hex_literal(trimmed)
         .ok()
         .map(|addr| addr.to_hex_literal())
+}
+
+/// Canonical hex form of `id`, or `id` unchanged when it is not a valid
+/// hex-encoded Move address.
+///
+/// Used wherever an id must be normalized for comparison or storage but an
+/// unparseable value keeps the handling it had before normalization was
+/// introduced — falling back to the input instead of dropping it.
+pub(crate) fn canonical_object_id_or_raw(id: &str) -> String {
+    canonical_object_id(id).unwrap_or_else(|| id.to_owned())
+}
+
+/// Every spelling an object id may be stored under, in lookup order.
+///
+/// Object ids arrive in short (`0x2`) or full (`0x00..02`) form from different
+/// callers, while storage keys preserve leading zeros. Resolve via the
+/// canonical short form first, then fall back to the raw input and the
+/// zero-padded full form so every spelling hits. Duplicates are dropped so each
+/// storage key is probed once.
+pub(crate) fn object_id_variants(id: &str) -> Vec<String> {
+    let mut variants = Vec::with_capacity(3);
+    variants.push(canonical_object_id_or_raw(id));
+    if variants[0] != id {
+        variants.push(id.to_owned());
+    }
+    if let Ok(address) = AccountAddress::from_hex_literal(id) {
+        let full = format!("0x{}", hex::encode(address.as_ref()));
+        if !variants.contains(&full) {
+            variants.push(full);
+        }
+    }
+    variants
 }
 
 pub(crate) fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {

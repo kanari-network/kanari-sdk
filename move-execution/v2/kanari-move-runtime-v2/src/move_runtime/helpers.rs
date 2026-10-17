@@ -5,6 +5,7 @@
 
 use kanari_system_natives::child::{ChildIndexExt, ChildIndexResolver, ChildLinks, children_key};
 use kanari_system_natives::dynamic_field::{DynamicFieldResolver, DynamicFieldStorageExt};
+use kanari_system_natives::object::LoadedObjectsExt;
 use kanari_system_natives::types::{
     CLAIMED_WITNESSES_KEY, ClaimedWitnessesExt, WitnessClaimResolver,
 };
@@ -100,9 +101,6 @@ impl ChildIndexResolver for RuntimeChildIndexResolver {
     }
 }
 
-/// Well-known shared deny-list singleton id, mirroring
-/// `kanari_system::deny_list::deny_list_object_id()`.
-const DENY_LIST_SINGLETON_ID: &str = "0x403";
 /// Size of a Move object UID in bytes (address)
 const UID_SIZE: usize = 32;
 /// Size of a u64 field in bytes
@@ -200,17 +198,7 @@ impl super::MoveRuntime {
         object_id: &str,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<Option<crate::storage::object_storage::StoredObject>> {
-        let canonical_id = crate::common::ids::canonical_object_id(object_id)
-            .unwrap_or_else(|| object_id.to_owned());
-        let mut object_ids = vec![canonical_id.clone(), object_id.to_owned()];
-        if let Ok(address) =
-            move_core_types::account_address::AccountAddress::from_hex_literal(object_id)
-        {
-            let full_id = format!("0x{}", hex::encode(address.as_ref()));
-            if !object_ids.contains(&full_id) {
-                object_ids.push(full_id);
-            }
-        }
+        let object_ids = crate::common::ids::object_id_variants(object_id);
 
         for candidate_id in &object_ids {
             let key = crate::common::keys::object_key(candidate_id);
@@ -239,17 +227,56 @@ impl super::MoveRuntime {
             }
         }
 
-        let Ok(object_addr) =
+        let canonical_id = crate::common::ids::canonical_object_id_or_raw(object_id);
+        if let Ok(object_addr) =
             move_core_types::account_address::AccountAddress::from_hex_literal(&canonical_id)
-        else {
-            return Ok(None);
-        };
-        if let Some(object) = self.state.try_get_stored_object(&object_addr)? {
+            && let Some(object) = self.state.try_get_stored_object(&object_addr)?
+        {
             let _ = self.object_storage.store_object(object.clone());
             return Ok(Some(object));
         }
 
         Ok(None)
+    }
+
+    /// Resolve one object id and preload it into the session's
+    /// `LoadedObjectsExt`, so `borrow_global` natives can see the object
+    /// without the transaction declaring it as an object input.
+    ///
+    /// `object_id` is used verbatim as the extension's lookup key, so each
+    /// caller keeps the form its later lookups expect (`input.object_ref.object_id`,
+    /// zero-padded full hex, ...). Ids the resolver cannot find are skipped —
+    /// the borrow then fails in-VM against undeclared state, as before
+    /// preloading existed.
+    fn preload_object_entry(
+        &self,
+        loaded: &mut LoadedObjectsExt,
+        object_id: &str,
+        requested_mutable: bool,
+        sender: Option<AccountAddress>,
+        allow_cross_owner_non_coin: bool,
+        overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+        origin: &str,
+    ) -> anyhow::Result<()> {
+        let Some(stored_obj) = self.get_object_for_execution(object_id, overlay)? else {
+            return Ok(());
+        };
+        let can_mutably_borrow = Self::can_mutably_borrow_preloaded_object(
+            requested_mutable,
+            &stored_obj.type_name,
+            &stored_obj.owner_kind,
+            stored_obj.owner,
+            sender,
+            allow_cross_owner_non_coin,
+        );
+        loaded.insert(
+            object_id.to_string(),
+            stored_obj.type_name,
+            stored_obj.data,
+            can_mutably_borrow,
+        );
+        log::debug!("[RUNTIME] Preloaded {origin} {object_id} into LoadedObjectsExt");
+        Ok(())
     }
 
     /// Preload potential object arguments into LoadedObjectsExt before execution
@@ -263,34 +290,23 @@ impl super::MoveRuntime {
         sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
-        use kanari_system_natives::object::LoadedObjectsExt;
+        let loaded = session
+            .get_native_extensions()
+            .get_mut::<LoadedObjectsExt>();
 
-        let exts = session.get_native_extensions();
-        let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
-
+        // Runs first, on the freshly created session, so declared object
+        // inputs always take precedence over the raw-address and well-known
+        // singleton preloads that follow.
         for input in object_inputs {
-            if let Some(stored_obj) =
-                self.get_object_for_execution(&input.object_ref.object_id, overlay)?
-            {
-                let can_mutably_borrow = Self::can_mutably_borrow_preloaded_object(
-                    input.mutable,
-                    &stored_obj.type_name,
-                    &stored_obj.owner_kind,
-                    stored_obj.owner,
-                    sender,
-                    true,
-                );
-                loaded_ext.insert(
-                    input.object_ref.object_id.clone(),
-                    stored_obj.type_name,
-                    stored_obj.data,
-                    can_mutably_borrow,
-                );
-                log::debug!(
-                    "[RUNTIME] Preloaded explicit object input {} into LoadedObjectsExt",
-                    input.object_ref.object_id
-                );
-            }
+            self.preload_object_entry(
+                loaded,
+                &input.object_ref.object_id,
+                input.mutable,
+                sender,
+                true,
+                overlay,
+                "explicit object input",
+            )?;
         }
 
         Ok(())
@@ -309,9 +325,7 @@ impl super::MoveRuntime {
         sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
-        use kanari_system_natives::object::LoadedObjectsExt;
-
-        let loaded_ext = session
+        let loaded = session
             .get_native_extensions()
             .get_mut::<LoadedObjectsExt>();
         for arg in args {
@@ -329,32 +343,19 @@ impl super::MoveRuntime {
             }
 
             let object_id = format!("0x{}", hex::encode(&id_bytes));
-            if loaded_ext.get(&object_id).is_some() {
+            if loaded.get(&object_id).is_some() {
                 continue;
             }
 
-            let Some(stored_obj) = self.get_object_for_execution(&object_id, overlay)? else {
-                continue;
-            };
-
-            let can_mutably_borrow = Self::can_mutably_borrow_preloaded_object(
+            self.preload_object_entry(
+                loaded,
+                &object_id,
                 true,
-                &stored_obj.type_name,
-                &stored_obj.owner_kind,
-                stored_obj.owner,
                 sender,
                 false,
-            );
-            loaded_ext.insert(
-                object_id.clone(),
-                stored_obj.type_name,
-                stored_obj.data,
-                can_mutably_borrow,
-            );
-            log::debug!(
-                "[RUNTIME] Preloaded address-based object argument {} into LoadedObjectsExt",
-                object_id
-            );
+                overlay,
+                "address-based object argument",
+            )?;
         }
 
         Ok(())
@@ -392,7 +393,7 @@ impl super::MoveRuntime {
     /// Canonical full-hex object id of the deny-list singleton, matching
     /// native borrow key construction (`0x` + 64 hex digits).
     pub(crate) fn deny_list_singleton_full_id() -> String {
-        let addr = AccountAddress::from_hex_literal(DENY_LIST_SINGLETON_ID)
+        let addr = AccountAddress::from_hex_literal(crate::common::ids::DENY_LIST_SINGLETON_ID)
             .expect("hardcoded deny-list singleton id is valid");
         format!("0x{}", hex::encode(addr.to_vec()))
     }
@@ -401,7 +402,7 @@ impl super::MoveRuntime {
     /// without the transaction declaring them (e.g.
     /// `kanari_system::deny_list::borrow_singleton()`).
     ///
-    /// Read-only: entries are inserted with `can_mutably_borrow = false` and
+    /// Read-only: entries are inserted with `requested_mutable = false` and
     /// never overwrite an explicitly declared input, so writes still require
     /// a declared object input. Missing singletons (stores predating genesis
     /// support) are skipped silently; the borrow then fails in-VM as before.
@@ -412,29 +413,22 @@ impl super::MoveRuntime {
         >,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
-        use kanari_system_natives::object::LoadedObjectsExt;
-
         let object_id = Self::deny_list_singleton_full_id();
-        let loaded_ext = session
+        let loaded = session
             .get_native_extensions()
             .get_mut::<LoadedObjectsExt>();
-        if loaded_ext.get(&object_id).is_some() {
+        if loaded.get(&object_id).is_some() {
             return Ok(());
         }
-        let Some(stored_obj) = self.get_object_for_execution(&object_id, overlay)? else {
-            return Ok(());
-        };
-        loaded_ext.insert(
-            object_id.clone(),
-            stored_obj.type_name,
-            stored_obj.data,
+        self.preload_object_entry(
+            loaded,
+            &object_id,
             false,
-        );
-        log::debug!(
-            "[RUNTIME] Preloaded well-known singleton {} into LoadedObjectsExt",
-            object_id
-        );
-        Ok(())
+            None,
+            false,
+            overlay,
+            "well-known singleton",
+        )
     }
 
     /// Check if struct tag represents a treasury resource
