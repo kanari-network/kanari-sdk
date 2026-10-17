@@ -89,6 +89,12 @@ impl BalanceModule {
     /// Name of the Supply struct in Move
     pub const SUPPLY_STRUCT: &'static str = "Supply";
 
+    /// Abort codes from `balance.move`.
+    pub const ERR_INSUFFICIENT_BALANCE: u64 = 1;
+    pub const ERR_OVERFLOW: u64 = 2;
+    pub const ERR_ZERO_AMOUNT: u64 = 3;
+    pub const ERR_INSUFFICIENT_SUPPLY: u64 = 4;
+
     /// Get the module ID for kanari_system::balance
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

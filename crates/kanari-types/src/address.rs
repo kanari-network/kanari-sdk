@@ -382,6 +382,9 @@ pub struct AddressModule;
 impl AddressModule {
     pub const ADDRESS_MODULE: &'static str = "address";
 
+    /// Move `EAddressParseError` in `address.move`.
+    pub const E_ADDRESS_PARSE_ERROR: u64 = 0;
+
     /// Get the module ID for `0x2::address`.
     pub fn get_module_id() -> anyhow::Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

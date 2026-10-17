@@ -152,6 +152,17 @@ impl CoinModule {
     /// Per-call `divide_into_n` fan-out cap, mirroring `coin::MAX_SPLIT_PARTS`.
     pub const MAX_SPLIT_PARTS: u64 = 1024;
 
+    /// Abort codes from `coin.move` (`EInvalidArg`, `ENotEnough`, ...).
+    pub const E_INVALID_ARG: u64 = 1;
+    pub const E_NOT_ENOUGH: u64 = 2;
+    pub const E_ZERO_AMOUNT: u64 = 3;
+    pub const E_OVERFLOW: u64 = 4;
+    pub const E_UNDERFLOW: u64 = 5;
+    pub const E_INVALID_DECIMALS: u64 = 6;
+    pub const E_TOO_MANY_PARTS: u64 = 7;
+    /// Move `EGlobalPauseNotAllowed`.
+    pub const E_GLOBAL_PAUSE_NOT_ALLOWED: u64 = 8;
+
     /// Get the module ID for kanari_system::coin
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

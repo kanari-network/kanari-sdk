@@ -26,6 +26,16 @@ pub const DEFAULT_USD_PER_GAS_UNIT_MICROS: u64 = 1;
 /// Fully qualified gas-market module path.
 pub const GAS_MARKET_MODULE: &str = "0x2::gas_market";
 
+/// Abort codes from `gas_market.move` (`EUNSUPPORTED_GAS_COIN`, ...).
+pub const EUNSUPPORTED_GAS_COIN: u64 = 1;
+pub const ESTALE_PRICE: u64 = 2;
+pub const ESLIPPAGE_EXCEEDED: u64 = 3;
+pub const EZERO_INPUT: u64 = 4;
+pub const ENOT_AUTHORIZED: u64 = 5;
+pub const EOVERFLOW_QUOTE: u64 = 6;
+pub const ELENGTH_MISMATCH: u64 = 7;
+pub const EINVALID_DECIMALS: u64 = 8;
+
 /// Fully qualified Move module path for `0x2::gas_market`.
 pub fn gas_market_module_path() -> String {
     format!(

@@ -126,6 +126,11 @@ impl CollectionModule {
     /// BCS size of a `MintLog` payload.
     pub const MINT_LOG_EVENT_SIZE: usize = 96;
 
+    /// Abort codes from `collection.move`.
+    pub const E_NO_SUPPLY: u64 = 1;
+    pub const E_NOT_COLLECTION_CREATOR: u64 = 2;
+    pub const E_CAP_COLLECTION_MISMATCH: u64 = 3;
+
     /// Get the module ID for kanari_system::collection
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

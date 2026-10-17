@@ -16,6 +16,14 @@ pub struct PayModule;
 impl PayModule {
     pub const PAY_MODULE: &'static str = "pay";
 
+    /// Abort codes from `pay.move`.
+    pub const E_NO_COINS: u64 = 0;
+    pub const EDENIED: u64 = 1;
+    pub const E_TOO_MANY_COINS: u64 = 2;
+    pub const E_SELF_PAY: u64 = 3;
+    pub const E_ZERO_AMOUNT: u64 = 4;
+    pub const E_DIVISION_BY_ZERO: u64 = 5;
+
     /// Get the module ID for `0x2::pay`.
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

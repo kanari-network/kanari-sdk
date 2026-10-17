@@ -88,6 +88,11 @@ impl DenyListModule {
     /// `kanari_system::deny_list::coin_index()`.
     pub const COIN_INDEX: u64 = 0;
 
+    /// Abort codes from `deny_list.move`.
+    pub const E_NOT_SYSTEM_ADDRESS: u64 = 0;
+    pub const E_NOT_DENIED: u64 = 1;
+    pub const E_INVALID_ADDRESS: u64 = 2;
+
     /// Get the module ID for kanari_system::deny_list
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

@@ -82,6 +82,13 @@ impl TxContextModule {
     /// Name of the TxContext struct in Move
     pub const TX_CONTEXT_STRUCT: &'static str = "TxContext";
 
+    /// Length of the transaction hash used to derive fresh object ids.
+    pub const TX_HASH_LENGTH: u64 = 32;
+
+    /// Abort codes from `tx_context.move`.
+    pub const E_BAD_TX_HASH_LENGTH: u64 = 0;
+    pub const E_NO_IDS_CREATED: u64 = 1;
+
     /// Get the module ID for kanari_system::tx_context
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

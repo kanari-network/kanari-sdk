@@ -40,6 +40,10 @@ impl ClockModule {
     /// Name of the Clock struct in Move
     pub const CLOCK_STRUCT: &'static str = "Clock";
 
+    /// Abort codes from `clock.move`.
+    pub const E_NOT_SYSTEM_ADDRESS: u64 = 0;
+    pub const E_TIMESTAMP_NOT_MONOTONIC: u64 = 1;
+
     /// Get the module ID for kanari_system::clock
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
