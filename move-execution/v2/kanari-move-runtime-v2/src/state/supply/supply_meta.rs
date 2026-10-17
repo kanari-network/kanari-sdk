@@ -14,7 +14,7 @@ impl StateManager {
     ) -> Result<()> {
         // Always key metadata by the canonical token type so lookups never
         // miss due to `0x02` vs `0x2` style spellings.
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         let key = metadata_key(prefix, &normalized);
         self.save_internal(&key, value)
     }
@@ -29,7 +29,7 @@ impl StateManager {
         // another type's bytes) is treated as unknown, never fatal: metadata
         // is best-effort display data, and every caller already degrades to
         // None. Storage errors still propagate via save paths.
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         let key = metadata_key(prefix, &normalized);
         match self.load_internal::<T>(&key) {
             Ok(Some(value)) => return Ok(Some(value)),

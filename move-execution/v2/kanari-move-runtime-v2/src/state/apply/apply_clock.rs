@@ -41,6 +41,7 @@ impl StateManager {
         let module_name = struct_tag.module.as_str();
         let struct_name = struct_tag.name.as_str();
         !(module_name == CoinModule::COIN_MODULE
-            && (struct_name == CoinModule::TREASURY_CAP_STRUCT || struct_name == "CoinMetadata"))
+            && (struct_name == CoinModule::TREASURY_CAP_STRUCT
+                || struct_name == CoinModule::COIN_METADATA_STRUCT))
     }
 }

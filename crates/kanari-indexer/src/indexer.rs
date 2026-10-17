@@ -8,6 +8,7 @@ use crate::models::IndexedCoin;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::gas_coin::GasModule;
 use kanari_types::transaction::Transaction;
 use kanari_types::{block::Block, gas_coin::GAS_COIN};
 use std::path::PathBuf;
@@ -52,7 +53,10 @@ impl Indexer {
             return None;
         };
 
-        if module != "0x2::kanari" || function != "transfer" || args.len() < 3 {
+        if module.as_str() != GasModule::module_path()
+            || function != GasModule::function_names().transfer
+            || args.len() < 3
+        {
             return None;
         }
 

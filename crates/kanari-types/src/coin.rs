@@ -147,6 +147,21 @@ impl CoinModule {
     pub const COIN_STRUCT: &'static str = "Coin";
     /// Name of the TreasuryCap struct in Move
     pub const TREASURY_CAP_STRUCT: &'static str = "TreasuryCap";
+    /// Name of the CoinMetadata struct in Move
+    pub const COIN_METADATA_STRUCT: &'static str = "CoinMetadata";
+    /// Per-call `divide_into_n` fan-out cap, mirroring `coin::MAX_SPLIT_PARTS`.
+    pub const MAX_SPLIT_PARTS: u64 = 1024;
+
+    /// Abort codes from `coin.move` (`EInvalidArg`, `ENotEnough`, ...).
+    pub const E_INVALID_ARG: u64 = 1;
+    pub const E_NOT_ENOUGH: u64 = 2;
+    pub const E_ZERO_AMOUNT: u64 = 3;
+    pub const E_OVERFLOW: u64 = 4;
+    pub const E_UNDERFLOW: u64 = 5;
+    pub const E_INVALID_DECIMALS: u64 = 6;
+    pub const E_TOO_MANY_PARTS: u64 = 7;
+    /// Move `EGlobalPauseNotAllowed`.
+    pub const E_GLOBAL_PAUSE_NOT_ALLOWED: u64 = 8;
 
     /// Get the module ID for kanari_system::coin
     pub fn get_module_id() -> Result<ModuleId> {
@@ -193,6 +208,51 @@ impl CoinModule {
             Self::COIN_STRUCT,
             token_type
         )
+    }
+
+    /// Fully qualified `TreasuryCap<T>` object type.
+    pub fn treasury_cap_type(token_type: &str) -> String {
+        format!(
+            "{}::{}<{}>",
+            Self::module_path(),
+            Self::TREASURY_CAP_STRUCT,
+            token_type
+        )
+    }
+
+    /// Whether a type name is a `CoinMetadata<T>` object type, matching the
+    /// module and struct name regardless of the publishing address.
+    pub fn is_coin_metadata_type(type_name: &str) -> bool {
+        type_name.contains(&format!(
+            "::{}::{}<",
+            Self::COIN_MODULE,
+            Self::COIN_METADATA_STRUCT
+        ))
+    }
+
+    /// Whether an object type is a `Coin<T>` object type. Also matches the
+    /// legacy doubly-qualified `coin::coin::Coin<T>` spelling.
+    pub fn is_coin_object_type(object_type: &str) -> bool {
+        object_type.contains(&format!("::{}::{}<", Self::COIN_MODULE, Self::COIN_STRUCT))
+            || object_type.contains(&format!(
+                "::{}::{}::{}<",
+                Self::COIN_MODULE,
+                Self::COIN_MODULE,
+                Self::COIN_STRUCT
+            ))
+    }
+
+    /// Extract the inner type `T` of a `Coin<T>` object type string
+    /// (e.g. `0x2::coin::Coin<0xabc::my_coin::MY_COIN>` ->
+    /// `0xabc::my_coin::MY_COIN`). Returns `None` for non-coin types and
+    /// malformed strings.
+    pub fn inner_type(object_type: &str) -> Option<String> {
+        if !Self::is_coin_object_type(object_type) {
+            return None;
+        }
+        let marker = format!("{}<", Self::COIN_STRUCT);
+        let start = object_type.find(&marker)? + marker.len();
+        object_type[start..].strip_suffix('>').map(str::to_string)
     }
 
     /// Canonicalize a Move token type while preserving unknown legacy spellings.
@@ -265,47 +325,103 @@ impl CoinModule {
             || object_type == Self::legacy_nested_coin_type(token_type)
     }
 
+    /// Whether a type path without generic arguments is a `Coin` outer type,
+    /// i.e. `0x2::coin::Coin` or the legacy `0x2::coin::coin::Coin`.
+    pub fn is_coin_outer(type_path: &str) -> bool {
+        let type_path = type_path.trim();
+        type_path.ends_with(&format!("::{}::{}", Self::COIN_MODULE, Self::COIN_STRUCT))
+            || type_path.ends_with(&format!(
+                "::{}::{}::{}",
+                Self::COIN_MODULE,
+                Self::COIN_MODULE,
+                Self::COIN_STRUCT
+            ))
+    }
+
     /// Get function names used in coin module
     pub fn function_names() -> CoinFunctions {
         CoinFunctions {
+            max_split_parts: "max_split_parts",
             create_currency: "create_currency",
             create_regulated_currency: "create_regulated_currency",
+            type_key_for_testing: "type_key_for_testing",
+            deny_list_add: "deny_list_add",
+            deny_list_remove: "deny_list_remove",
+            deny_list_contains: "deny_list_contains",
+            deny_list_pause: "deny_list_pause",
+            deny_list_unpause: "deny_list_unpause",
+            deny_list_paused: "deny_list_paused",
+            is_denied: "is_denied",
+            is_paused: "is_paused",
+            create_regulated_currency_v2: "create_regulated_currency_v2",
+            deny_cap_v2_allows_global_pause: "deny_cap_v2_allows_global_pause",
+            deny_list_v2_add: "deny_list_v2_add",
+            deny_list_v2_remove: "deny_list_v2_remove",
+            deny_list_v2_contains: "deny_list_v2_contains",
+            deny_list_v2_enable_global_pause: "deny_list_v2_enable_global_pause",
+            deny_list_v2_disable_global_pause: "deny_list_v2_disable_global_pause",
+            deny_list_v2_is_global_pause_enabled: "deny_list_v2_is_global_pause_enabled",
             mint: "mint",
             mint_and_transfer: "mint_and_transfer",
-            from_balance: "from_balance",
             burn: "burn",
+            into_balance: "into_balance",
+            from_balance: "from_balance",
             total_supply: "total_supply",
             value: "value",
+            zero: "zero",
             split: "split",
             join: "join",
             join_entry: "join_entry",
-            into_balance: "into_balance",
+            destroy_zero: "destroy_zero",
+            divide_into_n: "divide_into_n",
             update_icon_url: "update_icon_url",
             update_name: "update_name",
-            update_description: "update_description",
             update_symbol: "update_symbol",
+            update_description: "update_description",
         }
     }
 }
 
-/// Coin module function names
+/// Coin module function names, mirroring the public API of `coin.move` in
+/// source order.
 pub struct CoinFunctions {
+    pub max_split_parts: &'static str,
     pub create_currency: &'static str,
     pub create_regulated_currency: &'static str,
+    pub type_key_for_testing: &'static str,
+    pub deny_list_add: &'static str,
+    pub deny_list_remove: &'static str,
+    pub deny_list_contains: &'static str,
+    pub deny_list_pause: &'static str,
+    pub deny_list_unpause: &'static str,
+    pub deny_list_paused: &'static str,
+    pub is_denied: &'static str,
+    pub is_paused: &'static str,
+    pub create_regulated_currency_v2: &'static str,
+    pub deny_cap_v2_allows_global_pause: &'static str,
+    pub deny_list_v2_add: &'static str,
+    pub deny_list_v2_remove: &'static str,
+    pub deny_list_v2_contains: &'static str,
+    pub deny_list_v2_enable_global_pause: &'static str,
+    pub deny_list_v2_disable_global_pause: &'static str,
+    pub deny_list_v2_is_global_pause_enabled: &'static str,
     pub mint: &'static str,
     pub mint_and_transfer: &'static str,
-    pub from_balance: &'static str,
     pub burn: &'static str,
+    pub into_balance: &'static str,
+    pub from_balance: &'static str,
     pub total_supply: &'static str,
     pub value: &'static str,
+    pub zero: &'static str,
     pub split: &'static str,
     pub join: &'static str,
     pub join_entry: &'static str,
-    pub into_balance: &'static str,
+    pub destroy_zero: &'static str,
+    pub divide_into_n: &'static str,
     pub update_icon_url: &'static str,
     pub update_name: &'static str,
-    pub update_description: &'static str,
     pub update_symbol: &'static str,
+    pub update_description: &'static str,
 }
 
 #[cfg(test)]

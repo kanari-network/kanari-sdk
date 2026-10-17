@@ -142,6 +142,22 @@ fn generic_immutable_reference_is_an_object_input_candidate() {
 }
 
 #[test]
+fn concrete_struct_references_are_object_inputs_without_key_ability_metadata() {
+    let deny_list_mut_ref =
+        RuntimeType::MutableReference(Box::new(RuntimeType::Struct(CachedStructIndex(2))));
+    let deny_list_ref = RuntimeType::Reference(Box::new(RuntimeType::Struct(CachedStructIndex(2))));
+
+    assert_eq!(
+        MoveRuntime::object_param_mutability(&deny_list_mut_ref, |_| false),
+        Some(true)
+    );
+    assert_eq!(
+        MoveRuntime::object_param_mutability(&deny_list_ref, |_| false),
+        Some(false)
+    );
+}
+
+#[test]
 fn multiple_object_inputs_validate_in_parameter_order() {
     let inputs = (0..2)
         .map(|index| ObjectInput {

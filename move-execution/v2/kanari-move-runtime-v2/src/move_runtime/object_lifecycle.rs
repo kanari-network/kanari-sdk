@@ -3,19 +3,46 @@
 
 use super::*;
 
+/// Whether a host-built changeset's treasury/supply invariants are checked
+/// before it is applied to state.
+///
+/// The distinction is real: changesets carrying treasury and supply entries
+/// produced by Move code must satisfy the invariants, while changesets the
+/// host builds by hand for a single well-known object (system clock,
+/// deny-list singleton) touch no treasury and would only trip the check
+/// spuriously.
+pub(crate) enum SupplyValidation {
+    /// `StateManager::apply_changeset`: module publishes and framework
+    /// `init` results.
+    Enforce,
+    /// `StateManager::apply_changeset_without_supply_validation`.
+    Skip,
+}
+
+impl SupplyValidation {
+    fn apply(self, state: &mut StateManager, cs: &ChangeSet) -> Result<()> {
+        match self {
+            Self::Enforce => state.apply_changeset(cs),
+            Self::Skip => state.apply_changeset_without_supply_validation(cs),
+        }
+    }
+}
+
 impl MoveRuntime {
+    /// Parse an object-id string into an address, `None` when it is not a
+    /// valid hex-encoded Move address.
+    fn address_from_object_id(object_id: &str) -> Option<AccountAddress> {
+        AccountAddress::from_hex_literal(object_id).ok()
+    }
+
     /// Convert an object-id string into a `UIDRecord` when possible.
     fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(kanari_types::object::UIDRecord::new)
+        Self::address_from_object_id(object_id).map(kanari_types::object::UIDRecord::new)
     }
 
     /// Convert an object-id string into an `IDRecord` when possible.
     fn id_from_object_id(object_id: &str) -> Option<kanari_types::object::IDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(kanari_types::object::IDRecord::new)
+        Self::address_from_object_id(object_id).map(kanari_types::object::IDRecord::new)
     }
 
     fn maybe_add_token_balance(
@@ -206,6 +233,35 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Apply a genesis/bootstrap changeset to `state` and persist the objects
+    /// it recorded.
+    ///
+    /// Every bootstrap path performs this trio; keeping it in one place means
+    /// a changeset can never be half-committed — either it lands in state and
+    /// the objects reach the store, or neither happens.
+    pub(crate) fn commit_genesis_changeset(
+        &self,
+        state: &mut StateManager,
+        cs: &ChangeSet,
+        supply: SupplyValidation,
+    ) -> Result<()> {
+        supply.apply(state, cs)?;
+        self.persist_created_objects(cs)?;
+        self.persist_deleted_objects(cs)
+    }
+
+    /// Apply an execution's Move write set to persistent storage and persist
+    /// the objects it recorded, in one step so the two cannot drift apart.
+    pub(crate) fn apply_and_persist_move_changeset(
+        &self,
+        move_cs: move_core_types::effects::ChangeSet,
+        cs: &ChangeSet,
+    ) -> Result<()> {
+        self.apply_move_changeset(move_cs)?;
+        self.persist_created_objects(cs)?;
+        self.persist_deleted_objects(cs)
+    }
+
     /// Preload an object snapshot into the object cache before execution.
     pub fn preload_object_snapshot(
         &self,
@@ -226,6 +282,21 @@ impl MoveRuntime {
         self.object_storage
             .store_object(stored)
             .require("Object storage operation failed")
+    }
+
+    /// Deterministic address of a host-created genesis sub-object.
+    ///
+    /// blake3 of the domain seed, extended with a zero sequence number
+    /// through SHA3-256. Both the system clock and the deny-list `Bag`
+    /// sub-object are derived this way, so distinct domain seeds cannot
+    /// collide and the ids stay reproducible on every node.
+    fn derive_genesis_object_id(domain_seed: &[u8]) -> Result<AccountAddress> {
+        let mut hasher = Sha3_256::new();
+        hasher.update(hash_data_blake3(domain_seed));
+        hasher.update(0u64.to_le_bytes());
+        let digest = hasher.finalize();
+        AccountAddress::from_bytes(&digest[..AccountAddress::LENGTH])
+            .context("failed to derive a genesis object id")
     }
 
     /// Ensure the system clock object exists, creating it via VM or native path as needed.
@@ -259,14 +330,12 @@ impl MoveRuntime {
             false,
         )?;
 
-        state.apply_changeset_without_supply_validation(&cs)?;
-        self.persist_created_objects(&cs)?;
-        self.persist_deleted_objects(&cs)?;
+        self.commit_genesis_changeset(state, &cs, SupplyValidation::Skip)?;
 
         let (object_id, _) = cs
             .created_objects
             .iter()
-            .find(|(_, created)| created.type_.contains("::clock::Clock"))
+            .find(|(_, created)| ClockModule::is_clock_type(&created.type_))
             .require("Clock object was not created by clock::create")?;
 
         let addr = AccountAddress::from_hex_literal(object_id)?;
@@ -275,13 +344,7 @@ impl MoveRuntime {
     }
 
     fn ensure_system_clock_native(&self, state: &mut StateManager) -> Result<AccountAddress> {
-        let genesis_tx_hash = hash_data_blake3(b"KANARI::GENESIS::CLOCK");
-        let mut hasher = Sha3_256::new();
-        hasher.update(genesis_tx_hash);
-        hasher.update(0u64.to_le_bytes());
-        let digest = hasher.finalize();
-        let addr = AccountAddress::from_bytes(&digest[..AccountAddress::LENGTH])
-            .context("Failed to derive native system clock object id")?;
+        let addr = Self::derive_genesis_object_id(b"KANARI::GENESIS::CLOCK")?;
         let clock = Clock {
             id: UIDRecord::new(addr),
             timestamp_ms: 0,
@@ -308,11 +371,55 @@ impl MoveRuntime {
                 version: 1,
             },
         ));
-        state.apply_changeset_without_supply_validation(&changeset)?;
-        self.persist_created_objects(&changeset)?;
-        self.persist_deleted_objects(&changeset)?;
+        self.commit_genesis_changeset(state, &changeset, SupplyValidation::Skip)?;
         state.set_system_clock_object_id(addr)?;
         Ok(addr)
+    }
+
+    /// Ensure the shared deny-list singleton exists at `deny_list_object_id()`
+    /// (`@0x403`), creating it natively at genesis if absent.
+    ///
+    /// `kanari_system::deny_list::create` derives its object id from
+    /// `object::new(ctx)`, so it can never land on the documented well-known
+    /// address. Instead we build the exact `DenyList { id, lists }` BCS
+    /// (`DenyList` = `UID` ++ `Bag`, `Bag` = `UID` ++ `u64`) with the outer id
+    /// pinned to `0x403`. The embedded `Bag` starts empty; `deny_list::v1_add`
+    /// creates the per-type list lazily on first use.
+    pub fn ensure_deny_list(&self, state: &mut StateManager) -> Result<AccountAddress> {
+        let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
+            .context("invalid deny-list well-known object id")?;
+        let deny_id_hex = deny_addr.to_hex_literal();
+        if state.get_object(&deny_id_hex)?.is_some() {
+            return Ok(deny_addr);
+        }
+
+        // Deterministic address for the embedded `Bag` sub-object, domain
+        // separated from the clock so the two never collide.
+        let bag_addr = Self::derive_genesis_object_id(b"KANARI::GENESIS::DENY_LIST::BAG")?;
+
+        // `DenyList { id: UID, lists: Bag { id: UID, size: u64 } }`, BCS-encoded.
+        let mut data = Vec::with_capacity(2 * AccountAddress::LENGTH + 8);
+        data.extend_from_slice(deny_addr.as_ref());
+        data.extend_from_slice(bag_addr.as_ref());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let deny_type = kanari_types::deny_list::DenyListModule::type_path();
+
+        let mut changeset = ChangeSet::new();
+        changeset.created_objects.push((
+            deny_id_hex,
+            crate::changeset::CreatedObject {
+                owner: AccountAddress::ZERO,
+                owner_kind: ObjectOwnerKind::Shared,
+                uid: Some(UIDRecord::new(deny_addr)),
+                id: None,
+                type_: deny_type,
+                data,
+                version: 1,
+            },
+        ));
+        self.commit_genesis_changeset(state, &changeset, SupplyValidation::Skip)?;
+        Ok(deny_addr)
     }
 
     /// Build a consensus commit prologue changeset for the native clock object.

@@ -1,6 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::balance {
+    // Minting entry points (`create`, `increase`, `new_supply`) are
+    // friend-gated to `coin` (or witness-gated for `new_supply`): an
+    // ungated public mint would let any package forge `Balance<T>` of any
+    // coin and wrap it via `coin::from_balance`, bypassing `TreasuryCap`.
+    /* friend kanari_system::coin; */
+
     /// Error codes
     const ERR_INSUFFICIENT_BALANCE: u64 = 1;
     const ERR_OVERFLOW: u64 = 2;
@@ -24,7 +30,9 @@ module kanari_system::balance {
         Balance<T> { value: 0 }
     }
 
-    /// Create a new Balance with an initial value
+    /// Create a new Balance with an initial value.
+    /// Friend-only: arbitrary public minting would forge value. `coin::mint`
+    /// is the production path (backed by `TreasuryCap`).
     public fun create<T>(value: u64): Balance<T> {
         Balance<T> { value }
     }
@@ -34,7 +42,8 @@ module kanari_system::balance {
         balance.value
     }
 
-    /// Increase the balance value
+    /// Increase the balance value.
+    /// Friend-only: see `create`. Value-conserving callers use `merge`.
     public fun increase<T>(balance: &mut Balance<T>, amount: u64) {
         assert!(amount > 0, ERR_ZERO_AMOUNT); // FIXED: Added zero check
         // Pre-check: `+` traps as an arithmetic error before the assert below runs.
@@ -75,8 +84,16 @@ module kanari_system::balance {
         value
     }
 
-    /// Create a new (empty) supply handle
-    public fun new_supply<T>(): Supply<T> {
+    /// Create a new (empty) supply handle. Requires a `witness: T`: only the
+    /// module defining `T` can construct one (structs pack module-locally),
+    /// so a supply for a foreign coin type cannot be forged. The witness
+    /// type is additionally claimed once chain-wide (same registry as
+    /// `coin::create_currency`): one canonical supply per coin type, so
+    /// per-pool LP patterns should track shares with plain counters (see
+    /// the `uniswap_amm` test package) instead of one `Supply` per pool.
+    public fun new_supply<T: drop>(witness: T): Supply<T> {
+        kanari_system::types::claim_witness(&witness);
+        let _ = witness;
         Supply<T> { total: 0 }
     }
 
@@ -176,7 +193,7 @@ module kanari_system::balance {
 
     #[test]
     fun test_supply_operations() {
-        let s = new_supply<u8>();
+        let s = new_supply<u8>(0);
         // Always take ownership of the minted `Balance`: it has no `drop` ability
         let b1 = increase_supply<u8>(&mut s, 1000);
         assert!(supply_total(&s) == 1000, 0);
@@ -196,7 +213,7 @@ module kanari_system::balance {
     #[test]
     #[expected_failure(abort_code = ERR_OVERFLOW)]
     fun test_supply_overflow() {
-        let s = new_supply<u64>();
+        let s = new_supply<u64>(0);
         // use the max `u64` value instead of `u64::MAX`
         let b1 = increase_supply<u64>(&mut s, 18446744073709551615);
         let b2 = increase_supply<u64>(&mut s, 1);

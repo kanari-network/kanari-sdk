@@ -74,7 +74,7 @@ impl Fanout {
         let sender_for_tx = get_sender_for_tx(&wallet, &from_addr)?;
         let amounts = vec![amount_mist; self.count as usize];
 
-        let native_coin_type = format!("0x2::coin::Coin<{GAS_COIN}>");
+        let native_coin_type = CoinModule::coin_type(GAS_COIN);
         let owner = client.get_owner(&from_addr).await?;
         let source = owner
             .owned_objects

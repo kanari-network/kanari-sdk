@@ -16,6 +16,14 @@ pub struct PayModule;
 impl PayModule {
     pub const PAY_MODULE: &'static str = "pay";
 
+    /// Abort codes from `pay.move`.
+    pub const E_NO_COINS: u64 = 0;
+    pub const EDENIED: u64 = 1;
+    pub const E_TOO_MANY_COINS: u64 = 2;
+    pub const E_SELF_PAY: u64 = 3;
+    pub const E_ZERO_AMOUNT: u64 = 4;
+    pub const E_DIVISION_BY_ZERO: u64 = 5;
+
     /// Get the module ID for `0x2::pay`.
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
@@ -37,10 +45,12 @@ impl PayModule {
             split: "split",
             split_vec: "split_vec",
             split_and_transfer: "split_and_transfer",
+            split_and_transfer_checked: "split_and_transfer_checked",
             divide_and_keep: "divide_and_keep",
             join: "join",
             join_vec: "join_vec",
             join_vec_and_transfer: "join_vec_and_transfer",
+            join_vec_and_transfer_checked: "join_vec_and_transfer_checked",
         }
     }
 
@@ -63,10 +73,12 @@ pub struct PayFunctions {
     pub split: &'static str,
     pub split_vec: &'static str,
     pub split_and_transfer: &'static str,
+    pub split_and_transfer_checked: &'static str,
     pub divide_and_keep: &'static str,
     pub join: &'static str,
     pub join_vec: &'static str,
     pub join_vec_and_transfer: &'static str,
+    pub join_vec_and_transfer_checked: &'static str,
 }
 
 #[cfg(test)]
@@ -92,10 +104,18 @@ mod tests {
         assert_eq!(names.split, "split");
         assert_eq!(names.split_vec, "split_vec");
         assert_eq!(names.split_and_transfer, "split_and_transfer");
+        assert_eq!(
+            names.split_and_transfer_checked,
+            "split_and_transfer_checked"
+        );
         assert_eq!(names.divide_and_keep, "divide_and_keep");
         assert_eq!(names.join, "join");
         assert_eq!(names.join_vec, "join_vec");
         assert_eq!(names.join_vec_and_transfer, "join_vec_and_transfer");
+        assert_eq!(
+            names.join_vec_and_transfer_checked,
+            "join_vec_and_transfer_checked"
+        );
         assert_eq!(
             PayModule::split_and_transfer_path(),
             "0x2::pay::split_and_transfer"

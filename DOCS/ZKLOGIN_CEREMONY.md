@@ -18,7 +18,7 @@ statement. No code in this repo can fix that; only independent humans can.
 1. **N ≥ 3 independent operators** (different orgs/jurisdictions/machines),
    each running the pinned circuit code at an audited commit.
 2. **Sequential transcript**: operator 1 runs setup, publishes
-   `(VK_1, transcript_1)`; operator *k* verifies all previous transcripts,
+   `(VK_1, transcript_1)`; operator _k_ verifies all previous transcripts,
    then contributes. Every step is hash-chained:
    `round_k = SHA256(round_{k-1} || contributor_id || vk_hash_k || timestamp)`.
 3. **Verification**: anyone replays the transcript — same code, same seeds
@@ -43,7 +43,7 @@ statement. No code in this repo can fix that; only independent humans can.
   the final wire format, so swapping a demo VK for a ceremony VK changes
   no code paths — only the pinned hash.
 - CI-time negative invariant test (`negative_invariants_canary_transform`)
-  proving the statement *really* is "public == hash(witnesses)": honest
+  proving the statement _really_ is "public == hash(witnesses)": honest
   instances satisfy, any public/witness drift does not. Independent
   verifiers can replay it (`cargo test -p kanari-crypto negative_invariants`)
   as part of transcript auditing.
@@ -90,34 +90,64 @@ soundness. When operators are ready, implement transcript chaining per
 
 ## 2. Chain acceptance of zkLogin transactions
 
-Status: **dispatch implemented and tested; ingestion NOT wired.**
+Status: **fail-closed admission enforced; ingestion wired.**
 
 What exists today (`kanari-crypto`):
 
 - `CurveType::ZkLogin` + `ZkLogin:0x...` tagged senders route through the
   SAME `SignedTransaction::verify_signature()` the mempool already calls
-  (`into_verified`), via `verify_zklogin_tx_signature`:
-  bundle JSON parse (version-checked) → ephemeral Ed25519 over the tx hash
-  → JWT (sig/kid/iss/aud/exp + nonce binding) or Groth16 proof (+ address
-  extraction and expected-address match) → recovered address compared with
-  the sender. Fail-closed at every step (see `tagged_dispatch_*` tests).
+  (`into_verified`), via `verify_zklogin_tx_signature`, which now enforces
+  the process-global `ZkLoginAdmissionPolicy` (installed once at node
+  startup from `KANARI_ZKLOGIN_*`; see `zklogin_admission_policy_from_env`):
+  bundle JSON parse (version-checked) → `max_epoch` vs the policy epoch →
+  mode verification bound to chain trust
+  roots (proof mode REQUIRES the ceremony `vk_pin`; JWT mode REQUIRES the
+  chain-pinned JWKS plus allow-listed `iss`/`aud`, bundle values ignored
+  for trust) → recovered address compared with the sender. With NO policy
+  installed every zkLogin bundle is rejected. Fail-closed at every step
+  (see `tagged_dispatch_*` and `dispatch_rejects_*` tests).
+  Verification itself carries NO replay state: it legitimately re-runs on
+  every fresh deserialized copy of a transaction (simulation → mempool
+  inside one RPC request, gossip ingress, vertex validation, commit), so
+  the replay guard lives at the mempool admission boundary instead
+  (`record_zklogin_admission` — see the Replay bullet below).
 - `sign_message` / keygen / mnemonic paths REJECT ZkLogin (no private key
   exists by design).
+- `admit_zklogin_tx` (with `AdmitOptions` carrying `vk_pin` + JWT
+  allow-lists + pinned JWKS) remains the explicit-call-site admission
+  function with caller-owned epoch and `ReplayCache`; the dispatch above
+  is built on the same admitted verifier. The RAW
+  `verify_zklogin_authenticator` (bundle trust roots) is offline-tooling
+  only and documented as NOT admission-safe.
 
 What remains for a node to accept such transactions:
 
 1. **Client**: build `ZkLogin:` senders with bundle signatures
    (`encode_zklogin_tx_signature` exists; no CLI transfer path yet).
-2. **Ingestion**: call `admit_zklogin_tx` (NOT the raw pieces) with the
-   chain epoch and a `ReplayCache`. It enforces, in order: bundle v1,
-   `max_epoch >= current_epoch` (both modes — the ONLY timeliness bound
-   proof mode has), replay TTL, mode verification (proof mode REQUIRES
-   `AdmitOptions.vk_pin`; demo toxic-waste setups cannot pass), and
-   sender match. Covered by the `admit_*` tests.
-3. **Replay**: `admit_zklogin_tx` + `ReplayCache` bounds rapid resubmission
-   in-memory; tx-hash dedup (`mempool.rs`) drops identical resubmits.
+2. **Ingestion**: node startup installs the policy from chain config
+   (`kanari-node` wires `zklogin_admission_policy_from_env` in
+   `configure_engine_environment`; malformed config aborts startup, absent
+   config keeps zkLogin disabled). Operators MUST advance the policy epoch
+   via `set_zklogin_chain_epoch` as the chain progresses — proof-mode
+   sessions carry no JWT `exp`, so the policy epoch is their ONLY
+   timeliness bound at admission (Move `verify_session` re-enforces it
+   against `tx_context::epoch` at execution).
+3. **Replay**: the process-global admission guard
+   (`record_zklogin_admission`, TTL from policy) sits at the MEMPOOL
+   admission boundary, which every ingress path (RPC submit, gossip)
+   crosses exactly once per fully verified hash. It deliberately does
+   NOT live inside signature verification: verification re-runs on every
+   fresh deserialized copy (simulation → mempool in one RPC request,
+   gossip, vertex validation, commit), so a guard there rejects the
+   transaction's own later verifications and stalls the node.
+   `admit_zklogin_tx` + caller `ReplayCache` remain for explicit call
+   sites; tx-hash dedup (`mempool.rs`), the sender-nonce watermark,
+   and the committed-tx index remain the durable layers.
+   Regression coverage: `zklogin_replay_ttl_admits_once_and_survives_commit`
+   runs the wallet flow (simulate → admit → duplicate → commit →
+   resubmit) at TTL 3600.
    What the engine MUST still add: persist the replay log across restarts
-   (a restart wipes the cache) and reject re-execution at the execution
+   (a restart wipes the caches) and reject re-execution at the execution
    layer (object versions / sender nonce). Until then, keep TTL sized to
    the bundle lifetime (JWT `exp` window; epoch-length x span for proofs).
 4. **Epoch binding (Move side)**: DONE. `verify_session` takes
@@ -137,6 +167,70 @@ What remains for a node to accept such transactions:
    The remaining step is the ceremony itself (§1): until a ceremony VK
    exists and is the ONLY pinned value in configs/contracts, proof mode
    must stay disabled on mainnet.
+
+## 2.5 Operator setup: node trust roots for JWT mode
+
+Status: **manual, by design.** There is no built-in/devnet default —
+admission is fail-closed until an operator pins the trust roots, on
+EVERY network including devnet. A node started with no `KANARI_ZKLOGIN_*`
+set logs _"zkLogin admission disabled"_ and rejects every zkLogin
+transaction at signature verification (the wallet sees `Signature
+verification failed`).
+
+### One-time setup
+
+1. **Pin the provider JWKS.** A committed snapshot lives at
+   `config/zklogin/google-jwks.json` (Google's rotating sig keys). Use
+   it as-is or fetch a fresh one:
+
+   ```bash
+   curl -sf https://www.googleapis.com/oauth2/v3/certs \
+     -o config/zklogin/google-jwks.json
+   ```
+
+2. **Set the environment before starting the node** (all values are
+   public identifiers / non-secret):
+
+   ```bash
+   export KANARI_ZKLOGIN_ALLOWED_ISSUERS="https://accounts.google.com"
+   # Web client ID embedded in the CLI (`kanari zklogin login`) and the
+   # Android app (ZkLoginAuth.DEFAULT_CLIENT_ID) — the JWT `aud`:
+   export KANARI_ZKLOGIN_ALLOWED_AUDIENCES="1041694414791-4e9tgsn3ai7n0bu7296jbm68hsfftjee.apps.googleusercontent.com"
+   export KANARI_ZKLOGIN_JWKS_PATH="config/zklogin/google-jwks.json"
+   export KANARI_ZKLOGIN_REPLAY_TTL_SECS="3600"   # default if unset
+   export KANARI_ZKLOGIN_CHAIN_EPOCH="0"          # start; advance as chain progresses
+   # KANARI_ZKLOGIN_VK_PIN: leave UNSET until the ceremony (§1) runs.
+   # With no pin, proof mode stays disabled — only JWT mode is admitted.
+   ```
+
+   Malformed values abort startup (fail-closed); set only ONE of
+   `KANARI_ZKLOGIN_JWKS_JSON` / `KANARI_ZKLOGIN_JWKS_PATH`. If your
+   clients use their own OAuth project, list THOSE client IDs in the
+   audience allow-list instead — the bundle's `iss`/`aud`/JWKS are never
+   trusted for admission.
+
+3. **Start the node** and confirm the log line
+   `zkLogin admission policy installed from environment`. Then sign in
+   with the wallet (Google zkLogin) and send a transfer; a well-formed
+   bundle from an allow-listed client now passes signature verification.
+
+### Key rotation (required maintenance)
+
+Google rotates its JWKS keys: after rotation the old `kid` disappears
+from the endpoint, and sessions/JWTs signed with the retired key fail
+admission (unknown kid) until the pinned snapshot is refreshed. Refresh
+on a schedule (weekly is safe) and restart the node:
+
+```bash
+curl -sf https://www.googleapis.com/oauth2/v3/certs \
+  -o config/zklogin/google-jwks.json && <restart node>
+```
+
+Keep BOTH current and previous keys in the snapshot during rotation
+(the endpoint serves the overlap itself — fetch the whole document,
+don't merge by hand). If transfers suddenly fail with signature
+verification after working before, a stale JWKS pin is the first thing
+to check.
 
 ## 3. Done elsewhere (for the record)
 

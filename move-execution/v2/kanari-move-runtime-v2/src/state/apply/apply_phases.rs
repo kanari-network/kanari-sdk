@@ -105,7 +105,7 @@ impl StateManager {
         // Apply treasury creations/updates (canonical spelling going forward;
         // readers fall back to raw keys for legacy DBs).
         for (owner, token_type, total_supply) in &changeset.treasuries {
-            let normalized = Self::normalize_token_type(token_type);
+            let normalized = CoinModule::normalize_token_type(token_type);
             let key = Self::supply_key(&normalized);
             self.save_internal(&key, total_supply)?;
 
@@ -115,7 +115,7 @@ impl StateManager {
 
             self.add_to_index_list(b"treasury_index", format!("treasury:{}", normalized))?;
 
-            if Self::normalize_token_type(token_type) == GAS_COIN {
+            if CoinModule::normalize_token_type(token_type) == GAS_COIN {
                 self.save_native_total_supply(total_supply.total_supply)?;
             }
         }
@@ -132,7 +132,7 @@ impl StateManager {
         // Non-native balances must come from owned objects so queries always reflect object
         // inventory instead of a parallel per-owner cache.
         for (owner, token_type, _) in &changeset.token_balance_sets {
-            let normalized_token_type = Self::normalize_token_type(token_type);
+            let normalized_token_type = CoinModule::normalize_token_type(token_type);
             if normalized_token_type == GAS_COIN {
                 // Native KANARI balance is applied from owner deltas so gas and
                 // transfers remain exact. Object-derived hints must not double count it.
@@ -221,34 +221,26 @@ impl StateManager {
         // 1. Check for newly created Objects to index Collections
         for (obj_id, created) in &changeset.created_objects {
             // If this is a Collection type Object, record it in the global index
-            if created.type_.contains("::collection::Collection") {
+            if CollectionModule::is_collection_type(&created.type_) {
                 self.add_to_index_list(b"nft_collection_index", obj_id.clone())?;
             }
         }
 
         // 2. Check Events to index NFT <-> Collection relationships
         for event in &changeset.events {
-            // Check if this is a MintLog from james::nft
-            if event.type_tag.to_string().contains("::nft::MintLog") {
-                // MintLog data in nft.move contains: object_id(32), creator(32), collection_id(32)
-                if event.event_data.len() >= 96 {
-                    let nft_id_bytes = &event.event_data[0..32];
-                    let coll_id_bytes = &event.event_data[64..96];
+            // MintLog payload layout is mirrored by `CollectionModule::mint_log_ids`.
+            if CollectionModule::is_mint_log_type(&event.type_tag) {
+                let Some((nft_id, coll_id)) = CollectionModule::mint_log_ids(&event.event_data)
+                else {
+                    log::warn!(
+                        "Skipping malformed MintLog object ids while indexing collection members"
+                    );
+                    continue;
+                };
 
-                    let (Ok(nft_id), Ok(coll_id)) = (
-                        AccountAddress::from_bytes(nft_id_bytes).map(|addr| addr.to_hex_literal()),
-                        AccountAddress::from_bytes(coll_id_bytes).map(|addr| addr.to_hex_literal()),
-                    ) else {
-                        log::warn!(
-                            "Skipping malformed MintLog object ids while indexing collection members"
-                        );
-                        continue;
-                    };
-
-                    // Record in Collection member index (O(1) Access)
-                    let key = metadata_key(b"collection_members:", &coll_id);
-                    self.add_to_index_list(&key, nft_id)?;
-                }
+                // Record in Collection member index (O(1) Access)
+                let key = metadata_key(b"collection_members:", &coll_id.to_hex_literal());
+                self.add_to_index_list(&key, nft_id.to_hex_literal())?;
             }
         }
         Ok(())

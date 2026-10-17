@@ -186,6 +186,10 @@ export class Context {
    * changes. The move-analyzer server only learns about files via the initial package
    * scan and didOpen/didChange of open editors, so newly created/deleted Move sources
    * or Move.toml edits require a server restart to be picked up.
+   *
+   * Saved `.move` files also trigger a (debounced) restart behind the `move.restartOnSave`
+   * setting: in practice the server's incremental state goes stale and keeps reporting
+   * errors that a fresh scan clears, so saving re-scans instead of forcing a manual restart.
    */
   registerFileSystemWatchers(): void {
     const scheduleRestart = (reason: string): void => {
@@ -212,6 +216,21 @@ export class Context {
       scheduleRestart(`deleted ${uri.fsPath}`),
     );
     this.extensionContext.subscriptions.push(sourceWatcher);
+
+    // Saved editors re-scan the package so stale diagnostics clear on save instead of
+    // needing `Move on Kanari: Restart Language Server` by hand.
+    const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (doc.languageId !== 'move') {
+        return;
+      }
+      const restartOnSave = vscode.workspace
+        .getConfiguration('move')
+        .get<boolean>('restartOnSave', true);
+      if (restartOnSave) {
+        scheduleRestart(`saved ${doc.uri.fsPath}`);
+      }
+    });
+    this.extensionContext.subscriptions.push(saveListener);
 
     // Dependency or address changes in Move.toml need a full re-scan as well.
     const manifestWatcher =

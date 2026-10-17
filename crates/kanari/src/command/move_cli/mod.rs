@@ -15,10 +15,12 @@ pub mod publish;
 pub mod test;
 pub mod verify;
 
+use kanari_system_natives::child::ChildIndexExt;
 use kanari_system_natives::dynamic_field::DynamicFieldsExt;
 use kanari_system_natives::event::EventsExt;
 use kanari_system_natives::object::{DeletedObjectsExt, SavedObjectsExt};
 use kanari_system_natives::transfer_natives::TransferredObjectsExt;
+use kanari_system_natives::types::ClaimedWitnessesExt;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
@@ -101,6 +103,9 @@ impl MoveCommand {
                 .into_iter();
                 // Register native-context extensions for the unit-test runner so
                 // extensions like event capture and transfer tracking are available.
+                // Every extension type used via `with_ext_mut_or_default` must be listed here;
+                // a missing one panics inside `get_mut` (caught, but noisy) and silently skips
+                // its tracking.
                 set_extension_hook(Box::new(|exts| {
                     exts.add(EventsExt::default());
                     exts.add(TransferredObjectsExt::default());
@@ -112,6 +117,8 @@ impl MoveCommand {
                     );
                     exts.add(kanari_system_natives::object::LoadedObjectsExt::default());
                     exts.add(kanari_system_natives::object::BorrowedObjectsExt::default());
+                    exts.add(ChildIndexExt::default());
+                    exts.add(ClaimedWitnessesExt::default());
                 }));
 
                 // Merge all natives and pass into test runner

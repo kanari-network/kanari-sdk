@@ -4,6 +4,7 @@
 //! Deterministic access manifests for conflict validation.
 
 use crate::changeset::{ChangeSet, OwnerDelta, StateAccessSet};
+use kanari_types::collection::CollectionModule;
 use move_core_types::account_address::AccountAddress;
 
 impl ChangeSet {
@@ -79,11 +80,12 @@ impl ChangeSet {
             access.write(key.clone());
         }
         for event in &self.events {
-            if event.type_tag.to_string().contains("::nft::MintLog") && event.event_data.len() >= 96
+            if CollectionModule::is_mint_log_type(&event.type_tag)
+                && let Some((_, collection_id)) = CollectionModule::mint_log_ids(&event.event_data)
             {
                 access.write(format!(
                     "collection_members:0x{}",
-                    hex::encode(&event.event_data[64..96])
+                    hex::encode(collection_id.as_ref())
                 ));
             }
         }
@@ -123,9 +125,7 @@ impl ChangeSet {
     }
 
     pub(crate) fn canonicalize_object_id(object_id: &str) -> String {
-        AccountAddress::from_hex_literal(object_id)
-            .map(|addr| addr.to_hex_literal())
-            .unwrap_or_else(|_| object_id.to_string())
+        crate::common::ids::canonical_object_id_or_raw(object_id)
     }
 
     /// Deterministic-access key for one object record.

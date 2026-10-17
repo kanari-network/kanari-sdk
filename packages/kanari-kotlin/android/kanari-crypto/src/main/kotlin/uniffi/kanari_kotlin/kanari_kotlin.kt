@@ -672,6 +672,8 @@ internal object IntegrityCheckingUniffiLib {
         uniffiCheckContractApiVersion(this)
         uniffiCheckApiChecksums(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_kanari_kotlin_checksum_func_blake3_hash_api(
     ): Int
     external fun uniffi_kanari_kotlin_checksum_func_derive_keypair_from_mnemonic(
@@ -721,6 +723,8 @@ internal object UniffiLib {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "kanari_kotlin"))
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_kanari_kotlin_fn_func_blake3_hash_api(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kanari_kotlin_fn_func_derive_keypair_from_mnemonic(`mnemonic`: RustBuffer.ByValue,`curveName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -936,10 +940,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support

@@ -31,14 +31,21 @@ import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
-private fun formatGasFee(tx: TransactionDetails, amount: Long): String {
-    val coinType = tx.gasPayment?.coinType ?: "0x2::kanari::KANARI"
-    val normalizedCoinType = coinType.lowercase()
-    val decimals = when {
-        normalizedCoinType.endsWith("::usd::usd") -> 6
-        normalizedCoinType.endsWith("::kanari::kanari") -> 9
+/// Protocol constants matching the node's `settlement_token_decimals`
+/// (KANARI = 9, USD = 6). Only used for gas-fee amounts, which are always
+/// denominated in the settlement coin; arbitrary tokens never get a fallback.
+private fun settlementDecimalsOrNull(coinType: String?): Int? {
+    val normalized = coinType?.lowercase() ?: return null
+    return when {
+        normalized.endsWith("::usd::usd") -> 6
+        normalized.endsWith("::kanari::kanari") -> 9
         else -> null
     }
+}
+
+private fun formatGasFee(tx: TransactionDetails, amount: Long): String {
+    val coinType = tx.gasPayment?.coinType ?: "0x2::kanari::KANARI"
+    val decimals = settlementDecimalsOrNull(coinType)
     val symbol = coinType.substringAfterLast("::").ifBlank { "KANARI" }
     val formattedAmount = decimals?.let { formatAmountExact(amount, it) }
         ?: "$amount (raw, decimals unknown)"
@@ -51,6 +58,14 @@ fun HistoryScreen(viewModel: WalletViewModel) {
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
+    val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
+    // Same CoinMetadata the node indexed for the wallet's tokens; covers
+    // transfers whose entry came back without transfer_decimals.
+    val decimalsByType = remember(tokenBalances) {
+        tokenBalances
+            .mapNotNull { balance -> balance.decimals?.let { balance.tokenType.lowercase() to it } }
+            .toMap()
+    }
     var selectedTx by remember { mutableStateOf<TransactionDetails?>(null) }
 
     Scaffold(
@@ -77,7 +92,11 @@ fun HistoryScreen(viewModel: WalletViewModel) {
                 contentPadding = PaddingValues(bottom = 110.dp) // Space for the floating NavigationBar
             ) {
                 items(transactions, key = { it.hash }) { tx ->
-                    HistoryItem(tx, tx.isIncomingTo(activeWallet?.address), onClick = { selectedTx = tx })
+                    HistoryItem(
+                        tx,
+                        tx.isIncomingTo(activeWallet?.address),
+                        decimalsByType = decimalsByType,
+                        onClick = { selectedTx = tx })
                 }
             }
         }
@@ -86,7 +105,11 @@ fun HistoryScreen(viewModel: WalletViewModel) {
     selectedTx?.let { tx ->
         val isIncoming = tx.isIncomingTo(activeWallet?.address)
         ModalBottomSheet(onDismissRequest = { selectedTx = null }) {
-            TransactionDetailSheet(tx = tx, isIncoming = isIncoming, onDismiss = { selectedTx = null })
+            TransactionDetailSheet(
+                tx = tx,
+                isIncoming = isIncoming,
+                decimalsByType = decimalsByType,
+                onDismiss = { selectedTx = null })
         }
     }
 }
@@ -97,7 +120,12 @@ private fun TransactionDetails.isIncomingTo(walletAddress: String?): Boolean {
 }
 
 @Composable
-fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit) {
+fun HistoryItem(
+    tx: TransactionDetails,
+    isIncoming: Boolean,
+    decimalsByType: Map<String, Int> = emptyMap(),
+    onClick: () -> Unit
+) {
     ListItem(
         headlineContent = {
             Text(
@@ -118,7 +146,9 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
         leadingContent = {
             Surface(
                 shape = androidx.compose.foundation.shape.CircleShape,
-                color = (if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error).copy(alpha = 0.1f),
+                color = (if (isIncoming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error).copy(
+                    alpha = 0.1f
+                ),
                 modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -134,10 +164,25 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
         trailingContent = {
             val firstTransfer = tx.transfers?.firstOrNull()
             val transferAmt = firstTransfer?.transferAmount
-            val displayAmount = transferAmt?.toLong() ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L)
-            // No fallback: decimals จาก API เท่านั้น null แสดง unknown
-            val displayDecimals: Int? = firstTransfer?.transferDecimals ?: tx.decimals
-            val tokenSymbol = tx.symbol ?: firstTransfer?.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+            // No transfer amount (CALL / fee-only tx): show the gas fee,
+            // which is always denominated in the settlement coin.
+            val showingGasFee = transferAmt == null
+            val displayAmount =
+                transferAmt?.toLong() ?: (tx.gasFee ?: tx.effects?.gasUsed ?: tx.gasUsed ?: 0L)
+            val displayToken =
+                if (showingGasFee) tx.gasPayment?.coinType ?: "0x2::kanari::KANARI"
+                else firstTransfer?.transferTokenType
+            // Decimals source order: transfer entry (on-chain CoinMetadata),
+            // then the wallet's balance metadata for the same token, then
+            // protocol constants for the settlement coin. Never invent
+            // decimals for unknown tokens.
+            val displayDecimals: Int? = if (showingGasFee) {
+                settlementDecimalsOrNull(displayToken)
+            } else {
+                firstTransfer?.transferDecimals
+                    ?: displayToken?.lowercase()?.let { decimalsByType[it] }
+            }
+            val tokenSymbol = displayToken?.split("::")?.lastOrNull() ?: "KANARI"
             val extraCount = (tx.transfers?.size ?: 0).let { if (it > 1) " (+${it - 1})" else "" }
             val sign = if (isIncoming && transferAmt != null) "+" else "-"
 
@@ -164,7 +209,12 @@ fun HistoryItem(tx: TransactionDetails, isIncoming: Boolean, onClick: () -> Unit
 }
 
 @Composable
-fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismiss: () -> Unit) {
+fun TransactionDetailSheet(
+    tx: TransactionDetails,
+    isIncoming: Boolean,
+    decimalsByType: Map<String, Int> = emptyMap(),
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()).navigationBarsPadding(),
@@ -179,15 +229,18 @@ fun TransactionDetailSheet(tx: TransactionDetails, isIncoming: Boolean, onDismis
             }
         )
         DetailRowShared(label = "Direction", value = if (isIncoming) "Incoming" else "Outgoing")
-        
+
         val allDetailTransfers = tx.transfers.orEmpty()
         allDetailTransfers.forEachIndexed { index, detailTransfer ->
             val labelSuffix = if (allDetailTransfers.size > 1) " ${index + 1}" else ""
             detailTransfer.transferAmount?.let { amt ->
-                val symbol = tx.symbol ?: detailTransfer.transferTokenType?.split("::")?.lastOrNull() ?: "KANARI"
+                val tokenType = detailTransfer.transferTokenType
+                val symbol = tokenType?.split("::")?.lastOrNull() ?: "KANARI"
+                val decimals = detailTransfer.transferDecimals
+                    ?: tokenType?.lowercase()?.let { decimalsByType[it] }
                 DetailRowShared(
                     label = "Transfer Amount$labelSuffix",
-                    value = formatAmountExactOrUnknown(amt.toLong(), detailTransfer.transferDecimals ?: tx.decimals) + " " + symbol
+                    value = formatAmountExactOrUnknown(amt.toLong(), decimals) + " " + symbol
                 )
             }
             detailTransfer.transferTokenType?.let { DetailRowShared(label = "Token Type$labelSuffix", value = it) }

@@ -14,7 +14,7 @@ impl StateManager {
     ) -> Result<bool> {
         // supply_key normalizes internally; treasury keys normalized here so
         // 0x02/0x2 spellings share one record going forward.
-        let normalized = Self::normalize_token_type(token_type);
+        let normalized = CoinModule::normalize_token_type(token_type);
         let key = Self::supply_key(&normalized);
         self.save_internal(&key, &TreasuryCap { total_supply })?;
 
@@ -23,15 +23,17 @@ impl StateManager {
         self.save_internal(&key_owner, &owner)?;
         self.add_to_index_list(b"treasury_index", format!("treasury:{}", normalized))?;
 
-        if Self::normalize_token_type(token_type) == GAS_COIN {
+        if CoinModule::normalize_token_type(token_type) == GAS_COIN {
             self.save_native_total_supply(total_supply)?;
         }
 
         Ok(true)
     }
 
+    /// Canonical owned-object id used as the index key: the normalized hex
+    /// form when `object_id` parses, otherwise the input unchanged.
     pub(crate) fn canonical_owned_object_id(object_id: &str) -> String {
-        canonical_object_id(object_id).unwrap_or_else(|| object_id.to_string())
+        crate::common::ids::canonical_object_id_or_raw(object_id)
     }
 
     pub(crate) fn remove_owned_object_index_variants(

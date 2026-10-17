@@ -3,6 +3,8 @@
 
 use super::*;
 use ahash::AHashSet;
+use kanari_crypto::keys::{CurveType, KeyPair};
+use kanari_crypto::signatures::zk_authenticator::record_zklogin_admission;
 
 type VerifiedMempoolTx = (
     SignedTransaction,
@@ -112,6 +114,20 @@ impl BlockchainEngine {
                 let verified = signed_tx.into_verified()?;
                 let tx_hash = verified.hash().to_vec();
                 let tx = verified.transaction();
+                // zkLogin: the replay guard lives at THIS admission
+                // boundary, not inside signature verification (which
+                // legitimately re-runs on every fresh deserialized copy:
+                // simulation → mempool, gossip, vertex validation, commit).
+                // First admission records the hash; resubmission inside the
+                // policy TTL is rejected here. See
+                // `record_zklogin_admission`.
+                if let Some((CurveType::ZkLogin, _)) = KeyPair::parse_tagged_address(tx.sender())
+                    && !record_zklogin_admission(&tx_hash)
+                {
+                    anyhow::bail!(
+                        "Signature verification failed: zkLogin replay (transaction already admitted within the replay TTL)"
+                    );
+                }
                 Self::validate_transaction_admission_shape(tx)?;
                 let sender = tx.sender_address();
                 let normalized_sender = sender_cache

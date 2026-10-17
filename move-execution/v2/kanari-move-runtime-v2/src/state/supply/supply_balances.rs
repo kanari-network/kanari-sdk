@@ -113,7 +113,7 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<u64> {
-        let token_type = Self::normalize_token_type(token_type);
+        let token_type = CoinModule::normalize_token_type(token_type);
         Ok(self
             .resolve_owner_token_balances(owner)?
             .get(&token_type)
@@ -136,7 +136,7 @@ impl StateManager {
         let mut seen_objects = BTreeSet::new();
 
         for object_id in self.get_owned_objects(&owner)? {
-            let canonical_id = canonical_object_id(&object_id).unwrap_or(object_id.clone());
+            let canonical_id = crate::common::ids::canonical_object_id_or_raw(&object_id);
             if !seen_objects.insert(canonical_id) {
                 continue;
             }

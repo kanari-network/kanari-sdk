@@ -54,6 +54,11 @@ pub struct TransferModule;
 impl TransferModule {
     pub const TRANSFER_MODULE: &'static str = "transfer";
 
+    /// Abort codes from `transfer.move`.
+    pub const ERR_INVALID_AMOUNT: u64 = 1;
+    pub const ERR_SAME_ADDRESS: u64 = 2;
+    pub const ERR_OVERFLOW: u64 = 3;
+
     /// Get the module ID for system::transfer
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)

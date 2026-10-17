@@ -18,6 +18,7 @@ use clap::Parser;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_rpc_api::{BuildNativeTransferRequest, ObjectTransferData, TransactionStatus};
 use kanari_rpc_client::RpcClient;
+use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::GAS_COIN;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -33,7 +34,7 @@ const MAX_RATE_LIMIT_RETRIES: usize = 120;
 const RATE_LIMIT_RETRY_DELAY_MS: u64 = 1_000;
 
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
-    let native_coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
+    let native_coin_type = CoinModule::coin_type(GAS_COIN);
     owner.owned_objects.as_ref().map_or(0, |objects| {
         objects
             .iter()

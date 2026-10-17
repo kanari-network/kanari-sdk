@@ -20,11 +20,11 @@
 ///   [`build_message`] (domain separator + unique nonce) so a signature
 ///   for one action can never be replayed as another action.
 module kanari_system::signature_multisig {
+    use std::vector;
     use kanari_system::ecdsa_k1;
     use kanari_system::ecdsa_r1;
     use kanari_system::ed25519;
     use std::bcs;
-    use std::vector;
 
     /// Not enough valid signatures to meet the threshold.
     const E_THRESHOLD_NOT_MET: u64 = 1;

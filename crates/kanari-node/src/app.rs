@@ -183,6 +183,25 @@ fn configure_engine_environment(
         }
     }
 
+    // zkLogin admission trust roots (fail-closed): without a configured
+    // ceremony VK pin + provider allow-lists + pinned JWKS, every zkLogin
+    // transaction is rejected at signature verification. See
+    // `kanari_crypto::signatures::zk_authenticator::ZkLoginAdmissionPolicy`.
+    match kanari_crypto::signatures::zk_authenticator::zklogin_admission_policy_from_env() {
+        Ok(Some(policy)) => {
+            kanari_crypto::signatures::zk_authenticator::install_zklogin_admission_policy(policy);
+            tracing::info!("zkLogin admission policy installed from environment");
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "KANARI_ZKLOGIN_* unset: zkLogin admission disabled, all zkLogin transactions will be rejected"
+            );
+        }
+        Err(e) => {
+            anyhow::bail!("Invalid zkLogin admission policy: {e}");
+        }
+    }
+
     Ok(())
 }
 

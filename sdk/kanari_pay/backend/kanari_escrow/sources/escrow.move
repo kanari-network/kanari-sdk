@@ -10,67 +10,68 @@ module kanari_escrow::escrow {
     use kanari_system::object;
 
     // ─── Error codes ────────────────────────────────────────────────
-    const E_NOT_BUYER:         u64 = 1;
-    const E_NOT_SELLER:        u64 = 2;
-    const E_WRONG_STATE:       u64 = 3;
-    const E_NOT_AUTHORIZED:    u64 = 6;
+    const E_NOT_BUYER: u64 = 1;
+    const E_NOT_SELLER: u64 = 2;
+    const E_WRONG_STATE: u64 = 3;
+    const E_NOT_AUTHORIZED: u64 = 6;
     const E_NOT_ENOUGH_BALANCE: u64 = 7;
+
     // The proof object supplied to an action must belong to that exact deal.
     // Without this check an otherwise authorized party could append an entry to
     // a proof object for a different escrow deal.
     const E_PROOF_DEAL_MISMATCH: u64 = 8;
 
     // ─── Deal states ─────────────────────────────────────────────────
-    const STATE_LOCKED:     u8 = 1; // crypto locked, waiting delivery
-    const STATE_DELIVERED:  u8 = 2; // seller confirmed delivery
-    const STATE_COMPLETED:  u8 = 3; // buyer confirmed, funds released
-    const STATE_DISPUTED:   u8 = 4; // dispute raised
+    const STATE_LOCKED: u8 = 1; // crypto locked, waiting delivery
+    const STATE_DELIVERED: u8 = 2; // seller confirmed delivery
+    const STATE_COMPLETED: u8 = 3; // buyer confirmed, funds released
+    const STATE_DISPUTED: u8 = 4; // dispute raised
 
     // ─── Structs ─────────────────────────────────────────────────────
 
     // Core escrow deal — stored under buyer's address
     struct EscrowDeal<phantom CoinType> has key, store {
-        id:             object::UID,
-        deal_id:        String,
-        buyer:          address,
-        seller:         address,
-        amount:         u64,
-        description:    String,
-        state:          u8,
-        locked_at:      u64,
-        delivered_at:   u64,
-        completed_at:   u64,
-        funds:          Option<Coin<CoinType>>,
+        id: object::UID,
+        deal_id: String,
+        buyer: address,
+        seller: address,
+        amount: u64,
+        description: String,
+        state: u8,
+        locked_at: u64,
+        delivered_at: u64,
+        completed_at: u64,
+        funds: Option<Coin<CoinType>>,
     }
 
     // On-chain proof record — Kanari metadata layer
     struct EscrowProof has key, store {
-        id:         object::UID,
-        deal_id:    String,
-        entries:    vector<ProofEntry>,
+        id: object::UID,
+        deal_id: String,
+        entries: vector<ProofEntry>,
     }
 
     struct ProofEntry has copy, drop, store {
-        state:      u8,
-        actor:      address,
-        timestamp:  u64,
-        note:       String,
+        state: u8,
+        actor: address,
+        timestamp: u64,
+        note: String,
     }
 
     // ─── Events ──────────────────────────────────────────────────────
     struct DealCreated has copy, drop, store {
-        deal_id:    String,
-        buyer:      address,
-        seller:     address,
-        amount:     u64,
+        deal_id: String,
+        buyer: address,
+        seller: address,
+        amount: u64,
     }
 
     struct DealStateChanged has copy, drop, store {
-        deal_id:    String,
-        old_state:  u8,
-        new_state:  u8,
-        actor:      address,
-        timestamp:  u64,
+        deal_id: String,
+        old_state: u8,
+        new_state: u8,
+        actor: address,
+        timestamp: u64,
     }
 
     // ─── Internal Helper ───────────────────────────────────────────
@@ -78,20 +79,20 @@ module kanari_escrow::escrow {
     /// Internal function to create deal from Coin reference
     /// Used by both entry function and tests
     fun create_deal_internal<CoinType>(
-        deal_id:        String,
-        seller:         address,
-        amount:         u64,
-        description:    String,
-        buyer_coin:     &mut Coin<CoinType>,
-        ctx:            &mut TxContext,
+        deal_id: String,
+        seller: address,
+        amount: u64,
+        description: String,
+        buyer_coin: &mut Coin<CoinType>,
+        ctx: &mut TxContext,
     ) {
         let buyer_addr = tx_context::sender(ctx);
         let now = tx_context::epoch_timestamp_ms(ctx);
         let deal_id_copy = copy deal_id;
-        
+
         // Verify the coin has sufficient balance
         assert!(coin::value(buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);
-        
+
         // Split the required amount from the buyer's coin
         let funds = coin::split(buyer_coin, amount, ctx);
 
@@ -146,16 +147,17 @@ module kanari_escrow::escrow {
     // Step 1: Buyer creates deal and locks crypto
     // For CLI usage: Uses borrow_global_mut to load Coin object from storage by Object ID
     public entry fun create_deal<CoinType>(
-        deal_id:        String,
-        seller:         address,
-        amount:         u64,
-        description:    String,
-        buyer_coin_id:  address,  // Object ID ของ Coin ที่ต้องการใช้
-        ctx:            &mut TxContext,
+        deal_id: String,
+        seller: address,
+        amount: u64,
+        description: String,
+        buyer_coin_id: address,
+        // Object ID of the Coin to use
+        ctx: &mut TxContext,
     ) {
         // Load Coin object from storage by ID
         let buyer_coin = borrow::borrow_mut<Coin<CoinType>>(buyer_coin_id);
-        
+
         // Delegate to internal function
         create_deal_internal(
             deal_id,
@@ -169,12 +171,12 @@ module kanari_escrow::escrow {
 
     // API-first entry: buyer coin is an authenticated mutable object input.
     public entry fun create_deal_ref<CoinType>(
-        deal_id:        String,
-        seller:         address,
-        amount:         u64,
-        description:    String,
-        buyer_coin:     &mut Coin<CoinType>,
-        ctx:            &mut TxContext,
+        deal_id: String,
+        seller: address,
+        amount: u64,
+        description: String,
+        buyer_coin: &mut Coin<CoinType>,
+        ctx: &mut TxContext,
     ) {
         create_deal_internal(
             deal_id,
@@ -190,12 +192,12 @@ module kanari_escrow::escrow {
     // For testing purposes where we have Coin object in memory
     #[test_only]
     public fun create_deal_from_coin<CoinType>(
-        deal_id:        String,
-        seller:         address,
-        amount:         u64,
-        description:    String,
-        buyer_coin:     &mut Coin<CoinType>,
-        ctx:            &mut TxContext,
+        deal_id: String,
+        seller: address,
+        amount: u64,
+        description: String,
+        buyer_coin: &mut Coin<CoinType>,
+        ctx: &mut TxContext,
     ) {
         create_deal_internal(
             deal_id,
@@ -209,18 +211,18 @@ module kanari_escrow::escrow {
 
     // Helper function to get deal_id from deal reference
     fun get_deal_id<CoinType>(deal: &EscrowDeal<CoinType>): String {
-        let EscrowDeal { 
-            id: _, 
-            deal_id, 
-            buyer: _, 
-            seller: _, 
-            amount: _, 
-            description: _, 
-            state: _, 
-            locked_at: _, 
-            delivered_at: _, 
-            completed_at: _, 
-            funds: _ 
+        let EscrowDeal {
+            id: _,
+            deal_id,
+            buyer: _,
+            seller: _,
+            amount: _,
+            description: _,
+            state: _,
+            locked_at: _,
+            delivered_at: _,
+            completed_at: _,
+            funds: _
         } = deal;
         *deal_id
     }
@@ -235,18 +237,20 @@ module kanari_escrow::escrow {
     // Step 2: Seller confirms delivery
     // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun confirm_delivery<CoinType>(
-        deal_id:        address,  // Object ID ของ EscrowDeal
-        proof_id:       address,  // Object ID ของ EscrowProof
-        ctx:            &mut TxContext,
+        deal_id: address,
+        // Object ID of EscrowDeal
+        proof_id: address,
+        // Object ID of EscrowProof
+        ctx: &mut TxContext,
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
         borrow::assert_distinct(deal_id, proof_id);
         let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
         let proof = borrow::borrow_mut<EscrowProof>(proof_id);
-        
+
         let seller_addr = tx_context::sender(ctx);
-        
+
         assert!(deal.seller == seller_addr, E_NOT_SELLER);
         assert!(deal.state == STATE_LOCKED, E_WRONG_STATE);
         assert_proof_matches_deal(deal, proof);
@@ -282,9 +286,9 @@ module kanari_escrow::escrow {
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
     public entry fun confirm_delivery_ref<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        ctx: &mut TxContext,
     ) {
         let seller_addr = tx_context::sender(ctx);
 
@@ -320,9 +324,9 @@ module kanari_escrow::escrow {
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
     public entry fun release_funds_ref<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        ctx: &mut TxContext,
     ) {
         let buyer_addr = tx_context::sender(ctx);
 
@@ -361,10 +365,10 @@ module kanari_escrow::escrow {
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
     public entry fun raise_dispute_ref<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        reason:         String,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        reason: String,
+        ctx: &mut TxContext,
     ) {
         let caller = tx_context::sender(ctx);
 
@@ -403,12 +407,12 @@ module kanari_escrow::escrow {
     // Internal helper for testing with object references
     #[test_only]
     public fun confirm_delivery_internal<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        ctx: &mut TxContext,
     ) {
         let seller_addr = tx_context::sender(ctx);
-        
+
         assert!(deal.seller == seller_addr, E_NOT_SELLER);
         assert!(deal.state == STATE_LOCKED, E_WRONG_STATE);
         assert_proof_matches_deal(deal, proof);
@@ -445,18 +449,20 @@ module kanari_escrow::escrow {
     // Step 3: Buyer releases funds to seller
     // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun release_funds<CoinType>(
-        deal_id:        address,  // Object ID ของ EscrowDeal
-        proof_id:       address,  // Object ID ของ EscrowProof
-        ctx:            &mut TxContext,
+        deal_id: address,
+        // Object ID of EscrowDeal
+        proof_id: address,
+        // Object ID of EscrowProof
+        ctx: &mut TxContext,
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
         borrow::assert_distinct(deal_id, proof_id);
         let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
         let proof = borrow::borrow_mut<EscrowProof>(proof_id);
-        
+
         let buyer_addr = tx_context::sender(ctx);
-        
+
         assert!(deal.buyer == buyer_addr, E_NOT_BUYER);
         assert!(deal.state == STATE_DELIVERED, E_WRONG_STATE);
         assert_proof_matches_deal(deal, proof);
@@ -497,12 +503,12 @@ module kanari_escrow::escrow {
     // Internal helper for testing with object references
     #[test_only]
     public fun release_funds_internal<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        ctx: &mut TxContext,
     ) {
         let buyer_addr = tx_context::sender(ctx);
-        
+
         assert!(deal.buyer == buyer_addr, E_NOT_BUYER);
         assert!(deal.state == STATE_DELIVERED, E_WRONG_STATE);
 
@@ -542,25 +548,27 @@ module kanari_escrow::escrow {
     // Raise dispute - refunds buyer immediately
     // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun raise_dispute<CoinType>(
-        deal_id:        address,  // Object ID ของ EscrowDeal
-        proof_id:       address,  // Object ID ของ EscrowProof
-        reason:         String,
-        ctx:            &mut TxContext,
+        deal_id: address,
+        // Object ID of EscrowDeal
+        proof_id: address,
+        // Object ID of EscrowProof
+        reason: String,
+        ctx: &mut TxContext,
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
         borrow::assert_distinct(deal_id, proof_id);
         let deal = borrow::borrow_mut<EscrowDeal<CoinType>>(deal_id);
         let proof = borrow::borrow_mut<EscrowProof>(proof_id);
-        
+
         let caller = tx_context::sender(ctx);
-        
+
         assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
-        
+
         // ✅ Only allow dispute in LOCKED (1) or DELIVERED (2) states
         assert!(deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED, E_WRONG_STATE);
         assert_proof_matches_deal(deal, proof);
-        
+
         //  Cannot dispute if deal is already COMPLETED (3) or DISPUTED (4)
         // This prevents refunding after deal completion
 
@@ -599,18 +607,18 @@ module kanari_escrow::escrow {
     // Internal helper for testing with object references
     #[test_only]
     public fun raise_dispute_internal<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
-        reason:         String,
-        ctx:            &mut TxContext,
+        deal: &mut EscrowDeal<CoinType>,
+        proof: &mut EscrowProof,
+        reason: String,
+        ctx: &mut TxContext,
     ) {
         let caller = tx_context::sender(ctx);
-        
+
         assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
-        
+
         // ✅ Only allow dispute in LOCKED (1) or DELIVERED (2) states
         assert!(deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED, E_WRONG_STATE);
-        
+
         // ❌ Cannot dispute if deal is already COMPLETED (3) or DISPUTED (4)
         // This prevents refunding after deal completion
 
@@ -663,7 +671,7 @@ module kanari_escrow::escrow {
         deal.state
     }
 
-    /// Get proof entry count by Object ID  
+    /// Get proof entry count by Object ID
     /// Returns the number of proof entries in the EscrowProof
     public fun get_proof_count(
         proof_id: address,
@@ -672,14 +680,14 @@ module kanari_escrow::escrow {
     }
 
     /// Get full deal details by Object ID
-    /// อ่านข้อมูลทั้งหมดของ deal โดยไม่แก้ไข
+    /// Read all deal details without modifying
     public fun get_deal_details<CoinType>(
         deal_id: address,
     ): (address, address, address, u64) {
         let deal = borrow::borrow<EscrowDeal<CoinType>>(deal_id);
-        
+
         (
-            deal_id,  // ใช้ deal_id ที่รับเข้ามาโดยตรง (เป็น address อยู่แล้ว)
+            deal_id,  // Use deal_id passed in directly (already an address)
             deal.buyer,
             deal.seller,
             deal.amount,
@@ -699,7 +707,7 @@ module kanari_escrow::escrow {
     }
 
     /// Check if deal is in specific state
-    /// ตรวจสอบว่า deal อยู่ในสถานะที่กำหนดหรือไม่
+    /// Check if deal is in the specified state
     public fun check_deal_state<CoinType>(
         deal_id: address,
         expected_state: u8,

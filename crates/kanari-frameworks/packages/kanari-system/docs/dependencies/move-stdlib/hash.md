@@ -39,7 +39,7 @@ Unit tests live in <code>tests/hash_tests.<b>move</b></code>, not here: this mod
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_sha2_256">sha2_256</a>(data: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_sha2_256">sha2_256</a>(data: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -61,7 +61,7 @@ Unit tests live in <code>tests/hash_tests.<b>move</b></code>, not here: this mod
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_sha3_256">sha3_256</a>(data: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_sha3_256">sha3_256</a>(data: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -85,7 +85,7 @@ Hash the input bytes using Blake2b-256 and returns 32 bytes.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_blake2b256">blake2b256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_blake2b256">blake2b256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -109,7 +109,7 @@ Hash the input bytes using Blake3-256 and returns 32 bytes.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_blake3_256">blake3_256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_blake3_256">blake3_256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -133,7 +133,7 @@ Hash the input bytes using keccak256 and returns 32 bytes.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_keccak256">keccak256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_keccak256">keccak256</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 
@@ -157,7 +157,7 @@ Hash the input bytes using ripemd160 and returns 20 bytes.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_ripemd160">ripemd160</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/hash.md#0x1_hash_ripemd160">ripemd160</a>(data: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;;
 </code></pre>
 
 

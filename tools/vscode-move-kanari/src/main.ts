@@ -6,6 +6,8 @@ import { Configuration } from './configuration';
 import { Context } from './context';
 import { Extension } from './extension';
 import { MoveFormatter } from './formatter';
+import { MoveImportCodeActionProvider } from './imports';
+import { MoveTestCodeLensProvider, runMoveTest } from './codelens';
 import { StatusBarController } from './status_bar';
 import { log } from './log';
 
@@ -181,6 +183,46 @@ export async function activate(
     void vscode.window.showErrorMessage(
       `Move on Kanari: formatter failed to load: ${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+
+  // Register the "Add import" / "Remove redundant import" quick fixes. These run
+  // client-side from the workspace itself (Move.toml + sources on disk), so they keep
+  // working regardless of which language server reported the diagnostic.
+  try {
+    extensionContext.subscriptions.push(
+      vscode.languages.registerCodeActionsProvider(
+        'move',
+        new MoveImportCodeActionProvider(),
+        { providedCodeActionKinds: MoveImportCodeActionProvider.providedKinds },
+      ),
+    );
+    log.info('Move import quick fixes registered');
+  } catch (err) {
+    log.info(`Could not register Move import fixes: ${String(err)}`);
+  }
+
+  // "Run Test" CodeLens above `#[test]` functions. Also client-side: it only needs the file
+  // text and the `kanari` CLI, so test running works even when the server is unhappy.
+  try {
+    extensionContext.subscriptions.push(
+      vscode.languages.registerCodeLensProvider(
+        'move',
+        new MoveTestCodeLensProvider(),
+      ),
+    );
+    extensionContext.subscriptions.push(
+      vscode.commands.registerCommand(
+        'move-kanari.runTest',
+        (fileUri: vscode.Uri, filter: string) =>
+          runMoveTest(configuration.kanariPath, fileUri, filter),
+      ),
+      vscode.commands.registerCommand('move-kanari.runTestFile', (fileUri: vscode.Uri) =>
+        runMoveTest(configuration.kanariPath, fileUri),
+      ),
+    );
+    log.info('Move test CodeLens registered');
+  } catch (err) {
+    log.info(`Could not register Move test lens: ${String(err)}`);
   }
 
   // Status bar pill FIRST (before anything that can fail): if activation runs

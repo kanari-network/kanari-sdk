@@ -82,6 +82,13 @@ impl TxContextModule {
     /// Name of the TxContext struct in Move
     pub const TX_CONTEXT_STRUCT: &'static str = "TxContext";
 
+    /// Length of the transaction hash used to derive fresh object ids.
+    pub const TX_HASH_LENGTH: u64 = 32;
+
+    /// Abort codes from `tx_context.move`.
+    pub const E_BAD_TX_HASH_LENGTH: u64 = 0;
+    pub const E_NO_IDS_CREATED: u64 = 1;
+
     /// Get the module ID for kanari_system::tx_context
     pub fn get_module_id() -> Result<ModuleId> {
         let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
@@ -102,6 +109,13 @@ impl TxContextModule {
             epoch_timestamp_ms: "epoch_timestamp_ms",
             fresh_object_address: "fresh_object_address",
             derive_id: "derive_id",
+            new: "new",
+            new_from_hint: "new_from_hint",
+            dummy: "dummy",
+            get_ids_created: "get_ids_created",
+            last_created_object_id: "last_created_object_id",
+            increment_epoch_number: "increment_epoch_number",
+            increment_epoch_timestamp: "increment_epoch_timestamp",
         }
     }
 }
@@ -114,6 +128,14 @@ pub struct TxContextFunctions {
     pub epoch_timestamp_ms: &'static str,
     pub fresh_object_address: &'static str,
     pub derive_id: &'static str,
+    /// The remaining seven are `#[test_only]` in `tx_context.move`.
+    pub new: &'static str,
+    pub new_from_hint: &'static str,
+    pub dummy: &'static str,
+    pub get_ids_created: &'static str,
+    pub last_created_object_id: &'static str,
+    pub increment_epoch_number: &'static str,
+    pub increment_epoch_timestamp: &'static str,
 }
 
 #[cfg(test)]

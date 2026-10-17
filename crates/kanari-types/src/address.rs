@@ -10,6 +10,10 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize}; // Import Serialize and Deserialize
 // Add this at the top with other imports
 use move_core_types::account_address::AccountAddress;
+use move_core_types::identifier::Identifier;
+use move_core_types::language_storage::ModuleId;
+
+use anyhow::Context;
 
 // Lazy-initialized account addresses for system constants
 // These are created once and cached, avoiding runtime parsing overhead
@@ -367,6 +371,66 @@ impl FromStr for Address {
             Self::from_hex(s)
         }
     }
+}
+
+/// Rust-side binding for Move `kanari_system::address`.
+///
+/// Keep this file aligned with:
+/// `crates/kanari-frameworks/packages/kanari-system/sources/address.move`.
+pub struct AddressModule;
+
+impl AddressModule {
+    pub const ADDRESS_MODULE: &'static str = "address";
+
+    /// Move `EAddressParseError` in `address.move`.
+    pub const E_ADDRESS_PARSE_ERROR: u64 = 0;
+
+    /// Get the module ID for `0x2::address`.
+    pub fn get_module_id() -> anyhow::Result<ModuleId> {
+        let address = AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
+            .context("Invalid system address")?;
+        let module_name =
+            Identifier::new(Self::ADDRESS_MODULE).context("Invalid address module name")?;
+
+        Ok(ModuleId::new(address, module_name))
+    }
+
+    /// Fully qualified Move module path.
+    pub fn module_path() -> String {
+        format!(
+            "{}::{}",
+            Address::KANARI_SYSTEM_ADDRESS,
+            Self::ADDRESS_MODULE
+        )
+    }
+
+    /// Get function names used in address module.
+    pub fn function_names() -> AddressFunctions {
+        AddressFunctions {
+            to_u256: "to_u256",
+            from_u256: "from_u256",
+            from_bytes: "from_bytes",
+            to_bytes: "to_bytes",
+            to_ascii_string: "to_ascii_string",
+            to_string: "to_string",
+            from_ascii_bytes: "from_ascii_bytes",
+            length: "length",
+            max: "max",
+        }
+    }
+}
+
+/// Address module function names.
+pub struct AddressFunctions {
+    pub to_u256: &'static str,
+    pub from_u256: &'static str,
+    pub from_bytes: &'static str,
+    pub to_bytes: &'static str,
+    pub to_ascii_string: &'static str,
+    pub to_string: &'static str,
+    pub from_ascii_bytes: &'static str,
+    pub length: &'static str,
+    pub max: &'static str,
 }
 
 #[cfg(test)]

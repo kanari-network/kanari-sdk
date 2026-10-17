@@ -231,7 +231,7 @@ malformed input (length mismatch, bad threshold, bad scheme).
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_count_valid_ed25519">count_valid_ed25519</a>(
     public_keys: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
-    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): u64 {
     <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys);
     <b>assert</b>!(n == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(signatures), <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>);
@@ -275,7 +275,7 @@ Count valid secp256k1 ECDSA signatures (<code><a href="dependencies/move-stdlib/
     public_keys: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8
+    <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
 ): u64 {
     <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys);
     <b>assert</b>!(n == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(signatures), <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>);
@@ -319,7 +319,7 @@ Count valid P-256 ECDSA signatures (SHA-256, 64-byte raw <code>(r, s)</code>).
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_count_valid_ecdsa_r1">count_valid_ecdsa_r1</a>(
     public_keys: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
-    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): u64 {
     <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys);
     <b>assert</b>!(n == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(signatures), <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>);
@@ -364,7 +364,7 @@ Verify <code>threshold</code>-of-<code>n</code> ed25519 signatures. Aborts
     public_keys: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    threshold: u64
+    threshold: u64,
 ) {
     <a href="signature_multisig.md#0x2_signature_multisig_assert_valid_threshold">assert_valid_threshold</a>(threshold, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys));
     <b>assert</b>!(
@@ -399,7 +399,7 @@ Verify <code>threshold</code>-of-<code>n</code> secp256k1 ECDSA signatures.
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
-    threshold: u64
+    threshold: u64,
 ) {
     <a href="signature_multisig.md#0x2_signature_multisig_assert_valid_threshold">assert_valid_threshold</a>(threshold, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys));
     <b>assert</b>!(
@@ -433,7 +433,7 @@ Verify <code>threshold</code>-of-<code>n</code> P-256 ECDSA signatures.
     public_keys: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    threshold: u64
+    threshold: u64,
 ) {
     <a href="signature_multisig.md#0x2_signature_multisig_assert_valid_threshold">assert_valid_threshold</a>(threshold, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys));
     <b>assert</b>!(
@@ -471,7 +471,7 @@ Aborts <code><a href="signature_multisig.md#0x2_signature_multisig_E_INVALID_SCH
     signatures: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     <a href="dependencies/move-stdlib/hash.md#0x1_hash">hash</a>: u8,
-    threshold: u64
+    threshold: u64,
 ) {
     <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(public_keys);
     <b>assert</b>!(n == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(signatures), <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>);
@@ -604,7 +604,9 @@ Layout: <code>domain || u64 LE(action_id_len) || action_id || u64 LE(nonce)</cod
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_build_message">build_message</a>(
-    domain: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, action_id: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, nonce: u64
+    domain: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    action_id: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    nonce: u64,
 ): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt; {
     <b>let</b> msg = *domain;
     <a href="dependencies/move-stdlib/vector.md#0x1_vector_append">vector::append</a>(&<b>mut</b> msg, <a href="dependencies/move-stdlib/bcs.md#0x1_bcs_to_bytes">bcs::to_bytes</a>(&<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(action_id)));

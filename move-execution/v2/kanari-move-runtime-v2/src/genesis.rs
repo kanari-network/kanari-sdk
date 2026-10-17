@@ -7,7 +7,7 @@
 //! initialize genesis state. It publishes modules in dependency order and calls
 //! framework initializers through the Move VM.
 
-use crate::move_runtime::{MoveRuntime, load_system_modules};
+use crate::move_runtime::{MoveRuntime, SupplyValidation, load_system_modules};
 use crate::state::StateManager;
 use anyhow::{Context, Result};
 use kanari_crypto::hash_data_blake3;
@@ -88,9 +88,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                 }
 
                 // Persist state and object side effects for this module publish.
-                state.apply_changeset(&changeset)?;
-                runtime.persist_created_objects(&changeset)?;
-                runtime.persist_deleted_objects(&changeset)?;
+                runtime.commit_genesis_changeset(state, &changeset, SupplyValidation::Enforce)?;
 
                 // Run `kanari::init()` after publishing the main kanari module,
                 // then `usd::init()` to mint the USD stablecoin genesis supply.
@@ -126,6 +124,10 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
         .ensure_system_clock(state)
         .context("Failed to initialize system clock during genesis")?;
     log::info!("System clock initialized");
+    runtime
+        .ensure_deny_list(state)
+        .context("Failed to initialize deny-list singleton during genesis")?;
+    log::info!("Deny-list singleton initialized");
     log::info!("=== Genesis initialization complete ===");
 
     // Commit the accumulated genesis overlay to persistent storage.
@@ -188,9 +190,7 @@ fn execute_framework_init(
                 }
             }
 
-            state.apply_changeset(&init_changeset)?;
-            runtime.persist_created_objects(&init_changeset)?;
-            runtime.persist_deleted_objects(&init_changeset)?;
+            runtime.commit_genesis_changeset(state, &init_changeset, SupplyValidation::Enforce)?;
             Ok(())
         }
         Err(e) => {

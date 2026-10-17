@@ -35,5 +35,13 @@ module tester::dynamic_field_e2e {
     public fun has_value(host: &Host, key: u64): bool {
         dynamic_field::exists_<u64>(&host.id, key)
     }
+
+    public fun has_value_with_type(host: &Host, key: u64): bool {
+        dynamic_field::exists_with_type<u64, u64>(&host.id, key)
+    }
+
+    public fun has_value_with_wrong_type(host: &Host, key: u64): bool {
+        dynamic_field::exists_with_type<u64, bool>(&host.id, key)
+    }
 }
 

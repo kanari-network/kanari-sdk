@@ -164,19 +164,17 @@ module kanari_system::collection_usage_tests {
     #[test]
     fun deny_list_usage_smoke() {
         let ctx = &mut tx_context::dummy();
-        let denylist = deny_list::new_denylist();
-        let denylist_ref = &mut denylist;
+        let denylist = deny_list::new_for_testing(ctx);
         let cap = deny_list::new_denycap_for_testing<u64>(ctx);
 
-        deny_list::deny_list_add<u64>(denylist_ref, &cap, @0x1, ctx);
-        deny_list::deny_list_add<u64>(denylist_ref, &cap, @0x2, ctx);
-        assert!(deny_list::length(denylist_ref) == 2, 40);
-        assert!(deny_list::contains(denylist_ref, @0x1), 41);
-        assert!(deny_list::contains(denylist_ref, @0x2), 42);
+        kanari_system::coin::deny_list_add<u64>(&mut denylist, &cap, @0x100, ctx);
+        kanari_system::coin::deny_list_add<u64>(&mut denylist, &cap, @0x200, ctx);
+        assert!(kanari_system::coin::deny_list_contains<u64>(&denylist, @0x100), 40);
+        assert!(kanari_system::coin::deny_list_contains<u64>(&denylist, @0x200), 41);
 
-        deny_list::deny_list_remove<u64>(denylist_ref, &cap, @0x1, ctx);
-        assert!(deny_list::length(denylist_ref) == 1, 43);
-        assert!(!deny_list::contains(denylist_ref, @0x1), 44);
-        assert!(deny_list::contains(denylist_ref, @0x2), 45);
+        kanari_system::coin::deny_list_remove<u64>(&mut denylist, &cap, @0x100, ctx);
+        assert!(!kanari_system::coin::deny_list_contains<u64>(&denylist, @0x100), 42);
+        assert!(kanari_system::coin::deny_list_contains<u64>(&denylist, @0x200), 43);
+        kanari_system::transfer::public_freeze_object(denylist);
     }
 }

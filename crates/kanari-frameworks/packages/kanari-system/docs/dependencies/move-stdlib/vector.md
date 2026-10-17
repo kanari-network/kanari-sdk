@@ -62,7 +62,7 @@ Create an empty vector.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_empty">empty</a>&lt;Element&gt;(): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_empty">empty</a>&lt;Element&gt;(): <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;;
 </code></pre>
 
 
@@ -85,7 +85,7 @@ Return the length of the vector.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_length">length</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;): u64;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_length">length</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;): u64;
 </code></pre>
 
 
@@ -109,7 +109,7 @@ Aborts if <code>i</code> is out of bounds.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../borrow.md#0x2_borrow">borrow</a>&lt;Element&gt;(v: &<a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &Element;
 </code></pre>
 
 
@@ -132,7 +132,7 @@ Add element <code>e</code> to the end of the vector <code>v</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_push_back">push_back</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, e: Element);
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_push_back">push_back</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, e: Element);
 </code></pre>
 
 
@@ -156,7 +156,7 @@ Aborts if <code>i</code> is out of bounds.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow_mut">borrow_mut</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &<b>mut</b> Element;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow_mut">borrow_mut</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64): &<b>mut</b> Element;
 </code></pre>
 
 
@@ -180,7 +180,7 @@ Aborts if <code>v</code> is empty.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">pop_back</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;): Element;
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">pop_back</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;): Element;
 </code></pre>
 
 
@@ -204,7 +204,7 @@ Aborts if <code>v</code> is not empty.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_destroy_empty">destroy_empty</a>&lt;Element&gt;(v: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;);
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_destroy_empty">destroy_empty</a>&lt;Element&gt;(v: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;);
 </code></pre>
 
 
@@ -228,7 +228,7 @@ Aborts if <code>i</code> or <code>j</code> is out of bounds.
 <summary>Implementation</summary>
 
 
-<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_swap">swap</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64, j: u64);
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_swap">swap</a>&lt;Element&gt;(v: &<b>mut</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Element&gt;, i: u64, j: u64);
 </code></pre>
 
 

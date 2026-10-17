@@ -86,6 +86,14 @@ impl BalanceModule {
     pub const BALANCE_MODULE: &'static str = "balance";
     /// Name of the Balance struct in Move
     pub const BALANCE_STRUCT: &'static str = "Balance";
+    /// Name of the Supply struct in Move
+    pub const SUPPLY_STRUCT: &'static str = "Supply";
+
+    /// Abort codes from `balance.move`.
+    pub const ERR_INSUFFICIENT_BALANCE: u64 = 1;
+    pub const ERR_OVERFLOW: u64 = 2;
+    pub const ERR_ZERO_AMOUNT: u64 = 3;
+    pub const ERR_INSUFFICIENT_SUPPLY: u64 = 4;
 
     /// Get the module ID for kanari_system::balance
     pub fn get_module_id() -> Result<ModuleId> {
@@ -113,7 +121,7 @@ impl BalanceModule {
             destroy: "destroy",
             new_supply: "new_supply",
             increase_supply: "increase_supply",
-            destroy_supply: "destroy_supply",
+            destroy_supply_for_testing: "destroy_supply_for_testing",
             decrease_supply: "decrease_supply",
             supply_total: "supply_total",
         }
@@ -134,7 +142,8 @@ pub struct BalanceFunctions {
     pub destroy: &'static str,
     pub new_supply: &'static str,
     pub increase_supply: &'static str,
-    pub destroy_supply: &'static str,
+    /// `#[test_only]` in `balance.move`.
+    pub destroy_supply_for_testing: &'static str,
     pub decrease_supply: &'static str,
     pub supply_total: &'static str,
 }

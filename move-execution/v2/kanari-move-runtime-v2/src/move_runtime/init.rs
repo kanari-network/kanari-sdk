@@ -58,11 +58,35 @@ impl MoveRuntime {
                     if s_trim.starts_with("0x") || s_trim.chars().all(|c| c.is_ascii_hexdigit()) {
                         // This looks like a hex string that should be converted to bytes
                         let clean_hex = s_trim.strip_prefix("0x").unwrap_or(s_trim);
-                        if let Ok(bytes) = hex::decode(clean_hex)
-                            && bytes.len() == AccountAddress::LENGTH
+                        // Zero-pad *explicit* hex literals (e.g. `0x403` for the
+                        // `@0x403` deny-list singleton) to a full 32-byte object ID
+                        // so the runtime can resolve them as object inputs. Bare
+                        // hex strings must already be a full 32-byte id: otherwise
+                        // a BCS-encoded `vector<u8>` whose bytes happen to be valid
+                        // UTF-8 hex digits/whitespace (for example
+                        // `bcs::to_bytes(&vec![9u8; 48])`, whose `0x09` bytes are
+                        // trimmed away leaving `"0"`) would be misread as an address
+                        // and corrupted.
+                        let explicit_prefix = s_trim.starts_with("0x");
+                        let acceptable_length =
+                            explicit_prefix || clean_hex.len() == AccountAddress::LENGTH * 2;
+                        if acceptable_length
+                            && !clean_hex.is_empty()
+                            && clean_hex.len() <= AccountAddress::LENGTH * 2
+                            && clean_hex.chars().all(|c| c.is_ascii_hexdigit())
                         {
-                            // This is a valid address hex string
-                            return bytes;
+                            let padded = if explicit_prefix {
+                                format!(
+                                    "{:0>width$}",
+                                    clean_hex,
+                                    width = AccountAddress::LENGTH * 2
+                                )
+                            } else {
+                                clean_hex.to_string()
+                            };
+                            if let Ok(bytes) = hex::decode(&padded) {
+                                return bytes;
+                            }
                         }
                     } else if s_trim.parse::<u64>().is_ok() {
                         // This looks like a number string

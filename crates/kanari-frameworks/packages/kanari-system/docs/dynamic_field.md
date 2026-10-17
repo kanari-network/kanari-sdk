@@ -11,6 +11,7 @@
 -  [Function `borrow`](#0x2_dynamic_field_borrow)
 -  [Function `remove`](#0x2_dynamic_field_remove)
 -  [Function `exists_`](#0x2_dynamic_field_exists_)
+-  [Function `exists_with_type`](#0x2_dynamic_field_exists_with_type)
 
 
 <pre><code><b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
@@ -60,7 +61,9 @@ Aborts with <code><a href="dynamic_field.md#0x2_dynamic_field_EFieldAlreadyExist
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_add">add</a>&lt;Name: <b>copy</b> + drop + store, Value: store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name, value: Value
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
+    name: Name,
+    value: Value,
 );
 </code></pre>
 
@@ -86,7 +89,8 @@ Aborts with <code><a href="dynamic_field.md#0x2_dynamic_field_EFieldDoesNotExist
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">borrow_mut</a>&lt;Name: <b>copy</b> + drop + store, Value: store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
+    name: Name,
 ): &<b>mut</b> Value;
 </code></pre>
 
@@ -112,7 +116,8 @@ Aborts with <code><a href="dynamic_field.md#0x2_dynamic_field_EFieldDoesNotExist
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;Name: <b>copy</b> + drop + store, Value: store&gt;(
-    <a href="object.md#0x2_object">object</a>: &UID, name: Name
+    <a href="object.md#0x2_object">object</a>: &UID,
+    name: Name,
 ): &Value;
 </code></pre>
 
@@ -138,7 +143,8 @@ Aborts with <code><a href="dynamic_field.md#0x2_dynamic_field_EFieldDoesNotExist
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_remove">remove</a>&lt;Name: <b>copy</b> + drop + store, Value: store&gt;(
-    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID, name: Name
+    <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
+    name: Name,
 ): Value;
 </code></pre>
 
@@ -163,7 +169,36 @@ Returns true if <code><a href="object.md#0x2_object">object</a></code> has a dyn
 
 
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_exists_">exists_</a>&lt;Name: <b>copy</b> + drop + store&gt;(
-    <a href="object.md#0x2_object">object</a>: &UID, name: Name
+    <a href="object.md#0x2_object">object</a>: &UID,
+    name: Name,
+): bool;
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_dynamic_field_exists_with_type"></a>
+
+## Function `exists_with_type`
+
+Returns true if <code><a href="object.md#0x2_object">object</a></code> has a dynamic field with key <code>name</code> whose
+value type is exactly <code>Value</code>. Missing fields and type mismatches
+both return false; this never aborts.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_exists_with_type">exists_with_type</a>&lt;Name: <b>copy</b>, drop, store, Value: store&gt;(<a href="object.md#0x2_object">object</a>: &<a href="object.md#0x2_object_UID">object::UID</a>, name: Name): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="dynamic_field.md#0x2_dynamic_field_exists_with_type">exists_with_type</a>&lt;Name: <b>copy</b> + drop + store, Value: store&gt;(
+    <a href="object.md#0x2_object">object</a>: &UID,
+    name: Name,
 ): bool;
 </code></pre>
 

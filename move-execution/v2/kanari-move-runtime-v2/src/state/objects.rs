@@ -49,28 +49,18 @@ impl StateManager {
         }
         let supply_bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
         Some((
-            Self::normalize_token_type(&token_type),
+            CoinModule::normalize_token_type(&token_type),
             u64::from_le_bytes(supply_bytes),
         ))
     }
 
     // Helper to construct DB key for object
 
-    pub(crate) fn object_lookup_ids(id: &str) -> Vec<String> {
-        let mut ids = vec![id.to_string()];
-        if let Some(canonical_id) = canonical_object_id(id)
-            && canonical_id != id
-        {
-            ids.push(canonical_id);
-        }
-        ids
-    }
-
     pub(crate) fn load_stored_object_by_any_id(
         &self,
         object_id: &str,
     ) -> Result<Option<(String, StoredObject)>> {
-        for candidate_id in Self::object_lookup_ids(object_id) {
+        for candidate_id in crate::common::ids::object_id_variants(object_id) {
             let obj_key = object_key(&candidate_id);
             if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
                 return Ok(Some((candidate_id, stored)));
@@ -153,7 +143,7 @@ impl StateManager {
         }
         let token_type = token_type_from_struct_tag(&struct_tag)?;
         let amount = extract_balance_from_object_bytes(data, &struct_tag)?;
-        Some((Self::normalize_token_type(&token_type), amount))
+        Some((CoinModule::normalize_token_type(&token_type), amount))
     }
 
     /// Get all object IDs owned by an address
@@ -170,7 +160,7 @@ impl StateManager {
         let Some((stored_id, stored)) = self.load_stored_object_by_any_id(object_id)? else {
             return Ok(None);
         };
-        let normalized_id = canonical_object_id(&stored_id).unwrap_or(stored_id.clone());
+        let normalized_id = canonical_object_id_or_raw(&stored_id);
         let uid = AccountAddress::from_hex_literal(&normalized_id)
             .ok()
             .map(UIDRecord::new);

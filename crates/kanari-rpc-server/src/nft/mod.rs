@@ -6,6 +6,7 @@ use crate::{
 };
 use kanari_rpc_api::{RpcRequest, RpcResponse};
 use kanari_types::address::Address;
+use kanari_types::collection::CollectionModule;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -81,7 +82,7 @@ fn parse_collection_fields(
     let mut website_url = String::new();
     let mut max_supply = 0u64;
 
-    if obj.type_.contains("::collection::Collection")
+    if CollectionModule::is_collection_type(&obj.type_)
         && let Ok(parsed) = bcs::from_bytes::<ParsedCollection>(&obj.data)
     {
         name = move_str_to_string(&parsed.name);
@@ -115,7 +116,10 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
 
     for id in owned_ids {
         if let Ok(Some(obj)) = state_guard.get_object(&id)
-            && (obj.type_.contains("::nft::") || obj.type_.to_uppercase().contains("NFT"))
+            && (obj
+                .type_
+                .contains(&format!("::{}::", CollectionModule::NFT_MODULE))
+                || obj.type_.to_uppercase().contains("NFT"))
         {
             nfts.push(json!({
                 "object_id": id,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use better_any::{Tid, TidAble};
+use move_core_types::account_address::AccountAddress;
 use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
 use move_core_types::runtime_value::MoveTypeLayout;
 use move_core_types::vm_status::StatusCode;
@@ -20,6 +21,10 @@ use crate::helpers::{expect_native_signature, make_module_natives};
 
 const E_FIELD_ALREADY_EXISTS: u64 = 1;
 const E_FIELD_DOES_NOT_EXIST: u64 = 2;
+/// Stored value is shorter than a UID: corrupt state, or `field_id` was
+/// pointed at a non-object field via hand-crafted bytecode. Surfaced through
+/// `kanari_system::dynamic_object_field::EInvalidChildId`.
+const E_INVALID_CHILD_ID: u64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
@@ -28,6 +33,8 @@ pub struct GasParameters {
     pub borrow_mut: InternalGas,
     pub remove: InternalGas,
     pub exists_: InternalGas,
+    pub exists_with_type: InternalGas,
+    pub field_id: InternalGas,
     /// Per-byte rate over serialized name (+ value, where touched).
     pub per_byte: InternalGasPerByte,
 }
@@ -40,6 +47,8 @@ impl GasParameters {
             borrow_mut: 0.into(),
             remove: 0.into(),
             exists_: 0.into(),
+            exists_with_type: 0.into(),
+            field_id: 0.into(),
             per_byte: 0.into(),
         }
     }
@@ -54,6 +63,8 @@ impl GasParameters {
             borrow_mut: 4_000.into(),
             remove: 6_000.into(),
             exists_: 2_000.into(),
+            exists_with_type: 2_000.into(),
+            field_id: 4_000.into(),
             per_byte: 50.into(),
         }
     }
@@ -202,6 +213,38 @@ impl DynamicFieldsExt {
 
     fn get_mut(&mut self, location: &FieldLocation) -> Option<&mut CachedDynamicField> {
         self.fields.get_mut(&Self::field_key(location))
+    }
+
+    /// Live cached value type name for `location`.
+    ///
+    /// Returns `None` when nothing is cached, `Some(None)` when the field was
+    /// removed in this transaction, and `Some(Some(type_name))` for a live
+    /// field. Read-only: never inserts, so a mismatched type probe cannot
+    /// poison later typed borrows.
+    fn cached_type_name(&self, location: &FieldLocation) -> Option<Option<String>> {
+        self.fields.get(&Self::field_key(location)).map(|entry| {
+            if entry.state == DynamicFieldState::Deleted {
+                None
+            } else {
+                Some(entry.value_spec.type_name.clone())
+            }
+        })
+    }
+
+    /// Live cached value bytes for `location`, shaped like
+    /// [`Self::cached_type_name`].
+    fn cached_value_bytes(&self, location: &FieldLocation) -> Option<Option<Vec<u8>>> {
+        self.fields.get(&Self::field_key(location)).map(|entry| {
+            if entry.state == DynamicFieldState::Deleted {
+                None
+            } else {
+                Some(
+                    entry
+                        .serialize_current_value()
+                        .unwrap_or_else(|| entry.last_value_bytes.clone()),
+                )
+            }
+        })
     }
 
     pub fn take_all(&mut self) -> Vec<DynamicFieldOp> {
@@ -410,6 +453,8 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let borrow_mut_gas = (gas_params.borrow_mut, per_byte);
     let remove_gas = (gas_params.remove, per_byte);
     let exists_gas = (gas_params.exists_, per_byte);
+    let exists_with_type_gas = (gas_params.exists_with_type, per_byte);
+    let field_id_gas = (gas_params.field_id, per_byte);
 
     let add: NativeFunction =
         Arc::new(move |context, ty_args, args| native_add(add_gas, context, ty_args, args));
@@ -422,6 +467,12 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
         Arc::new(move |context, ty_args, args| native_remove(remove_gas, context, ty_args, args));
     let exists_: NativeFunction =
         Arc::new(move |context, ty_args, args| native_exists_(exists_gas, context, ty_args, args));
+    let exists_with_type: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_exists_with_type(exists_with_type_gas, context, ty_args, args)
+    });
+    let field_id: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_field_id(field_id_gas, context, ty_args, args)
+    });
 
     make_module_natives([
         ("add", add),
@@ -429,6 +480,8 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
         ("borrow", borrow),
         ("remove", remove),
         ("exists_", exists_),
+        ("exists_with_type", exists_with_type),
+        ("field_id", field_id),
     ])
 }
 
@@ -583,4 +636,93 @@ fn native_exists_(
         context.gas_used(),
         smallvec![Value::bool(field_exists(context, &location)?)],
     ))
+}
+
+fn native_exists_with_type(
+    gas_params: (InternalGas, InternalGasPerByte),
+    context: &mut NativeContext,
+    ty_args: Vec<Type>,
+    mut arguments: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
+    let (gas_base, gas_per_byte) = gas_params;
+    native_charge_gas_early_exit!(context, gas_base);
+    expect_native_signature(arguments.len(), 2, ty_args.len(), 2)?;
+
+    let value_spec = parse_value_spec(context, &ty_args[1])?;
+    let location = parse_exists_location(context, &ty_args[0], &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(location.name_bytes.len() as u64)
+    );
+
+    // Prefer the exact type recorded for live cached fields; otherwise probe
+    // the durable bytes against the requested layout. Both paths are
+    // read-only (no cache insert), so a mismatched probe cannot poison later
+    // typed borrows. Same-layout, different-type values can report true from
+    // cold storage; callers needing exactness must `borrow` (which checks the
+    // recorded type name).
+    let mut cached: Option<Option<String>> = None;
+    crate::native_ext::with_ext_mut_or_default::<DynamicFieldsExt, _>(context, |ext| {
+        cached = ext.cached_type_name(&location);
+    });
+    let matched = match cached {
+        Some(Some(type_name)) => type_name == value_spec.type_name,
+        Some(None) => false,
+        None => match load_from_resolver(context, &location)? {
+            Some(value_bytes) => {
+                Value::simple_deserialize(&value_bytes, &value_spec.layout).is_some()
+            }
+            None => false,
+        },
+    };
+
+    Ok(NR::ok(context.gas_used(), smallvec![Value::bool(matched)]))
+}
+
+fn native_field_id(
+    gas_params: (InternalGas, InternalGasPerByte),
+    context: &mut NativeContext,
+    ty_args: Vec<Type>,
+    mut arguments: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
+    let (gas_base, gas_per_byte) = gas_params;
+    native_charge_gas_early_exit!(context, gas_base);
+    expect_native_signature(arguments.len(), 2, ty_args.len(), 1)?;
+
+    let location = parse_exists_location(context, &ty_args[0], &mut arguments)?;
+    native_charge_gas_early_exit!(
+        context,
+        gas_per_byte * NumBytes::new(location.name_bytes.len() as u64)
+    );
+
+    let mut cached: Option<Option<Vec<u8>>> = None;
+    crate::native_ext::with_ext_mut_or_default::<DynamicFieldsExt, _>(context, |ext| {
+        cached = ext.cached_value_bytes(&location);
+    });
+    let value_bytes = match cached {
+        Some(cached_bytes) => cached_bytes,
+        None => load_from_resolver(context, &location)?,
+    };
+
+    match value_bytes {
+        Some(bytes) => {
+            // Dynamic object field values are objects (`key`), whose BCS must
+            // start with the 32-byte UID (enforced for new packages by the
+            // publish-time UID-first rule for `key` structs).
+            let Some(child_bytes) = bytes.get(..AccountAddress::LENGTH) else {
+                return Ok(NR::err(context.gas_used(), E_INVALID_CHILD_ID));
+            };
+            let addr = AccountAddress::from_bytes(child_bytes).map_err(|_| {
+                PartialVMError::new(StatusCode::STORAGE_ERROR).with_message(
+                    "Dynamic field value holds a malformed child object id".to_string(),
+                )
+            })?;
+            Ok(NR::ok(context.gas_used(), smallvec![Value::address(addr)]))
+        }
+        None => Ok(NR::err(context.gas_used(), E_FIELD_DOES_NOT_EXIST)),
+    }
 }

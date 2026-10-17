@@ -6,6 +6,7 @@ use move_vm_runtime::native_functions::{NativeFunctionTable, make_table_from_ite
 
 pub mod address;
 pub mod base64;
+pub mod child;
 pub mod crypto;
 pub mod dynamic_field;
 pub mod event;
@@ -15,11 +16,13 @@ mod native_ext;
 pub mod object;
 pub mod transfer_natives;
 pub mod tx_context;
+pub mod types;
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
     pub address: address::GasParameters,
     pub base64: base64::GasParameters,
+    pub child: child::GasParameters,
     pub crypto: crypto::GasParameters,
     pub event: event::GasParameters,
     pub math_calculate: math_calculate::GasParameters,
@@ -27,6 +30,7 @@ pub struct GasParameters {
     pub transfer: transfer_natives::GasParameters,
     pub tx_context: tx_context::GasParameters,
     pub dynamic_field: dynamic_field::GasParameters,
+    pub types: types::GasParameters,
 }
 
 impl GasParameters {
@@ -34,6 +38,7 @@ impl GasParameters {
         Self {
             address: address::GasParameters::zeros(),
             base64: base64::GasParameters::zeros(),
+            child: child::GasParameters::zeros(),
             crypto: crypto::GasParameters::zeros(),
             event: event::GasParameters::zeros(),
             math_calculate: math_calculate::GasParameters::zeros(),
@@ -41,6 +46,7 @@ impl GasParameters {
             transfer: transfer_natives::GasParameters::zeros(),
             tx_context: tx_context::GasParameters::zeros(),
             dynamic_field: dynamic_field::GasParameters::zeros(),
+            types: types::GasParameters::zeros(),
         }
     }
 
@@ -57,6 +63,7 @@ impl GasParameters {
         Self {
             address: address::GasParameters::production(),
             base64: base64::GasParameters::production(),
+            child: child::GasParameters::production(),
             crypto: crypto::GasParameters::production(),
             event: event::GasParameters::production(),
             math_calculate: math_calculate::GasParameters::production(),
@@ -64,6 +71,7 @@ impl GasParameters {
             transfer: transfer_natives::GasParameters::production(),
             tx_context: tx_context::GasParameters::production(),
             dynamic_field: dynamic_field::GasParameters::production(),
+            types: types::GasParameters::production(),
         }
     }
 }
@@ -132,8 +140,13 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
         "dynamic_object_field",
         dynamic_field::make_all(gas_params.dynamic_field)
     );
+    add_module_natives!(
+        "dynamic_object_field",
+        child::make_all(gas_params.child.clone())
+    );
 
     add_module_natives!("address", address::make_address_natives(gas_params.address));
+    add_module_natives!("types", types::make_all(gas_params.types));
 
     make_table_from_iter(move_addr, natives)
 }

@@ -13,9 +13,14 @@ pub const GAS_COIN: &str = "0x2::kanari::KANARI";
 
 impl GasModule {
     pub const GAS_MODULE: &'static str = "kanari";
+    /// Name of the coin witness struct in Move `kanari.move`.
+    pub const KANARI_STRUCT: &'static str = "KANARI";
 
     /// The amount of Mist per Kanari token (10^-9 of a Kanari token)
     pub const MIST_PER_GAS: u64 = 1_000_000_000;
+
+    /// Move name of the same constant (`MIST_PER_KANARI` in `kanari.move`).
+    pub const MIST_PER_KANARI: u64 = Self::MIST_PER_GAS;
 
     /// Native token decimals.
     pub const KANARI_DECIMALS: u32 = 9;
@@ -23,8 +28,15 @@ impl GasModule {
     /// The total supply of Kanari denominated in whole Kanari tokens (11 Million)
     pub const TOTAL_SUPPLY_GAS: u64 = 11_000_000;
 
+    /// Move name of the same constant (`TOTAL_SUPPLY_KANARI` in `kanari.move`).
+    pub const TOTAL_SUPPLY_KANARI: u64 = Self::TOTAL_SUPPLY_GAS;
+
     /// The total supply of Kanari denominated in Mist (11 Million * 10^9)
     pub const TOTAL_SUPPLY_MIST: u64 = 11_000_000_000_000_000;
+
+    /// Move name of the same constant: mist reserved for the dev wallet at
+    /// genesis (`DEV_GAS_RESERVE_MIST` in `kanari.move`).
+    pub const DEV_GAS_RESERVE_MIST: u64 = 1_000_000_000;
 
     /// Get the module ID for kanari_system::kanari
     pub fn get_module_id() -> Result<ModuleId> {
@@ -44,7 +56,6 @@ impl GasModule {
     /// Get function names used in gas module
     pub fn function_names() -> GasFunctions {
         GasFunctions {
-            init: "init",
             transfer: "transfer",
             burn: "burn",
         }
@@ -139,9 +150,9 @@ impl GasModule {
     }
 }
 
-/// Gas module function names
+/// Gas module function names. `kanari.move` only exposes these two public
+/// entry points; `init` is the private module initializer run at publish.
 pub struct GasFunctions {
-    pub init: &'static str,
     pub transfer: &'static str,
     pub burn: &'static str,
 }

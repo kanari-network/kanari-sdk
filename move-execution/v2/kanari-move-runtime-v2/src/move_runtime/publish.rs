@@ -335,9 +335,7 @@ impl MoveRuntime {
         cs.set_gas_used(cs.gas_used.max(vm_gas_used));
 
         if persist_runtime_state {
-            self.apply_move_changeset(move_changeset)?;
-            self.persist_created_objects(&cs)?;
-            self.persist_deleted_objects(&cs)?;
+            self.apply_and_persist_move_changeset(move_changeset, &cs)?;
             self.reload_vm_cache()?;
         }
 
@@ -445,7 +443,11 @@ impl MoveRuntime {
             deleted,
             dynamic_fields,
             borrowed,
+            claimed_witnesses,
+            child_links,
         } = SessionNativeOutputs::drain(session.get_native_extensions());
+
+        self.record_session_metadata_writes(cs, claimed_witnesses, child_links, None)?;
 
         self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
         SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);

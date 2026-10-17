@@ -40,13 +40,6 @@ impl StateManager {
 
         Ok(())
     }
-    /// Normalize a token type string to its canonical display form.
-    pub(crate) fn normalize_token_type(token_type: &str) -> String {
-        if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
-            return format!("{}", st);
-        }
-        token_type.to_string()
-    }
 
     /// Adjust the global token supply cache based on an owner's old and new balances.
     pub(crate) fn adjust_global_supplies_for_account_delta(

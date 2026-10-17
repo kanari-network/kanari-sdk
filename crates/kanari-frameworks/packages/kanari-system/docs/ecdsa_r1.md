@@ -86,7 +86,9 @@ The message will be hashed with SHA256 before verification.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_r1.md#0x2_ecdsa_r1_verify">verify</a>(
-    signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
+    signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ): bool {
     <b>assert</b>!(
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(signature) == <a href="ecdsa_r1.md#0x2_ecdsa_r1_ECDSA_R1_RAW_SIGNATURE_LENGTH">ECDSA_R1_RAW_SIGNATURE_LENGTH</a>,
@@ -123,7 +125,7 @@ The message will be hashed with SHA256 before verification.
     signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     msg: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    hash_type: u8
+    hash_type: u8,
 ): bool;
 </code></pre>
 

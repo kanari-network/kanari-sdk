@@ -3,6 +3,8 @@
 
 // TODO: rename ecdsa_k1 to secp256k1 due to signature types change
 module kanari_system::ecdsa_k1 {
+    use std::vector;
+
     /// constant codes
     const ECDSA_K1_COMPRESSED_PUBKEY_LENGTH: u64 = 33;
     const ECDSA_K1_UNCOMPRESSED_PUBKEY_LENGTH: u64 = 65;
@@ -235,7 +237,6 @@ module kanari_system::ecdsa_k1 {
     // Helper Move function to recover signature directly to an ETH address.
     #[allow(unused_function)]
     fun ecrecover_eth_address(sig: vector<u8>, msg: vector<u8>): vector<u8> {
-        use std::vector;
         use std::hash;
 
         // Normalize the last byte of the signature to be 0 or 1.

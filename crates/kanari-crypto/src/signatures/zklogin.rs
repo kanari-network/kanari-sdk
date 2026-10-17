@@ -427,6 +427,15 @@ pub fn verify_jwt_with_jwks(
 ) -> Result<JwtClaims, SignatureError> {
     use jsonwebtoken::Algorithm;
 
+    // Fail closed on empty trust parameters: an empty expectation would
+    // only match tokens that are themselves empty/malformed, so there is
+    // no legitimate caller. Admission always passes chain allow-listed
+    // values here (see `zk_authenticator::ZkLoginAdmissionPolicy`).
+    if expected_iss.trim().is_empty() || expected_aud.trim().is_empty() {
+        return Err(SignatureError::InvalidFormat(
+            "expected iss/aud must be non-empty".to_string(),
+        ));
+    }
     let header = jsonwebtoken::decode_header(jwt)
         .map_err(|e| SignatureError::InvalidFormat(format!("bad JWT header: {e}")))?;
     if header.alg != Algorithm::RS256 {

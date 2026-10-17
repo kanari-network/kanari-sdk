@@ -1,11 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::pay {
+    use std::vector;
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::coin::{Self, Coin};
-    use kanari_system::deny_list::{Self, DenyList};
+    use kanari_system::deny_list::DenyList;
     use kanari_system::transfer;
-    use std::vector;
 
     /// For when empty vector is supplied into join function.
     const ENoCoins: u64 = 0;
@@ -75,8 +75,9 @@ module kanari_system::pay {
     }
 
     /// Regulated send: like `split_and_transfer`, but aborts `EDENIED` when
-    /// `recipient` is on the given deny list. Plain `split_and_transfer`
-    /// deliberately skips the check (permissionless coin path).
+    /// `recipient` is on the shared deny list for the coin type. Plain
+    /// `split_and_transfer` deliberately skips the check (permissionless
+    /// coin path).
     public entry fun split_and_transfer_checked<T>(
         c: &mut Coin<T>,
         amount: u64,
@@ -84,7 +85,8 @@ module kanari_system::pay {
         deny: &DenyList,
         ctx: &mut TxContext,
     ) {
-        assert!(!deny_list::contains(deny, recipient), EDENIED);
+        assert!(!coin::deny_list_contains<T>(deny, recipient), EDENIED);
+        assert!(!coin::deny_list_paused<T>(deny), EDENIED);
         split_and_transfer(c, amount, recipient, ctx)
     }
 
@@ -142,5 +144,20 @@ module kanari_system::pay {
         let self = vector::pop_back(&mut coins);
         join_vec(&mut self, coins);
         transfer::public_transfer(self, receiver)
+    }
+
+    /// Regulated join: like `join_vec_and_transfer`, but aborts `EDENIED` when
+    /// `receiver` is on the shared deny list for the coin type.
+    /// `join_vec_and_transfer` deliberately skips the check (permissionless
+    /// coin path).
+    public entry fun join_vec_and_transfer_checked<T>(
+        coins: vector<Coin<T>>,
+        receiver: address,
+        deny: &DenyList,
+        ctx: &TxContext,
+    ) {
+        assert!(!coin::deny_list_contains<T>(deny, receiver), EDENIED);
+        assert!(!coin::deny_list_paused<T>(deny), EDENIED);
+        join_vec_and_transfer(coins, receiver, ctx)
     }
 }

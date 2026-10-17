@@ -34,7 +34,7 @@ impl StateManager {
         token_type: &str,
     ) {
         owners_to_recompute.insert(owner);
-        if Self::normalize_token_type(token_type) == GAS_COIN {
+        if CoinModule::normalize_token_type(token_type) == GAS_COIN {
             native_object_changed_owners.insert(owner);
         } else {
             non_native_object_changed_owners.insert(owner);
@@ -65,7 +65,7 @@ impl StateManager {
         data: &[u8],
     ) -> Option<String> {
         Self::balance_token_amount(type_name, data)
-            .map(|(token_type, _)| Self::normalize_token_type(&token_type))
+            .map(|(token_type, _)| CoinModule::normalize_token_type(&token_type))
     }
 
     pub(crate) fn changeset_creates_object_balance_for_owner(

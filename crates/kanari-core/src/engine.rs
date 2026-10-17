@@ -2002,7 +2002,8 @@ impl BlockchainEngine {
                 .ok_or_else(|| {
                     anyhow::anyhow!("Owned-object index references missing object {id}")
                 })?;
-            let coin_amount = if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
+            let coin_amount = if CoinModule::is_coin_object_type(&obj.type_) && obj.data.len() >= 40
+            {
                 let mut arr = [0u8; 8];
                 arr.copy_from_slice(&obj.data[32..40]);
                 Some(u64::from_le_bytes(arr))
