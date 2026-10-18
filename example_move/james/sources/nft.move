@@ -88,6 +88,7 @@ module james::nft {
     /// Mint function according to international standards.
     public entry fun mint(
         cap: &mut collection::NftCap,
+        coll: &collection::Collection,
         name: vector<u8>,
         description: vector<u8>,
         url_bytes: vector<u8>,
@@ -96,7 +97,7 @@ module james::nft {
         number: vector<u8>,
         ctx: &mut TxContext,
     ) {
-        collection::consume_for_mint(cap);
+        collection::consume_for_mint(cap, coll);
         let sender = tx_context::sender(ctx);
         let nft = KariKid {
             id: object::new(ctx),
@@ -243,9 +244,10 @@ module james::nft {
     /// retrieve objects from).
     public fun mint_for_test(
         cap: &mut collection::NftCap,
+        coll: &collection::Collection,
         ctx: &mut TxContext,
     ): KariKid {
-        collection::consume_for_mint(cap);
+        collection::consume_for_mint(cap, coll);
         KariKid {
             id: object::new(ctx),
             name: utf8(b"Test Kid"),

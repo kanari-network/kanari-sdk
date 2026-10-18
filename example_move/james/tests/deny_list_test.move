@@ -238,7 +238,7 @@ module james::deny_list_tests {
         let (coll, cap) = setup_collection(ctx);
         let deny_list = kdeny::new_for_testing(ctx);
 
-        let nft = nft::mint_for_test(&mut cap, ctx);
+        let nft = nft::mint_for_test(&mut cap, &coll, ctx);
         nft::transfer_with_list(nft, BOB, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);
@@ -254,7 +254,7 @@ module james::deny_list_tests {
         let deny_list = kdeny::new_for_testing(ctx);
         nft::deny_add(&mut deny_list, &cap, ALICE, ctx);
 
-        let nft = nft::mint_for_test(&mut cap, ctx);
+        let nft = nft::mint_for_test(&mut cap, &coll, ctx);
         nft::transfer_with_list(nft, ALICE, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);
@@ -288,7 +288,7 @@ module james::deny_list_tests {
         nft::deny_pause(&mut deny_list, &cap, ctx);
 
         // BOB is not denied, but the pause still blocks the transfer.
-        let nft = nft::mint_for_test(&mut cap, ctx);
+        let nft = nft::mint_for_test(&mut cap, &coll, ctx);
         nft::transfer_with_list(nft, BOB, &deny_list, ctx);
 
         transfer::public_freeze_object(coll);

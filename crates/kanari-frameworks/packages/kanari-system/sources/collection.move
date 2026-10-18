@@ -22,7 +22,12 @@ module kanari_system::collection {
     }
 
     /// A capability resource that governs minting within a Collection.
-    struct NftCap has key, store, drop {
+    ///
+    /// Deliberately has no `drop`: dropping the cap would strand the
+    /// collection's remaining supply permanently, with no way to recover it.
+    /// Without `drop`, every path that stops holding the cap must transfer it
+    /// explicitly.
+    struct NftCap has key, store {
         id: UID,
         remaining: u64,
         issued_counter: u64,
@@ -106,16 +111,24 @@ module kanari_system::collection {
 
     /// Updates collection display metadata. Only the original collection creator
     /// may perform this mutation; supply and ownership are intentionally unchanged.
+    ///
+    /// The write goes through `borrow_global_mut` on the collection's own
+    /// address. A `&mut Collection` reference cannot persist anything here:
+    /// the caller holds the value, so mutating through the reference would
+    /// only change the caller's copy and the mutation would silently vanish.
+    /// Taking the shared object by address is what makes it durable.
     public fun update_metadata(
-        c: &mut Collection,
+        c: &Collection,
         banner_url: vector<u8>,
         website_url: vector<u8>,
         ctx: &TxContext,
     ) {
         assert!(tx_context::sender(ctx) == c.creator, E_NOT_COLLECTION_CREATOR);
-        c.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
-        c.website_url = kanari_system::url::new_unsafe_from_bytes(website_url);
-        object::save_object(c);
+        let addr = object::uid_address(&c.id);
+        let c_mut = object::borrow_global_mut<Collection>(addr);
+        c_mut.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
+        c_mut.website_url = kanari_system::url::new_unsafe_from_bytes(website_url);
+        object::save_object(c_mut);
     }
 
     public fun remaining(cap: &NftCap): u64 {
@@ -127,7 +140,22 @@ module kanari_system::collection {
     }
 
     /// Consume one supply unit from the cap for minting.
-    public fun consume_for_mint(cap: &mut NftCap) {
+    ///
+    /// `collection` is required because the cap alone cannot enforce the
+    /// supply limit: `return_from_burn` legitimately raises `remaining` and
+    /// carries no proof that a token was actually burned, so a cap holder can
+    /// cycle `remaining` back to `max_supply` and mint forever. `issued_counter`
+    /// never decreases, so bounding it against `max_supply` here is what
+    /// actually caps the collection.
+    ///
+    /// The cap's `collection_id` is checked as well, so a cap transferred away
+    /// from its collection cannot mint against a different supply pool.
+    public fun consume_for_mint(cap: &mut NftCap, collection: &Collection) {
+        assert!(
+            cap.collection_id == object::uid_address(&collection.id),
+            E_CAP_COLLECTION_MISMATCH
+        );
+        assert!(cap.issued_counter < collection.max_supply, E_NO_SUPPLY);
         assert!(cap.remaining > 0, E_NO_SUPPLY);
         cap.issued_counter = cap.issued_counter + 1;
         cap.remaining = cap.remaining - 1;
@@ -188,7 +216,7 @@ module kanari_system::collection {
         assert!(collection_creator(&coll) == tx_context::sender(&ctx), 1);
 
         // mint one
-        consume_for_mint(&mut cap);
+        consume_for_mint(&mut cap, &coll);
         assert!(remaining(&cap) == 1, 2);
         assert!(issued(&cap) == 1, 3);
 
@@ -214,7 +242,7 @@ module kanari_system::collection {
                 b"https://web",
                 1
             );
-        consume_for_mint(&mut cap);
+        consume_for_mint(&mut cap, &coll);
         return_from_burn(&mut cap, &coll);
         // remaining == max_supply already: one more return would inflate
         // mint allowance past the collection cap.
@@ -245,13 +273,47 @@ module kanari_system::collection {
                 b"https://web",
                 10
             );
-        consume_for_mint(&mut cap_a);
+        consume_for_mint(&mut cap_a, &coll_a);
         // cap_a belongs to coll_a, not coll_b.
         return_from_burn(&mut cap_a, &coll_b);
         transfer_cap(cap_a, tx_context::sender(&ctx), &mut ctx);
         transfer_cap(cap_b, tx_context::sender(&ctx), &mut ctx);
         transfer_collection(coll_a, tx_context::sender(&ctx), &mut ctx);
         transfer_collection(coll_b, tx_context::sender(&ctx), &mut ctx);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_NO_SUPPLY)]
+    fun test_supply_cap_survives_faked_burns() {
+        let ctx = tx_context::dummy();
+        let (coll, cap) =
+            create_collection(
+                &mut ctx,
+                b"N",
+                b"D",
+                b"https://banner",
+                b"https://web",
+                2
+            );
+
+        // Exhaust the advertised supply.
+        consume_for_mint(&mut cap, &coll);
+        consume_for_mint(&mut cap, &coll);
+        assert!(issued(&cap) == 2, 0);
+        assert!(remaining(&cap) == 0, 1);
+
+        // Reclaim supply WITHOUT burning anything. `return_from_burn` has no
+        // proof-of-burn parameter, so a cap holder can always call it; if the
+        // cap were enforced by `remaining` alone this would reopen minting and
+        // let `issued` grow past `max_supply` without limit.
+        return_from_burn(&mut cap, &coll);
+        return_from_burn(&mut cap, &coll);
+
+        // `issued` is the monotonic counter, so this must stay capped.
+        consume_for_mint(&mut cap, &coll);
+
+        transfer_cap(cap, tx_context::sender(&ctx), &mut ctx);
+        transfer_collection(coll, tx_context::sender(&ctx), &mut ctx);
     }
 
     // Test functions that require constructing a `TxContext` are executed
