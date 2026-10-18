@@ -1,9 +1,7 @@
 // Kanari Labs NFT Module - Universal Standard Version
 module james::nft {
-    use std::ascii;
     use std::string::{String, utf8};
-    use std::type_name;
-    use kanari_system::deny_list::{Self, DenyList};
+    use james::kdeny::{Self, DenyList};
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
     use kanari_system::transfer;
@@ -45,20 +43,8 @@ module james::nft {
 
     const MAX_SUPPLY: u64 = 2000;
 
-    /// Deny-list bag index for the KariKid family. Coin entries live under
-    /// `deny_list::coin_index()` (0); object families use their own index so
-    /// the two never collide.
-    const NFT_DENY_INDEX: u64 = 1;
-
     /// Abort code when the recipient is denied or KariKid transfers pause.
     const EDENIED: u64 = 1;
-
-    /// Canonical deny-list key for KariKid: its `type_name` bytes, mirroring
-    /// `coin::deny_type_key` so tooling can reproduce the exact format.
-    fun nft_type_key(): vector<u8> {
-        let name = type_name::get<KariKid>();
-        *ascii::as_bytes(type_name::borrow_string(&name))
-    }
 
     #[allow(unused_function)]
     /// Function to create a collection; executed once by the runtime during publication
@@ -82,6 +68,10 @@ module james::nft {
             );
         transfer::public_transfer(issuer, sender);
         transfer::public_transfer(coll, sender);
+        // The family blocklist is created and shared here so `transfer` has a
+        // stable shared object to consult. Its id is emitted in the init
+        // effects; clients read it before building a transfer.
+        kdeny::create_shared(ctx);
     }
 
     /// Replaces collection artwork without recreating the collection. Only the
@@ -152,19 +142,20 @@ module james::nft {
     }
 
     /// NFT transfer (regulated): aborts `EDENIED` when `recipient` is on the
-    /// KariKid deny list or KariKid transfers are globally paused. The
-    /// shared `DenyList` singleton (`@0x403`) is borrowed by the framework,
-    /// so callers pass no deny-list argument.
+    /// issuer-controlled KariKid blocklist or transfers are globally paused.
+    /// The blocklist is the shared `kdeny::DenyList` created at publication,
+    /// so it is an explicit object input rather than a framework singleton.
     public entry fun transfer(
+        list: &DenyList,
         nft: KariKid,
         recipient: address,
         ctx: &mut TxContext,
     ) {
-        transfer_with_list(nft, recipient, deny_list::borrow_singleton(), ctx);
+        transfer_with_list(nft, recipient, list, ctx);
     }
 
     /// Same transfer against an explicitly passed list. Used by unit tests,
-    /// which run without a genesis singleton to borrow.
+    /// which run without a shared-object store.
     public fun transfer_with_list(
         nft: KariKid,
         recipient: address,
@@ -191,56 +182,59 @@ module james::nft {
     // ==========================================
     // Deny-list management (regulated NFT)
     // ==========================================
-    /// The shared `deny_list::v1_*` functions are permissionless at the
-    /// framework level, so this module gates every write with
-    /// `&collection::NftCap`: only the collection issuer can maintain
-    /// KariKid entries — the same role separation `coin::DenyCap` gives
-    /// regulated coins.
+    /// Writes go to `kdeny::DenyList`, which is gated by `&collection::NftCap`
+    /// and therefore only the collection issuer can maintain it. The
+    /// framework `deny_list` registry is coin-only by design: its mutators
+    /// are `public(friend)` and `DenyCap<T>` is mintable only through
+    /// `coin::create_regulated_currency`, so no package can write an NFT
+    /// namespace into the shared `@0x403` registry.
 
     /// Add `addr` to the KariKid deny list. Only the NftCap holder.
     public entry fun deny_add(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
         addr: address,
         ctx: &mut TxContext,
     ) {
-        deny_list::v1_add(deny_list, NFT_DENY_INDEX, nft_type_key(), addr, ctx);
+        kdeny::deny_add(deny_list, cap, addr, ctx);
     }
 
     /// Remove `addr` from the KariKid deny list. Aborts when not denied.
     public entry fun deny_remove(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
         addr: address,
+        _: &mut TxContext,
     ) {
-        deny_list::v1_remove(deny_list, NFT_DENY_INDEX, nft_type_key(), addr);
+        kdeny::deny_remove(deny_list, cap, addr);
     }
 
     /// Pause all KariKid transfers (fail-closed kill-switch).
     public entry fun deny_pause(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
         ctx: &mut TxContext,
     ) {
-        deny_list::v2_enable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key(), ctx);
+        kdeny::deny_pause(deny_list, cap, ctx);
     }
 
     /// Lift the KariKid pause.
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
+        ctx: &mut TxContext,
     ) {
-        deny_list::v2_disable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key());
+        kdeny::deny_unpause(deny_list, cap, ctx);
     }
 
     /// Open read: true iff `addr` is denied for KariKid.
     public fun is_denied(deny_list: &DenyList, addr: address): bool {
-        deny_list::v1_contains(deny_list, NFT_DENY_INDEX, nft_type_key(), addr)
+        kdeny::is_denied(deny_list, addr)
     }
 
     /// Open read: true iff KariKid transfers are globally paused.
     public fun is_paused(deny_list: &DenyList): bool {
-        deny_list::v2_is_global_pause_enabled(deny_list, NFT_DENY_INDEX, nft_type_key())
+        kdeny::is_paused(deny_list)
     }
 
     #[test_only]
