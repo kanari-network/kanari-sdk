@@ -19,9 +19,11 @@ a type in your own package.
 
 Sui additionally enforces one Display per type through a host-side registry,
 so a second Display for the same <code>T</code> is rejected at publish time. This
-runtime has no such registry: creating two Displays for one type is possible,
-and clients must resolve by type name and prefer the most recent. Packages
-that care should create exactly one, in <code>init</code>.
+runtime now does the same: <code>new_display</code> claims <code>T</code> in the host's durable
+type registry, so the first Display created for a type is the only one that
+can ever exist. Combined with the unbound <code>&Publisher&lt;W&gt;</code> argument, that
+closes the gap — a publisher for *some* type can no longer mint a
+<code><a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;</code> once the real owner has already created one.
 
 
 -  [Resource `Display`](#0x2_display_Display)
@@ -53,6 +55,7 @@ that care should create exactly one, in <code>init</code>.
 <b>use</b> <a href="package.md#0x2_package">0x2::package</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
+<b>use</b> <a href="types.md#0x2_types">0x2::types</a>;
 <b>use</b> <a href="vec_map.md#0x2_vec_map">0x2::vec_map</a>;
 </code></pre>
 
@@ -239,6 +242,9 @@ edition has no <code><b>let</b> <b>mut</b></code> bindings, so the loop body nee
     values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     ctx: &<b>mut</b> TxContext,
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
+    // One <a href="display.md#0x2_display_Display">Display</a> per type, enforced by the host and persisted across
+    // transactions.
+    <a href="types.md#0x2_types_claim_display">types::claim_display</a>&lt;T&gt;();
     <b>let</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a> = utf8(<a href="display.md#0x2_display_type_name_bytes">type_name_bytes</a>&lt;T&gt;());
     <b>let</b> fields = <a href="display.md#0x2_display_seed_fields">seed_fields</a>(keys, values, <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>);
     <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), fields }

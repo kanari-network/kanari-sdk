@@ -840,7 +840,8 @@ module kanari_system::kiosk {
     struct KIOSK has drop {}
 
     #[test_only]
-    /// A second traded type, for the type-mismatch checks.
+    // A second traded type, for the type-mismatch checks.
+    #[allow(unused_field)]
     struct OTHER_ITEM has key, store {
         id: UID,
     }

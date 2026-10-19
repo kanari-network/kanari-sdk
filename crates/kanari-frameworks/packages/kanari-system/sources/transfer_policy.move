@@ -41,6 +41,7 @@ module kanari_system::transfer_policy {
     use kanari_system::package::Publisher;
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
+    use kanari_system::types;
     use kanari_system::vec_map::{Self, VecMap};
     use kanari_system::vec_set::{Self, VecSet};
 
@@ -111,10 +112,18 @@ module kanari_system::transfer_policy {
     /// Sharing the policy is what makes `T` tradable in a kiosk. A type whose
     /// policy is never shared simply cannot be traded — trading is opt-in, and
     /// the creator revokes it by destroying the policy.
+    ///
+    /// Claims `T` in the host's durable registry, so exactly one
+    /// `TransferPolicy<T>` can ever exist. Without it the unbound `&Publisher<W>`
+    /// would let any publisher holder mint a second, rule-free policy for a type
+    /// they do not own and trade it around the real one. Consequence: `destroy`
+    /// is terminal — a type whose policy is destroyed can never be made
+    /// tradable again.
     public fun new<T: key + store, W: drop>(
         _pub: &Publisher<W>,
         ctx: &mut TxContext,
     ): (TransferPolicy<T>, TransferPolicyCap<T>) {
+        types::claim_transfer_policy<T>();
         let policy = TransferPolicy<T> {
             id: object::new(ctx),
             rules: vec_map::empty<vector<u8>, AnyRule>(),

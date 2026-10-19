@@ -17,9 +17,11 @@
 ///
 /// Sui additionally enforces one Display per type through a host-side registry,
 /// so a second Display for the same `T` is rejected at publish time. This
-/// runtime has no such registry: creating two Displays for one type is possible,
-/// and clients must resolve by type name and prefer the most recent. Packages
-/// that care should create exactly one, in `init`.
+/// runtime now does the same: `new_display` claims `T` in the host's durable
+/// type registry, so the first Display created for a type is the only one that
+/// can ever exist. Combined with the unbound `&Publisher<W>` argument, that
+/// closes the gap — a publisher for *some* type can no longer mint a
+/// `Display<T>` once the real owner has already created one.
 module kanari_system::display {
     use std::vector;
     use std::option::{Self, Option};
@@ -28,6 +30,7 @@ module kanari_system::display {
     use kanari_system::package::Publisher;
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
+    use kanari_system::types;
     use kanari_system::vec_map::{Self, VecMap};
 
     #[test_only]
@@ -96,6 +99,9 @@ module kanari_system::display {
         values: vector<vector<u8>>,
         ctx: &mut TxContext,
     ): Display<T> {
+        // One Display per type, enforced by the host and persisted across
+        // transactions.
+        types::claim_display<T>();
         let type_name = utf8(type_name_bytes<T>());
         let fields = seed_fields(keys, values, type_name);
         Display<T> { id: object::new(ctx), fields }

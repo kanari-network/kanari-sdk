@@ -94,6 +94,7 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 <b>use</b> <a href="package.md#0x2_package">0x2::package</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
+<b>use</b> <a href="types.md#0x2_types">0x2::types</a>;
 <b>use</b> <a href="vec_map.md#0x2_vec_map">0x2::vec_map</a>;
 <b>use</b> <a href="vec_set.md#0x2_vec_set">0x2::vec_set</a>;
 </code></pre>
@@ -320,6 +321,13 @@ Sharing the policy is what makes <code>T</code> tradable in a kiosk. A type whos
 policy is never shared simply cannot be traded — trading is opt-in, and
 the creator revokes it by destroying the policy.
 
+Claims <code>T</code> in the host's durable registry, so exactly one
+<code><a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;</code> can ever exist. Without it the unbound <code>&Publisher&lt;W&gt;</code>
+would let any publisher holder mint a second, rule-free policy for a type
+they do not own and trade it around the real one. Consequence: <code>destroy</code>
+is terminal — a type whose policy is destroyed can never be made
+tradable again.
+
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new">new</a>&lt;T: store, key, W: drop&gt;(_pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">transfer_policy::TransferPolicyCap</a>&lt;T&gt;)
 </code></pre>
@@ -334,6 +342,7 @@ the creator revokes it by destroying the policy.
     _pub: &Publisher&lt;W&gt;,
     ctx: &<b>mut</b> TxContext,
 ): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;, <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;) {
+    <a href="types.md#0x2_types_claim_transfer_policy">types::claim_transfer_policy</a>&lt;T&gt;();
     <b>let</b> policy = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt; {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         rules: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, <a href="transfer_policy.md#0x2_transfer_policy_AnyRule">AnyRule</a>&gt;(),
