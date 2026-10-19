@@ -1,0 +1,9 @@
+[package]
+name = "PetStatsForgery"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+kanari_pet = { local = "../../../../../../example_move/kanari_pet" }
+
+[addresses]
+tester = "0x43"

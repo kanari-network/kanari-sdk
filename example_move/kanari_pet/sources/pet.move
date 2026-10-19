@@ -27,7 +27,7 @@
 /// that cannot be hoisted to the type. So those live here, on the token.
 module kanari_pet::pet {
     use std::option::{Self, Option};
-    use std::string::String;
+    use std::string::{Self, String};
     use std::vector;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::collection::{Self, Collection, NftCap};
@@ -40,7 +40,59 @@ module kanari_pet::pet {
     use kanari_system::transfer;
     use kanari_system::transfer_policy::{Self, TransferPolicy, TransferPolicyCap};
     use kanari_system::tx_context::{Self, TxContext};
+    use kanari_system::usd::USD;
     use kanari_system::vec_map::VecMap;
+
+    // ==================== Progression ====================
+    //
+    // `power`, `level` and `rarity` are stored as ordinary attributes so a
+    // wallet renders them with no special-casing — but they are **reserved
+    // keys**. The generic `set_attribute` refuses them, so the only way to
+    // write them is `mint_with_level` (free, at birth) or `upgrade` (paid, in
+    // USD). Without that reservation the economy is void: anyone could call
+    // `set_attribute(pet, "power", "999999")` and buy nothing.
+
+    /// Reserved attribute key holding the pet's power rating.
+    const ATTR_POWER: vector<u8> = b"power";
+
+    /// Reserved attribute key holding the pet's level.
+    const ATTR_LEVEL: vector<u8> = b"level";
+
+    /// Reserved attribute key holding the pet's rarity band name.
+    const ATTR_RARITY: vector<u8> = b"rarity";
+
+    /// A caller tried to write a reserved key through the generic setter,
+    /// bypassing the paid upgrade path.
+    const E_RESERVED_ATTRIBUTE: u64 = 0;
+
+    /// The pet is already at `Stats::max_level`.
+    const E_MAX_LEVEL: u64 = 1;
+
+    /// The `Coin<USD>` does not cover the quoted upgrade cost.
+    const E_INSUFFICIENT_USD: u64 = 2;
+
+    /// The minted level exceeds the configured cap.
+    const E_LEVEL_OUT_OF_RANGE: u64 = 3;
+
+    /// Upgrade economics for every `KanariPet`.
+    ///
+    /// Shared rather than per-pet so the parameters are one object an indexer
+    /// can read and the creator can reason about, and so an upgrade reads the
+    /// same numbers every time instead of whatever a token happened to carry.
+    struct Stats has key, store {
+        id: UID,
+        /// Where upgrade payments go.
+        treasury: address,
+        /// USD (6-decimal base units) charged for the step from level N to N+1.
+        /// The actual charge is `base_cost_usd * (N + 1)`, so later levels cost
+        /// progressively more instead of the sink being infinitely spammable at
+        /// a flat price.
+        base_cost_usd: u64,
+        /// Power granted per level.
+        power_per_level: u64,
+        /// Hard ceiling. At this level `upgrade` refuses rather than wrapping.
+        max_level: u64,
+    }
 
     /// The token itself: a `UID` plus its own attributes, and nothing else.
     ///
@@ -88,6 +140,17 @@ module kanari_pet::pet {
         pet_id: address,
     }
 
+    /// Emitted when a pet is upgraded. Carries the USD actually charged so an
+    /// indexer can reconcile revenue without replaying the price formula.
+    struct Upgraded has copy, drop {
+        pet_id: address,
+        owner: address,
+        level_before: u64,
+        level_after: u64,
+        power_after: u64,
+        usd_paid: u64,
+    }
+
     /// Publication-time setup, run once by the runtime.
     ///
     /// Claims type authority, shares the display, and shares the transfer policy
@@ -118,6 +181,19 @@ module kanari_pet::pet {
         let policy = install_royalty(policy, &cap, sender);
         transfer_policy::share<KanariPet>(policy);
 
+        // Upgrade economics, shared so every pet reads the same numbers and the
+        // treasury is a single address rather than something carried per token.
+        transfer::share_object(
+            Stats {
+                id: object::new(ctx),
+                treasury: sender,
+                // $1.00 for the first upgrade, in USD's 6-decimal base units.
+                base_cost_usd: 1_000_000,
+                power_per_level: 10,
+                max_level: 50,
+            }
+        );
+
         transfer::public_transfer(cap, sender);
         transfer::public_transfer(publisher, sender);
     }
@@ -141,13 +217,13 @@ module kanari_pet::pet {
     /// Supply is enforced by the framework's `NftCap`, whose `issued` counter is
     /// bounded against `max_supply`. A faked `return_from_burn` cannot reopen
     /// supply; that was a real bug fixed in `collection.move`.
-    public fun mint(
+    public entry fun mint(
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
         ctx: &mut TxContext,
     ) {
-        mint_with_attributes(
+        mint_with_string_attributes(
             pet_cap,
             collection,
             recipient,
@@ -157,14 +233,37 @@ module kanari_pet::pet {
         )
     }
 
-    /// Mint a pet carrying per-token attributes, given as parallel key and
-    /// value vectors.
+    /// Mint a pet carrying per-token attributes.
     ///
-    /// The vectors are only an input convenience — they are converted to a map
+    /// Keys and values arrive as raw byte vectors because that is what a CLI can
+    /// actually serialize — a `vector<String>` parameter has no usable encoding
+    /// on the wire, so the entry boundary takes bytes and converts here.
+    ///
+    /// The vectors are an input convenience only: they are turned into a map
     /// immediately by `nft::build_attributes`, which aborts on a length
-    /// mismatch. That is why this entry point can never construct a pet whose
-    /// traits are ambiguously paired.
-    public fun mint_with_attributes(
+    /// mismatch. This entry point can never construct a pet whose traits are
+    /// ambiguously paired.
+    public entry fun mint_with_attributes(
+        pet_cap: &mut NftCap,
+        collection: &Collection,
+        recipient: address,
+        attribute_keys: vector<vector<u8>>,
+        attribute_values: vector<vector<u8>>,
+        ctx: &mut TxContext,
+    ) {
+        mint_with_string_attributes(
+            pet_cap,
+            collection,
+            recipient,
+            utf8_all(attribute_keys),
+            utf8_all(attribute_values),
+            ctx,
+        );
+    }
+
+    /// The `String`-typed body behind `mint_with_attributes`, so a package
+    /// composing programmatically does not have to round-trip through bytes.
+    public fun mint_with_string_attributes(
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
@@ -192,7 +291,7 @@ module kanari_pet::pet {
     /// because burning returns supply rather than creating it. A malicious
     /// holder cannot mint their way out: `issued_counter` is monotonic and stays
     /// bounded by `max_supply`, so the collection can never exceed its cap.
-    public fun burn(
+    public entry fun burn(
         pet_cap: &mut NftCap,
         collection: &Collection,
         pet: KanariPet,
@@ -206,17 +305,28 @@ module kanari_pet::pet {
         object::delete(id);
     }
 
-    /// Insert or overwrite one attribute.
+    /// Insert or overwrite one attribute, taking raw bytes for the CLI.
     ///
-    /// Anyone holding the pet may do this. Attributes are descriptive, not
-    /// authoritative — nothing in the framework reads them to make a decision —
-    /// so a holder editing their own token is not a security issue. The bound
-    /// is enforced by `nft::set_attribute`.
-    public fun set_attribute(
+    /// Anyone holding the pet may do this, but **not** for a reserved key.
+    /// `power`, `level` and `rarity` are paid progression state; letting them
+    /// through a free setter would let a holder mint themselves a level 50 pet
+    /// for nothing, which is the entire economy collapsed into one call. Those
+    /// keys move only via `mint_with_level` or `upgrade`.
+    public entry fun set_attribute(
+        pet: &mut KanariPet,
+        key: vector<u8>,
+        value: vector<u8>,
+    ) {
+        set_string_attribute(pet, string::utf8(key), string::utf8(value));
+    }
+
+    /// The `String`-typed body behind `set_attribute`.
+    public fun set_string_attribute(
         pet: &mut KanariPet,
         key: String,
         value: String,
     ) {
+        assert!(!is_reserved(&key), E_RESERVED_ATTRIBUTE);
         let pet_address = object::uid_address(&pet.id);
         let attrs = &mut pet.attributes;
         nft::set_attribute_on(attrs, key, value);
@@ -224,10 +334,15 @@ module kanari_pet::pet {
     }
 
     /// Remove one attribute and return its value. Aborts if absent.
+    ///
+    /// Reserved keys cannot be removed either: dropping `level` would leave the
+    /// pet in a state `upgrade` could not reason about, since it reads the
+    /// current level back out of the map.
     public fun remove_attribute(
         pet: &mut KanariPet,
         key: &String,
     ): String {
+        assert!(!is_reserved(key), E_RESERVED_ATTRIBUTE);
         let pet_address = object::uid_address(&pet.id);
         let attrs = &mut pet.attributes;
         let value = nft::remove_attribute_from(attrs, key);
@@ -237,16 +352,44 @@ module kanari_pet::pet {
 
     /// Replace the whole attribute set from parallel vectors.
     ///
-    /// Validated before anything is mutated, so a rejected call leaves the
-    /// existing attributes intact rather than half-applied.
-    public fun set_attributes(
+    /// Reserved keys are **preserved**, not replaced and not dropped. A caller
+    /// supplying its own key list would otherwise be able to erase every pet's
+    /// progression in one call, or to overwrite `level` outright.
+    public entry fun set_attributes(
+        pet: &mut KanariPet,
+        attribute_keys: vector<vector<u8>>,
+        attribute_values: vector<vector<u8>>,
+    ) {
+        set_string_attributes(
+            pet,
+            utf8_all(attribute_keys),
+            utf8_all(attribute_values),
+        );
+    }
+
+    /// The `String`-typed body behind `set_attributes`.
+    ///
+    /// Reserved keys are **preserved**, not replaced and not dropped. A caller
+    /// supplying its own key list would otherwise be able to erase every pet's
+    /// progression in one call, or to overwrite `level` outright.
+    public fun set_string_attributes(
         pet: &mut KanariPet,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
     ) {
+        let i = 0;
+        while (i < vector::length(&attribute_keys)) {
+            assert!(
+                !is_reserved(vector::borrow(&attribute_keys, i)),
+                E_RESERVED_ATTRIBUTE
+            );
+            i = i + 1;
+        };
         let pet_address = object::uid_address(&pet.id);
         let replacement = nft::build_attributes(attribute_keys, attribute_values);
+        // Re-seed the progression keys from the pet itself.
         let attrs = &mut pet.attributes;
+        copy_reserved(attrs, &mut replacement);
         *attrs = replacement;
         event::emit(AttributesChanged { pet_id: pet_address });
     }
@@ -276,12 +419,287 @@ module kanari_pet::pet {
         nft::all_attributes_of(&pet.attributes)
     }
 
+    // ==================== Progression: reading ====================
+
+    /// The pet's current level. `0` if absent, which cannot happen for a pet
+    /// minted through this module but keeps the read total.
+    public fun level(pet: &KanariPet): u64 {
+        u64_of(pet, ATTR_LEVEL)
+    }
+
+    /// The pet's power rating, derived from its level at mint/upgrade time.
+    public fun power(pet: &KanariPet): u64 {
+        u64_of(pet, ATTR_POWER)
+    }
+
+    /// The pet's rarity band, derived from its level.
+    public fun rarity(pet: &KanariPet): String {
+        string_of(pet, ATTR_RARITY)
+    }
+
+    // ==================== Progression: upgrading ====================
+
+    /// The USD cost of taking a pet from `current_level` to the next one.
+    ///
+    /// Escalates linearly: `base * (level + 1)`. Public and pure so a client can
+    /// quote the next step before committing, and so the charged amount and the
+    /// quoted amount cannot drift apart — `upgrade` calls this, not a private
+    /// copy of the formula.
+    public fun upgrade_cost(stats: &Stats, current_level: u64): u64 {
+        stats.base_cost_usd * (current_level + 1)
+    }
+
+    /// Raise a pet one level, paid in USD.
+    ///
+    /// The payment is taken before the pet is touched, so a caller cannot end up
+    /// with a free upgrade by tripping an assert afterwards. `power` and
+    /// `rarity` are recomputed from the new level rather than accepted from the
+    /// caller — a paid upgrade that let its buyer name their own power rating
+    /// would not be a progression system at all.
+    public entry fun upgrade(
+        pet: &mut KanariPet,
+        stats: &Stats,
+        payment: &mut Coin<USD>,
+        ctx: &mut TxContext,
+    ) {
+        let pet_address = object::uid_address(&pet.id);
+        let owner = tx_context::sender(ctx);
+
+        let current = level(pet);
+        assert!(current < stats.max_level, E_MAX_LEVEL);
+
+        let cost = upgrade_cost(stats, current);
+        assert!(coin::value(payment) >= cost, E_INSUFFICIENT_USD);
+
+        // Pay first. If anything below were to abort, the whole transaction
+        // unwinds anyway, so this ordering is about clarity, not safety.
+        let paid = coin::split(payment, cost, ctx);
+        transfer::public_transfer(paid, stats.treasury);
+
+        let next = current + 1;
+        let next_power = power_for_level(stats, next);
+
+        let attrs = &mut pet.attributes;
+        set_reserved(attrs, ATTR_LEVEL, u64_string(next));
+        set_reserved(attrs, ATTR_POWER, u64_string(next_power));
+        set_reserved(attrs, ATTR_RARITY, rarity_for_level(next));
+
+        event::emit(Upgraded {
+            pet_id: pet_address,
+            owner,
+            level_before: current,
+            level_after: next,
+            power_after: next_power,
+            usd_paid: cost,
+        });
+    }
+
+    /// Mint a pet at a specific level, with `power` and `rarity` derived from it.
+    ///
+    /// Level is free at birth but still clamped to `Stats::max_level`, so a pet
+    /// cannot start above the ceiling that `upgrade` enforces and then be stuck
+    /// with a level the rest of the module cannot reason about.
+    public entry fun mint_with_level(
+        pet_cap: &mut NftCap,
+        collection: &Collection,
+        recipient: address,
+        stats: &Stats,
+        initial_level: u64,
+        ctx: &mut TxContext,
+    ) {
+        assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
+        // Attributes are validated and progression stamped before the supply
+        // unit is consumed, so a rejected level cannot cost a mint slot.
+        let attribute_keys = vector::empty<String>();
+        let attribute_values = vector::empty<String>();
+        let attributes = seed_progression(
+            stats, initial_level, attribute_keys, attribute_values,
+        );
+        collection::consume_for_mint(pet_cap, collection);
+
+        let pet = KanariPet { id: object::new(ctx), attributes };
+        transfer::public_transfer(pet, recipient);
+    }
+
+    /// Power for `level`: purely a function of level, so two pets at the same
+    /// level can never disagree and no path can mint an inconsistent rating.
+    public fun power_for_level(stats: &Stats, lvl: u64): u64 {
+        stats.power_per_level * lvl
+    }
+
+    /// Rarity band for `level`.
+    ///
+    /// Bands are a fixed ladder rather than something a caller can pass in, so
+    /// "legendary" is a claim the chain agrees with.
+    public fun rarity_for_level(lvl: u64): String {
+        if (lvl >= 40) {
+            string::utf8(b"Legendary")
+        } else if (lvl >= 25) {
+            string::utf8(b"Epic")
+        } else if (lvl >= 10) {
+            string::utf8(b"Rare")
+        } else if (lvl >= 5) {
+            string::utf8(b"Uncommon")
+        } else {
+            string::utf8(b"Common")
+        }
+    }
+
+    /// The upgrade treasury.
+    public fun treasury(stats: &Stats): address {
+        stats.treasury
+    }
+
+    /// The level ceiling.
+    public fun max_level(stats: &Stats): u64 {
+        stats.max_level
+    }
+
+    #[test_only]
+    /// Create a `Stats` object for tests.
+    ///
+    /// **`#[test_only]` is the security control, not a convenience.** This is
+    /// deliberately unreachable outside tests: `upgrade` and `mint_with_level`
+    /// take a `&Stats`, so a publicly constructible `Stats` would let any
+    /// caller pass their own economics — a one-unit price, a million power per
+    /// level, no ceiling — and buy arbitrary progression for pennies. `init` is
+    /// the only thing that may build one, which makes the shared object the
+    /// single source of truth.
+    ///
+    /// See `test_exploit_arbitrary_stats_is_impossible`.
+    public fun new_stats(
+        treasury: address,
+        base_cost_usd: u64,
+        power_per_level: u64,
+        max_level: u64,
+        ctx: &mut TxContext,
+    ): Stats {
+        Stats {
+            id: object::new(ctx),
+            treasury,
+            base_cost_usd,
+            power_per_level,
+            max_level,
+        }
+    }
+
+    // ==================== Progression: internals ====================
+
+    /// Convert a `vector<vector<u8>>` of raw bytes into `vector<String>`.
+    ///
+    /// The entry boundary takes bytes because that is what a CLI can serialize;
+    /// `vector<String>` has no practical wire encoding. Conversion happens once,
+    /// at the edge, so everything downstream works in `String`.
+    public fun utf8_all(items: vector<vector<u8>>): vector<String> {
+        let out = vector::empty<String>();
+        let i = 0;
+        let n = vector::length(&items);
+        while (i < n) {
+            vector::push_back(&mut out, string::utf8(*vector::borrow(&items, i)));
+            i = i + 1;
+        };
+        out
+    }
+
+    /// True iff `key` is one of the three paid-progression attributes.
+    public fun is_reserved(key: &String): bool {
+        // `String` has `copy` in this stdlib, so dereferencing is free and the
+        // comparison is by value — a `&String` will not unify with one.
+        let k = *key;
+        k == string::utf8(b"power") || k == string::utf8(b"level") || k == string::utf8(b"rarity")
+    }
+
+    /// Write a reserved key, bypassing the free-setter guard. Module-private on
+    /// purpose: only `upgrade` and `mint_with_level` may call it.
+    fun set_reserved(attributes: &mut VecMap<String, String>, key: vector<u8>, value: String) {
+        // `nft::set_attribute_on` is already an upsert — it removes an existing key
+        // before inserting — so there is no separate remove step here.
+        nft::set_attribute_on(attributes, string::utf8(key), value);
+    }
+
+    /// Copy every reserved entry from `from` into `to`, so a wholesale attribute
+    /// replacement cannot drop or rewrite progression.
+    fun copy_reserved(
+        from: &VecMap<String, String>,
+        to: &mut VecMap<String, String>,
+    ) {
+        if (nft::has_attribute_in(from, &string::utf8(ATTR_LEVEL))) {
+            set_reserved(to, ATTR_LEVEL, string_of_map(from, ATTR_LEVEL));
+        };
+        if (nft::has_attribute_in(from, &string::utf8(ATTR_POWER))) {
+            set_reserved(to, ATTR_POWER, string_of_map(from, ATTR_POWER));
+        };
+        if (nft::has_attribute_in(from, &string::utf8(ATTR_RARITY))) {
+            set_reserved(to, ATTR_RARITY, string_of_map(from, ATTR_RARITY));
+        };
+    }
+
+    /// Read a reserved key's string value, or empty if absent.
+    fun string_of_map(attributes: &VecMap<String, String>, key: vector<u8>): String {
+        let k = string::utf8(key);
+        if (nft::has_attribute_in(attributes, &k)) {
+            *std::option::borrow(&nft::attribute_of(attributes, &k))
+        } else {
+            string::utf8(b"")
+        }
+    }
+
+    /// Read a reserved numeric attribute as `u64`, or 0 if absent or unparsable.
+    ///
+    /// The permissive default is deliberate: a malformed value must not wedge a
+    /// pet into an un-upgradeable state, and these keys are only ever written by
+    /// this module, so the parse cannot fail in practice.
+    fun u64_of(pet: &KanariPet, key: vector<u8>): u64 {
+        let k = string::utf8(key);
+        if (!nft::has_attribute_in(&pet.attributes, &k)) { return 0 };
+        parse_u64(nft::attribute_of(&pet.attributes, &k))
+    }
+
+    /// Read a reserved attribute as a `String`, or empty if absent.
+    fun string_of(pet: &KanariPet, key: vector<u8>): String {
+        string_of_map(&pet.attributes, key)
+    }
+
+    /// Parse a base-10 `u64` from an attribute value. Returns 0 on any
+    /// non-digit, so a corrupt value degrades to "level 0" instead of aborting
+    /// inside a read that callers cannot guard.
+    fun parse_u64(value: Option<String>): u64 {
+        if (std::option::is_none(&value)) { return 0 };
+        let v = *std::option::borrow(&value);
+        let bytes = *string::bytes(&v);
+        let out = 0;
+        let i = 0;
+        let n = vector::length(&bytes);
+        while (i < n) {
+            let b = *vector::borrow(&bytes, i);
+            if (b < 48 || b > 57) { return 0 };
+            out = out * 10 + ((b - 48) as u64);
+            i = i + 1;
+        };
+        out
+    }
+
+    /// Decimal rendering of `value`, written by hand because this edition has no
+    /// numeric-to-string helper. Only ever called on small values.
+    fun u64_string(value: u64): String {
+        if (value == 0) { return string::utf8(b"0") };
+        let digits = vector::empty<u8>();
+        let n = value;
+        while (n > 0) {
+            let d = ((n % 10) as u8) + 48;
+            vector::push_back(&mut digits, d);
+            n = n / 10;
+        };
+        vector::reverse(&mut digits);
+        string::utf8(digits)
+    }
+
     /// Transfer a pet directly, with no trade involved.
     ///
     /// No `TransferRequest` is created: a direct transfer has no sale price for
     /// a royalty rule to charge against. If the owner wants rules on every
     /// movement, route through `trade` instead.
-    public fun transfer_pet(pet: KanariPet, recipient: address) {
+    public entry fun transfer_pet(pet: KanariPet, recipient: address) {
         transfer::public_transfer(pet, recipient);
     }
 
@@ -291,7 +709,7 @@ module kanari_pet::pet {
     /// adds the receipt; `confirm_request` aborts without it. Because
     /// `TransferRequest` has no `drop`, omitting either step fails the whole
     /// transaction instead of letting a free trade through.
-    public fun trade(
+    public entry fun trade(
         policy: &mut TransferPolicy<KanariPet>,
         pet: KanariPet,
         payment: &mut Coin<FEE>,
@@ -386,5 +804,48 @@ module kanari_pet::pet {
         let attributes = nft::build_attributes(attribute_keys, attribute_values);
         collection::consume_for_mint(pet_cap, collection);
         KanariPet { id: object::new(ctx), attributes }
+    }
+
+    #[test_only]
+    /// `mint_with_level` returning the pet instead of transferring it, so a
+    /// test can hold it across an upgrade.
+    public fun mint_with_level_for_test(
+        pet_cap: &mut NftCap,
+        collection: &Collection,
+        stats: &Stats,
+        initial_level: u64,
+        ctx: &mut TxContext,
+    ): KanariPet {
+        // Same ceiling check as `mint_with_level`, so the test variant cannot
+        // construct a pet the public entry point would refuse.
+        assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
+        let attribute_keys = vector::empty<String>();
+        let attribute_values = vector::empty<String>();
+        let attributes = seed_progression(
+            stats,
+            initial_level,
+            attribute_keys,
+            attribute_values,
+        );
+        collection::consume_for_mint(pet_cap, collection);
+        KanariPet { id: object::new(ctx), attributes }
+    }
+
+    /// Stamp the three progression keys onto a fresh attribute map. Shared by
+    /// `mint_with_level` and its test variant so the two cannot diverge.
+    fun seed_progression(
+        stats: &Stats,
+        initial_level: u64,
+        attribute_keys: vector<String>,
+        attribute_values: vector<String>,
+    ): VecMap<String, String> {
+        let attribute_keys = attribute_keys;
+        let attribute_values = attribute_values;
+        let attributes = nft::build_attributes(attribute_keys, attribute_values);
+        let start_power = power_for_level(stats, initial_level);
+        set_reserved(&mut attributes, ATTR_LEVEL, u64_string(initial_level));
+        set_reserved(&mut attributes, ATTR_POWER, u64_string(start_power));
+        set_reserved(&mut attributes, ATTR_RARITY, rarity_for_level(initial_level));
+        attributes
     }
 }

@@ -192,7 +192,7 @@ is the issuer's job — see the module docs for why the framework cannot.
     name: String,
     description: Option&lt;String&gt;,
     image_url: Option&lt;Url&gt;,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="nft.md#0x2_nft_Nft">Nft</a> {
     <a href="nft.md#0x2_nft_create_with_attributes">create_with_attributes</a>(
         name,
@@ -239,9 +239,9 @@ code that already holds a <code>VecMap</code>, use <code>from_vec_map</code> ins
     image_url: Option&lt;Url&gt;,
     attribute_keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
     attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="nft.md#0x2_nft_Nft">Nft</a> {
-<b>let</b> attribute_keys = attribute_keys;
+    <b>let</b> attribute_keys = attribute_keys;
     <b>let</b> attribute_values = attribute_values;
     <b>let</b> attributes = <a href="nft.md#0x2_nft_build_attributes">build_attributes</a>(attribute_keys, attribute_values);
     <a href="nft.md#0x2_nft_Nft">Nft</a> {
@@ -283,7 +283,7 @@ there is nothing to mismatch.
     description: Option&lt;String&gt;,
     image_url: Option&lt;Url&gt;,
     attributes: VecMap&lt;String, String&gt;,
-    ctx: &<b>mut</b> TxContext
+    ctx: &<b>mut</b> TxContext,
 ): <a href="nft.md#0x2_nft_Nft">Nft</a> {
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&attributes) &lt;= <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>, <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>);
     <a href="nft.md#0x2_nft_Nft">Nft</a> {
@@ -352,7 +352,7 @@ editing traits does not have to restate the name.
     <a href="nft.md#0x2_nft">nft</a>: &<b>mut</b> <a href="nft.md#0x2_nft_Nft">Nft</a>,
     name: String,
     description: Option&lt;String&gt;,
-    image_url: Option&lt;Url&gt;
+    image_url: Option&lt;Url&gt;,
 ) {
     <a href="nft.md#0x2_nft">nft</a>.name = name;
     <a href="nft.md#0x2_nft">nft</a>.description = description;
@@ -633,7 +633,7 @@ built first and only then swapped in.
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_set_attributes">set_attributes</a>(
     <a href="nft.md#0x2_nft">nft</a>: &<b>mut</b> <a href="nft.md#0x2_nft_Nft">Nft</a>,
     attribute_keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
-    attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;
+    attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
 ) {
     <b>let</b> attribute_keys = attribute_keys;
     <b>let</b> attribute_values = attribute_values;

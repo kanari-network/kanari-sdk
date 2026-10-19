@@ -70,7 +70,7 @@ module kanari_system::nft {
         image_url: Option<Url>,
         /// Per-token traits, keyed by name. Insertion order is preserved so a
         /// renderer shows them in the order the issuer chose.
-        attributes: VecMap<String, String>
+        attributes: VecMap<String, String>,
     }
 
     /// Mint an NFT with no attributes.
@@ -81,7 +81,7 @@ module kanari_system::nft {
         name: String,
         description: Option<String>,
         image_url: Option<Url>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Nft {
         create_with_attributes(
             name,
@@ -108,9 +108,9 @@ module kanari_system::nft {
         image_url: Option<Url>,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Nft {
-let attribute_keys = attribute_keys;
+        let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
         let attributes = build_attributes(attribute_keys, attribute_values);
         Nft {
@@ -132,7 +132,7 @@ let attribute_keys = attribute_keys;
         description: Option<String>,
         image_url: Option<Url>,
         attributes: VecMap<String, String>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Nft {
         assert!(vec_map::size(&attributes) <= MAX_ATTRIBUTES, E_TOO_MANY_ATTRIBUTES);
         Nft {
@@ -161,7 +161,7 @@ let attribute_keys = attribute_keys;
         nft: &mut Nft,
         name: String,
         description: Option<String>,
-        image_url: Option<Url>
+        image_url: Option<Url>,
     ) {
         nft.name = name;
         nft.description = description;
@@ -244,7 +244,7 @@ let attribute_keys = attribute_keys;
     public fun set_attributes(
         nft: &mut Nft,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>
+        attribute_values: vector<String>,
     ) {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
@@ -665,4 +665,3 @@ let attribute_keys = attribute_keys;
         object::id_from_address(addr)
     }
 }
-
