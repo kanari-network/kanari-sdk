@@ -52,6 +52,15 @@ alignment it meant. A map cannot be built into that state at all.
 -  [Function `remove_attribute`](#0x2_nft_remove_attribute)
 -  [Function `set_attributes`](#0x2_nft_set_attributes)
 -  [Function `has_attribute`](#0x2_nft_has_attribute)
+-  [Function `max_attributes`](#0x2_nft_max_attributes)
+-  [Function `build_attributes`](#0x2_nft_build_attributes)
+-  [Function `attribute_of`](#0x2_nft_attribute_of)
+-  [Function `has_attribute_in`](#0x2_nft_has_attribute_in)
+-  [Function `attribute_count_of`](#0x2_nft_attribute_count_of)
+-  [Function `attribute_keys_of`](#0x2_nft_attribute_keys_of)
+-  [Function `all_attributes_of`](#0x2_nft_all_attributes_of)
+-  [Function `set_attribute_on`](#0x2_nft_set_attribute_on)
+-  [Function `remove_attribute_from`](#0x2_nft_remove_attribute_from)
 -  [Function `attribute_count`](#0x2_nft_attribute_count)
 -  [Function `attribute_keys`](#0x2_nft_attribute_keys)
 -  [Function `all_attributes`](#0x2_nft_all_attributes)
@@ -232,17 +241,9 @@ code that already holds a <code>VecMap</code>, use <code>from_vec_map</code> ins
     attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
     ctx: &<b>mut</b> TxContext
 ): <a href="nft.md#0x2_nft_Nft">Nft</a> {
-    <b>let</b> attribute_keys = attribute_keys;
+<b>let</b> attribute_keys = attribute_keys;
     <b>let</b> attribute_values = attribute_values;
-    <b>assert</b>!(
-        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_values),
-        <a href="nft.md#0x2_nft_E_ATTRIBUTE_LENGTH_MISMATCH">E_ATTRIBUTE_LENGTH_MISMATCH</a>
-    );
-    <b>assert</b>!(
-        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) &lt;= <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>,
-        <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>
-    );
-    <b>let</b> attributes = <a href="vec_map.md#0x2_vec_map_from_keys_values">vec_map::from_keys_values</a>(attribute_keys, attribute_values);
+    <b>let</b> attributes = <a href="nft.md#0x2_nft_build_attributes">build_attributes</a>(attribute_keys, attribute_values);
     <a href="nft.md#0x2_nft_Nft">Nft</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         name,
@@ -541,7 +542,7 @@ trait is absent rather than shifted onto the wrong one.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute">attribute</a>(<a href="nft.md#0x2_nft">nft</a>: &<a href="nft.md#0x2_nft_Nft">Nft</a>, key: &String): Option&lt;String&gt; {
-    <a href="vec_map.md#0x2_vec_map_try_get">vec_map::try_get</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, key)
+    <a href="nft.md#0x2_nft_attribute_of">attribute_of</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, key)
 }
 </code></pre>
 
@@ -573,21 +574,7 @@ limit would be refused.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_set_attribute">set_attribute</a>(<a href="nft.md#0x2_nft">nft</a>: &<b>mut</b> <a href="nft.md#0x2_nft_Nft">Nft</a>, key: String, value: String) {
-    <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, &key)) {
-        <b>let</b> (_removed_key, _removed_value) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(
-            &<b>mut</b> <a href="nft.md#0x2_nft">nft</a>.attributes, &key
-        );
-    } <b>else</b> {
-        // Only a genuinely new key adds an entry, so this is the only place
-        // the bound <b>has</b> <b>to</b> be enforced. Checking it here rather than at
-        // construction is what stops an incremental caller from walking
-        // past the limit one `set_attribute` at a time.
-        <b>assert</b>!(
-            <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes) &lt; <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>,
-            <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>
-        );
-    };
-    <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="nft.md#0x2_nft">nft</a>.attributes, key, value);
+    <a href="nft.md#0x2_nft_set_attribute_on">set_attribute_on</a>(&<b>mut</b> <a href="nft.md#0x2_nft">nft</a>.attributes, key, value);
 }
 </code></pre>
 
@@ -613,8 +600,7 @@ believe it cleared a trait that was never there.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_remove_attribute">remove_attribute</a>(<a href="nft.md#0x2_nft">nft</a>: &<b>mut</b> <a href="nft.md#0x2_nft_Nft">Nft</a>, key: &String): String {
-    <b>let</b> (_removed_key, value) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> <a href="nft.md#0x2_nft">nft</a>.attributes, key);
-    value
+    <a href="nft.md#0x2_nft_remove_attribute_from">remove_attribute_from</a>(&<b>mut</b> <a href="nft.md#0x2_nft">nft</a>.attributes, key)
 }
 </code></pre>
 
@@ -651,17 +637,12 @@ built first and only then swapped in.
 ) {
     <b>let</b> attribute_keys = attribute_keys;
     <b>let</b> attribute_values = attribute_values;
-    <b>assert</b>!(
-        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_values),
-        <a href="nft.md#0x2_nft_E_ATTRIBUTE_LENGTH_MISMATCH">E_ATTRIBUTE_LENGTH_MISMATCH</a>
-    );
-    <b>assert</b>!(
-        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) &lt;= <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>,
-        <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>
-    );
+    // Built and validated before the swap, so a bad call leaves the token's
+    // existing attributes intact rather than half-applied.
+    <b>let</b> replacement = <a href="nft.md#0x2_nft_build_attributes">build_attributes</a>(attribute_keys, attribute_values);
     // `String` <b>has</b> `drop`, so `VecMap&lt;String, String&gt;` does too and the
     // superseded map is released here rather than needing a drain <b>loop</b>.
-    <a href="nft.md#0x2_nft">nft</a>.attributes = <a href="vec_map.md#0x2_vec_map_from_keys_values">vec_map::from_keys_values</a>(attribute_keys, attribute_values);
+    <a href="nft.md#0x2_nft">nft</a>.attributes = replacement;
 }
 </code></pre>
 
@@ -686,7 +667,285 @@ True iff <code>key</code> is present.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_has_attribute">has_attribute</a>(<a href="nft.md#0x2_nft">nft</a>: &<a href="nft.md#0x2_nft_Nft">Nft</a>, key: &String): bool {
-    <a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, key)
+    <a href="nft.md#0x2_nft_has_attribute_in">has_attribute_in</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, key)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_max_attributes"></a>
+
+## Function `max_attributes`
+
+The per-token attribute bound this module enforces.
+
+Exposed so an issuer holding its own attribute map — rather than an
+<code><a href="nft.md#0x2_nft_Nft">Nft</a></code> — can clamp to the same limit instead of inventing a second,
+possibly looser, one.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_max_attributes">max_attributes</a>(): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_max_attributes">max_attributes</a>(): u64 {
+    <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_build_attributes"></a>
+
+## Function `build_attributes`
+
+Build a validated <code>VecMap</code> from parallel key and value vectors.
+
+Shared by <code>create_with_attributes</code> and exposed for the same reason
+<code>max_attributes</code> is: the length check is the whole point of storing
+attributes as a map, and every issuer should get it rather than
+reimplementing (or forgetting) the guard.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_build_attributes">build_attributes</a>(attribute_keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;): <a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_build_attributes">build_attributes</a>(
+    attribute_keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
+    attribute_values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
+): VecMap&lt;String, String&gt; {
+    <b>assert</b>!(
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_values),
+        <a href="nft.md#0x2_nft_E_ATTRIBUTE_LENGTH_MISMATCH">E_ATTRIBUTE_LENGTH_MISMATCH</a>
+    );
+    <b>assert</b>!(
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&attribute_keys) &lt;= <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>,
+        <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>
+    );
+    <a href="vec_map.md#0x2_vec_map_from_keys_values">vec_map::from_keys_values</a>(attribute_keys, attribute_values)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_attribute_of"></a>
+
+## Function `attribute_of`
+
+The value under <code>key</code> in <code>attributes</code>, or <code>none</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_of">attribute_of</a>(attributes: &<a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, key: &<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_of">attribute_of</a>(
+    attributes: &VecMap&lt;String, String&gt;,
+    key: &String,
+): Option&lt;String&gt; {
+    <a href="vec_map.md#0x2_vec_map_try_get">vec_map::try_get</a>(attributes, key)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_has_attribute_in"></a>
+
+## Function `has_attribute_in`
+
+True iff <code>key</code> is present in <code>attributes</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_has_attribute_in">has_attribute_in</a>(attributes: &<a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, key: &<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_has_attribute_in">has_attribute_in</a>(
+    attributes: &VecMap&lt;String, String&gt;,
+    key: &String,
+): bool {
+    <a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(attributes, key)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_attribute_count_of"></a>
+
+## Function `attribute_count_of`
+
+How many entries <code>attributes</code> holds.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_count_of">attribute_count_of</a>(attributes: &<a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_count_of">attribute_count_of</a>(attributes: &VecMap&lt;String, String&gt;): u64 {
+    <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(attributes)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_attribute_keys_of"></a>
+
+## Function `attribute_keys_of`
+
+Keys of <code>attributes</code> in insertion order.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_keys_of">attribute_keys_of</a>(attributes: &<a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_keys_of">attribute_keys_of</a>(attributes: &VecMap&lt;String, String&gt;): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt; {
+    <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(attributes)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_all_attributes_of"></a>
+
+## Function `all_attributes_of`
+
+Every <code>(key, value)</code> pair in insertion order, index-aligned.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_all_attributes_of">all_attributes_of</a>(attributes: &<a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;): (<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_all_attributes_of">all_attributes_of</a>(
+    attributes: &VecMap&lt;String, String&gt;,
+): (<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;, <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;) {
+    <b>let</b> keys = <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(attributes);
+    <b>let</b> values = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;String&gt;();
+    <b>let</b> i = 0;
+    <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&keys);
+    <b>while</b> (i &lt; n) {
+        <b>let</b> key = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&keys, i);
+        <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> values, *<a href="vec_map.md#0x2_vec_map_get">vec_map::get</a>(attributes, &key));
+        i = i + 1;
+    };
+    (keys, values)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_set_attribute_on"></a>
+
+## Function `set_attribute_on`
+
+Upsert <code>key</code> in <code>attributes</code>, enforcing <code><a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a></code> for new keys.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_set_attribute_on">set_attribute_on</a>(attributes: &<b>mut</b> <a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, key: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, value: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_set_attribute_on">set_attribute_on</a>(
+    attributes: &<b>mut</b> VecMap&lt;String, String&gt;,
+    key: String,
+    value: String,
+) {
+    <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(attributes, &key)) {
+        <b>let</b> (_removed_key, _removed_value) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(attributes, &key);
+    } <b>else</b> {
+        <b>assert</b>!(
+            <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(attributes) &lt; <a href="nft.md#0x2_nft_MAX_ATTRIBUTES">MAX_ATTRIBUTES</a>,
+            <a href="nft.md#0x2_nft_E_TOO_MANY_ATTRIBUTES">E_TOO_MANY_ATTRIBUTES</a>
+        );
+    };
+    <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(attributes, key, value);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_nft_remove_attribute_from"></a>
+
+## Function `remove_attribute_from`
+
+Remove <code>key</code> from <code>attributes</code>, returning its value. Aborts if absent.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_remove_attribute_from">remove_attribute_from</a>(attributes: &<b>mut</b> <a href="vec_map.md#0x2_vec_map_VecMap">vec_map::VecMap</a>&lt;<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>&gt;, key: &<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>): <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_remove_attribute_from">remove_attribute_from</a>(
+    attributes: &<b>mut</b> VecMap&lt;String, String&gt;,
+    key: &String,
+): String {
+    <b>let</b> (_removed_key, value) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(attributes, key);
+    value
 }
 </code></pre>
 
@@ -711,7 +970,7 @@ How many attributes the token carries.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_count">attribute_count</a>(<a href="nft.md#0x2_nft">nft</a>: &<a href="nft.md#0x2_nft_Nft">Nft</a>): u64 {
-    <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes)
+    <a href="nft.md#0x2_nft_attribute_count_of">attribute_count_of</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes)
 }
 </code></pre>
 
@@ -736,7 +995,7 @@ Attribute keys in insertion order. Not sorted — do not rely on ordering.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_attribute_keys">attribute_keys</a>(<a href="nft.md#0x2_nft">nft</a>: &<a href="nft.md#0x2_nft_Nft">Nft</a>): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt; {
-    <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes)
+    <a href="nft.md#0x2_nft_attribute_keys_of">attribute_keys_of</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes)
 }
 </code></pre>
 
@@ -763,16 +1022,7 @@ the whole set in one call. Keys and values are index-aligned, so element
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="nft.md#0x2_nft_all_attributes">all_attributes</a>(<a href="nft.md#0x2_nft">nft</a>: &<a href="nft.md#0x2_nft_Nft">Nft</a>): (<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;, <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;) {
-    <b>let</b> keys = <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes);
-    <b>let</b> values = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;String&gt;();
-    <b>let</b> i = 0;
-    <b>let</b> n = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&keys);
-    <b>while</b> (i &lt; n) {
-        <b>let</b> key = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&keys, i);
-        <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> values, *<a href="vec_map.md#0x2_vec_map_get">vec_map::get</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes, &key));
-        i = i + 1;
-    };
-    (keys, values)
+    <a href="nft.md#0x2_nft_all_attributes_of">all_attributes_of</a>(&<a href="nft.md#0x2_nft">nft</a>.attributes)
 }
 </code></pre>
 
