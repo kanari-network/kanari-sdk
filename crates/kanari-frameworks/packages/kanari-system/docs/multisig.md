@@ -621,6 +621,15 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 ## Constants
 
 
+<a name="0x2_multisig_E_NOT_OWNER"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>: u64 = 1;
+</code></pre>
+
+
+
 <a name="0x2_multisig_E_ALREADY_APPROVED"></a>
 
 
@@ -716,15 +725,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 <pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_EXPIRED">E_NOT_EXPIRED</a>: u64 = 16;
-</code></pre>
-
-
-
-<a name="0x2_multisig_E_NOT_OWNER"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>: u64 = 1;
 </code></pre>
 
 

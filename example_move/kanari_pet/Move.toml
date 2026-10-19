@@ -1,0 +1,14 @@
+[package]
+name = "kanari_pet"
+edition = "legacy"
+
+[dependencies]
+KanariSystem = { local = "../../crates/kanari-frameworks/packages/kanari-system" }
+MoveStdlib = { local = "../../crates/kanari-frameworks/packages/move-stdlib" }
+
+[addresses]
+# Fresh address, distinct from `james`. A type's authority comes from its own
+# one-time witness, so this package cannot touch `james`' types and vice versa.
+kanari_pet = "0x44"
+std = "0x1"
+kanari_system = "0x2"

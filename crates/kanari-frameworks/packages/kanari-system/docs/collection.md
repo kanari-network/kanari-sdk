@@ -103,8 +103,13 @@ A reusable Collection resource for NFTs and similar objects.
 
 A capability resource that governs minting within a Collection.
 
+Deliberately has no <code>drop</code>: dropping the cap would strand the
+collection's remaining supply permanently, with no way to recover it.
+Without <code>drop</code>, every path that stops holding the cap must transfer it
+explicitly.
 
-<pre><code><b>struct</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a> <b>has</b> drop, store, key
+
+<pre><code><b>struct</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a> <b>has</b> store, key
 </code></pre>
 
 
@@ -385,8 +390,14 @@ Returns the collection id stored in an <code><a href="collection.md#0x2_collecti
 Updates collection display metadata. Only the original collection creator
 may perform this mutation; supply and ownership are intentionally unchanged.
 
+The write goes through <code>borrow_global_mut</code> on the collection's own
+address. A <code>&<b>mut</b> <a href="collection.md#0x2_collection_Collection">Collection</a></code> reference cannot persist anything here:
+the caller holds the value, so mutating through the reference would
+only change the caller's copy and the mutation would silently vanish.
+Taking the shared object by address is what makes it durable.
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_update_metadata">update_metadata</a>(c: &<b>mut</b> <a href="collection.md#0x2_collection_Collection">collection::Collection</a>, banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_update_metadata">update_metadata</a>(c: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>, banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -396,15 +407,17 @@ may perform this mutation; supply and ownership are intentionally unchanged.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_update_metadata">update_metadata</a>(
-    c: &<b>mut</b> <a href="collection.md#0x2_collection_Collection">Collection</a>,
+    c: &<a href="collection.md#0x2_collection_Collection">Collection</a>,
     banner_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     website_url: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     ctx: &TxContext,
 ) {
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == c.creator, <a href="collection.md#0x2_collection_E_NOT_COLLECTION_CREATOR">E_NOT_COLLECTION_CREATOR</a>);
-    c.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
-    c.website_url = kanari_system::url::new_unsafe_from_bytes(website_url);
-    <a href="object.md#0x2_object_save_object">object::save_object</a>(c);
+    <b>let</b> addr = <a href="object.md#0x2_object_uid_address">object::uid_address</a>(&c.id);
+    <b>let</b> c_mut = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="collection.md#0x2_collection_Collection">Collection</a>&gt;(addr);
+    c_mut.banner_url = kanari_system::url::new_unsafe_from_bytes(banner_url);
+    c_mut.website_url = kanari_system::url::new_unsafe_from_bytes(website_url);
+    <a href="object.md#0x2_object_save_object">object::save_object</a>(c_mut);
 }
 </code></pre>
 
@@ -466,8 +479,18 @@ may perform this mutation; supply and ownership are intentionally unchanged.
 
 Consume one supply unit from the cap for minting.
 
+<code><a href="collection.md#0x2_collection">collection</a></code> is required because the cap alone cannot enforce the
+supply limit: <code>return_from_burn</code> legitimately raises <code>remaining</code> and
+carries no proof that a token was actually burned, so a cap holder can
+cycle <code>remaining</code> back to <code>max_supply</code> and mint forever. <code>issued_counter</code>
+never decreases, so bounding it against <code>max_supply</code> here is what
+actually caps the collection.
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_consume_for_mint">consume_for_mint</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>)
+The cap's <code>collection_id</code> is checked as well, so a cap transferred away
+from its collection cannot mint against a different supply pool.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_consume_for_mint">consume_for_mint</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>, <a href="collection.md#0x2_collection">collection</a>: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>)
 </code></pre>
 
 
@@ -476,7 +499,12 @@ Consume one supply unit from the cap for minting.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_consume_for_mint">consume_for_mint</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a>) {
+<pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_consume_for_mint">consume_for_mint</a>(cap: &<b>mut</b> <a href="collection.md#0x2_collection_NftCap">NftCap</a>, <a href="collection.md#0x2_collection">collection</a>: &<a href="collection.md#0x2_collection_Collection">Collection</a>) {
+    <b>assert</b>!(
+        cap.collection_id == <a href="object.md#0x2_object_uid_address">object::uid_address</a>(&<a href="collection.md#0x2_collection">collection</a>.id),
+        <a href="collection.md#0x2_collection_E_CAP_COLLECTION_MISMATCH">E_CAP_COLLECTION_MISMATCH</a>
+    );
+    <b>assert</b>!(cap.issued_counter &lt; <a href="collection.md#0x2_collection">collection</a>.max_supply, <a href="collection.md#0x2_collection_E_NO_SUPPLY">E_NO_SUPPLY</a>);
     <b>assert</b>!(cap.remaining &gt; 0, <a href="collection.md#0x2_collection_E_NO_SUPPLY">E_NO_SUPPLY</a>);
     cap.issued_counter = cap.issued_counter + 1;
     cap.remaining = cap.remaining - 1;
