@@ -23,17 +23,34 @@ cd example_move/kanari_pet
 kanari move publish
 ```
 
-`init` runs automatically and creates, all owned by the publisher:
+`init` runs automatically and creates:
 
 - a shared `Display<KanariPet>` (name / description / image_url / creator)
 - a shared `TransferPolicy<KanariPet>` with a 5% royalty to you
-- a shared `Stats` — upgrade economics: flat `$1.00` per level, `10` power per
+- a shared `Stats` — upgrade economics: `$1.00` per level, `10` power per
   level, level cap `1_000`
-- a shared `Collection` (supply `10_000`) plus its `NftCap`
-- a `TransferPolicyCap<KanariPet>`, the `NftCap`, and the `Publisher<KANARI_PET>`
+- a shared `Collection` (supply `10_000`)
+- owned `NftCap`, `TransferPolicyCap<KanariPet>`, and `Publisher<KANARI_PET>`
 
-Record the object ids from the publish output. You will need
-`Stats`, `Collection`, `NftCap`, and the `FEE` `TreasuryCap`.
+Find owned objects (including `NftCap`) with:
+
+```powershell
+cargo run -p kanari -- client objects
+```
+
+Match the `Type` column to identify the `NftCap` and copy its `ID`. `Stats`
+and `Collection` are shared, so they will not appear in your owned-object
+list; copy their IDs from the successful publish transaction's `RPC result`
+under `effects`/`object_changes`. The publish result also contains the IDs of
+the owned objects.
+
+In PowerShell, assign the IDs before using the examples below:
+
+```powershell
+$NFT_CAP = "0x..."
+$COLLECTION = "0x..."
+$STATS = "0x..."
+```
 
 ## 1. Create a collection (optional)
 

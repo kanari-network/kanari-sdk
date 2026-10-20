@@ -2,11 +2,23 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { asArray, EmptyState, PageHeader, RawDetails, readString, shortHash, StatusPill } from "../../../components/ExplorerUI";
+import {
+  asArray,
+  EmptyState,
+  PageHeader,
+  RawDetails,
+  readString,
+  shortHash,
+  StatusPill,
+} from "../../../components/ExplorerUI";
 import { NftArtwork } from "../../../components/NftArtwork";
 import { getNftsByCollection } from "../../../lib/rpc";
 
-export default function CollectionPage({ params }: { params: Promise<{ id: string }> }) {
+export default function CollectionPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
   const [items, setItems] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,10 +57,15 @@ export default function CollectionPage({ params }: { params: Promise<{ id: strin
             <h2 className="panel-title">Collection Items</h2>
             <p className="panel-subtitle mono">{decodeURIComponent(id)}</p>
           </div>
-          <StatusPill label={loading ? "Syncing" : `${items.length} items`} state={loading ? "warn" : "ok"} />
+          <StatusPill
+            label={loading ? "Syncing" : `${items.length} items`}
+            state={loading ? "warn" : "ok"}
+          />
         </div>
         {loading ? <EmptyState loading label="Loading NFT objects..." /> : null}
-        {!loading && items.length === 0 ? <EmptyState label="No NFTs found in this collection." /> : null}
+        {!loading && items.length === 0 ? (
+          <EmptyState label="No NFTs found in this collection." />
+        ) : null}
       </section>
 
       {items.length > 0 ? (
@@ -56,13 +73,29 @@ export default function CollectionPage({ params }: { params: Promise<{ id: strin
           {items.map((item, index) => {
             const objectId = readString(item, "object_id", `nft-${index}`);
             return (
-              <article className="nft-card" key={objectId}>
-                <NftArtwork item={item} fallback={`#${objectId.slice(-4)}`} alt={readString(item, "name", "NFT artwork")} />
+              <Link
+                className="nft-card"
+                href={`/nft/item/${encodeURIComponent(objectId)}`}
+                key={objectId}
+              >
+                <NftArtwork
+                  item={item}
+                  fallback={`#${objectId.slice(-4)}`}
+                  alt={readString(item, "name", "NFT artwork")}
+                />
                 <div className="nft-copy">
-                  <strong className="primary-text mono">{shortHash(objectId)}</strong>
-                  <p className="muted-text">{readString(item, "name", readString(item, "type", "NFT Object"))}</p>
+                  <strong className="primary-text mono">
+                    {shortHash(objectId)}
+                  </strong>
+                  <p className="muted-text">
+                    {readString(
+                      item,
+                      "name",
+                      readString(item, "type", "NFT Object"),
+                    )}
+                  </p>
                 </div>
-              </article>
+              </Link>
             );
           })}
         </div>

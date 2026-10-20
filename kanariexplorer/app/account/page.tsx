@@ -21,7 +21,16 @@ import {
   StatusPill,
   stripHexPrefix,
 } from "../components/ExplorerUI";
-import { countTransactions, getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTokens, getTransaction } from "../lib/rpc";
+import {
+  countTransactions,
+  getAccount,
+  getAllBalances,
+  getAllTransactions,
+  getOwnedNfts,
+  getOwnedObjects,
+  getTokens,
+  getTransaction,
+} from "../lib/rpc";
 import { useTxPager, type TxPager } from "../lib/useTxPager";
 
 type AccountTab = "coins" | "nfts" | "objects" | "activity";
@@ -32,7 +41,8 @@ type AccountTab = "coins" | "nfts" | "objects" | "activity";
  */
 function readDecimals(...candidates: unknown[]) {
   for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined || candidate === "") continue;
+    if (candidate === null || candidate === undefined || candidate === "")
+      continue;
     const text = String(candidate).trim();
     if (text) return text;
   }
@@ -40,14 +50,23 @@ function readDecimals(...candidates: unknown[]) {
 }
 
 function readBytes(value: unknown, key: string) {
-  const record = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const record =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   const item = record[key];
   if (!Array.isArray(item)) return [];
-  return item.filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry));
+  return item.filter(
+    (entry): entry is number =>
+      typeof entry === "number" && Number.isFinite(entry),
+  );
 }
 
 function readArrayField(value: unknown, key: string) {
-  const record = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const record =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   const item = record[key];
   return Array.isArray(item) ? item : [];
 }
@@ -61,7 +80,9 @@ function readCoinBalanceMist(bytes: number[]) {
   if (bytes.length < 40) return null;
   let value = BigInt(0);
   for (let index = 0; index < 8; index += 1) {
-    value += BigInt(Math.max(0, Math.min(255, bytes[32 + index]))) << BigInt(index * 8);
+    value +=
+      BigInt(Math.max(0, Math.min(255, bytes[32 + index]))) <<
+      BigInt(index * 8);
   }
   return value.toString();
 }
@@ -71,7 +92,11 @@ function isCoinType(type: string) {
 }
 
 function tokenIconUrl(token: unknown, symbol: string) {
-  const icon = readString(token, "icon_url", readString(token, "logo_url", readString(token, "image_url", "")));
+  const icon = readString(
+    token,
+    "icon_url",
+    readString(token, "logo_url", readString(token, "image_url", "")),
+  );
   return icon || (symbol.toUpperCase() === "KANARI" ? "/kariicon1.png" : "");
 }
 
@@ -81,7 +106,11 @@ function TokenLogo({ token, symbol }: { token: unknown; symbol: string }) {
 
   return (
     <span className="token-logo" aria-hidden="true">
-      {icon && !failed ? <img src={icon} alt="" onError={() => setFailed(true)} /> : symbol.slice(0, 2).toUpperCase()}
+      {icon && !failed ? (
+        <img src={icon} alt="" onError={() => setFailed(true)} />
+      ) : (
+        symbol.slice(0, 2).toUpperCase()
+      )}
     </span>
   );
 }
@@ -93,7 +122,11 @@ function normalizeTokenType(value: string) {
 function dedupeObjects(values: unknown[]) {
   const seen = new Set<string>();
   return values.filter((value, index) => {
-    const id = readString(value, "object_id", readString(value, "id", `object-${index}`));
+    const id = readString(
+      value,
+      "object_id",
+      readString(value, "id", `object-${index}`),
+    );
     const normalized = id.toLowerCase();
     if (seen.has(normalized)) return false;
     seen.add(normalized);
@@ -102,22 +135,35 @@ function dedupeObjects(values: unknown[]) {
 }
 
 function readTransactionHash(transaction: unknown, fallback: string) {
-  return stripHexPrefix(readString(
-    transaction,
-    "hash",
-    readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
-  ));
+  return stripHexPrefix(
+    readString(
+      transaction,
+      "hash",
+      readString(
+        transaction,
+        "tx_hash",
+        readString(
+          transaction,
+          "transaction_hash",
+          readString(transaction, "digest", fallback),
+        ),
+      ),
+    ),
+  );
 }
 
 function readObject(source: unknown, key: string) {
-  if (typeof source !== "object" || source === null || Array.isArray(source)) return null;
+  if (typeof source !== "object" || source === null || Array.isArray(source))
+    return null;
   const value = (source as Record<string, unknown>)[key];
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
   return value as Record<string, unknown>;
 }
 
 function readArrayLength(source: unknown, key: string) {
-  if (typeof source !== "object" || source === null || Array.isArray(source)) return 0;
+  if (typeof source !== "object" || source === null || Array.isArray(source))
+    return 0;
   const value = (source as Record<string, unknown>)[key];
   return Array.isArray(value) ? value.length : 0;
 }
@@ -130,9 +176,11 @@ function readEffectArrayLength(transaction: unknown, key: string) {
 }
 
 function readOwnerKindLabel(value: unknown) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return "address owner";
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return "address owner";
   const ownerKind = (value as Record<string, unknown>).owner_kind;
-  if (typeof ownerKind === "string" && ownerKind) return ownerKind.replace(/_/g, " ");
+  if (typeof ownerKind === "string" && ownerKind)
+    return ownerKind.replace(/_/g, " ");
   if (ownerKind && typeof ownerKind === "object" && !Array.isArray(ownerKind)) {
     const record = ownerKind as Record<string, unknown>;
     if ("AddressOwner" in record) return "address owner";
@@ -162,7 +210,9 @@ function AccountContent() {
     owner: activityOwner ?? undefined,
     enabled: activityOwner !== null,
     fetchPage: (pageSize, cursor, owner) =>
-      getAllTransactions(pageSize, owner, cursor).then((response) => asArray(response)),
+      getAllTransactions(pageSize, owner, cursor).then((response) =>
+        asArray(response),
+      ),
     fetchCount: (owner) => countTransactions(owner),
     resetToken: activityTick,
   });
@@ -177,18 +227,24 @@ function AccountContent() {
     setActivityTick((tick) => tick + 1);
     setLoading(true);
     try {
-      const [accountData, balanceData, nftData, objectData, registryData] = await Promise.all([
-        getAccount(trimmed).catch(() => null),
-        getAllBalances(trimmed).catch(() => []),
-        getOwnedNfts(trimmed).catch(() => []),
-        getOwnedObjects(trimmed).catch(() => []),
-        getTokens().catch(() => []),
-      ]);
+      const [accountData, balanceData, nftData, objectData, registryData] =
+        await Promise.all([
+          getAccount(trimmed).catch(() => null),
+          getAllBalances(trimmed).catch(() => []),
+          getOwnedNfts(trimmed).catch(() => []),
+          getOwnedObjects(trimmed).catch(() => []),
+          getTokens().catch(() => []),
+        ]);
       setAccount(accountData);
       setBalances(asArray(balanceData));
       setTokenRegistry(asArray(registryData));
       setNfts(asArray(nftData));
-      setObjects(dedupeObjects([...asArray(objectData), ...readArrayField(accountData, "owned_objects")]));
+      setObjects(
+        dedupeObjects([
+          ...asArray(objectData),
+          ...readArrayField(accountData, "owned_objects"),
+        ]),
+      );
     } finally {
       setLoading(false);
     }
@@ -221,8 +277,11 @@ function AccountContent() {
   const activityRows = activityPager.rows;
   const activityTotalPages =
     activityPager.totalPages ??
-    (activityPager.canNext ? activityPager.pageIndex + 2 : activityPager.pageIndex + 1);
-  const activityRangeStart = activityPager.pageIndex * activityPager.pageSize + 1;
+    (activityPager.canNext
+      ? activityPager.pageIndex + 2
+      : activityPager.pageIndex + 1);
+  const activityRangeStart =
+    activityPager.pageIndex * activityPager.pageSize + 1;
   const activityRangeEnd = activityRangeStart + activityRows.length - 1;
   const activitySubtitle =
     activityPager.total != null && activityRows.length > 0
@@ -237,7 +296,12 @@ function AccountContent() {
         accent="Explorer."
         description="Inspect balances, NFTs, and transaction activity for any Kanari account address."
       >
-        <SearchForm value={address} onChange={setAddress} onSubmit={() => loadAccount()} placeholder="Enter address 0x..." />
+        <SearchForm
+          value={address}
+          onChange={setAddress}
+          onSubmit={() => loadAccount()}
+          placeholder="Enter address 0x..."
+        />
       </PageHeader>
 
       {account ? (
@@ -247,12 +311,19 @@ function AccountContent() {
               <h2 className="panel-title">Account State</h2>
               <div className="panel-subtitle mono account-address-copy">
                 <span className="copy-row copy-row--wrap">
-                  <span className="break-anywhere">{readString(account, "address", address)}</span>
-                  <CopyButton value={readString(account, "address", address)} label="Copy account address" />
+                  <span className="break-anywhere">
+                    {readString(account, "address", address)}
+                  </span>
+                  <CopyButton
+                    value={readString(account, "address", address)}
+                    label="Copy account address"
+                  />
                 </span>
               </div>
             </div>
-            <StatusPill label={`Objects ${readString(account, "owned_object_count", String(objects.length))}`} />
+            <StatusPill
+              label={`Objects ${readString(account, "owned_object_count", String(objects.length))}`}
+            />
           </div>
         </section>
       ) : null}
@@ -262,9 +333,17 @@ function AccountContent() {
           ["coins", `Coins ${balances.length}`],
           ["nfts", `NFTs ${nfts.length}`],
           ["objects", `Objects ${objects.length}`],
-          ["activity", `Activity ${activityPager.total ?? activityRows.length}`],
+          [
+            "activity",
+            `Activity ${activityPager.total ?? activityRows.length}`,
+          ],
         ].map(([id, label]) => (
-          <button className={`tab ${activeTab === id ? "tab--active" : ""}`} key={id} type="button" onClick={() => setActiveTab(id as AccountTab)}>
+          <button
+            className={`tab ${activeTab === id ? "tab--active" : ""}`}
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id as AccountTab)}
+          >
             {label}
           </button>
         ))}
@@ -277,26 +356,59 @@ function AccountContent() {
           <div className="panel-head">
             <h2 className="panel-title">Coin Balances</h2>
           </div>
-          {balances.length === 0 ? <EmptyState label="No balances found." /> : null}
+          {balances.length === 0 ? (
+            <EmptyState label="No balances found." />
+          ) : null}
           <div className="data-list">
             {balances.map((token, index) => {
-              const tokenType = readString(token, "token_type", readString(token, "token", readString(token, "symbol", "-")));
-              const symbol = readString(token, "symbol", tokenType.split("::").slice(-1)[0] || "Token");
-              const metadata = tokenRegistry.find((entry) =>
-                normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) === normalizeTokenType(tokenType),
+              const tokenType = readString(
+                token,
+                "token_type",
+                readString(token, "token", readString(token, "symbol", "-")),
+              );
+              const symbol = readString(
+                token,
+                "symbol",
+                tokenType.split("::").slice(-1)[0] || "Token",
+              );
+              const metadata = tokenRegistry.find(
+                (entry) =>
+                  normalizeTokenType(
+                    readString(
+                      entry,
+                      "token_type",
+                      readString(entry, "token", ""),
+                    ),
+                  ) === normalizeTokenType(tokenType),
               );
               // No fallback: API decimals (เช่น THB = 6) → registry, ไม่มีคือ null
               const tokenRecord = (token ?? {}) as Record<string, unknown>;
-              const metadataRecord = (metadata ?? {}) as Record<string, unknown>;
-              const tokenDecimals = readDecimals(tokenRecord["decimals"], metadataRecord["decimals"]);
+              const metadataRecord = (metadata ?? {}) as Record<
+                string,
+                unknown
+              >;
+              const tokenDecimals = readDecimals(
+                tokenRecord["decimals"],
+                metadataRecord["decimals"],
+              );
               return (
-                <div className="data-row data-row--account" key={`${tokenType}-${index}`}>
+                <div
+                  className="data-row data-row--account"
+                  key={`${tokenType}-${index}`}
+                >
                   <div className="token-identity primary-text">
                     <TokenLogo token={metadata ?? token} symbol={symbol} />
                     <span>
                       <strong>
-                        <Link className="text-link" href={`/coins/${encodeURIComponent(tokenType)}`}>
-                          {readString(token, "name", readString(metadata, "name", symbol))}
+                        <Link
+                          className="text-link"
+                          href={`/coins/${encodeURIComponent(tokenType)}`}
+                        >
+                          {readString(
+                            token,
+                            "name",
+                            readString(metadata, "name", symbol),
+                          )}
                         </Link>
                       </strong>
                       <span className="muted-text mono">{tokenType}</span>
@@ -305,7 +417,15 @@ function AccountContent() {
                   <div>
                     <p className="tiny-label">Balance</p>
                     <span className="mono">
-                      {formatBalance(readString(token, "amount", readString(token, "balance", "0")), tokenDecimals)} {symbol}
+                      {formatBalance(
+                        readString(
+                          token,
+                          "amount",
+                          readString(token, "balance", "0"),
+                        ),
+                        tokenDecimals,
+                      )}{" "}
+                      {symbol}
                     </span>
                   </div>
                 </div>
@@ -323,17 +443,25 @@ function AccountContent() {
             {nfts.map((nft, index) => {
               const objectId = readString(nft, "object_id", `nft-${index}`);
               return (
-                <article className="nft-card" key={objectId}>
+                <Link
+                  className="nft-card"
+                  href={`/nft/item/${encodeURIComponent(objectId)}`}
+                  key={objectId}
+                >
                   <NftArtwork
                     item={nft}
                     fallback={`#${objectId.slice(-4)}`}
                     alt={readString(nft, "name", "Owned NFT artwork")}
                   />
                   <div className="nft-copy">
-                    <strong className="primary-text mono">{shortHash(objectId)}</strong>
-                    <p className="muted-text">{readString(nft, "type", "NFT")}</p>
+                    <strong className="primary-text mono">
+                      {shortHash(objectId)}
+                    </strong>
+                    <p className="muted-text">
+                      {readString(nft, "type", "NFT")}
+                    </p>
                   </div>
-                </article>
+                </Link>
               );
             })}
           </div>
@@ -347,7 +475,18 @@ function AccountContent() {
               <h2 className="panel-title">Account Activity</h2>
               <p className="panel-subtitle">{activitySubtitle}</p>
             </div>
-            <StatusPill label={activityPager.loading || activityPager.navigating ? "Syncing" : "Live"} state={activityPager.loading || activityPager.navigating ? "warn" : "ok"} />
+            <StatusPill
+              label={
+                activityPager.loading || activityPager.navigating
+                  ? "Syncing"
+                  : "Live"
+              }
+              state={
+                activityPager.loading || activityPager.navigating
+                  ? "warn"
+                  : "ok"
+              }
+            />
           </div>
           {activityRows.length === 0 ? (
             activityPager.loading ? (
@@ -362,9 +501,18 @@ function AccountContent() {
               const hash = readTransactionHash(transaction, fallbackHash);
               const canOpen = hash !== fallbackHash;
               const lifecycle = describeTransactionLifecycle(transaction);
-              const objectInputs = readArrayLength(transaction, "object_inputs");
-              const objectChanges = readEffectArrayLength(transaction, "object_changes");
-              const graphEdges = readEffectArrayLength(transaction, "causal_edges");
+              const objectInputs = readArrayLength(
+                transaction,
+                "object_inputs",
+              );
+              const objectChanges = readEffectArrayLength(
+                transaction,
+                "object_changes",
+              );
+              const graphEdges = readEffectArrayLength(
+                transaction,
+                "causal_edges",
+              );
               const allTransfers = (() => {
                 const t = (transaction as Record<string, unknown>)["transfers"];
                 if (!Array.isArray(t)) return [];
@@ -373,19 +521,23 @@ function AccountContent() {
                     typeof entry === "object" && entry !== null,
                 );
               })();
-              const firstTransfer = allTransfers.length > 0 ? allTransfers[0] : null;
-              const firstRecipient = firstTransfer?.["recipient"] != null
-                ? String(firstTransfer["recipient"])
-                : "";
+              const firstTransfer =
+                allTransfers.length > 0 ? allTransfers[0] : null;
+              const firstRecipient =
+                firstTransfer?.["recipient"] != null
+                  ? String(firstTransfer["recipient"])
+                  : "";
               const gasFee = readString(transaction, "gas_fee", "");
               const transferEntries = allTransfers
                 .map((entry) => {
-                  const token = entry["transfer_token_type"] != null
-                    ? String(entry["transfer_token_type"])
-                    : "";
-                  const amount = entry["transfer_amount"] != null
-                    ? String(entry["transfer_amount"])
-                    : "";
+                  const token =
+                    entry["transfer_token_type"] != null
+                      ? String(entry["transfer_token_type"])
+                      : "";
+                  const amount =
+                    entry["transfer_amount"] != null
+                      ? String(entry["transfer_amount"])
+                      : "";
                   if (!amount) return null;
                   return {
                     // No fallback: transfer_decimals จาก API เท่านั้น (เช่น THB = 6)
@@ -399,18 +551,29 @@ function AccountContent() {
                     <p className="tiny-label">Txn Hash</p>
                     <span className="copy-row copy-row--wrap">
                       {canOpen ? (
-                        <button className="hash-button mono break-anywhere" type="button" onClick={() => openTransaction(hash)}>
+                        <button
+                          className="hash-button mono break-anywhere"
+                          type="button"
+                          onClick={() => openTransaction(hash)}
+                        >
                           {hash}
                         </button>
                       ) : (
                         <span className="mono muted-text">{hash}</span>
                       )}
-                      {canOpen ? <CopyButton value={hash} label="Copy transaction hash" /> : null}
+                      {canOpen ? (
+                        <CopyButton
+                          value={hash}
+                          label="Copy transaction hash"
+                        />
+                      ) : null}
                     </span>
                   </div>
                   <div>
                     <p className="tiny-label">Type</p>
-                    <span className="tag">{readString(transaction, "tx_type", "operation")}</span>
+                    <span className="tag">
+                      {readString(transaction, "tx_type", "operation")}
+                    </span>
                   </div>
                   <div>
                     <p className="tiny-label">Target</p>
@@ -422,16 +585,24 @@ function AccountContent() {
                         >
                           {shortHash(firstRecipient, 14, 10)}
                         </Link>
-                        <CopyButton value={firstRecipient} label="Copy recipient address" />
+                        <CopyButton
+                          value={firstRecipient}
+                          label="Copy recipient address"
+                        />
                       </span>
                     ) : (
-                      <span className="mono muted-text">{shortHash(readString(transaction, "module", "-"))}</span>
+                      <span className="mono muted-text">
+                        {shortHash(readString(transaction, "module", "-"))}
+                      </span>
                     )}
                   </div>
                   {transferEntries.length > 0 ? (
                     <div>
                       <p className="tiny-label">
-                        Transfer{transferEntries.length > 1 ? `s (${transferEntries.length})` : ""}
+                        Transfer
+                        {transferEntries.length > 1
+                          ? `s (${transferEntries.length})`
+                          : ""}
                       </p>
                       {transferEntries.map((entry, entryIndex) => (
                         <div key={entryIndex} className="mono muted-text">
@@ -443,18 +614,26 @@ function AccountContent() {
                   {gasFee ? (
                     <div>
                       <p className="tiny-label">Gas Fee</p>
-                      <span className="mono muted-text">{formatGasFee(transaction, gasFee)}</span>
+                      <span className="mono muted-text">
+                        {formatGasFee(transaction, gasFee)}
+                      </span>
                     </div>
                   ) : null}
                   <div>
                     <p className="tiny-label">Status</p>
-                    <StatusPill label={lifecycle.label} state={lifecycle.state} />
-                    {lifecycle.detail ? <div className="mono muted-text">{lifecycle.detail}</div> : null}
+                    <StatusPill
+                      label={lifecycle.label}
+                      state={lifecycle.state}
+                    />
+                    {lifecycle.detail ? (
+                      <div className="mono muted-text">{lifecycle.detail}</div>
+                    ) : null}
                   </div>
                   <div>
                     <p className="tiny-label">Objects</p>
                     <span className="mono muted-text">
-                      {objectInputs} inputs / {objectChanges} changes / {graphEdges} edges
+                      {objectInputs} inputs / {objectChanges} changes /{" "}
+                      {graphEdges} edges
                     </span>
                   </div>
                 </div>
@@ -479,15 +658,31 @@ function AccountContent() {
           <div className="panel-head">
             <h2 className="panel-title">Owned Objects</h2>
           </div>
-          {objects.length === 0 ? <EmptyState label="No objects owned by this address." /> : null}
+          {objects.length === 0 ? (
+            <EmptyState label="No objects owned by this address." />
+          ) : null}
           <div className="data-list">
             {objects.map((object, index) => {
-              const objectId = readString(object, "object_id", readString(object, "id", `object-${index}`));
-              const objectType = readString(object, "type_", readString(object, "type", readString(object, "object_type", "-")));
+              const objectId = readString(
+                object,
+                "object_id",
+                readString(object, "id", `object-${index}`),
+              );
+              const objectType = readString(
+                object,
+                "type_",
+                readString(
+                  object,
+                  "type",
+                  readString(object, "object_type", "-"),
+                ),
+              );
               const owner = readString(object, "owner", address);
               const ownerKind = readOwnerKindLabel(object);
               const dataBytes = readBytes(object, "data");
-              const coinBalanceMist = isCoinType(objectType) ? readCoinBalanceMist(dataBytes) : null;
+              const coinBalanceMist = isCoinType(objectType)
+                ? readCoinBalanceMist(dataBytes)
+                : null;
               // No fallback: decimals จาก balances/registry เท่านั้น ไม่มีคือ null
               const coinTokenType = (() => {
                 const start = objectType.indexOf("<");
@@ -496,25 +691,49 @@ function AccountContent() {
                 return objectType.slice(start + 1, end).trim();
               })();
               const coinSource = coinTokenType
-                ? ((balances.find((entry) =>
-                      normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) ===
-                      normalizeTokenType(coinTokenType),
-                    ) ?? tokenRegistry.find((entry) =>
-                      normalizeTokenType(readString(entry, "token_type", readString(entry, "token", ""))) ===
-                      normalizeTokenType(coinTokenType),
-                    ) ?? {}) as Record<string, unknown>)
+                ? ((balances.find(
+                    (entry) =>
+                      normalizeTokenType(
+                        readString(
+                          entry,
+                          "token_type",
+                          readString(entry, "token", ""),
+                        ),
+                      ) === normalizeTokenType(coinTokenType),
+                  ) ??
+                    tokenRegistry.find(
+                      (entry) =>
+                        normalizeTokenType(
+                          readString(
+                            entry,
+                            "token_type",
+                            readString(entry, "token", ""),
+                          ),
+                        ) === normalizeTokenType(coinTokenType),
+                    ) ??
+                    {}) as Record<string, unknown>)
                 : null;
-              const coinDecimals = coinSource ? readDecimals(coinSource["decimals"]) : null;
+              const coinDecimals = coinSource
+                ? readDecimals(coinSource["decimals"])
+                : null;
               const objectJson =
                 object && typeof object === "object" && !Array.isArray(object)
-                  ? { ...(object as Record<string, unknown>), data_hex: formatHex(dataBytes) }
+                  ? {
+                      ...(object as Record<string, unknown>),
+                      data_hex: formatHex(dataBytes),
+                    }
                   : { value: object, data_hex: formatHex(dataBytes) };
               return (
-                <div className="data-row data-row--objects" key={`${objectId}-${index}`}>
+                <div
+                  className="data-row data-row--objects"
+                  key={`${objectId}-${index}`}
+                >
                   <div className="object-main primary-text">
                     <p className="tiny-label">Object ID</p>
                     <span className="copy-row copy-row--inline">
-                      <strong className="mono break-anywhere">{objectId}</strong>
+                      <strong className="mono break-anywhere">
+                        {objectId}
+                      </strong>
                       <CopyButton value={objectId} label="Copy object id" />
                     </span>
                   </div>
@@ -522,12 +741,16 @@ function AccountContent() {
                   <div className="object-detail-grid">
                     <div className="object-detail-field object-detail-field--wide">
                       <p className="tiny-label">Type</p>
-                      <span className="mono muted-text break-anywhere">{objectType}</span>
+                      <span className="mono muted-text break-anywhere">
+                        {objectType}
+                      </span>
                     </div>
                     <div className="object-detail-field object-detail-field--wide">
                       <p className="tiny-label">Owner</p>
                       <span className="copy-row copy-row--inline">
-                        <span className="mono muted-text break-anywhere">{owner}</span>
+                        <span className="mono muted-text break-anywhere">
+                          {owner}
+                        </span>
                         <CopyButton value={owner} label="Copy owner address" />
                       </span>
                     </div>
@@ -537,31 +760,43 @@ function AccountContent() {
                     </div>
                     <div className="object-detail-field">
                       <p className="tiny-label">Version</p>
-                      <span className="mono">{readString(object, "version", "-")}</span>
+                      <span className="mono">
+                        {readString(object, "version", "-")}
+                      </span>
                     </div>
                     <div className="object-detail-field">
                       <p className="tiny-label">Digest</p>
-                      <span className="mono break-anywhere">{readString(object, "digest", "-")}</span>
+                      <span className="mono break-anywhere">
+                        {readString(object, "digest", "-")}
+                      </span>
                     </div>
                     <div className="object-detail-field">
                       <p className="tiny-label">Data Bytes</p>
-                      <span className="mono">{dataBytes.length.toLocaleString()}</span>
+                      <span className="mono">
+                        {dataBytes.length.toLocaleString()}
+                      </span>
                     </div>
                     {coinBalanceMist !== null ? (
                       <div className="object-detail-field">
                         <p className="tiny-label">Coin Balance</p>
-                        <span className="mono">{formatBalance(coinBalanceMist, coinDecimals)}</span>
+                        <span className="mono">
+                          {formatBalance(coinBalanceMist, coinDecimals)}
+                        </span>
                       </div>
                     ) : null}
                     <div className="object-detail-field">
                       <p className="tiny-label">Status</p>
-                      <StatusPill label={readString(object, "status", "owned")} />
+                      <StatusPill
+                        label={readString(object, "status", "owned")}
+                      />
                     </div>
                   </div>
 
                   <details className="object-json-details">
                     <summary>Object JSON</summary>
-                    <pre className="custom-scrollbar">{JSON.stringify(objectJson, null, 2)}</pre>
+                    <pre className="custom-scrollbar">
+                      {JSON.stringify(objectJson, null, 2)}
+                    </pre>
                   </details>
                 </div>
               );
@@ -570,15 +805,25 @@ function AccountContent() {
         </section>
       ) : null}
 
-      <RawDetails label="Developer: raw account state" value={{ account, balances, nfts, objects, transactions: activityRows }} />
-      <TransactionDetailsModal open={modalOpen} loading={modalLoading} transaction={selectedTransaction} onClose={() => setModalOpen(false)} />
+      <RawDetails
+        label="Developer: raw account state"
+        value={{ account, balances, nfts, objects, transactions: activityRows }}
+      />
+      <TransactionDetailsModal
+        open={modalOpen}
+        loading={modalLoading}
+        transaction={selectedTransaction}
+        onClose={() => setModalOpen(false)}
+      />
     </div>
   );
 }
 
 export default function AccountPage() {
   return (
-    <Suspense fallback={<EmptyState loading label="Loading account explorer..." />}>
+    <Suspense
+      fallback={<EmptyState loading label="Loading account explorer..." />}
+    >
       <AccountContent />
     </Suspense>
   );

@@ -9,6 +9,7 @@ use kanari_types::address::Address;
 use kanari_types::collection::CollectionModule;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -113,13 +114,18 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
     };
 
     let mut nfts = Vec::new();
+    let collection_ids = state_guard.get_all_collection_ids();
+    let mut collection_nft_ids = HashSet::new();
+    for collection_id in collection_ids {
+        collection_nft_ids.extend(state_guard.get_collection_nft_ids(&collection_id));
+    }
 
     for id in owned_ids {
         if let Ok(Some(obj)) = state_guard.get_object(&id)
-            && (obj
-                .type_
-                .contains(&format!("::{}::", CollectionModule::NFT_MODULE))
-                || obj.type_.to_uppercase().contains("NFT"))
+            && (collection_nft_ids.contains(&id)
+                || obj
+                    .type_
+                    .ends_with(&format!("::{}::Nft", CollectionModule::NFT_MODULE)))
         {
             nfts.push(json!({
                 "object_id": id,
