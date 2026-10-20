@@ -3619,6 +3619,17 @@ impl BlockchainEngine {
                             "Object {} is not canonically address-owned",
                             input.object_ref.object_id
                         );
+                        // Mutable access is sender-only: a mutable declared
+                        // input for an object owned by anyone else would grant
+                        // the sender a `&mut` alias to foreign app state
+                        // (client-side CLI checks cannot be trusted here).
+                        if input.mutable && stored.owner != sender_addr {
+                            anyhow::bail!(
+                                "Mutable object input {} is owned by {:?}, not the sender",
+                                input.object_ref.object_id,
+                                stored.owner.to_hex()
+                            );
+                        }
                         let expected = KanariAddress::parse_to_account_address(&expected_owner)?;
                         if stored.owner != expected {
                             anyhow::bail!(
@@ -4137,3 +4148,7 @@ impl BlockchainEngine {
 #[cfg(test)]
 #[path = "../tests/unit/engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/engine_mutable_input_tests.rs"]
+mod mutable_input_tests;

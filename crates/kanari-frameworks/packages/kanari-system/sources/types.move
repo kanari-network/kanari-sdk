@@ -13,29 +13,9 @@ module kanari_system::types {
 
     /// Claim `T` for currency creation. Aborts when `T` was already claimed,
     /// giving each coin type a single canonical currency. The host persists
-    /// claims; a second `create_currency`/`create_regulated_currency` for the
-    /// same `T` aborts even across transactions.
+    /// claims; a second `create_currency`/`create_regulated_currency` for
+    /// the same `T` aborts even across transactions.
     public native fun claim_witness<T: drop>(witness: &T);
-
-    /// Claim `T` for exactly one `Display<T>`, aborting if it was already claimed.
-    /// Persisted by the host across transactions.
-    ///
-    /// This is what enforces one authority per type per kind. Without it the
-    /// consumer signatures take an *unbound* `&Publisher<W>`, so on its own a
-    /// publisher proves only that the caller owns some type in its own package —
-    /// enough to mint a second `Display<T>` for a type you do not own and have
-    /// wallets render two different names for the same token.
-    ///
-    /// Separate from `claim_witness` (currency) and `claim_transfer_policy`, so
-    /// one type can legitimately hold one of each.
-    public native fun claim_display<T: key>();
-
-    /// Claim `T` for exactly one `TransferPolicy<T>`, aborting if already
-    /// claimed. See `claim_display` for why this is needed.
-    ///
-    /// Consequence: `transfer_policy::destroy` is terminal. A type whose policy
-    /// is destroyed can never be made tradable again.
-    public native fun claim_transfer_policy<T: key>();
 
     #[test_only]
     struct TYPES has drop {}

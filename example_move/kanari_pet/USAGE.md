@@ -27,17 +27,20 @@ kanari move publish
 
 - a shared `Display<KanariPet>` (name / description / image_url / creator)
 - a shared `TransferPolicy<KanariPet>` with a 5% royalty to you
-- a shared `Stats` — upgrade economics: `$1.00` base, `10` power per level,
-  level cap `50`
-- a `TransferPolicyCap<KanariPet>` and the `Publisher<KANARI_PET>`
+- a shared `Stats` — upgrade economics: flat `$1.00` per level, `10` power per
+  level, level cap `1_000`
+- a shared `Collection` (supply `10_000`) plus its `NftCap`
+- a `TransferPolicyCap<KanariPet>`, the `NftCap`, and the `Publisher<KANARI_PET>`
 
 Record the object ids from the publish output. You will need
 `Stats`, `Collection`, `NftCap`, and the `FEE` `TreasuryCap`.
 
-## 1. Create a collection
+## 1. Create a collection (optional)
 
-One collection, one supply pool. `NftCap` is deliberately not `drop`-able —
-losing it would strand the remaining supply.
+`init` already creates one and shares it, so most deployments skip this step.
+Create another only when you want a separate supply pool with its own `NftCap`:
+`NftCap` is deliberately not `drop`-able — losing it would strand the remaining
+supply.
 
 ```bash
 kanari move call --package 0x2 --module collection --function create_collection \
@@ -99,7 +102,9 @@ traits never zeroes a paid level.
 
 ## 5. Upgrade (paid, in USD)
 
-Progression costs `base * (level + 1)`, so it escalates: $1.00, $2.00, $3.00 …
+Progression is **flat-priced**: every level costs exactly `base_cost_usd`
+(`1000000` = $1.00). A full climb to the cap of 1,000 therefore costs 1,000 x $1.00,
+not an escalating sum.
 
 Quote first:
 
@@ -116,15 +121,14 @@ kanari move call --package $PKG --module pet --function upgrade \
 ```
 
 You pass a `Coin<USD>` **object**, and only the quoted amount is taken — the
-remainder stays in your coin. `$1.00` from level 0 costs `1000000`; level 1 costs
-`2000000`.
+remainder stays in your coin. Every step, whatever the level, costs `1000000`.
 
 After a successful upgrade: `level + 1`, `power = 10 * level`,
 `rarity` recomputed. USD goes to `Stats.treasury`. A `Upgraded` event is
 emitted carrying `usd_paid`.
 
 Aborts with `E_INSUFFICIENT_USD` (2) if you underpay, `E_MAX_LEVEL` (1) at the
-cap of 50.
+cap of 1,000.
 
 Rarity bands: Common <5, Uncommon 5–9, Rare 10–24, Epic 25–39, Legendary 40+.
 
@@ -226,6 +230,12 @@ What the chain actually enforces, and what it does not.
 
 **Enforced**
 
+- **`Display<T>` and `TransferPolicy<T>` cannot be minted for your type by a
+  foreign package.** Both require a `Publisher` whose witness was defined in
+  T's own package (`package::assert_governs_type`, package-level binding since
+  type-level binding would force `drop` onto tokens). Same-package
+  cross-module use is accepted; a package publishes all of its modules
+  together.
 - `Stats` is unforgeable. `upgrade` and `mint_with_level` take a `&Stats`, so
   a caller-controlled `Stats` would mean caller-controlled economics. `new_stats`
   is `#[test_only]`; only `init` builds one. Pinned by the negative-compile
@@ -243,11 +253,10 @@ What the chain actually enforces, and what it does not.
 
 **Not enforced — read before relying on it**
 
-- **No host type registry.** `Publisher` is witness-keyed but _unbound_ in
-  consumers, so anyone holding a publisher can create a second `Display<T>` or
-  `TransferPolicy<T>` for a type they do not own. Sui closes this host-side;
-  this runtime has no equivalent. A wallet must not treat the first `Display`
-  it finds for a type as canonical.
+- **More than one `Display<T>` per type is possible** inside T's package.
+  Sui closes this host-side with a one-Display-per-type registry; this runtime
+  has no equivalent. A wallet must not treat the first `Display` it finds for
+  a type as canonical.
 - **Free-form attributes are holder-editable.** A holder can rename their pet's
   `breed`. Nothing in the framework reads those attributes to make a decision,
   so this is descriptive-only — but a marketplace must not treat them as

@@ -253,10 +253,13 @@ module kanari_system::bcs {
     #[test]
     #[expected_failure(abort_code = ELenOutOfRange)]
     fun test_uleb_len_fail() {
-        let value = vector[0xff, 0xff, 0xff, 0xff, 0xff];
-        let bytes = new(to_bytes(&value));
+        // A real ULEB128 continuation run: every byte has the high bit set,
+        // so no terminator ever arrives. `peel_vec_length` must give up after
+        // four continuation bytes with `ELenOutOfRange` instead of looping
+        // forever. (The working case for a real vector is a terminator byte
+        // arriving within four bytes; see test_bcs.)
+        let bytes = new(vector[0xff, 0xff, 0xff, 0xff, 0xff]);
         let _fail = peel_vec_length(&mut bytes);
-        abort 2 // TODO: make this test fail
     }
 
     #[test]

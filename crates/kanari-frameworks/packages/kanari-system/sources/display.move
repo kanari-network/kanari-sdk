@@ -9,32 +9,26 @@
 /// creator writing a custom viewer. Per-token uniqueness comes from the object
 /// id, not from the metadata.
 ///
-/// Every mutation takes an *unbound* `&Publisher`, matching Sui. Binding it to
-/// `&Publisher` would be tighter in principle, but the publisher is keyed on
-/// the one-time witness type rather than on `T` (see `kanari_system::package`),
-/// so there is no `Publisher` to bind to. Holding a publisher proves you own
-/// a type in your own package.
-///
-/// Sui additionally enforces one Display per type through a host-side registry,
-/// so a second Display for the same `T` is rejected at publish time. This
-/// runtime now does the same: `new_display` claims `T` in the host's durable
-/// type registry, so the first Display created for a type is the only one that
-/// can ever exist. Combined with the unbound `&Publisher<W>` argument, that
-/// closes the gap — a publisher for *some* type can no longer mint a
-/// `Display<T>` once the real owner has already created one.
+/// Every mutation takes a `&Publisher<W>` and requires it, through
+/// `package::assert_governs_type`, to have been claimed in the same package
+/// that defines `T`. Sui types the publisher to the token itself; here the
+/// witness carries `drop` while the token must not (see `kanari_system::package`),
+/// so type-level binding is unavailable and package-level binding is what the
+/// runtime enforces. A foreign package holding its own publisher cannot mint
+/// a Display for your type. What remains unenforced is the Sui host-side
+/// one-Display-per-type registry: creating two Displays for one type is still
+/// possible inside T's own package, and clients must resolve by type name and
+/// prefer the most recent. Packages that care should create exactly one, in
+/// `init`.
 module kanari_system::display {
     use std::vector;
     use std::option::{Self, Option};
     use std::string::{String, utf8};
     use kanari_system::object::{Self, ID, UID};
-    use kanari_system::package::Publisher;
+    use kanari_system::package::{Self, Publisher};
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
-    use kanari_system::types;
     use kanari_system::vec_map::{Self, VecMap};
-
-    #[test_only]
-    use kanari_system::package;
 
     #[test_only]
     use kanari_system::tx_context;
@@ -93,15 +87,15 @@ module kanari_system::display {
 
     /// Seed fields into a caller-built `VecMap`. Split out because this legacy
     /// edition has no `let mut` bindings, so the loop body needs a named local.
+    /// The package guard lives here because both seed constructors funnel
+    /// through it.
     fun new_display<T: key, W: drop>(
-        _pub: &Publisher<W>,
+        pub: &Publisher<W>,
         keys: vector<vector<u8>>,
         values: vector<vector<u8>>,
         ctx: &mut TxContext,
     ): Display<T> {
-        // One Display per type, enforced by the host and persisted across
-        // transactions.
-        types::claim_display<T>();
+        package::assert_governs_type<T, W>(pub);
         let type_name = utf8(type_name_bytes<T>());
         let fields = seed_fields(keys, values, type_name);
         Display<T> { id: object::new(ctx), fields }
@@ -129,10 +123,11 @@ module kanari_system::display {
     /// Add or replace one field.
     public fun add<T: key, W: drop>(
         display: &mut Display<T>,
-        _pub: &Publisher<W>,
+        pub: &Publisher<W>,
         name: vector<u8>,
         value: vector<u8>,
     ) {
+        package::assert_governs_type<T, W>(pub);
         vec_map::insert(&mut display.fields, utf8(name), utf8(value));
     }
 
@@ -140,9 +135,10 @@ module kanari_system::display {
     /// off it, and losing it would make the display unattributable.
     public fun remove<T: key, W: drop>(
         display: &mut Display<T>,
-        _pub: &Publisher<W>,
+        pub: &Publisher<W>,
         name: vector<u8>,
     ) {
+        package::assert_governs_type<T, W>(pub);
         let key = utf8(name);
         assert!(key != utf8(type_name_bytes<T>()), E_PROTECTED_FIELD);
         vec_map::remove(&mut display.fields, &key);
@@ -209,7 +205,8 @@ module kanari_system::display {
     ///
     /// `VecMap` carries `drop`, so the field map goes away with the value; only
     /// the `UID` needs explicit deletion.
-    public fun destroy<T: key, W: drop>(display: Display<T>, _pub: &Publisher<W>) {
+    public fun destroy<T: key, W: drop>(display: Display<T>, pub: &Publisher<W>) {
+        package::assert_governs_type<T, W>(pub);
         let Display { id, fields } = display;
         let _ = fields;
         object::delete(id);
@@ -296,5 +293,42 @@ module kanari_system::display {
         let d = create_with_fields<DISPLAY, DISPLAY>(&pub, keys, values, &mut ctx);
         transfer::public_freeze_object(d);
         transfer::public_freeze_object(pub);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = package::E_WRONG_PACKAGE)]
+    /// A publisher claimed in a foreign package must not mint a Display for a
+    /// type it does not own. The forged publisher stands in for one claimed by
+    /// another package: `type_name` is compiler-derived in `package::new`, so
+    /// a real foreign claim produces exactly this foreign name.
+    fun create_refuses_foreign_publisher() {
+        let ctx = tx_context::dummy();
+        let fake = package::forged_publisher_for_test<DISPLAY>(
+            b"0x44::other::OTHER", &mut ctx,
+        );
+        let d = create_empty<DISPLAY, DISPLAY>(&fake, &mut ctx);
+        share<DISPLAY>(d);
+        transfer::public_freeze_object(fake);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = package::E_WRONG_PACKAGE)]
+    /// Same guard on the mutation path: a foreign publisher cannot edit a
+    /// Display it did not create either.
+    fun add_refuses_foreign_publisher() {
+        let ctx = tx_context::dummy();
+        let real = package::new<DISPLAY>(DISPLAY {}, &mut ctx);
+        let d = create_empty<DISPLAY, DISPLAY>(&real, &mut ctx);
+        let fake = package::forged_publisher_for_test<DISPLAY>(
+            b"0x44::other::OTHER", &mut ctx,
+        );
+        add<DISPLAY, DISPLAY>(&mut d, &fake, b"name", b"spoofed");
+        // Unreachable when the abort above fires, but the compiler requires
+        // every path to consume the value.
+        let Display { id, fields } = d;
+        let _ = fields;
+        object::delete(id);
+        transfer::public_freeze_object(real);
+        package::revoke_forever<DISPLAY>(fake);
     }
 }

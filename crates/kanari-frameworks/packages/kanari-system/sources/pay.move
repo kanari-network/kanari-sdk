@@ -75,9 +75,11 @@ module kanari_system::pay {
     }
 
     /// Regulated send: like `split_and_transfer`, but aborts `EDENIED` when
-    /// `recipient` is on the shared deny list for the coin type. Plain
-    /// `split_and_transfer` deliberately skips the check (permissionless
-    /// coin path).
+    /// either end of the transfer is on the shared deny list for the coin
+    /// type (Sui's list restricts both sending and receiving, so a denied
+    /// address cannot drain its balance through this path either), or when
+    /// the type is paused. Plain `split_and_transfer` deliberately skips the
+    /// check (permissionless coin path).
     public entry fun split_and_transfer_checked<T>(
         c: &mut Coin<T>,
         amount: u64,
@@ -85,6 +87,7 @@ module kanari_system::pay {
         deny: &DenyList,
         ctx: &mut TxContext,
     ) {
+        assert!(!coin::deny_list_contains<T>(deny, tx_context::sender(ctx)), EDENIED);
         assert!(!coin::deny_list_contains<T>(deny, recipient), EDENIED);
         assert!(!coin::deny_list_paused<T>(deny), EDENIED);
         split_and_transfer(c, amount, recipient, ctx)
@@ -147,15 +150,16 @@ module kanari_system::pay {
     }
 
     /// Regulated join: like `join_vec_and_transfer`, but aborts `EDENIED` when
-    /// `receiver` is on the shared deny list for the coin type.
-    /// `join_vec_and_transfer` deliberately skips the check (permissionless
-    /// coin path).
+    /// either end of the transfer is on the shared deny list for the coin
+    /// type, or when the type is paused. `join_vec_and_transfer` deliberately
+    /// skips the check (permissionless coin path).
     public entry fun join_vec_and_transfer_checked<T>(
         coins: vector<Coin<T>>,
         receiver: address,
         deny: &DenyList,
         ctx: &TxContext,
     ) {
+        assert!(!coin::deny_list_contains<T>(deny, tx_context::sender(ctx)), EDENIED);
         assert!(!coin::deny_list_contains<T>(deny, receiver), EDENIED);
         assert!(!coin::deny_list_paused<T>(deny), EDENIED);
         join_vec_and_transfer(coins, receiver, ctx)

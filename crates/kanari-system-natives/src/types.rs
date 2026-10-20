@@ -86,39 +86,18 @@ impl ClaimedWitnessesExt {
     /// Claim `type_str`, failing when already claimed in durable state or
     /// earlier in this transaction. Fail-closed and deterministic.
     pub fn claim(&mut self, type_str: &str) -> Result<(), String> {
-        self.claim_key(type_str)
-    }
-
-    /// Claim `type_str` for a specific `purpose`, e.g. `"display"` or
-    /// `"transfer_policy"`.
-    ///
-    /// Namespaced rather than sharing one flat set, because a single type may
-    /// legitimately need several authorities — a coin type claims itself for
-    /// currency creation while an NFT type claims itself for a Display and
-    /// again for a TransferPolicy. A flat set would let one claim block the
-    /// others.
-    ///
-    /// The stored key is `"{purpose}::{type}"`. Entries written before this
-    /// existed are bare type strings (the currency case), and those stay valid:
-    /// `claim()` keeps using the unprefixed form, so no state migration is
-    /// needed and no existing claim is silently invalidated.
-    pub fn claim_scoped(&mut self, purpose: &str, type_str: &str) -> Result<(), String> {
-        self.claim_key(&format!("{purpose}::{type_str}"))
-    }
-
-    fn claim_key(&mut self, key: &str) -> Result<(), String> {
-        if self.pending.contains(key) {
-            return Err(format!("witness type already claimed: {key}"));
+        if self.pending.contains(type_str) {
+            return Err(format!("witness type already claimed: {type_str}"));
         }
         if let Some(resolver) = &self.resolver
             && resolver
                 .claimed_witnesses()?
                 .iter()
-                .any(|claimed| claimed == key)
+                .any(|claimed| claimed == type_str)
         {
-            return Err(format!("witness type already claimed: {key}"));
+            return Err(format!("witness type already claimed: {type_str}"));
         }
-        self.pending.insert(key.to_string());
+        self.pending.insert(type_str.to_string());
         Ok(())
     }
 
@@ -165,9 +144,7 @@ fn native_is_one_time_witness(
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
     let check_gas = gas_params.clone();
-    let claim_gas = gas_params.clone();
-    let display_gas = gas_params.clone();
-    let policy_gas = gas_params;
+    let claim_gas = gas_params;
 
     let is_one_time_witness: NativeFunction = Arc::new(move |context, ty_args, args| {
         native_is_one_time_witness(&check_gas, context, ty_args, args)
@@ -175,70 +152,11 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let claim_witness: NativeFunction = Arc::new(move |context, ty_args, args| {
         native_claim_witness(&claim_gas, context, ty_args, args)
     });
-    let claim_display: NativeFunction = Arc::new(move |context, ty_args, args| {
-        native_claim_purpose(&display_gas, context, ty_args, args, PURPOSE_DISPLAY)
-    });
-    let claim_transfer_policy: NativeFunction = Arc::new(move |context, ty_args, args| {
-        native_claim_purpose(&policy_gas, context, ty_args, args, PURPOSE_TRANSFER_POLICY)
-    });
 
     make_module_natives([
         ("is_one_time_witness", is_one_time_witness),
         ("claim_witness", claim_witness),
-        ("claim_display", claim_display),
-        ("claim_transfer_policy", claim_transfer_policy),
     ])
-}
-
-/// Registry namespace for the one-Display-per-type claim.
-const PURPOSE_DISPLAY: &str = "display";
-
-/// Registry namespace for the one-policy-per-type claim.
-const PURPOSE_TRANSFER_POLICY: &str = "transfer_policy";
-
-/// Shared body for `claim_display` / `claim_transfer_policy`.
-///
-/// Claims `T` under `purpose` so exactly one authority of that kind can ever
-/// exist for the type. This is what closes the unbound-`Publisher` gap:
-/// consumers take `&Publisher<W>` for any `W` in the caller's package, so on
-/// its own that proves only that the caller owns *some* type. Binding the claim
-/// to `T` and refusing a second one makes the first authority created for a
-/// type the only one that can exist — the guarantee Sui gets from its
-/// host-side registry.
-fn native_claim_purpose(
-    gas_params: &GasParameters,
-    context: &mut NativeContext,
-    ty_args: Vec<Type>,
-    arguments: VecDeque<Value>,
-    purpose: &str,
-) -> PartialVMResult<NativeResult> {
-    use move_vm_types::natives::function::NativeResult as NR;
-
-    expect_native_signature(arguments.len(), 0, ty_args.len(), 1)?;
-
-    let tag = context.type_to_type_tag(&ty_args[0])?;
-    let type_str = format!("{tag}");
-
-    native_charge_gas_early_exit!(context, gas_params.claim_witness);
-    native_charge_gas_early_exit!(
-        context,
-        gas_params.per_byte * NumBytes::new(type_str.len() as u64)
-    );
-
-    let mut outcome: Option<Result<(), String>> = None;
-    crate::native_ext::with_ext_mut_or_default::<ClaimedWitnessesExt, _>(context, |ext| {
-        outcome = Some(ext.claim_scoped(purpose, &type_str));
-    });
-
-    match outcome {
-        Some(Ok(())) => Ok(NR::ok(context.gas_used(), smallvec![])),
-        Some(Err(error)) => Err(PartialVMError::new(StatusCode::ABORTED)
-            .with_sub_status(E_WITNESS_ALREADY_CLAIMED)
-            .with_message(error)),
-        // No host registry (bare Move unit runner): allow. Runtime executions
-        // always inject the extension, so this never weakens consensus.
-        None => Ok(NR::ok(context.gas_used(), smallvec![])),
-    }
 }
 
 /// `types::claim_witness<T: drop>(witness: &T)`.

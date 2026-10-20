@@ -63,10 +63,21 @@ tokens is worth more than the tighter signature.
 The consequence is Sui's own: consumers take an **unbound** `&Publisher<W>`,
 so holding a publisher proves you own _some_ type in your own package, not the
 specific `T` being configured. Sui closes that with a host-side one-Display-per-
-type registry. **This runtime has no such registry**, so duplicate or spoofed
-`Display<T>` / `TransferPolicy<T>` objects are possible. `display.move`
-documents the caveat on the module. Closing it properly means a host change, and
-is tracked as open work rather than papered over here.
+type registry, which this runtime still lacks — two Displays for one type inside
+T's own package remain possible.
+
+What a runtime change would have been needed for is closed now, at Move level:
+type names carry the defining package's address (`0x43::pet::KanariPet`), and
+`package::assert_governs_type` — enforced by `display` and `transfer_policy` on
+every mutation and minting path — aborts a publisher whose witness was defined
+in a different package. A foreign package cannot mint a `Display<T>` or
+`TransferPolicy<T>` for your `T` with its own publisher. The comparison accepts
+same-package cross-module use: correct, because a package is the unit that
+publishes and owns all of its modules together. Verified in-package by tests
+with a hand-built foreign `type_name` (forgeable only through
+`forged_publisher_for_test`; the production `new` derives `type_name` from the
+compiler-resolved witness type, so a real foreign claim always carries the
+foreign package address).
 
 ### `Display<T>` — type-keyed metadata
 
@@ -115,6 +126,50 @@ divergence to fix — but it must not be confused with the Sui contract, and
 own their own blocklist (`james::kdeny`) because Move cannot bind a framework
 capability to an arbitrary package's type. Sui has the same constraint and
 solves it by not offering object-family deny lists at all.
+
+The checked regulated paths (`pay::split_and_transfer_checked`,
+`pay::join_vec_and_transfer_checked`,
+`multisig::execute_transfer_checked`/`execute_checked_entry`) now enforce the
+list in **both directions**: a denied address cannot appear as the sender, not
+only as the recipient — matching Sui's semantics where the list restricts
+sending as well as receiving, so a denied holder cannot drain their balance
+through a checked path. The pause flag is checked on every one of them
+(fail-closed).
+
+The unchecked `coin::*` / `pay::split_and_transfer` family is now closed at
+the runtime level, mirroring Sui's choice to enforce deny lists in the object
+runtime. Two host-side gates run around every entry execution: an input gate
+rejects transactions whose sender is denied (or whose coin type is globally
+paused) the moment a `Coin<T>` enters as an object input, and an output gate
+runs just before the first store write in the success path, scanning the
+assembled changeset plus the drained transfer list for any `Coin<T>` object
+whose final owner is an address — a denied recipient cannot receive through
+_any_ entry path (plain `coin::split` + `public_transfer`,
+`pay::split_and_transfer`, redirecting game rewards), and a paused type
+cannot move anywhere at all. Both gates execute the framework's own
+`deny_list_contains`/`deny_list_paused` reads in a fresh session, so the
+deny-key rendering can never drift from the framework; unresolvable reads
+fail open with a warning (same posture as the input gate). Destination-side
+enforcement is pinned by
+`move-execution/v2/kanari-move-runtime-v2/tests/deny_list_recipient_enforcement.rs`
+(denied recipient rejected and state untouched, allowed recipient passes, pausing
+blocks everyone, unpausing restores). Royalty probing closed:
+`royalty_rule::pay` is pinned by tests for the full-flow split, the
+E_INSUFFICIENT abort, and the duplicate receipt abort (`vec_set::insert`
+code 0) that stops one request from being charged twice.
+
+**Mutable declared object inputs are sender-only.** A vulnerability probe
+found that a transaction could declare another user's owned object as a
+`mutable` explicit `AddressOwner` input: the engine validated only that the
+declared owner matched the stored owner, and the runtime preloader grants
+mutable-borrow authority for cross-owner non-coin objects, which would have
+handed the sender a `&mut` alias to foreign app state (client-side CLI
+ownership checks are not a security boundary). Now closed at the platform
+chokepoint: `engine::validate_transaction_object_access` rejects any mutable
+declared input whose stored owner is not the transaction sender. Shared
+objects keep Sui-style semantics (any sender may mutably borrow a canonical
+shared object). Regression tests live in
+`crates/kanari-core/tests/unit/engine_mutable_input_tests.rs`.
 
 ## Migration cost, in order
 

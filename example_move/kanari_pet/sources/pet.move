@@ -35,13 +35,15 @@ module kanari_pet::pet {
     use kanari_system::event;
     use kanari_system::nft;
     use kanari_system::object::{Self, UID};
-    use kanari_system::package::Publisher;
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
     use kanari_system::transfer_policy::{Self, TransferPolicy, TransferPolicyCap};
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::usd::USD;
     use kanari_system::vec_map::VecMap;
+
+    #[test_only]
+    use kanari_system::package::Publisher;
 
     // ==================== Progression ====================
     //
@@ -73,6 +75,9 @@ module kanari_pet::pet {
 
     /// The minted level exceeds the configured cap.
     const E_LEVEL_OUT_OF_RANGE: u64 = 3;
+
+    /// Supply of the collection `init` creates.
+    const MAX_SUPPLY: u64 = 10_000;
 
     /// Upgrade economics for every `KanariPet`.
     ///
@@ -187,14 +192,28 @@ module kanari_pet::pet {
             Stats {
                 id: object::new(ctx),
                 treasury: sender,
-                // $1.00 for the first upgrade, in USD's 6-decimal base units.
+                // Flat $1.00 per level, in USD's 6-decimal base units.
                 base_cost_usd: 1_000_000,
                 power_per_level: 10,
-                max_level: 50,
+                max_level: 1_000,
             }
         );
 
+        // The collection object minting draws from. The `Collection` is shared
+        // so anyone can read supply (and `burn` can bind to it); the `NftCap`
+        // that authorises mints goes to the sender.
+        let (coll, mint_cap) = collection::create_collection(
+            ctx,
+            b"Kanari Pet",
+            b"An NFT built on the Kanari Sui-parity stack",
+            b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4",
+            b"https://github.com/KanariNetwork/kanari-sdk",
+            MAX_SUPPLY,
+        );
+        transfer::share_object(coll);
+
         transfer::public_transfer(cap, sender);
+        transfer::public_transfer(mint_cap, sender);
         transfer::public_transfer(publisher, sender);
     }
 
@@ -441,12 +460,14 @@ module kanari_pet::pet {
 
     /// The USD cost of taking a pet from `current_level` to the next one.
     ///
-    /// Escalates linearly: `base * (level + 1)`. Public and pure so a client can
-    /// quote the next step before committing, and so the charged amount and the
-    /// quoted amount cannot drift apart — `upgrade` calls this, not a private
-    /// copy of the formula.
-    public fun upgrade_cost(stats: &Stats, current_level: u64): u64 {
-        stats.base_cost_usd * (current_level + 1)
+    /// Flat: every level costs exactly `base_cost_usd` — $1.00 per level by
+    /// default, so a full climb to `max_level` is 50 x $1.00, not an
+    /// escalating sum. Public and pure so a client can quote the next step
+    /// before committing, and so the charged amount and the quoted amount
+    /// cannot drift apart — `upgrade` calls this, not a private copy of the
+    /// formula.
+    public fun upgrade_cost(stats: &Stats, _current_level: u64): u64 {
+        stats.base_cost_usd
     }
 
     /// Raise a pet one level, paid in USD.

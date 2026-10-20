@@ -38,10 +38,9 @@ module kanari_system::transfer_policy {
     use std::bcs;
     use std::vector;
     use kanari_system::object::{Self, ID, UID};
-    use kanari_system::package::Publisher;
+    use kanari_system::package::{Self, Publisher};
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
-    use kanari_system::types;
     use kanari_system::vec_map::{Self, VecMap};
     use kanari_system::vec_set::{Self, VecSet};
 
@@ -113,17 +112,15 @@ module kanari_system::transfer_policy {
     /// policy is never shared simply cannot be traded — trading is opt-in, and
     /// the creator revokes it by destroying the policy.
     ///
-    /// Claims `T` in the host's durable registry, so exactly one
-    /// `TransferPolicy<T>` can ever exist. Without it the unbound `&Publisher<W>`
-    /// would let any publisher holder mint a second, rule-free policy for a type
-    /// they do not own and trade it around the real one. Consequence: `destroy`
-    /// is terminal — a type whose policy is destroyed can never be made
-    /// tradable again.
+    /// The publisher must be from `T`'s defining package
+    /// (`package::assert_governs_type`): a policy minted from a foreign
+    /// publisher would let a package inject royalty rules into trades it does
+    /// not own.
     public fun new<T: key + store, W: drop>(
-        _pub: &Publisher<W>,
+        pub: &Publisher<W>,
         ctx: &mut TxContext,
     ): (TransferPolicy<T>, TransferPolicyCap<T>) {
-        types::claim_transfer_policy<T>();
+        package::assert_governs_type<T, W>(pub);
         let policy = TransferPolicy<T> {
             id: object::new(ctx),
             rules: vec_map::empty<vector<u8>, AnyRule>(),
@@ -443,9 +440,6 @@ module kanari_system::transfer_policy {
 
     // ==================== Tests ====================
     #[test_only]
-    use kanari_system::package;
-
-    #[test_only]
     use kanari_system::tx_context;
 
     #[test_only]
@@ -590,5 +584,21 @@ module kanari_system::transfer_policy {
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(pub);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = package::E_WRONG_PACKAGE)]
+    /// A policy minted from a foreign publisher would let a package inject
+    /// royalty rules into trades it does not own. The forged publisher stands
+    /// in for a claim made by another package.
+    fun new_refuses_foreign_publisher() {
+        let ctx = tx_context::dummy();
+        let fake = package::forged_publisher_for_test<TRANSFER_POLICY>(
+            b"0x44::other::OTHER", &mut ctx,
+        );
+        let (policy, cap) = new<TRANSFER_POLICY, TRANSFER_POLICY>(&fake, &mut ctx);
+        share(policy);
+        freeze_cap(cap);
+        transfer::public_freeze_object(fake);
     }
 }

@@ -475,6 +475,15 @@ impl MoveRuntime {
                     &mut processed_ids,
                 )?;
 
+                if !bypass_entry_check {
+                    self.enforce_coin_output_policy(
+                        &vm_guard,
+                        &cs,
+                        &transferred,
+                        state_overlay.clone(),
+                    )?;
+                }
+
                 self.add_transferred_objects_to_changeset(
                     &mut cs,
                     transferred,
@@ -755,5 +764,146 @@ impl MoveRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Protocol-level regulated-coin output policy.
+    ///
+    /// Companion to `enforce_coin_input_policy`: a denied recipient — or a
+    /// globally paused coin type — may not end up owning a `Coin<T>` object,
+    /// regardless of which entry path delivered it (plain `coin::transfer`,
+    /// `pay::split_and_transfer`, split + transfer, ...). The checked Move
+    /// paths reject at the call site; this host-side gate closes the
+    /// unchecked ones.
+    ///
+    /// Runs before the first store write in the success path, scanning the
+    /// already-assembled changeset (writebacks, saved/borrowed objects) plus
+    /// the drained `transferred` list, whose members are persisted directly
+    /// by `add_transferred_objects_to_changeset` after this check. Every
+    /// candidate whose type parses as `Coin<T>` and whose final owner is an
+    /// address is checked by executing the framework's own
+    /// `deny_list_contains` / `deny_list_paused` reads in a fresh session,
+    /// so deny-key rendering always matches the framework. Unresolvable
+    /// reads fail open with a warning, mirroring the input policy.
+    fn enforce_coin_output_policy(
+        &self,
+        vm_guard: &std::sync::RwLockReadGuard<'_, MoveVM>,
+        cs: &ChangeSet,
+        transferred: &[TransferredObject],
+        state_overlay: Option<crate::StateOverlay>,
+    ) -> Result<()> {
+        use std::str::FromStr;
+
+        let mut targets: Vec<(String, AccountAddress)> = cs
+            .created_objects
+            .iter()
+            .filter_map(|(_, created)| {
+                Self::coin_recipient_candidate(&created.type_, created.owner)
+            })
+            .collect();
+        for obj in transferred
+            .iter()
+            .filter(|obj| obj.should_persist && !obj.is_frozen && !obj.is_shared)
+        {
+            if let Some(pair) = Self::coin_recipient_candidate(&obj.object_type, obj.recipient) {
+                targets.push(pair);
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        if targets.is_empty() {
+            return Ok(());
+        }
+
+        let Some(singleton) = self.get_object_for_execution(
+            &Self::deny_list_singleton_full_id(),
+            state_overlay.as_deref(),
+        )?
+        else {
+            log::debug!("[RUNTIME] deny output policy skipped: singleton absent");
+            return Ok(());
+        };
+        let (resolver, _resolver_trace) = self
+            .resolver
+            .tracing_clone_with_overlay(state_overlay.clone());
+        let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
+        let coin_module = ModuleId::new(
+            kanari_types::address::Address::kanari_system_account_address(),
+            move_core_types::identifier::Identifier::new(CoinModule::COIN_MODULE)?,
+        );
+        let coin_fns = CoinModule::function_names();
+        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(1_000_000);
+
+        for (inner, recipient) in targets {
+            let tag = match move_core_types::language_storage::TypeTag::from_str(&inner) {
+                Ok(tag) => tag,
+                Err(error) => {
+                    log::warn!(
+                        "[RUNTIME] deny output policy skipped unparsable coin type {inner}: {error}"
+                    );
+                    continue;
+                }
+            };
+            let ty = match session.load_type(&tag) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    log::warn!(
+                        "[RUNTIME] deny output policy skipped unloadable coin type {inner}: {:?}",
+                        error
+                    );
+                    continue;
+                }
+            };
+
+            let paused = Self::read_deny_list_flag(
+                &mut session,
+                &coin_module,
+                coin_fns.deny_list_paused,
+                ty.clone(),
+                vec![singleton.data.clone()],
+                &mut policy_gas,
+                &inner,
+            )?;
+            let Some(paused) = paused else { continue };
+            if paused {
+                anyhow::bail!(
+                    "recipient {} cannot receive coin type {}: it is globally paused (deny-list policy)",
+                    recipient.to_hex_literal(),
+                    inner,
+                );
+            }
+
+            let recipient_bytes = bcs::to_bytes(&recipient)?;
+            let denied = Self::read_deny_list_flag(
+                &mut session,
+                &coin_module,
+                coin_fns.deny_list_contains,
+                ty,
+                vec![singleton.data.clone(), recipient_bytes],
+                &mut policy_gas,
+                &inner,
+            )?;
+            let Some(denied) = denied else { continue };
+            if denied {
+                anyhow::bail!(
+                    "recipient {} is denied for regulated coin {} (deny-list policy)",
+                    recipient.to_hex_literal(),
+                    inner,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Output-policy candidate: a coin-type object landing at a non-zero
+    /// address owner.
+    fn coin_recipient_candidate(
+        object_type: &str,
+        owner: AccountAddress,
+    ) -> Option<(String, AccountAddress)> {
+        if owner == AccountAddress::ZERO {
+            return None;
+        }
+        let inner = CoinModule::inner_type(object_type)?;
+        Some((inner, owner))
     }
 }

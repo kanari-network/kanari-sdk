@@ -276,7 +276,7 @@ module kanari_pet::pet_tests {
     #[test_only]
     /// Stats with round numbers: $1.00 base, 10 power per level, cap 50.
     fun test_stats(ctx: &mut TxContext): pet::Stats {
-        pet::new_stats(CREATOR, 1_000_000, 10, 50, ctx)
+        pet::new_stats(CREATOR, 1_000_000, 10, 1_000, ctx)
     }
 
     #[test_only]
@@ -287,17 +287,53 @@ module kanari_pet::pet_tests {
         kanari_system::usd::mint_for_test(amount, ctx)
     }
 
+    #[test_only]
+    /// The stand-up every progression test needs, in one call: a collection
+    /// with its cap, the shared `Stats`, and a pet already minted at `level`.
+    /// Keeps the `create_collection` argument noise out of the test bodies.
+    fun stage(
+        level: u64,
+        ctx: &mut TxContext,
+    ): (
+        KanariPet,
+        collection::Collection,
+        collection::NftCap,
+        pet::Stats,
+    ) {
+        let (coll, cap) = collection::create_collection(
+            ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
+        );
+        let stats = test_stats(ctx);
+        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, level, ctx);
+        (pet, coll, cap, stats)
+    }
+
+    #[test_only]
+    /// Freeze the four objects every progression test ends with. The bodies
+    /// end on one line instead of four boilerplate calls.
+    fun seal(
+        pet: KanariPet,
+        coll: collection::Collection,
+        cap: collection::NftCap,
+        stats: pet::Stats,
+    ) {
+        transfer::public_freeze_object(pet);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
+    }
+
     #[test]
-    /// The cost escalates, so a flat-price sink cannot be spammed forever and
-    /// later levels are worth more than earlier ones.
-    fun test_upgrade_cost_escalates_with_level() {
+    /// The cost is flat: every level costs exactly `base_cost_usd` ($1.00),
+    /// whatever the current level. Pinned at the ceiling too, so nobody can
+    /// reintroduce escalation in one branch and break client quotes.
+    fun test_upgrade_cost_is_flat_per_level() {
         let ctx = tx_context::dummy();
         let stats = test_stats(&mut ctx);
-        // base * (level + 1)
         assert!(pet::upgrade_cost(&stats, 0) == 1_000_000, 0);
-        assert!(pet::upgrade_cost(&stats, 1) == 2_000_000, 1);
-        assert!(pet::upgrade_cost(&stats, 9) == 10_000_000, 2);
-        assert!(pet::upgrade_cost(&stats, 49) == 50_000_000, 3);
+        assert!(pet::upgrade_cost(&stats, 1) == 1_000_000, 1);
+        assert!(pet::upgrade_cost(&stats, 9) == 1_000_000, 2);
+        assert!(pet::upgrade_cost(&stats, 999) == 1_000_000, 3);
 
         transfer::public_freeze_object(stats);
     }
@@ -307,11 +343,7 @@ module kanari_pet::pet_tests {
     /// and debits exactly the quoted cost.
     fun test_upgrade_spends_usd_and_advances_the_pet() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         // Level 0: nothing yet.
         assert!(pet::level(&pet) == 0, 0);
@@ -331,10 +363,7 @@ module kanari_pet::pet_tests {
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy(balance);
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -353,23 +382,21 @@ module kanari_pet::pet_tests {
         assert!(pet::rarity_for_level(39) == std::string::utf8(b"Epic"), 7);
         assert!(pet::rarity_for_level(40) == std::string::utf8(b"Legendary"), 8);
         assert!(pet::rarity_for_level(50) == std::string::utf8(b"Legendary"), 9);
+        // The cap is now 1_000; the ladder must not restart past 40.
+        assert!(pet::rarity_for_level(1_000) == std::string::utf8(b"Legendary"), 10);
 
         transfer::public_freeze_object(stats);
     }
 
     #[test]
-    /// A pet can climb far enough to reach Legendary, paying the escalating
+    /// A pet can climb far enough to reach Legendary, paying the flat $1.00
     /// cost at each step. This is the end-to-end proof that upgrades compose.
     fun test_climbing_to_legendary() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
-        // 40 steps at an average $20.50 = $820.00, plus a little slack.
-        let payment = usd(1_000_000_000, &mut ctx);
+        // 40 flat steps at $1.00 = $40.00, plus a little slack.
+        let payment = usd(100_000_000, &mut ctx);
         let i = 0;
         while (i < 40) {
             pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
@@ -382,10 +409,7 @@ module kanari_pet::pet_tests {
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy(balance);
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -394,22 +418,15 @@ module kanari_pet::pet_tests {
     /// could be maxed for free.
     fun test_upgrade_aborts_on_insufficient_usd() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 1, &mut ctx);
+        let (pet, coll, cap, stats) = stage(1, &mut ctx);
 
-        // Stepping from level 1 to 2 costs 2x base = $2.00; only $1.00 offered.
-        let payment = usd(1_000_000, &mut ctx);
+        // Every level costs a flat $1.00; a cent short aborts.
+        let payment = usd(999_999, &mut ctx);
         pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy(balance);
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -419,18 +436,11 @@ module kanari_pet::pet_tests {
     /// nothing and the whole paid-progression system would be decorative.
     fun test_free_setter_cannot_write_level() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         pet::set_string_attribute(&mut pet, std::string::utf8(b"level"), std::string::utf8(b"999"));
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -438,18 +448,11 @@ module kanari_pet::pet_tests {
     /// Same for `power` — the value a buyer would care about most.
     fun test_free_setter_cannot_write_power() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         pet::set_string_attribute(&mut pet, std::string::utf8(b"power"), std::string::utf8(b"999999"));
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -457,18 +460,11 @@ module kanari_pet::pet_tests {
     /// And `rarity`, which is otherwise a claim the chain agrees with.
     fun test_free_setter_cannot_write_rarity() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         pet::set_string_attribute(&mut pet, std::string::utf8(b"rarity"), std::string::utf8(b"Legendary"));
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -477,11 +473,7 @@ module kanari_pet::pet_tests {
     /// batch-write a fake `level` alongside legitimate-looking traits.
     fun test_wholesale_setter_cannot_write_reserved_keys() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 0, &mut ctx);
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         let keys = vector::empty<String>();
         let values = vector::empty<String>();
@@ -491,10 +483,7 @@ module kanari_pet::pet_tests {
         vector::push_back(&mut values, std::string::utf8(b"9999"));
         pet::set_string_attributes(&mut pet, keys, values);
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -503,18 +492,11 @@ module kanari_pet::pet_tests {
     /// level back out of the map, so erasing it would wedge the pet.
     fun test_cannot_remove_a_reserved_key() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 5, &mut ctx);
+        let (pet, coll, cap, stats) = stage(5, &mut ctx);
 
         let _ = pet::remove_attribute(&mut pet, &std::string::utf8(b"level"));
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -523,11 +505,7 @@ module kanari_pet::pet_tests {
     /// them — otherwise "replace my traits" would zero a paid level.
     fun test_wholesale_replace_preserves_progression() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 7, &mut ctx);
+        let (pet, coll, cap, stats) = stage(7, &mut ctx);
         assert!(pet::level(&pet) == 7, 0);
 
         let keys = vector::empty<String>();
@@ -542,10 +520,7 @@ module kanari_pet::pet_tests {
         // And the caller's trait landed alongside it.
         assert!(pet::has_attribute(&pet, &std::string::utf8(b"breed")), 3);
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -555,23 +530,15 @@ module kanari_pet::pet_tests {
     /// eventually overflow.
     fun test_upgrade_aborts_at_max_level() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        // Mint directly at the cap.
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 50, &mut ctx);
-        assert!(pet::level(&pet) == 50, 0);
+        let (pet, coll, cap, stats) = stage(1_000, &mut ctx);
+        assert!(pet::level(&pet) == 1_000, 0);
 
         let payment = usd(100_000_000, &mut ctx);
         pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy(balance);
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -580,11 +547,7 @@ module kanari_pet::pet_tests {
     /// `upgrade` cannot reason about.
     fun test_mint_above_max_level_aborts() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let over = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 51, &mut ctx);
+        let (over, coll, cap, stats) = stage(1_001, &mut ctx);
         transfer::public_freeze_object(over);
 
         transfer::public_freeze_object(coll);
@@ -597,11 +560,7 @@ module kanari_pet::pet_tests {
     /// no special-casing while they stay write-protected through the setters.
     fun test_progression_is_readable_as_attributes() {
         let ctx = tx_context::dummy();
-        let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
-        );
-        let stats = test_stats(&mut ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, 12, &mut ctx);
+        let (pet, coll, cap, stats) = stage(12, &mut ctx);
 
         assert!(pet::has_attribute(&pet, &std::string::utf8(b"level")), 0);
         assert!(pet::has_attribute(&pet, &std::string::utf8(b"power")), 1);
@@ -618,10 +577,7 @@ module kanari_pet::pet_tests {
             4,
         );
 
-        transfer::public_freeze_object(pet);
-        transfer::public_freeze_object(coll);
-        transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(stats);
+        seal(pet, coll, cap, stats);
     }
 
     #[test]
@@ -841,10 +797,10 @@ module kanari_pet::pet_tests {
         );
         let honest = test_stats(&mut ctx);
 
-        // The values `init` actually shares: power is 10x level, ceiling 50,
-        // the first step costs $1.00, and the treasury is the publisher.
+        // The values `init` actually shares: power is 10x level, ceiling 1_000,
+        // every step costs $1.00, and the treasury is the publisher.
         assert!(pet::power_for_level(&honest, 1) == 10, 0);
-        assert!(pet::max_level(&honest) == 50, 1);
+        assert!(pet::max_level(&honest) == 1_000, 1);
         assert!(pet::upgrade_cost(&honest, 0) == 1_000_000, 2);
         assert!(pet::treasury(&honest) == CREATOR, 3);
 

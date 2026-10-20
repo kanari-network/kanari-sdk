@@ -283,4 +283,133 @@ module kanari_system::royalty_rule {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(pub);
     }
+
+    #[test_only]
+    use kanari_system::object;
+
+    #[test_only]
+    use std::option;
+
+    #[test_only]
+    /// The asset the royalty settles in (never instantiated as a value; it
+    /// only exists because `pay` requires `Asset: key + store` and a mintable
+    /// coin needs a witness).
+    struct ASSET has key, store, drop { id: object::UID }
+
+    // vec_set::insert aborts its duplicate with code 0 (`EKeyAlreadyExists`
+    // is not importable across modules), which is exactly what a second
+    // `pay` on the same request trips.
+    #[allow(unused_const)]
+    const E_DUPLICATE_RECEIPT: u64 = 0;
+
+    #[test]
+    fun test_pay_splits_the_fee_and_unblocks_confirmation() {
+        let ctx = tx_context::dummy();
+        let pub = package::new<ROYALTY_RULE>(ROYALTY_RULE {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ROYALTY_RULE, ROYALTY_RULE>(&pub, &mut ctx);
+        add<ROYALTY_RULE>(&mut policy, &cap, 500, 0, @0xB0B);
+
+        let (treasury, denycap, metadata) = coin::create_regulated_currency<ASSET>(
+            ASSET { id: object::new(&mut ctx) },
+            2, b"USD", b"Test Asset", b"", option::none(), &mut ctx,
+        );
+        let donation = coin::mint(&mut treasury, 1_000, &mut ctx);
+        let request = transfer_policy::new_request<ROYALTY_RULE>(
+            &policy,
+            object::id_from_address(@0xC0DE),
+            1_000,
+            object::id_from_address(@0xF00D),
+        );
+        pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut donation, &mut ctx);
+        // 5% of 1_000 = 500bp * 1000 / 10000 = 50 left the payment.
+        assert!(coin::value(&donation) == 950, 0);
+        // The payout was recorded on the policy, and the hot potato is
+        // confirmable only after `pay` wrote the receipt.
+        assert!(transfer_policy::owed(&policy) == 50, 1);
+        let (item, paid, from) = transfer_policy::confirm_request(&policy, request);
+        assert!(object::id_to_address(&item) == @0xC0DE, 2);
+        assert!(paid == 1_000, 3);
+        assert!(object::id_to_address(&from) == @0xF00D, 4);
+        // Cleanup: burning the leftover keeps the TreasuryCap arithmetic
+        // honest (supply drops from 1_000 to 50).
+        coin::burn(&mut treasury, donation);
+        transfer::public_freeze_object(treasury);
+        transfer::public_freeze_object(denycap);
+        transfer::public_freeze_object(metadata);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(pub);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_INSUFFICIENT)]
+    fun test_pay_aborts_when_payment_is_short() {
+        let ctx = tx_context::dummy();
+        let pub = package::new<ROYALTY_RULE>(ROYALTY_RULE {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ROYALTY_RULE, ROYALTY_RULE>(&pub, &mut ctx);
+        add<ROYALTY_RULE>(&mut policy, &cap, 500, 0, @0xB0B);
+
+        let (treasury, denycap, metadata) = coin::create_regulated_currency<ASSET>(
+            ASSET { id: object::new(&mut ctx) },
+            2, b"USD", b"Test Asset", b"", option::none(), &mut ctx,
+        );
+        // The trade is stated at 1_000, so 500bp owes a fee of 50, but the
+        // buyer's payment carries only 49: `pay` must abort instead of
+        // splitting what is not there.
+        let payment = coin::mint(&mut treasury, 49, &mut ctx);
+        let request = transfer_policy::new_request<ROYALTY_RULE>(
+            &policy,
+            object::id_from_address(@0xC0DE),
+            1_000,
+            object::id_from_address(@0xF00D),
+        );
+        pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut payment, &mut ctx);
+        // Everything below is unreachable at runtime (the `pay` above aborts
+        // with E_INSUFFICIENT); it exists because the compiler requires every
+        // path to consume the no-`drop` locals before returning. That is the
+        // hot potato working as intended.
+        coin::burn(&mut treasury, payment);
+        let (_item, _paid, _from) = transfer_policy::confirm_request(&policy, request);
+        transfer::public_freeze_object(treasury);
+        transfer::public_freeze_object(denycap);
+        transfer::public_freeze_object(metadata);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(pub);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_DUPLICATE_RECEIPT, location = kanari_system::vec_set)]
+    fun test_pay_cannot_run_twice_on_one_request() {
+        // A zero-price, floor-0 rule owes nothing, so the second pay is
+        // purely the receipt write: it must abort on the duplicate instead of
+        // letting one request be charged or confirmed twice.
+        let ctx = tx_context::dummy();
+        let pub = package::new<ROYALTY_RULE>(ROYALTY_RULE {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ROYALTY_RULE, ROYALTY_RULE>(&pub, &mut ctx);
+        add<ROYALTY_RULE>(&mut policy, &cap, 0, 0, @0xB0B);
+
+        let request_id = object::id_from_address(@0xC0DE);
+        let from_id = object::id_from_address(@0xF00D);
+        let request = transfer_policy::new_request<ROYALTY_RULE>(
+            &policy, request_id, 0, from_id,
+        );
+        let payment = coin::zero<ASSET>(&mut ctx);
+        pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut payment, &mut ctx);
+        // Receipt is in place and authoritative; nothing was owed so no coin
+        // moved. A second `pay` must abort rather than re-add the receipt.
+        assert!(transfer_policy::are_receipts_complete(&policy, &request), 0);
+        pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut payment, &mut ctx);
+        // Runtime never reaches this point (the second `pay` aborts with the
+        // duplicate-receipt abort of `vec_set::insert`, code 0); the rest of
+        // the body consumes the no-`drop` locals as the compiler requires on
+        // every path. The example is the same pattern used by the negative
+        // fixtures in `transfer_policy`.
+        let (_item, _paid, _from) = transfer_policy::confirm_request(&policy, request);
+        let _burned = coin::into_balance(payment);
+        let _ = kanari_system::balance::destroy(_burned);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(pub);
+    }
 }
