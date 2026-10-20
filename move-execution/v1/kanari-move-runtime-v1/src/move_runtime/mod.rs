@@ -911,7 +911,14 @@ impl MoveRuntime {
             .unwrap_or_else(|p| p.into_inner());
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
-        self.verify_module_publish_safety(sender, &module_id, &compiled, &module_bytes, intent)?;
+        self.verify_module_publish_safety(
+            sender,
+            &module_id,
+            &compiled,
+            &module_bytes,
+            intent,
+            &HashSet::new(),
+        )?;
 
         let mut cs = ChangeSet::new();
         let (move_changeset, events, vm_gas_used) = {
@@ -1021,7 +1028,12 @@ impl MoveRuntime {
             .lock()
             .unwrap_or_else(|p| p.into_inner());
 
-        let mut compiled_modules = Vec::with_capacity(modules.len());
+        // Deserialize the whole package before verifying any of it: a module
+        // may depend on a sibling that is published by this same transaction,
+        // so the set of package modules has to be known first.
+        let mut package_modules: Vec<(ModuleId, CompiledModule, Vec<u8>)> =
+            Vec::with_capacity(modules.len());
+        let mut package_module_ids: HashSet<ModuleId> = HashSet::with_capacity(modules.len());
         let mut total_module_size = 0usize;
         for (module_name, module_bytes) in &modules {
             let compiled = CompiledModule::deserialize_with_defaults(module_bytes)?;
@@ -1033,10 +1045,32 @@ impl MoveRuntime {
                     module_id.name()
                 );
             }
-            self.verify_module_publish_safety(sender, &module_id, &compiled, module_bytes, intent)?;
+            if !package_module_ids.insert(module_id.clone()) {
+                anyhow::bail!(
+                    "Module publish rejected: package contains module {} more than once",
+                    module_id
+                );
+            }
             total_module_size = total_module_size.saturating_add(module_bytes.len());
-            compiled_modules.push((module_id, module_bytes.clone()));
+            package_modules.push((module_id, compiled, module_bytes.clone()));
         }
+
+        for (module_id, compiled, module_bytes) in &package_modules {
+            self.verify_module_publish_safety(
+                sender,
+                module_id,
+                compiled,
+                module_bytes,
+                intent,
+                &package_module_ids,
+            )?;
+        }
+
+        // Publish in dependency order. The VM links a module against the
+        // modules already published in the same session, so a module that
+        // depends on a sibling has to be published after it. The compiler
+        // guarantees no order, so it is derived from the dependencies here.
+        let package_modules = Self::order_package_modules_by_dependency(package_modules)?;
 
         let mut cs = ChangeSet::new();
         let (move_changeset, events, vm_gas_used) = {
@@ -1045,18 +1079,24 @@ impl MoveRuntime {
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
             let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
 
-            for (_, module_bytes) in &compiled_modules {
-                session
-                    .publish_module(module_bytes.clone(), sender, &mut metered_gas)
-                    .require("Move VM package publish failed")?;
-            }
+            // One bundle publish: the package is all-or-nothing, and the VM
+            // links sibling modules against each other as it goes.
+            session
+                .publish_module_bundle(
+                    package_modules
+                        .iter()
+                        .map(|(_, _, module_bytes)| module_bytes.clone())
+                        .collect(),
+                    sender,
+                    &mut metered_gas,
+                )
+                .require("Move VM package publish failed")?;
 
             // Fresh publishes run each declaring module's `init` in this
             // same session (upgrades never do).
             if intent == ModulePublishIntent::Publish {
-                for (module_id, module_bytes) in &compiled_modules {
-                    let compiled = CompiledModule::deserialize_with_defaults(module_bytes)?;
-                    if !Self::module_declares_init(&compiled) {
+                for (module_id, compiled, _) in &package_modules {
+                    if !Self::module_declares_init(compiled) {
                         continue;
                     }
                     let init_tx_hash = Self::package_init_tx_hash(tx_hash.as_deref(), module_id);
@@ -1085,7 +1125,7 @@ impl MoveRuntime {
             &events,
             vm_gas_used,
             sender,
-            compiled_modules.iter().map(|(module_id, _)| module_id),
+            package_modules.iter().map(|(module_id, _, _)| module_id),
             total_module_size,
             gas_info,
             persist_runtime_state,
@@ -1260,6 +1300,7 @@ impl MoveRuntime {
         compiled: &CompiledModule,
         module_bytes: &[u8],
         intent: ModulePublishIntent,
+        package_modules: &HashSet<ModuleId>,
     ) -> Result<()> {
         if module_id.address() != &sender {
             anyhow::bail!(
@@ -1272,7 +1313,7 @@ impl MoveRuntime {
 
         let old_bytes = self.verify_module_publish_intent(module_id, intent)?;
         verify_module_unmetered(compiled).require("Module bytecode verification failed")?;
-        self.verify_module(compiled)?;
+        self.verify_module(compiled, package_modules)?;
         if let Some(old_bytes) = old_bytes {
             self.verify_module_upgrade_compatibility(
                 module_id,
@@ -1282,6 +1323,74 @@ impl MoveRuntime {
             )?;
         }
         Ok(())
+    }
+
+    /// Order package modules so that a module always comes after the siblings
+    /// it depends on.
+    ///
+    /// The Move VM links a published module against the modules already
+    /// published in the same session, so a module that depends on a sibling
+    /// has to be published after it. The compiler guarantees no module order,
+    /// so the order is derived from the module dependencies here — otherwise a
+    /// package whose modules depend on each other only publishes by accident
+    /// of how the sources happened to be named.
+    ///
+    /// Fails on a dependency cycle, which the compiler cannot produce but a
+    /// hand-crafted transaction could.
+    fn order_package_modules_by_dependency(
+        modules: Vec<(ModuleId, CompiledModule, Vec<u8>)>,
+    ) -> Result<Vec<(ModuleId, CompiledModule, Vec<u8>)>> {
+        let module_count = modules.len();
+        let package_ids: HashSet<ModuleId> = modules
+            .iter()
+            .map(|(module_id, _, _)| module_id.clone())
+            .collect();
+
+        // Edge direction: dependency -> dependent, so a module is published
+        // once every sibling it depends on has been published.
+        let mut dependents: HashMap<ModuleId, Vec<usize>> = HashMap::new();
+        let mut pending_dependencies = vec![0usize; module_count];
+        for (index, (_, compiled, _)) in modules.iter().enumerate() {
+            for dependency in compiled.immediate_dependencies() {
+                if !package_ids.contains(&dependency) {
+                    continue;
+                }
+                pending_dependencies[index] += 1;
+                dependents.entry(dependency).or_default().push(index);
+            }
+        }
+
+        let mut ready: Vec<usize> = (0..module_count)
+            .filter(|index| pending_dependencies[*index] == 0)
+            .collect();
+        let mut order: Vec<usize> = Vec::with_capacity(module_count);
+        while let Some(index) = ready.pop() {
+            let (module_id, _, _) = &modules[index];
+            order.push(index);
+            if let Some(dependents_of_module) = dependents.get(module_id) {
+                for dependent in dependents_of_module {
+                    pending_dependencies[*dependent] -= 1;
+                    if pending_dependencies[*dependent] == 0 {
+                        ready.push(*dependent);
+                    }
+                }
+            }
+        }
+
+        if order.len() != module_count {
+            anyhow::bail!("Module publish rejected: package modules have a cyclic dependency");
+        }
+
+        let mut slots: Vec<Option<(ModuleId, CompiledModule, Vec<u8>)>> =
+            modules.into_iter().map(Some).collect();
+        let mut ordered = Vec::with_capacity(module_count);
+        for index in order {
+            let module = slots[index]
+                .take()
+                .expect("each package module is ordered exactly once");
+            ordered.push(module);
+        }
+        Ok(ordered)
     }
 
     fn verify_module_publish_intent(
