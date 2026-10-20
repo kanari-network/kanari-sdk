@@ -20,6 +20,58 @@ const IMAGE_KEYS = [
 
 const NESTED_METADATA_KEYS = ["parsed", "metadata", "display", "content", "fields", "data"];
 
+function isByteArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((byte) =>
+    typeof byte === "number" && Number.isInteger(byte) && byte >= 0 && byte <= 255
+  );
+}
+
+function readBcsLength(bytes: Uint8Array, cursor: { offset: number }): number | null {
+  let value = 0;
+  let shift = 0;
+
+  for (let i = 0; i < 5; i += 1) {
+    if (cursor.offset >= bytes.length) return null;
+    const byte = bytes[cursor.offset];
+    cursor.offset += 1;
+    value |= (byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return value >>> 0;
+    shift += 7;
+  }
+
+  return null;
+}
+
+function readBcsString(bytes: Uint8Array, cursor: { offset: number }): string | null {
+  const length = readBcsLength(bytes, cursor);
+  if (length === null || cursor.offset + length > bytes.length) return null;
+
+  try {
+    const value = new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.subarray(cursor.offset, cursor.offset + length)
+    );
+    cursor.offset += length;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function kanariPetImageUrl(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!readString(record, "type", "").endsWith("::pet::KanariPet") || !isByteArray(record.data)) {
+    return null;
+  }
+
+  const bytes = Uint8Array.from(record.data);
+  if (bytes.length < 33) return null;
+
+  const cursor = { offset: 32 };
+  const name = readBcsString(bytes, cursor);
+  if (name === null) return null;
+  return readBcsString(bytes, cursor);
+}
+
 function normalizeImageUrl(value: string): string | null {
   const url = value.trim();
   if (!url) return null;
@@ -38,6 +90,9 @@ function normalizeImageUrl(value: string): string | null {
 export function nftImageUrl(value: unknown, depth = 0): string | null {
   if (depth > 3) return null;
   const record = asRecord(value);
+
+  const petImage = normalizeImageUrl(kanariPetImageUrl(record) ?? "");
+  if (petImage) return petImage;
 
   for (const key of IMAGE_KEYS) {
     const imageUrl = normalizeImageUrl(readString(record, key));

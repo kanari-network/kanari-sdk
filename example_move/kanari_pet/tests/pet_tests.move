@@ -272,6 +272,33 @@ module kanari_pet::pet_tests {
         transfer::public_freeze_object(cap);
     }
 
+    #[test]
+    /// Universal metadata is stored directly on each minted pet.
+    fun test_direct_metadata_is_available() {
+        let ctx = tx_context::dummy();
+        let (coll, cap) = collection::create_collection(
+            &mut ctx,
+            b"Coll",
+            b"D",
+            b"https://b",
+            b"https://w",
+            10,
+        );
+        let pet = pet::mint_for_test(&mut cap, &coll, &mut ctx);
+
+        assert!(pet::name(&pet) == std::string::utf8(b"Kanari Pet"), 0);
+        assert!(pet::description(&pet) == std::string::utf8(b"Test pet"), 1);
+        assert!(
+            kanari_system::url::inner_url(&pet::image_url(&pet))
+                == std::ascii::string(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"),
+            2,
+        );
+
+        transfer::public_freeze_object(pet);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(cap);
+    }
+
     // ==================== Progression ====================
     #[test_only]
     /// Stats with round numbers: $1.00 base, 10 power per level, cap 50.

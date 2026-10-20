@@ -65,6 +65,16 @@ kanari move call --package $PKG --module pet --function mint_with_attributes \
   --args $NFT_CAP $COLLECTION $RECIPIENT "[breed,mood]" "[shiba,calm]"
 ```
 
+Every pet stores its name, description, and image URL directly on the NFT.
+Pass the artwork URL when minting with `mint_with_metadata`; traits remain
+key/value attributes:
+
+```bash
+kanari move call --package $PKG --module pet --function mint_with_metadata \
+  --args $NFT_CAP $COLLECTION $RECIPIENT "My Shiba" "A friendly Shiba Inu" \
+  "https://example.com/shiba.png" "[breed,mood]" "[shiba,calm]" "001"
+```
+
 With a starting level — `power` and `rarity` are derived from it:
 
 ```bash
@@ -74,6 +84,27 @@ kanari move call --package $PKG --module pet --function mint_with_level \
 
 Attributes are validated before supply is consumed, so a bad key/value count
 costs you nothing.
+
+To show pets in the Collection Explorer, publish its `nft::MintLog` event
+module once, then upgrade the existing `pet` module. The event module is
+separate because `pet` is already published and a package upgrade cannot add a
+new module:
+
+```powershell
+Set-Location ..\kanari_pet_nft_events
+cargo r -p kanari move publish --gas-limit 1000000
+
+Set-Location ..\kanari_pet
+cargo r -p kanari move upgrade --gas-limit 10000000
+```
+
+After the upgrade, register pets minted before collection events were added.
+Use the collection creator wallet and the matching `NftCap`:
+
+```powershell
+cargo r -p kanari move call --package $PKG --module pet --function register_existing_pet `
+  --args $PET $NFT_CAP $COLLECTION
+```
 
 ## 3. Read attributes
 
