@@ -329,6 +329,10 @@ fn entry(
 }
 
 /// Mint `amount` of `token` from the test faucet and return the new coin id.
+///
+/// The faucet is production-shaped: `create_faucet` claims the witness and
+/// stores the mint authority in an owned `Faucet<T>` object; `mint_test_coin`
+/// mints from that supply handle.
 fn mint(
     runtime: &MoveRuntime,
     module_id: &ModuleId,
@@ -336,13 +340,34 @@ fn mint(
     amount: u64,
     nonce: &mut Nonce,
 ) -> Result<String> {
+    // The witness is a 1-byte pad struct (`USD_MOCK { pad: u8 }`), so its
+    // BCS encoding is a single zero byte.
+    let faucet_create = entry(
+        runtime,
+        module_id,
+        "create_faucet",
+        type_tags(&[token])?,
+        vec![vec![0u8]],
+        vec![],
+        nonce,
+    )
+    .with_context(|| format!("create_faucet ({token})"))?;
+    let faucet = find_created(&faucet_create, |t| {
+        t.contains("::Faucet") && t.contains(token)
+    })?;
+    assert_eq!(
+        faucet.owner,
+        *module_id.address(),
+        "faucet must be owned by the sender"
+    );
+
     let changes = entry(
         runtime,
         module_id,
         "mint_test_coin",
         type_tags(&[token])?,
-        vec![bcs::to_bytes(&amount)?],
-        vec![],
+        vec![object_arg(&faucet.id)?, bcs::to_bytes(&amount)?],
+        vec![owned_input(&faucet.id, *module_id.address(), true)],
         nonce,
     )?;
     let coin = find_created(&changes, |t| t.contains("coin::Coin") && t.contains(token))?;
@@ -457,8 +482,9 @@ fn type_tags(tokens: &[&str]) -> Result<Vec<TypeTag>> {
 }
 
 fn object_arg(object_id: &str) -> Result<Vec<u8>> {
-    let clean = object_id.strip_prefix("0x").unwrap_or(object_id);
-    hex::decode(clean).context("decode object id argument")
+    // Canonical full 32-byte address; leading-zero ids like `0x01...` can be
+    // 63 hex digits, so bare `hex::decode` would reject them.
+    Ok(AccountAddress::from_hex_literal(object_id)?.to_vec())
 }
 
 fn owned_input(id: &str, owner: AccountAddress, mutable: bool) -> ObjectInput {

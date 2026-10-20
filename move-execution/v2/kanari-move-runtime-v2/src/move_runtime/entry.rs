@@ -638,8 +638,9 @@ impl MoveRuntime {
     /// `deny_list_paused` reads in this session, so deny-key rendering
     /// always matches the framework (no duplicated key logic). Skipped for
     /// system/init executions and when no sender is set. Unresolvable
-    /// inputs fail open with a warning; the main execution surfaces real
-    /// state errors itself.
+    /// inputs fail **closed** with an error: deny state that cannot be
+    /// verified must not let a transaction through. The main execution
+    /// surfaces real state errors itself.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn enforce_coin_input_policy(
         &self,
@@ -693,8 +694,13 @@ impl MoveRuntime {
         let Some(singleton) =
             self.get_object_for_execution(&Self::deny_list_singleton_full_id(), overlay)?
         else {
-            log::debug!("[RUNTIME] deny policy skipped: singleton absent");
-            return Ok(());
+            // Fail closed: deny state must be verifiable for any coin
+            // movement. A missing singleton after genesis is corruption.
+            anyhow::bail!(
+                "deny-list policy: shared deny-list singleton {} is missing; \
+                 refusing to execute a transaction that moves regulated coins",
+                Self::deny_list_singleton_full_id(),
+            );
         };
         let coin_module = ModuleId::new(
             kanari_types::address::Address::kanari_system_account_address(),
@@ -708,25 +714,24 @@ impl MoveRuntime {
             let tag = match move_core_types::language_storage::TypeTag::from_str(inner) {
                 Ok(tag) => tag,
                 Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy skipped unparsable coin type {inner}: {error}"
+                    anyhow::bail!(
+                        "deny-list policy: unparsable coin type {inner} on transaction \
+                         input ({error}); refusing to verify deny state",
                     );
-                    continue;
                 }
             };
             let ty = match session.load_type(&tag) {
                 Ok(ty) => ty,
                 Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy skipped unloadable coin type {inner}: {:?}",
-                        error
+                    anyhow::bail!(
+                        "deny-list policy: coin type {inner} on transaction input \
+                         cannot be loaded ({error:?}); refusing to verify deny state",
                     );
-                    continue;
                 }
             };
 
-            // Each read fails open individually: a read that cannot run skips
-            // the rest of this coin type's checks, as before.
+            // Each read fails closed: a read that cannot run rejects the
+            // transaction instead of waving it through.
             let paused = Self::read_deny_list_flag(
                 session,
                 &coin_module,
@@ -736,7 +741,12 @@ impl MoveRuntime {
                 &mut policy_gas,
                 inner,
             )?;
-            let Some(paused) = paused else { continue };
+            let Some(paused) = paused else {
+                anyhow::bail!(
+                    "deny-list policy: the paused state for coin type {inner} \
+                     could not be read; refusing the transaction (fail-closed)",
+                );
+            };
             if paused {
                 anyhow::bail!(
                     "transaction sender {} is blocked: regulated coin type {} is globally paused (deny-list policy)",
@@ -754,7 +764,12 @@ impl MoveRuntime {
                 &mut policy_gas,
                 inner,
             )?;
-            let Some(denied) = denied else { continue };
+            let Some(denied) = denied else {
+                anyhow::bail!(
+                    "deny-list policy: the denied state for coin type {inner} \
+                     could not be read; refusing the transaction (fail-closed)",
+                );
+            };
             if denied {
                 anyhow::bail!(
                     "transaction sender {} is denied for regulated coin {} (deny-list policy)",
@@ -783,7 +798,7 @@ impl MoveRuntime {
     /// address is checked by executing the framework's own
     /// `deny_list_contains` / `deny_list_paused` reads in a fresh session,
     /// so deny-key rendering always matches the framework. Unresolvable
-    /// reads fail open with a warning, mirroring the input policy.
+    /// reads fail closed with an error, mirroring the input policy.
     fn enforce_coin_output_policy(
         &self,
         vm_guard: &std::sync::RwLockReadGuard<'_, MoveVM>,
@@ -819,8 +834,11 @@ impl MoveRuntime {
             state_overlay.as_deref(),
         )?
         else {
-            log::debug!("[RUNTIME] deny output policy skipped: singleton absent");
-            return Ok(());
+            anyhow::bail!(
+                "deny-list output policy: shared deny-list singleton {} is missing; \
+                 refusing the transaction that moves regulated coins",
+                Self::deny_list_singleton_full_id(),
+            );
         };
         let (resolver, _resolver_trace) = self
             .resolver
@@ -837,20 +855,21 @@ impl MoveRuntime {
             let tag = match move_core_types::language_storage::TypeTag::from_str(&inner) {
                 Ok(tag) => tag,
                 Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny output policy skipped unparsable coin type {inner}: {error}"
+                    anyhow::bail!(
+                        "deny-list output policy: unparsable coin type {inner} \
+                         created for {} ({error}); refusing the transaction",
+                        recipient.to_hex_literal(),
                     );
-                    continue;
                 }
             };
             let ty = match session.load_type(&tag) {
                 Ok(ty) => ty,
                 Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny output policy skipped unloadable coin type {inner}: {:?}",
-                        error
+                    anyhow::bail!(
+                        "deny-list output policy: coin type {inner} created for {} \
+                         cannot be loaded ({error:?}); refusing the transaction",
+                        recipient.to_hex_literal(),
                     );
-                    continue;
                 }
             };
 
@@ -863,7 +882,12 @@ impl MoveRuntime {
                 &mut policy_gas,
                 &inner,
             )?;
-            let Some(paused) = paused else { continue };
+            let Some(paused) = paused else {
+                anyhow::bail!(
+                    "deny-list output policy: the paused state for coin type {inner} \
+                     could not be read; refusing the transaction (fail-closed)",
+                );
+            };
             if paused {
                 anyhow::bail!(
                     "recipient {} cannot receive coin type {}: it is globally paused (deny-list policy)",
@@ -882,7 +906,12 @@ impl MoveRuntime {
                 &mut policy_gas,
                 &inner,
             )?;
-            let Some(denied) = denied else { continue };
+            let Some(denied) = denied else {
+                anyhow::bail!(
+                    "deny-list output policy: the denied state for coin type {inner} \
+                     could not be read; refusing the transaction (fail-closed)",
+                );
+            };
             if denied {
                 anyhow::bail!(
                     "recipient {} is denied for regulated coin {} (deny-list policy)",

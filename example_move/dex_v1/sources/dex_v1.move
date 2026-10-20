@@ -166,8 +166,9 @@ module dex_v1::dex_v1 {
             amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT
         );
         let lp_balance = coin::into_balance(lp_coin);
-        let burned_amount = balance::destroy(lp_balance);
-        balance::decrease_supply(&mut pool.lp_supply, burned_amount);
+        // Paired burn: value leaves the ledger only together with a supply
+        // decrement, so LP accounting stays conserved.
+        let _burned_amount = balance::burn(&mut pool.lp_supply, lp_balance);
         let balance_a_out = balance::split(&mut pool.reserve_a, amount_a);
         let balance_b_out = balance::split(&mut pool.reserve_b, amount_b);
         (
@@ -380,8 +381,8 @@ module dex_v1::dex_v1 {
             lp_supply: ls,
             fee_percent: _
         } = pool;
-        let _ = balance::destroy<CoinTypeA>(ra);
-        let _ = balance::destroy<CoinTypeB>(rb);
+        let _ = balance::destroy_for_testing(ra);
+        let _ = balance::destroy_for_testing(rb);
         balance::destroy_supply_for_testing(ls);
         object::delete(id);
     }

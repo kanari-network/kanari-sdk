@@ -30,7 +30,10 @@ fn coin_ref(object_id: &str, balance: u64) -> ObjectRef {
     ObjectRef::new(
         object_id.to_string(),
         Some(1),
-        Some(format!("0x{}", hex::encode(hash_data_blake3(&coin_data(object_id, balance))))),
+        Some(format!(
+            "0x{}",
+            hex::encode(hash_data_blake3(&coin_data(object_id, balance)))
+        )),
     )
 }
 
@@ -113,12 +116,7 @@ fn mutable_object_input_for_foreign_owned_object_is_rejected() {
     // The attacker declares the input truthfully (stored owner matches the
     // declared owner, metadata complete) but asks for a mutable alias to the
     // victim's object.
-    let signed_tx = signed_execute(
-        &attacker,
-        &victim.address,
-        coin_ref("0xbabe", 1_000_000),
-        0,
-    );
+    let signed_tx = signed_execute(&attacker, &victim.address, coin_ref("0xbabe", 1_000_000), 0);
 
     let err = engine
         .execute_transaction_immediate(signed_tx)
@@ -136,12 +134,7 @@ fn mutable_object_input_for_sender_owned_object_passes_sender_rule() {
 
     fund_coin_object(&engine, &sender.address, "0xaaaa", 1_000_000);
 
-    let signed_tx = signed_execute(
-        &sender,
-        &sender.address,
-        coin_ref("0xaaaa", 1_000_000),
-        0,
-    );
+    let signed_tx = signed_execute(&sender, &sender.address, coin_ref("0xaaaa", 1_000_000), 0);
 
     // Sender-owned mutable inputs remain legal; any later failure must come
     // from entry semantics, never from the sender rule.

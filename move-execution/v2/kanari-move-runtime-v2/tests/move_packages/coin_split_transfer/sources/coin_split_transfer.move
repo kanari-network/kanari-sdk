@@ -1,6 +1,7 @@
 module tester::coin_split_transfer {
-    use kanari_system::balance;
+    use kanari_system::balance::{Self, Supply};
     use kanari_system::coin::{Self, Coin};
+    use kanari_system::object::{Self, UID};
     use kanari_system::transfer;
     use kanari_system::tx_context::{Self, TxContext};
 
@@ -8,9 +9,30 @@ module tester::coin_split_transfer {
     /// and is never deployed.
     struct MOCK has drop {}
 
-    /// Faucet: mint `amount` of `MOCK` to the transaction sender.
-    public entry fun mint(amount: u64, ctx: &mut TxContext) {
-        let coin = coin::from_balance(balance::create<MOCK>(amount), ctx);
+    /// Faucet holding the mint authority for `MOCK`. Production-shaped:
+    /// the `Supply` handle is created witness-gated by `balance::new_supply`,
+    /// so no value is ever conjured without a registered supply source.
+    struct Faucet has key, store {
+        id: UID,
+        supply: Supply<MOCK>,
+    }
+
+    /// Bootstrap the faucet: transfers it to the transaction sender.
+    public entry fun create_faucet(ctx: &mut TxContext) {
+        let faucet = Faucet {
+            id: object::new(ctx),
+            supply: balance::new_supply(MOCK {}),
+        };
+        object::save_object(&faucet);
+        transfer::public_transfer(faucet, tx_context::sender(ctx));
+    }
+
+    /// Faucet: mint `amount` of `MOCK` to the transaction sender. Value is
+    /// backed by the faucet's owned supply handle.
+    public entry fun mint(faucet: &mut Faucet, amount: u64, ctx: &mut TxContext) {
+        let balance = balance::increase_supply(&mut faucet.supply, amount);
+        let coin = coin::from_balance(balance, ctx);
+        object::save_object(faucet);
         transfer::public_transfer(coin, tx_context::sender(ctx));
     }
 

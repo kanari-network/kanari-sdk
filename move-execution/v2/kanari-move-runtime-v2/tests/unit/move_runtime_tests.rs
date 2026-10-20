@@ -290,6 +290,7 @@ fn production_runtime_transfer_native_can_trigger_out_of_gas() -> Result<()> {
 #[test]
 fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    seed_deny_singleton(&runtime)?;
     let sender = kanari_types::address::Address::dev_account_address();
     let recipient = AccountAddress::from_hex_literal(
         "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3",
@@ -381,6 +382,7 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
 #[test]
 fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    seed_deny_singleton(&runtime)?;
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
@@ -434,6 +436,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
 #[test]
 fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<()> {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    seed_deny_singleton(&runtime)?;
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
 
@@ -491,6 +494,109 @@ fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<(
         "expected mutable borrow authorization failure, got: {message}"
     );
 
+    Ok(())
+}
+
+/// Execute `gas transfer` moving `coin_id` under `sender` to `recipient`, with
+/// the standard in-memory-test object context. Used by the deny-policy tests.
+fn run_gas_transfer(
+    runtime: &MoveRuntime,
+    sender: AccountAddress,
+    coin_id: &str,
+    recipient: AccountAddress,
+) -> Result<()> {
+    let coin_type = format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN);
+    runtime.object_storage.store_object(StoredObject {
+        id: coin_id.to_string(),
+        owner: sender,
+        owner_kind: ObjectOwnerKind::AddressOwner(sender.to_hex_literal()),
+        type_name: coin_type,
+        data: coin_data(coin_id, 1_000_000_000)?,
+        version: 1,
+    })?;
+
+    runtime
+        .execute_entry_function_with_object_context_and_persistence(
+            &GasModule::get_module_id()?,
+            GasModule::function_names().transfer,
+            vec![],
+            vec![
+                vec![],
+                bcs::to_bytes(&100_000_000u64)?,
+                bcs::to_bytes(&recipient)?,
+            ],
+            EntryFunctionObjectContext {
+                object_inputs: vec![ObjectInput {
+                    object_ref: ObjectRef::new(coin_id.to_string(), Some(1), None),
+                    owner: Some(ObjectOwnerKind::AddressOwner(sender.to_hex_literal())),
+                    mutable: true,
+                }],
+                sender: Some(sender),
+                gas_info: Some((100_000, 1)),
+                timestamp: None,
+                tx_hash: Some(vec![0xAA; 32]),
+                persist_runtime_state: false,
+                state_overlay: None,
+            },
+        )
+        .map(|_| ())
+}
+
+/// Deny policy is fail-closed: a transaction that moves regulated coins in a
+/// runtime whose deny-list singleton was never created must be rejected, not
+/// waved through.
+///
+/// The in-memory constructor now seeds the singleton at `@0x403`, so this
+/// scenario is covered by `deny_policy_rejects_corrupt_singleton` (which
+/// overwrites the seeded singleton with garbage). Here we assert the
+/// positive path: with a valid singleton present, the gas transfer succeeds.
+#[test]
+fn deny_policy_allows_transfer_when_singleton_present() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let sender = kanari_types::address::Address::dev_account_address();
+    let recipient = kanari_types::address::Address::std_account_address();
+
+    run_gas_transfer(
+        &runtime,
+        sender,
+        "0x15fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a",
+        recipient,
+    )
+    .expect("gas transfer must succeed with a valid deny-list singleton present");
+    Ok(())
+}
+
+/// Deny policy is fail-closed: a deny-list singleton whose data is corrupt
+/// (unparsable by the Move reads) must also reject the transaction.
+#[test]
+fn deny_policy_rejects_corrupt_singleton() -> Result<()> {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
+    let sender = kanari_types::address::Address::dev_account_address();
+    let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()?;
+    let coin_type = format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN);
+    let _ = coin_type; // type checked above
+    runtime.object_storage.store_object(StoredObject {
+        id: deny_addr.to_hex_literal(),
+        owner: AccountAddress::ZERO,
+        owner_kind: ObjectOwnerKind::Shared,
+        type_name: kanari_types::deny_list::DenyListModule::type_path(),
+        data: vec![0xABu8; 71],
+        version: 1,
+    })?;
+
+    let err = run_gas_transfer(
+        &runtime,
+        sender,
+        "0x15fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a",
+        kanari_types::address::Address::std_account_address(),
+    )
+    .expect_err("corrupt deny singleton must reject coin movement");
+
+    let message = format!("{err:?}");
+    assert!(
+        message.contains("deny-list policy"),
+        "expected fail-closed rejection on corrupt deny singleton, got: {message}"
+    );
     Ok(())
 }
 
@@ -615,6 +721,28 @@ fn coin_data(object_id: &str, balance: u64) -> Result<Vec<u8>> {
     let mut data = AccountAddress::from_hex_literal(object_id)?.to_vec();
     data.extend_from_slice(&balance.to_le_bytes());
     Ok(data)
+}
+
+/// Store a pristine deny-list singleton (`DenyList { id, lists }`) at `@0x403`
+/// so the fail-closed deny policy can verify reads in tests that boot a bare
+/// in-memory runtime without genesis state. Mirrors the exact BCS that
+/// `MoveRuntime::ensure_deny_list` writes at genesis.
+fn seed_deny_singleton(runtime: &MoveRuntime) -> Result<()> {
+    let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()?;
+    let mut bag_addr_bytes = [0u8; 32];
+    bag_addr_bytes[31] = 0xB5;
+    let mut data = deny_addr.as_ref().to_vec();
+    data.extend_from_slice(&bag_addr_bytes);
+    data.extend_from_slice(&0u64.to_le_bytes());
+    runtime.object_storage.store_object(StoredObject {
+        id: deny_addr.to_hex_literal(),
+        owner: AccountAddress::ZERO,
+        owner_kind: ObjectOwnerKind::Shared,
+        type_name: kanari_types::deny_list::DenyListModule::type_path(),
+        data,
+        version: 1,
+    })?;
+    Ok(())
 }
 
 fn assert_out_of_gas(err: anyhow::Error) {

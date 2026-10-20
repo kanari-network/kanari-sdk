@@ -422,6 +422,50 @@ impl MoveRuntime {
         Ok(deny_addr)
     }
 
+    /// Seed the deny-list singleton into the object store for runtimes that
+    /// do not run full genesis (e.g. the in-memory test/dev runtime). The
+    /// fail-closed deny-list input/output policies require the singleton at
+    /// `@0x403` to exist before any regulated-coin entry function executes;
+    /// without it every such call is refused with the "singleton is missing"
+    /// policy error.
+    ///
+    /// Mirrors the BCS that `ensure_deny_list` writes at genesis, but writes
+    /// directly through the object store since there is no `StateManager`
+    /// transaction overlay to commit through.
+    pub fn ensure_deny_list_singleton(&self) -> Result<()> {
+        let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
+            .context("invalid deny-list well-known object id")?;
+        let deny_id_hex = deny_addr.to_hex_literal();
+        if self.object_storage.get_object(&deny_id_hex)?.is_some() {
+            return Ok(());
+        }
+
+        // Deterministic address for the embedded `Bag` sub-object, domain
+        // separated from the clock so the two never collide.
+        let bag_addr = Self::derive_genesis_object_id(b"KANARI::GENESIS::DENY_LIST::BAG")?;
+
+        // `DenyList { id: UID, lists: Bag { id: UID, size: u64 } }`, BCS-encoded.
+        let mut data = Vec::with_capacity(2 * AccountAddress::LENGTH + 8);
+        data.extend_from_slice(deny_addr.as_ref());
+        data.extend_from_slice(bag_addr.as_ref());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let deny_type = kanari_types::deny_list::DenyListModule::type_path();
+
+        let stored = StoredObject {
+            id: deny_id_hex.clone(),
+            owner: AccountAddress::ZERO,
+            owner_kind: ObjectOwnerKind::Shared,
+            type_name: deny_type,
+            data,
+            version: 1,
+        };
+        self.object_storage
+            .store_object(stored)
+            .map_err(anyhow::Error::new)?;
+        Ok(())
+    }
+
     /// Build a consensus commit prologue changeset for the native clock object.
     pub fn build_native_clock_consensus_commit_prologue(
         &self,

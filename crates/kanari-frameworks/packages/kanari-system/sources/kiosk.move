@@ -1019,7 +1019,7 @@ module kanari_system::kiosk {
         transfer::public_freeze_object(item);
         let (_i, _p, _f) = transfer_policy::confirm_request(&policy, request);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
 
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
@@ -1072,7 +1072,7 @@ module kanari_system::kiosk {
         // Reached only if the confirmation below unexpectedly succeeds.
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1121,7 +1121,7 @@ module kanari_system::kiosk {
         );
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1239,7 +1239,7 @@ module kanari_system::kiosk {
         let (_i, _p, _f) = transfer_policy::confirm_request(&policy, request);
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(purchase_cap);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
@@ -1289,7 +1289,7 @@ module kanari_system::kiosk {
 
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1346,7 +1346,7 @@ module kanari_system::kiosk {
         let (_i, _p, _f) = transfer_policy::confirm_request(&policy, request);
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(_second_cap);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
@@ -1465,7 +1465,7 @@ module kanari_system::kiosk {
         let (_i, _p, _f) = transfer_policy::confirm_request(&policy, request);
         transfer::public_freeze_object(item);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1506,7 +1506,7 @@ module kanari_system::kiosk {
             &mut ctx
         );
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1546,7 +1546,7 @@ module kanari_system::kiosk {
         );
         transfer::public_freeze_object(purchase_cap);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1586,7 +1586,7 @@ module kanari_system::kiosk {
         );
         transfer::public_freeze_object(purchase_cap);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);
@@ -1628,7 +1628,7 @@ module kanari_system::kiosk {
         assert!(item_count(&kiosk) == 0, 0);
         assert!(coin::value(&payment) == 500, 1);
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
         transfer::public_freeze_object(cap);

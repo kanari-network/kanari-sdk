@@ -120,10 +120,10 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     // The failed transaction must not have landed: the coin still holds all
     // 10_000 with the sender.
     let coin_after = state.get_object(&coin_id)?.context("coin should persist")?;
-    eprintln!(
-        "[DBGTEST] coin id={coin_id} owner={} type={}",
+    assert_eq!(
         coin_after.owner.to_hex_literal(),
-        coin_after.type_
+        sender_hex,
+        "owner must be unchanged after the rejected transfer"
     );
 
     // --- an allowed recipient passes the very same path ----------------------

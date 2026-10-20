@@ -294,7 +294,9 @@ module kanari_system::royalty_rule {
     /// The asset the royalty settles in (never instantiated as a value; it
     /// only exists because `pay` requires `Asset: key + store` and a mintable
     /// coin needs a witness).
-    struct ASSET has key, store, drop { id: object::UID }
+    struct ASSET has key, store, drop {
+        id: object::UID,
+    }
 
     // vec_set::insert aborts its duplicate with code 0 (`EKeyAlreadyExists`
     // is not importable across modules), which is exactly what a second
@@ -407,7 +409,7 @@ module kanari_system::royalty_rule {
         // fixtures in `transfer_policy`.
         let (_item, _paid, _from) = transfer_policy::confirm_request(&policy, request);
         let _burned = coin::into_balance(payment);
-        let _ = kanari_system::balance::destroy(_burned);
+        let _ = kanari_system::balance::destroy_for_testing(_burned);
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(pub);

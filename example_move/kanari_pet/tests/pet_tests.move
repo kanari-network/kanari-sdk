@@ -97,7 +97,7 @@ module kanari_pet::pet_tests {
 
         // `Coin` has no `drop` — a payment cannot be silently discarded.
         let balance = coin::into_balance<FEE>(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
 
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
@@ -362,7 +362,7 @@ module kanari_pet::pet_tests {
         assert!(coin::value(&payment) == 0, 6);
 
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         seal(pet, coll, cap, stats);
     }
 
@@ -408,7 +408,7 @@ module kanari_pet::pet_tests {
         assert!(pet::rarity(&pet) == std::string::utf8(b"Legendary"), 2);
 
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         seal(pet, coll, cap, stats);
     }
 
@@ -425,7 +425,7 @@ module kanari_pet::pet_tests {
         pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         seal(pet, coll, cap, stats);
     }
 
@@ -537,7 +537,7 @@ module kanari_pet::pet_tests {
         pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
-        let _ = balance::destroy(balance);
+        let _ = balance::destroy_for_testing(balance);
         seal(pet, coll, cap, stats);
     }
 

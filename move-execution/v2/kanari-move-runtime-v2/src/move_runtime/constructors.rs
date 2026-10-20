@@ -105,6 +105,7 @@ impl MoveRuntime {
         let natives = Self::get_kanari_natives_list();
         let runtime = Self::new_with_natives_in_memory(natives)?;
         runtime.load_embedded_system_modules()?;
+        runtime.ensure_deny_list_singleton()?;
         Ok(runtime)
     }
 
@@ -133,6 +134,7 @@ impl MoveRuntime {
         } else {
             runtime.load_system_modules()?;
         }
+        runtime.ensure_deny_list_singleton()?;
         Ok(runtime)
     }
 
