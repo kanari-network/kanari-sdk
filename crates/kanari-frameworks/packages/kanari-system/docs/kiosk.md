@@ -58,7 +58,9 @@ owner, not to the seller.
 -  [Struct `Listing`](#0x2_kiosk_Listing)
 -  [Struct `ItemId`](#0x2_kiosk_ItemId)
 -  [Resource `PurchaseCap`](#0x2_kiosk_PurchaseCap)
+-  [Struct `PersonalWitness`](#0x2_kiosk_PersonalWitness)
 -  [Constants](#@Constants_3)
+-  [Function `issue_personal_witness`](#0x2_kiosk_issue_personal_witness)
 -  [Function `new`](#0x2_kiosk_new)
 -  [Function `share`](#0x2_kiosk_share)
 -  [Function `freeze_cap`](#0x2_kiosk_freeze_cap)
@@ -67,12 +69,16 @@ owner, not to the seller.
 -  [Function `create`](#0x2_kiosk_create)
 -  [Function `place_item`](#0x2_kiosk_place_item)
 -  [Function `lock_item`](#0x2_kiosk_lock_item)
+-  [Function `lock_item_with_lockout`](#0x2_kiosk_lock_item_with_lockout)
 -  [Function `list_item`](#0x2_kiosk_list_item)
 -  [Function `delist_item`](#0x2_kiosk_delist_item)
 -  [Function `take_to`](#0x2_kiosk_take_to)
 -  [Function `reserve_item`](#0x2_kiosk_reserve_item)
 -  [Function `place`](#0x2_kiosk_place)
 -  [Function `lock`](#0x2_kiosk_lock)
+-  [Function `lock_with_lockout`](#0x2_kiosk_lock_with_lockout)
+-  [Function `list_with_lockout`](#0x2_kiosk_list_with_lockout)
+-  [Function `lockout_end_of`](#0x2_kiosk_lockout_end_of)
 -  [Function `take`](#0x2_kiosk_take)
 -  [Function `list`](#0x2_kiosk_list)
 -  [Function `delist`](#0x2_kiosk_delist)
@@ -103,9 +109,11 @@ owner, not to the seller.
 
 
 <pre><code><b>use</b> <a href="dependencies/move-stdlib/ascii.md#0x1_ascii">0x1::ascii</a>;
+<b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">0x1::type_name</a>;
 <b>use</b> <a href="coin.md#0x2_coin">0x2::coin</a>;
 <b>use</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field">0x2::dynamic_object_field</a>;
+<b>use</b> <a href="kiosk_rule.md#0x2_kiosk_rule">0x2::kiosk_rule</a>;
 <b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="transfer_policy.md#0x2_transfer_policy">0x2::transfer_policy</a>;
@@ -164,8 +172,15 @@ Shared registry holding items for sale.
 Full authority over one kiosk. Deliberately separate from the items
 themselves: holding an item gives no power over the kiosk.
 
+The <code>K: key</code> trait-phase parameter is the Sui personal-kiosk device:
+the type only the owner's own package can construct, so an extension
+package can bind an entry point to exactly one kiosk family by naming
+<code>K</code> in its signature. <code>new</code> issues the cap for whichever <code>K</code> the
+creator names, which is what gives "personal kiosk" meaning without a
+second implementation.
 
-<pre><code><b>struct</b> <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a> <b>has</b> store, key
+
+<pre><code><b>struct</b> <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K: key&gt; <b>has</b> store, key
 </code></pre>
 
 
@@ -240,6 +255,16 @@ Listing state for one item.
 <dd>
  When set, only the holder of the matching <code><a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a></code> may buy.
  <code>@0x0</code> means the listing is open to anyone.
+</dd>
+<dt>
+<code>lockout_end_ms: u64</code>
+</dt>
+<dd>
+ Unix-ms epoch time until which the seller cannot withdraw or
+ delist this item. <code>0</code> means no lockout. This is the Sui
+ marketplace-lockout extension: a buyer who reserved or started a
+ purchase on an item gets a time window in which the seller cannot
+ yank the listing or pull the item back to their own inventory.
 </dd>
 </dl>
 
@@ -317,6 +342,39 @@ right to a different asset.
 </dd>
 <dt>
 <code>item: <a href="object.md#0x2_object_ID">object::ID</a></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_kiosk_PersonalWitness"></a>
+
+## Struct `PersonalWitness`
+
+A proof that the presenter holds a <code><a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;</code> for some <code>K</code>.
+
+An extension package can require a <code><a href="kiosk.md#0x2_kiosk_PersonalWitness">PersonalWitness</a></code> at its entry
+points: producing one proves kiosk ownership without ever exposing the
+cap itself, and <code>K</code> being phantom means only kiosks created under that
+extension's own <code>K</code> can satisfy it. Mirrors <code>sui::kiosk::PersonalWitness</code>.
+
+
+<pre><code><b>struct</b> <a href="kiosk.md#0x2_kiosk_PersonalWitness">PersonalWitness</a> <b>has</b> <b>copy</b>, drop
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>dummy_field: bool</code>
 </dt>
 <dd>
 
@@ -418,6 +476,19 @@ capability may buy it.
 
 
 <pre><code><b>const</b> <a href="kiosk.md#0x2_kiosk_E_LISTING_IS_EXCLUSIVE">E_LISTING_IS_EXCLUSIVE</a>: u64 = 12;
+</code></pre>
+
+
+
+<a name="0x2_kiosk_E_LOCKOUT_ACTIVE"></a>
+
+A delist was attempted while the listing's lockout window was still
+active. The lockout is the seller's binding promise: a buyer who
+started engaging with the listing gets a time window in which the
+seller cannot pull the item back.
+
+
+<pre><code><b>const</b> <a href="kiosk.md#0x2_kiosk_E_LOCKOUT_ACTIVE">E_LOCKOUT_ACTIVE</a>: u64 = 17;
 </code></pre>
 
 
@@ -530,14 +601,18 @@ downstream royalty arithmetic.
 
 
 
-<a name="0x2_kiosk_new"></a>
+<a name="0x2_kiosk_issue_personal_witness"></a>
 
-## Function `new`
+## Function `issue_personal_witness`
 
-Create a kiosk and its owner capability.
+Issue a <code><a href="kiosk.md#0x2_kiosk_PersonalWitness">PersonalWitness</a></code> by presenting the owner cap.
+
+The cap is only borrowed and the witness is worthless on its own — its
+value is that it can only be minted while holding a real
+<code><a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;</code>, so extension flows can gate on it.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_new">new</a>(ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (<a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_issue_personal_witness">issue_personal_witness</a>&lt;K: key&gt;(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;): <a href="kiosk.md#0x2_kiosk_PersonalWitness">kiosk::PersonalWitness</a>
 </code></pre>
 
 
@@ -546,13 +621,40 @@ Create a kiosk and its owner capability.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_new">new</a>(ctx: &<b>mut</b> TxContext): (<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>) {
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_issue_personal_witness">issue_personal_witness</a>&lt;K: key&gt;(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;): <a href="kiosk.md#0x2_kiosk_PersonalWitness">PersonalWitness</a> {
+    <b>let</b> _ = cap;
+    <a href="kiosk.md#0x2_kiosk_PersonalWitness">PersonalWitness</a> {}
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_kiosk_new"></a>
+
+## Function `new`
+
+Create a kiosk and its owner capability. <code>K</code> is the owning key type —
+the package whose witness will ever authenticate against this cap.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_new">new</a>&lt;K: key&gt;(ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (<a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_new">new</a>&lt;K: key&gt;(ctx: &<b>mut</b> TxContext): (<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;) {
     <b>let</b> <a href="kiosk.md#0x2_kiosk">kiosk</a> = <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         items: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;ID, <a href="kiosk.md#0x2_kiosk_Listing">Listing</a>&gt;(),
         profits: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, u64&gt;()
     };
-    <b>let</b> cap = <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a> {
+    <b>let</b> cap = <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt; {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id)
     };
@@ -571,7 +673,7 @@ Create a kiosk and its owner capability.
 Share the kiosk and hand the capability to its owner.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_share">share</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, recipient: <b>address</b>)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_share">share</a>&lt;K: key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, recipient: <b>address</b>)
 </code></pre>
 
 
@@ -580,7 +682,7 @@ Share the kiosk and hand the capability to its owner.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_share">share</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>, recipient: <b>address</b>) {
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_share">share</a>&lt;K: key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;, recipient: <b>address</b>) {
     <a href="transfer.md#0x2_transfer_share_object">transfer::share_object</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(cap, recipient);
 }
@@ -599,7 +701,7 @@ never change again. This is how a creator permanently opens a collection
 to trading without giving up curation.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_freeze_cap">freeze_cap</a>(cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_freeze_cap">freeze_cap</a>&lt;K: key&gt;(cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;)
 </code></pre>
 
 
@@ -608,7 +710,7 @@ to trading without giving up curation.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_freeze_cap">freeze_cap</a>(cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>) {
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_freeze_cap">freeze_cap</a>&lt;K: key&gt;(cap: <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;) {
     <a href="transfer.md#0x2_transfer_public_freeze_object">transfer::public_freeze_object</a>(cap);
 }
 </code></pre>
@@ -649,7 +751,7 @@ The kiosk's id.
 The kiosk an owner capability controls.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_owner_cap_kiosk">owner_cap_kiosk</a>(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>): <a href="object.md#0x2_object_ID">object::ID</a>
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_owner_cap_kiosk">owner_cap_kiosk</a>&lt;K: key&gt;(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;): <a href="object.md#0x2_object_ID">object::ID</a>
 </code></pre>
 
 
@@ -658,7 +760,7 @@ The kiosk an owner capability controls.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_owner_cap_kiosk">owner_cap_kiosk</a>(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>): ID {
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_owner_cap_kiosk">owner_cap_kiosk</a>&lt;K: key&gt;(cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;): ID {
     cap.<a href="kiosk.md#0x2_kiosk">kiosk</a>
 }
 </code></pre>
@@ -677,10 +779,12 @@ transaction.
 <code>new</code> returns <code>(<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, <a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>)</code> and an entry function cannot
 return values, so this is the shape a CLI can actually call. Calling
 <code>new</code> then <code>share</code> from a transaction would leave a window where the
-kiosk exists but nobody can list in it.
+kiosk exists but nobody can list in it. <code>witness</code> is a live object of
+the owning key type <code>K</code>, so only that package's flow can mint a cap of
+its own family.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_create">create</a>(recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_create">create</a>&lt;K: key&gt;(witness: &K, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -689,8 +793,9 @@ kiosk exists but nobody can list in it.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_create">create</a>(recipient: <b>address</b>, ctx: &<b>mut</b> TxContext) {
-    <b>let</b> (<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap) = <a href="kiosk.md#0x2_kiosk_new">new</a>(ctx);
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_create">create</a>&lt;K: key&gt;(witness: &K, recipient: <b>address</b>, ctx: &<b>mut</b> TxContext) {
+    <b>let</b> _ = witness;
+    <b>let</b> (<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap) = <a href="kiosk.md#0x2_kiosk_new">new</a>&lt;K&gt;(ctx);
     <a href="kiosk.md#0x2_kiosk_share">share</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, recipient);
 }
 </code></pre>
@@ -710,7 +815,7 @@ handle is still recoverable — it is the <code>item_id</code> the caller passed
 so nothing is lost by dropping it here.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_place_item">place_item</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, item: T)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_place_item">place_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, item: T)
 </code></pre>
 
 
@@ -719,13 +824,13 @@ so nothing is lost by dropping it here.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_place_item">place_item</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_place_item">place_item</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     item: T,
 ) {
-    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, item);
+    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, item);
     <b>let</b> _ = handle;
 }
 </code></pre>
@@ -742,7 +847,7 @@ Put an item into the kiosk and lock it immediately, discarding the
 handle. See <code>place_item</code> for why the return value is dropped.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item">lock_item</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item">lock_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T)
 </code></pre>
 
 
@@ -751,14 +856,53 @@ handle. See <code>place_item</code> for why the return value is dropped.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item">lock_item</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item">lock_item</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     policy: &TransferPolicy&lt;T&gt;,
     item: T,
 ) {
-    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item);
+    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item);
+    <b>let</b> _ = handle;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_kiosk_lock_item_with_lockout"></a>
+
+## Function `lock_item_with_lockout`
+
+Lock an item, list it at <code>price</code>, and bind the seller with a
+<code>lockout_ms</code> window during which delist is refused. See
+<code>lock_with_lockout</code>.
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item_with_lockout">lock_item_with_lockout</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T, price: u64, lockout_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_item_with_lockout">lock_item_with_lockout</a>&lt;K: key, T: key + store&gt;(
+    <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
+    item_id: ID,
+    policy: &TransferPolicy&lt;T&gt;,
+    item: T,
+    price: u64,
+    lockout_ms: u64,
+    ctx: &<b>mut</b> TxContext,
+) {
+    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock_with_lockout">lock_with_lockout</a>&lt;K, T&gt;(
+        <a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item, price, lockout_ms, ctx
+    );
     <b>let</b> _ = handle;
 }
 </code></pre>
@@ -774,7 +918,7 @@ handle. See <code>place_item</code> for why the return value is dropped.
 List the item at <code>item_id</code> for <code>price</code>.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_item">list_item</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, price: u64, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_item">list_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, price: u64, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -783,9 +927,9 @@ List the item at <code>item_id</code> for <code>price</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_item">list_item</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_item">list_item</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     price: u64,
     ctx: &TxContext,
@@ -794,7 +938,7 @@ List the item at <code>item_id</code> for <code>price</code>.
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
         item: item_id
     };
-    <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, price, ctx);
+    <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, price, ctx);
 }
 </code></pre>
 
@@ -809,7 +953,7 @@ List the item at <code>item_id</code> for <code>price</code>.
 Stop selling the item at <code>item_id</code>.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist_item">delist_item</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist_item">delist_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -818,16 +962,17 @@ Stop selling the item at <code>item_id</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist_item">delist_item</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist_item">delist_item</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
+    ctx: &<b>mut</b> TxContext,
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
         item: item_id
     };
-    <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle);
+    <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, ctx);
 }
 </code></pre>
 
@@ -846,7 +991,7 @@ caller has to end up owning it anyway — so the transfer is folded in
 rather than left dangling.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_take_to">take_to</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, recipient: <b>address</b>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_take_to">take_to</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, recipient: <b>address</b>)
 </code></pre>
 
 
@@ -855,9 +1000,9 @@ rather than left dangling.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_take_to">take_to</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_take_to">take_to</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     recipient: <b>address</b>,
 ) {
@@ -865,7 +1010,7 @@ rather than left dangling.
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
         item: item_id
     };
-    <b>let</b> item = <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle);
+    <b>let</b> item = <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(item, recipient);
 }
 </code></pre>
@@ -887,7 +1032,7 @@ entry boundary, not a shortcut: the non-entry <code>reserve</code> returns the c
 and is what a composing module should call.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve_item">reserve_item</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve_item">reserve_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -896,9 +1041,9 @@ and is what a composing module should call.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve_item">reserve_item</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve_item">reserve_item</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     ctx: &<b>mut</b> TxContext,
 ) {
@@ -906,7 +1051,7 @@ and is what a composing module should call.
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
         item: item_id
     };
-    <b>let</b> purchase_cap = <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, ctx);
+    <b>let</b> purchase_cap = <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, ctx);
     // Burn the cap so the listing is not left reserved against an <a href="object.md#0x2_object">object</a>
     // nobody can hold.
     <b>let</b> <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> { id, <a href="kiosk.md#0x2_kiosk">kiosk</a>: _, item: _ } = purchase_cap;
@@ -926,7 +1071,7 @@ Put an item into the kiosk. The owner may take it back at any time until
 it is locked.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, item: T): <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, item: T): <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>
 </code></pre>
 
 
@@ -935,9 +1080,9 @@ it is locked.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     item: T,
 ): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
@@ -962,7 +1107,7 @@ proof that such a request can be resolved — without one the item would be
 unsellable forever.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T): <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T): <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>
 </code></pre>
 
 
@@ -971,9 +1116,9 @@ unsellable forever.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     policy: &TransferPolicy&lt;T&gt;,
     item: T,
@@ -993,15 +1138,23 @@ unsellable forever.
 
 </details>
 
-<a name="0x2_kiosk_take"></a>
+<a name="0x2_kiosk_lock_with_lockout"></a>
 
-## Function `take`
+## Function `lock_with_lockout`
 
-Take an item back out. Refuses while the item is locked, which is the
-guarantee a buyer relies on: a locked listing cannot be withdrawn.
+Lock an item, list it at <code>price</code> immediately, and bind the seller with
+a <code>lockout_ms</code> window (the Sui marketplace-lockout extension).
+
+This is the shape a buyer-facing marketplace wants to see: the item is
+for sale *now*, locked against withdrawal, and the seller cannot delist
+it until <code>epoch_timestamp_ms + lockout_ms</code>. It answers "what if the
+seller yanks the listing the instant I pay the royalty" with a timing
+commitment instead of asking the buyer to trust one. <code>lockout_end_ms</code>
+is <code>0</code>-cleared on purchase and on <code>reserve</code>, so a later re-listing of
+the same handle starts clean.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>): T
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_with_lockout">lock_with_lockout</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: T, price: u64, lockout_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>
 </code></pre>
 
 
@@ -1010,9 +1163,126 @@ guarantee a buyer relies on: a locked listing cannot be withdrawn.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lock_with_lockout">lock_with_lockout</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
+    item_id: ID,
+    policy: &TransferPolicy&lt;T&gt;,
+    item: T,
+    price: u64,
+    lockout_ms: u64,
+    ctx: &<b>mut</b> TxContext,
+): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
+    <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item);
+    <a href="kiosk.md#0x2_kiosk_list_with_lockout">list_with_lockout</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, price, lockout_ms, ctx);
+    handle
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_kiosk_list_with_lockout"></a>
+
+## Function `list_with_lockout`
+
+List at <code>price</code> with a <code>lockout_ms</code> window during which delist is
+refused. Lockout lives in a listing field, so it applies while the
+item is listed; <code>purchase</code> and <code>reserve</code> clear it. Body mirrors
+<code>list</code> (which takes an immutable ctx this path cannot produce) with
+the lockout field folded in.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_with_lockout">list_with_lockout</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, price: u64, lockout_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list_with_lockout">list_with_lockout</a>&lt;K: key, T: key + store&gt;(
+    <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
+    handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
+    price: u64,
+    lockout_ms: u64,
+    ctx: &<b>mut</b> TxContext,
+) {
+    <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
+    <b>assert</b>!(price &gt; 0, <a href="kiosk.md#0x2_kiosk_E_PRICE_ZERO">E_PRICE_ZERO</a>);
+    <b>assert</b>!(<a href="kiosk.md#0x2_kiosk_price">price</a> &lt;= <a href="kiosk.md#0x2_kiosk_MAX_PRICE">MAX_PRICE</a>, <a href="kiosk.md#0x2_kiosk_E_PRICE_OUT_OF_RANGE">E_PRICE_OUT_OF_RANGE</a>);
+    <b>assert</b>!(lockout_ms &gt; 0, <a href="kiosk.md#0x2_kiosk_E_LOCKOUT_ACTIVE">E_LOCKOUT_ACTIVE</a>);
+    <b>assert</b>!(
+        dof::exists_with_type&lt;ID, T&gt;(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id, handle.item),
+        <a href="kiosk.md#0x2_kiosk_E_ITEM_TYPE_MISMATCH">E_ITEM_TYPE_MISMATCH</a>
+    );
+    <b>let</b> listing = <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
+    <b>assert</b>!(listing.price == 0, <a href="kiosk.md#0x2_kiosk_E_ALREADY_LISTED">E_ALREADY_LISTED</a>);
+    <b>let</b> updated = <a href="kiosk.md#0x2_kiosk_Listing">Listing</a> {
+        <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: listing.<a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>,
+        locked: listing.locked,
+        price,
+        seller: <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx),
+        purchase_cap: listing.purchase_cap,
+        lockout_end_ms: <a href="tx_context.md#0x2_tx_context_epoch_timestamp_ms">tx_context::epoch_timestamp_ms</a>(ctx) + lockout_ms,
+    };
+    <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_kiosk_lockout_end_of"></a>
+
+## Function `lockout_end_of`
+
+Unix-ms instant until which delist is refused for this listing.
+<code>0</code> means the listing carries no lockout.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lockout_end_of">lockout_end_of</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, handle: &<a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_lockout_end_of">lockout_end_of</a>&lt;K: key, T: key + store&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, handle: &<a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>): u64 {
+    <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle).lockout_end_ms
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_kiosk_take"></a>
+
+## Function `take`
+
+Take an item back out. Refuses while the item is locked, which is the
+guarantee a buyer relies on: a locked listing cannot be withdrawn.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>): T
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;K: key, T: key + store&gt;(
+    <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
 ): T {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
@@ -1034,7 +1304,7 @@ List an item at <code>price</code>, paid to the transaction sender. A locked ite
 stays locked; an unlocked one may still be taken back.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, price: u64, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, price: u64, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -1043,9 +1313,9 @@ stays locked; an unlocked one may still be taken back.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_list">list</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     price: u64,
     ctx: &TxContext,
@@ -1064,7 +1334,8 @@ stays locked; an unlocked one may still be taken back.
         locked: listing.locked,
         price,
         seller: <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx),
-        purchase_cap: listing.purchase_cap
+        purchase_cap: listing.purchase_cap,
+        lockout_end_ms: listing.lockout_end_ms,
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
 }
@@ -1080,8 +1351,11 @@ stays locked; an unlocked one may still be taken back.
 
 Stop selling. The item stays in the kiosk and can be listed again.
 
+Refused while the listing's lockout window is still active: a buyer
+who started against this listing gets the whole window to complete.
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>)
+
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -1090,10 +1364,11 @@ Stop selling. The item stays in the kiosk and can be listed again.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_delist">delist</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
+    ctx: &TxContext,
 ) {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(
@@ -1101,12 +1376,17 @@ Stop selling. The item stays in the kiosk and can be listed again.
         <a href="kiosk.md#0x2_kiosk_E_ITEM_TYPE_MISMATCH">E_ITEM_TYPE_MISMATCH</a>
     );
     <b>let</b> listing = <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
+    <b>assert</b>!(
+        listing.lockout_end_ms &lt;= <a href="tx_context.md#0x2_tx_context_epoch_timestamp_ms">tx_context::epoch_timestamp_ms</a>(ctx),
+        <a href="kiosk.md#0x2_kiosk_E_LOCKOUT_ACTIVE">E_LOCKOUT_ACTIVE</a>
+    );
     <b>let</b> updated = <a href="kiosk.md#0x2_kiosk_Listing">Listing</a> {
         <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: listing.<a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>,
         locked: listing.locked,
         price: 0,
         seller: @0x0,
-        purchase_cap: listing.purchase_cap
+        purchase_cap: listing.purchase_cap,
+        lockout_end_ms: listing.lockout_end_ms,
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
 }
@@ -1137,7 +1417,7 @@ the general path from stealing a sale that was promised to a specific
 buyer. A reserved listing must be filled through <code>purchase_with_cap</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;K: key, T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
 </code></pre>
 
 
@@ -1146,9 +1426,9 @@ buyer. A reserved listing must be filled through <code>purchase_with_cap</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;T: key + store, Asset: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;K: key, T: key + store, Asset: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    policy: &TransferPolicy&lt;T&gt;,
+    policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     from: ID,
@@ -1191,7 +1471,7 @@ per listing — a second reservation would silently invalidate the first
 holder's right, so it is rejected rather than overwritten.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>
 </code></pre>
 
 
@@ -1200,9 +1480,9 @@ holder's right, so it is rejected rather than overwritten.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     ctx: &<b>mut</b> TxContext,
 ): <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> {
@@ -1227,7 +1507,8 @@ holder's right, so it is rejected rather than overwritten.
         locked: listing.locked,
         price: listing.price,
         seller: listing.seller,
-        purchase_cap: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&purchase_cap.id)
+        purchase_cap: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&purchase_cap.id),
+        lockout_end_ms: 0,
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
     purchase_cap
@@ -1251,7 +1532,7 @@ forging object identity, and taking the real one proves the caller holds
 the cap rather than merely knows its id.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_unreserve">unreserve</a>&lt;T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>): <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_unreserve">unreserve</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>): <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>
 </code></pre>
 
 
@@ -1260,9 +1541,9 @@ the cap rather than merely knows its id.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_unreserve">unreserve</a>&lt;T: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_unreserve">unreserve</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>,
+    cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a>,
 ): <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> {
@@ -1283,7 +1564,8 @@ the cap rather than merely knows its id.
         locked: listing.locked,
         price: listing.price,
         seller: listing.seller,
-        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0)
+        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
+        lockout_end_ms: 0,
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
     purchase_cap
@@ -1302,7 +1584,7 @@ Buy a reserved listing. <code>purchase_cap</code> is consumed, so one cap buys
 exactly one item and cannot be replayed.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase_with_cap">purchase_with_cap</a>&lt;T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase_with_cap">purchase_with_cap</a>&lt;K: key, T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">kiosk::PurchaseCap</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
 </code></pre>
 
 
@@ -1311,9 +1593,9 @@ exactly one item and cannot be replayed.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase_with_cap">purchase_with_cap</a>&lt;T: key + store, Asset: key + store&gt;(
+<pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_purchase_with_cap">purchase_with_cap</a>&lt;K: key, T: key + store, Asset: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    policy: &TransferPolicy&lt;T&gt;,
+    policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
@@ -1402,7 +1684,7 @@ marketplace. A type with rules must be sold through <code>kanari_pet::trade</cod
 or another module that knows how to discharge the hot potato.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_buy_unregulated">buy_unregulated</a>&lt;T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_buy_unregulated">buy_unregulated</a>&lt;K: key, T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -1411,9 +1693,9 @@ or another module that knows how to discharge the hot potato.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_buy_unregulated">buy_unregulated</a>&lt;T: key + store, Asset: key + store&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_buy_unregulated">buy_unregulated</a>&lt;K: key, T: key + store, Asset: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    policy: &TransferPolicy&lt;T&gt;,
+    policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
     item_id: ID,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     recipient: <b>address</b>,
@@ -1425,7 +1707,7 @@ or another module that knows how to discharge the hot potato.
         item: item_id
     };
     <b>let</b> from = <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
-    <b>let</b> (item, request) = <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;T, Asset&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, policy, handle, payment, from, ctx);
+    <b>let</b> (item, request) = <a href="kiosk.md#0x2_kiosk_purchase">purchase</a>&lt;K, T, Asset&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, policy, handle, payment, from, ctx);
     <b>let</b> (_i, _p, _f) = <a href="transfer_policy.md#0x2_transfer_policy_confirm_request">transfer_policy::confirm_request</a>&lt;T&gt;(policy, request);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(item, recipient);
 }
@@ -1472,7 +1754,7 @@ the public and reserved routes. What remains — clear the listing, pay the
 seller, hand over the item, mint the request — is identical for both.
 
 
-<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_settle">settle</a>&lt;T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, listing: <a href="kiosk.md#0x2_kiosk_Listing">kiosk::Listing</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
+<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_settle">settle</a>&lt;T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, handle: <a href="kiosk.md#0x2_kiosk_ItemId">kiosk::ItemId</a>, listing: <a href="kiosk.md#0x2_kiosk_Listing">kiosk::Listing</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, from: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (T, <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
 </code></pre>
 
 
@@ -1483,7 +1765,7 @@ seller, hand over the item, mint the request — is identical for both.
 
 <pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_settle">settle</a>&lt;T: key + store, Asset: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
-    policy: &TransferPolicy&lt;T&gt;,
+    policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     listing: <a href="kiosk.md#0x2_kiosk_Listing">Listing</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
@@ -1502,7 +1784,8 @@ seller, hand over the item, mint the request — is identical for both.
         locked: listing.locked,
         price: 0,
         seller: @0x0,
-        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0)
+        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
+        lockout_end_ms: 0,
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, cleared);
 
@@ -1510,8 +1793,21 @@ seller, hand over the item, mint the request — is identical for both.
     <b>let</b> payout = <a href="coin.md#0x2_coin_split">coin::split</a>(payment, price, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(payout, seller);
 
+    // The request carries the item's *real* <a href="object.md#0x2_object">object</a> id — the <b>address</b> the
+    // dynamic field actually resolved <b>to</b> — not the caller-supplied field
+    // name. `place` lets anything be the name; the child's <b>address</b> is the
+    // identity other modules (royalty accounting, marketplace indexes,
+    // explorers) can rely on. Read it before the field is removed.
+    <b>let</b> real_item_id = *<a href="dependencies/move-stdlib/option.md#0x1_option_borrow">option::borrow</a>(&dof::id&lt;ID&gt;(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id, handle.item));
     <b>let</b> item = <a href="kiosk.md#0x2_kiosk_remove_item">remove_item</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
-    <b>let</b> request = <a href="transfer_policy.md#0x2_transfer_policy_new_request">transfer_policy::new_request</a>(policy, handle.item, price, from);
+    <b>let</b> request = <a href="transfer_policy.md#0x2_transfer_policy_new_request">transfer_policy::new_request</a>(policy, real_item_id, price, from);
+    // The <a href="kiosk.md#0x2_kiosk">kiosk</a> rule grants its own receipt here — the sale is happening
+    // inside the <a href="kiosk.md#0x2_kiosk">kiosk</a> <b>module</b> itself, which is the only way a <a href="kiosk.md#0x2_kiosk">kiosk</a>-rule
+    // receipt can ever be minted. Without this hook, a type <b>with</b> the
+    // <a href="kiosk.md#0x2_kiosk">kiosk</a> rule registered could never be sold from a <a href="kiosk.md#0x2_kiosk">kiosk</a> at all.
+    <b>if</b> (<a href="kiosk_rule.md#0x2_kiosk_rule_is_enabled">kiosk_rule::is_enabled</a>(policy)) {
+        <a href="kiosk_rule.md#0x2_kiosk_rule_kiosk_receipt">kiosk_rule::kiosk_receipt</a>&lt;T&gt;(policy, &<b>mut</b> request);
+    };
     (item, request)
 }
 </code></pre>
@@ -1759,7 +2055,7 @@ Ids of every item in the kiosk, for indexing.
 
 
 
-<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>)
+<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>&lt;K: key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;)
 </code></pre>
 
 
@@ -1768,7 +2064,7 @@ Ids of every item in the kiosk, for indexing.
 <summary>Implementation</summary>
 
 
-<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>) {
+<pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>&lt;K: key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;) {
     <b>assert</b>!(cap.<a href="kiosk.md#0x2_kiosk">kiosk</a> == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id), <a href="kiosk.md#0x2_kiosk_E_NOT_OWNER">E_NOT_OWNER</a>);
 }
 </code></pre>
@@ -1818,7 +2114,8 @@ derives the child address from it.
         locked,
         price,
         seller,
-        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0)
+        purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
+        lockout_end_ms: 0,
     };
     dof::add&lt;ID, T&gt;(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.id, item_id, item);
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, item_id, listing);

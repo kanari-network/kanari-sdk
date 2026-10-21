@@ -16,6 +16,8 @@
 -  [Function `transfer`](#0x2_balance_transfer)
 -  [Function `has_sufficient`](#0x2_balance_has_sufficient)
 -  [Function `destroy`](#0x2_balance_destroy)
+-  [Function `destroy_zero`](#0x2_balance_destroy_zero)
+-  [Function `burn`](#0x2_balance_burn)
 -  [Function `new_supply`](#0x2_balance_new_supply)
 -  [Function `increase_supply`](#0x2_balance_increase_supply)
 -  [Function `decrease_supply`](#0x2_balance_decrease_supply)
@@ -163,7 +165,7 @@ Friend-only: arbitrary public minting would forge value. <code><a href="coin.md#
 is the production path (backed by <code>TreasuryCap</code>).
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
 </code></pre>
 
 
@@ -172,7 +174,7 @@ is the production path (backed by <code>TreasuryCap</code>).
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
     <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; { value }
 }
 </code></pre>
@@ -210,11 +212,11 @@ Get the current balance value
 
 ## Function `increase`
 
-Increase the balance value.
-Friend-only: see <code>create</code>. Value-conserving callers use <code>merge</code>.
+Friend-only for the same reason as <code>create</code>: only the <code><a href="coin.md#0x2_coin">coin</a></code> module
+may conjure value. Value-conserving callers use <code>merge</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
 </code></pre>
 
 
@@ -223,7 +225,7 @@ Friend-only: see <code>create</code>. Value-conserving callers use <code>merge</
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>); // FIXED: Added zero check
     // Pre-check: `+` traps <b>as</b> an arithmetic error before the <b>assert</b> below runs.
     <b>assert</b>!(
@@ -243,10 +245,12 @@ Friend-only: see <code>create</code>. Value-conserving callers use <code>merge</
 
 ## Function `decrease`
 
-Decrease the balance value
+Friend-only: an unpaired public <code>decrease</code> would let callers shave
+value out of the ledger without the paired supply bookkeeping. The
+paired burn path is <code>burn</code> (below).
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
 </code></pre>
 
 
@@ -255,7 +259,7 @@ Decrease the balance value
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
     <b>assert</b>!(<a href="balance.md#0x2_balance">balance</a>.value &gt;= amount, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
     <a href="balance.md#0x2_balance">balance</a>.value = <a href="balance.md#0x2_balance">balance</a>.value - amount;
@@ -326,10 +330,15 @@ Check if the balance is sufficient for a given amount
 
 ## Function `destroy`
 
-Destroy the Balance and return its value
+Destroy the Balance and return its value.
+Friend-only: a public destroy of a non-zero balance removes value
+with no paired supply decrement — supply accounting drifts. The
+paired production path is <code>burn</code> (below); frameworks' <code><a href="coin.md#0x2_coin_burn">coin::burn</a></code>
+pairs it with its own <code>TreasuryCap</code> total. Use <code>destroy_zero</code> for
+valueless balances.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
 </code></pre>
 
 
@@ -338,8 +347,67 @@ Destroy the Balance and return its value
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
     <b>let</b> <a href="balance.md#0x2_balance_Balance">Balance</a> { value } = <a href="balance.md#0x2_balance">balance</a>;
+    value
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_destroy_zero"></a>
+
+## Function `destroy_zero`
+
+Destroy a valueless <code><a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;</code>. Public and safe: nothing leaves
+the ledger.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;) {
+    <b>assert</b>!(<a href="balance.md#0x2_balance_value">value</a>&lt;T&gt;(&<a href="balance.md#0x2_balance">balance</a>) == 0, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
+    <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_burn"></a>
+
+## Function `burn`
+
+The only public way to destroy a non-zero balance: the destroyed
+value is paired with a supply decrement on the <code><a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;</code> handle,
+so the ledger stays conserved. The handle is the caller's burn
+authority — only whoever owns it may burn this coin type.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_burn">burn</a>&lt;T&gt;(supply: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, <a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_burn">burn</a>&lt;T&gt;(supply: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, <a href="balance.md#0x2_balance">balance</a>: <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
+    <b>let</b> value = <a href="balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>);
+    <b>if</b> (value &gt; 0) {
+        <a href="balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(supply, value);
+    };
     value
 }
 </code></pre>

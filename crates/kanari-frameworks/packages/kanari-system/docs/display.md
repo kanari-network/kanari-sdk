@@ -11,19 +11,17 @@ render *any* object type without per-object metadata and without the
 creator writing a custom viewer. Per-token uniqueness comes from the object
 id, not from the metadata.
 
-Every mutation takes an *unbound* <code>&Publisher</code>, matching Sui. Binding it to
-<code>&Publisher</code> would be tighter in principle, but the publisher is keyed on
-the one-time witness type rather than on <code>T</code> (see <code>kanari_system::package</code>),
-so there is no <code>Publisher</code> to bind to. Holding a publisher proves you own
-a type in your own package.
-
-Sui additionally enforces one Display per type through a host-side registry,
-so a second Display for the same <code>T</code> is rejected at publish time. This
-runtime now does the same: <code>new_display</code> claims <code>T</code> in the host's durable
-type registry, so the first Display created for a type is the only one that
-can ever exist. Combined with the unbound <code>&Publisher&lt;W&gt;</code> argument, that
-closes the gap — a publisher for *some* type can no longer mint a
-<code><a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;</code> once the real owner has already created one.
+Every mutation takes a <code>&Publisher&lt;W&gt;</code> and requires it, through
+<code><a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a></code>, to have been claimed in the same package
+that defines <code>T</code>. Sui types the publisher to the token itself; here the
+witness carries <code>drop</code> while the token must not (see <code>kanari_system::package</code>),
+so type-level binding is unavailable and package-level binding is what the
+runtime enforces. A foreign package holding its own publisher cannot mint
+a Display for your type. What remains unenforced is the Sui host-side
+one-Display-per-type registry: creating two Displays for one type is still
+possible inside T's own package, and clients must resolve by type name and
+prefer the most recent. Packages that care should create exactly one, in
+<code>init</code>.
 
 
 -  [Resource `Display`](#0x2_display_Display)
@@ -55,7 +53,6 @@ closes the gap — a publisher for *some* type can no longer mint a
 <b>use</b> <a href="package.md#0x2_package">0x2::package</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
-<b>use</b> <a href="types.md#0x2_types">0x2::types</a>;
 <b>use</b> <a href="vec_map.md#0x2_vec_map">0x2::vec_map</a>;
 </code></pre>
 
@@ -225,9 +222,11 @@ same length; a mismatched pair would leave a half-written field.
 
 Seed fields into a caller-built <code>VecMap</code>. Split out because this legacy
 edition has no <code><b>let</b> <b>mut</b></code> bindings, so the loop body needs a named local.
+The package guard lives here because both seed constructors funnel
+through it.
 
 
-<pre><code><b>fun</b> <a href="display.md#0x2_display_new_display">new_display</a>&lt;T: key, W: drop&gt;(_pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;, values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;
+<pre><code><b>fun</b> <a href="display.md#0x2_display_new_display">new_display</a>&lt;T: key, W: drop&gt;(pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;, values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;
 </code></pre>
 
 
@@ -237,14 +236,12 @@ edition has no <code><b>let</b> <b>mut</b></code> bindings, so the loop body nee
 
 
 <pre><code><b>fun</b> <a href="display.md#0x2_display_new_display">new_display</a>&lt;T: key, W: drop&gt;(
-    _pub: &Publisher&lt;W&gt;,
+    pub: &Publisher&lt;W&gt;,
     keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     ctx: &<b>mut</b> TxContext,
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
-    // One <a href="display.md#0x2_display_Display">Display</a> per type, enforced by the host and persisted across
-    // transactions.
-    <a href="types.md#0x2_types_claim_display">types::claim_display</a>&lt;T&gt;();
+    <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a> = utf8(<a href="display.md#0x2_display_type_name_bytes">type_name_bytes</a>&lt;T&gt;());
     <b>let</b> fields = <a href="display.md#0x2_display_seed_fields">seed_fields</a>(keys, values, <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>);
     <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), fields }
@@ -301,7 +298,7 @@ Build the initial field map: the type name first, then every seed pair.
 Add or replace one field.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_add">add</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, _pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, value: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
+<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_add">add</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, value: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
 </code></pre>
 
 
@@ -312,10 +309,11 @@ Add or replace one field.
 
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_add">add</a>&lt;T: key, W: drop&gt;(
     <a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
-    _pub: &Publisher&lt;W&gt;,
+    pub: &Publisher&lt;W&gt;,
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     value: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ) {
+    <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="display.md#0x2_display">display</a>.fields, utf8(name), utf8(value));
 }
 </code></pre>
@@ -332,7 +330,7 @@ Remove one field. <code>T</code>'s own type-name entry is protected: indexers ke
 off it, and losing it would make the display unattributable.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_remove">remove</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, _pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
+<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_remove">remove</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;, name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
 </code></pre>
 
 
@@ -343,9 +341,10 @@ off it, and losing it would make the display unattributable.
 
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_remove">remove</a>&lt;T: key, W: drop&gt;(
     <a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
-    _pub: &Publisher&lt;W&gt;,
+    pub: &Publisher&lt;W&gt;,
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
 ) {
+    <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> key = utf8(name);
     <b>assert</b>!(key != utf8(<a href="display.md#0x2_display_type_name_bytes">type_name_bytes</a>&lt;T&gt;()), <a href="display.md#0x2_display_E_PROTECTED_FIELD">E_PROTECTED_FIELD</a>);
     <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> <a href="display.md#0x2_display">display</a>.fields, &key);
@@ -583,7 +582,7 @@ type itself and its objects are unaffected.
 the <code>UID</code> needs explicit deletion.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_destroy">destroy</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, _pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;)
+<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_destroy">destroy</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: <a href="display.md#0x2_display_Display">display::Display</a>&lt;T&gt;, pub: &<a href="package.md#0x2_package_Publisher">package::Publisher</a>&lt;W&gt;)
 </code></pre>
 
 
@@ -592,7 +591,8 @@ the <code>UID</code> needs explicit deletion.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_destroy">destroy</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;, _pub: &Publisher&lt;W&gt;) {
+<pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_destroy">destroy</a>&lt;T: key, W: drop&gt;(<a href="display.md#0x2_display">display</a>: <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;, pub: &Publisher&lt;W&gt;) {
+    <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> <a href="display.md#0x2_display_Display">Display</a> { id, fields } = <a href="display.md#0x2_display">display</a>;
     <b>let</b> _ = fields;
     <a href="object.md#0x2_object_delete">object::delete</a>(id);

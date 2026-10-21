@@ -469,12 +469,11 @@ module kanari_system::kiosk {
         set_listing(kiosk, handle.item, updated);
     }
 
+    // `K`/`T` mirror the sibling view functions for a uniform cap-returning
+    // surface; neither appears in the body.
+    #[allow(unused_type_parameter)]
     /// Unix-ms instant until which delist is refused for this listing.
     /// `0` means the listing carries no lockout.
-    ///
-    /// `K`/`T` mirror the sibling view functions for a uniform cap-returning
-    /// surface; neither appears in the body.
-    #[allow(unused_type_parameter)]
     public fun lockout_end_of<K: key, T: key + store>(kiosk: &Kiosk, handle: &ItemId): u64 {
         listing_of(kiosk, handle).lockout_end_ms
     }
@@ -554,6 +553,10 @@ module kanari_system::kiosk {
         set_listing(kiosk, handle.item, updated);
     }
 
+    // `K` is kept (despite being unused) so every kiosk-facing call site can
+    // name the same kiosk family it binds everywhere else; `Asset` is the
+    // actual currency, distinct from the policy type `T` on purpose.
+    #[allow(unused_type_parameter)]
     /// Buy the item behind `handle`.
     ///
     /// Returns the item plus a `TransferRequest<T>` hot potato that the caller
@@ -569,11 +572,6 @@ module kanari_system::kiosk {
     /// Refuses when the listing is reserved (`exclusive`), which is what stops
     /// the general path from stealing a sale that was promised to a specific
     /// buyer. A reserved listing must be filled through `purchase_with_cap`.
-    ///
-    /// `K` is kept (despite being unused) so every kiosk-facing call site can
-    /// name the same kiosk family it binds everywhere else; `Asset` is the
-    /// actual currency, distinct from the policy type `T` on purpose.
-    #[allow(unused_type_parameter)]
     public fun purchase<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
         policy: &mut TransferPolicy<T>,
@@ -681,10 +679,10 @@ module kanari_system::kiosk {
         purchase_cap
     }
 
+    // `K` is kept for the same call-site uniformity as `purchase`.
+    #[allow(unused_type_parameter)]
     /// Buy a reserved listing. `purchase_cap` is consumed, so one cap buys
     /// exactly one item and cannot be replayed.
-    /// `K` is kept for the same call-site uniformity as `purchase`.
-    #[allow(unused_type_parameter)]
     public fun purchase_with_cap<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
         policy: &mut TransferPolicy<T>,

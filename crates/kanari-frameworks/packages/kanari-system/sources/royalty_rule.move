@@ -300,9 +300,10 @@ module kanari_system::royalty_rule {
 
     // vec_set::insert aborts its duplicate with code 0 (`EKeyAlreadyExists`
     // is not importable across modules), which is exactly what a second
-    // `pay` on the same request trips.
-    #[allow(unused_const)]
-    const E_DUPLICATE_RECEIPT: u64 = 0;
+    // `pay` on the same request trips. The literal `0` below cannot be a
+    // named const: the docs generator treats every const (test-only or not)
+    // as an abort-code description, and the real module already maps
+    // `E_BPS_TOO_LARGE = 0`, so a second zero-code const is a hard error.
 
     #[test]
     fun test_pay_splits_the_fee_and_unblocks_confirmation() {
@@ -381,7 +382,7 @@ module kanari_system::royalty_rule {
     }
 
     #[test]
-    #[expected_failure(abort_code = E_DUPLICATE_RECEIPT, location = kanari_system::vec_set)]
+    #[expected_failure(abort_code = 0, location = kanari_system::vec_set)]
     fun test_pay_cannot_run_twice_on_one_request() {
         // A zero-price, floor-0 rule owes nothing, so the second pay is
         // purely the receipt write: it must abort on the duplicate instead of
