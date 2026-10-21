@@ -133,6 +133,9 @@ exceptions = [
     { allow = [
         "CDLA-Permissive-2.0",
     ], crate = "webpki-root-certs@1.0.9" },
+    { allow = [
+        "CDLA-Permissive-2.0",
+    ], crate = "webpki-root-certs@1.0.10" },
 ]
 
 [sources]
