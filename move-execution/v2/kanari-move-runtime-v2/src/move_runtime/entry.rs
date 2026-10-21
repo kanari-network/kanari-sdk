@@ -5,6 +5,17 @@ use super::*;
 
 use kanari_types::coin::CoinModule;
 
+/// Gas budget for a deny-policy read (`deny_list_contains` /
+/// `deny_list_paused`) inside either runtime gate.
+///
+/// Named and pinned because these reads are consensus-critical: if the budget
+/// regresses below what the framework read costs at realistic deny-set sizes,
+/// fail-closed semantics would reject *every* movement of a regulated coin.
+/// `tests/deny_list_batch_capacity.rs` pins the current cost curve by
+/// executing reads against a populated deny list and proving the budget
+/// comfortably covers it; raise it deliberately if the framework read grows.
+pub(crate) const DENY_POLICY_GAS_BUDGET: u64 = 1_000_000;
+
 impl MoveRuntime {
     /// Execute a Move entry function with the given arguments and context.
     pub fn execute_entry_function(
@@ -708,7 +719,7 @@ impl MoveRuntime {
         );
         let coin_fns = CoinModule::function_names();
         let sender_bytes = bcs::to_bytes(&sender)?;
-        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(1_000_000);
+        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
 
         for inner in &coin_types {
             let tag = match move_core_types::language_storage::TypeTag::from_str(inner) {
@@ -849,7 +860,7 @@ impl MoveRuntime {
             move_core_types::identifier::Identifier::new(CoinModule::COIN_MODULE)?,
         );
         let coin_fns = CoinModule::function_names();
-        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(1_000_000);
+        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
 
         for (inner, recipient) in targets {
             let tag = match move_core_types::language_storage::TypeTag::from_str(&inner) {

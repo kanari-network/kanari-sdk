@@ -12,6 +12,7 @@ module tester::deny_recipient_e2e {
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
     use kanari_system::url;
+    use std::vector;
 
     struct TOKEN has drop {}
 
@@ -46,6 +47,23 @@ module tester::deny_recipient_e2e {
         ctx: &mut TxContext,
     ) {
         coin::deny_list_add(dl, cap, addr, ctx);
+    }
+
+    /// Deny a whole batch in one transaction. Used by the capacity test to
+    /// grow the list large enough that the runtime's inner policy-read
+    /// budget (`DENY_POLICY_GAS_BUDGET`) is a real constraint, not trivia.
+    public entry fun add_denied_many(
+        dl: &mut DenyList,
+        cap: &DenyCap<TOKEN>,
+        addrs: vector<address>,
+        ctx: &mut TxContext,
+    ) {
+        let i = 0;
+        let n = vector::length(&addrs);
+        while (i < n) {
+            coin::deny_list_add(dl, cap, *vector::borrow(&addrs, i), ctx);
+            i = i + 1;
+        };
     }
 
     public entry fun pause(dl: &mut DenyList, cap: &DenyCap<TOKEN>, ctx: &mut TxContext) {

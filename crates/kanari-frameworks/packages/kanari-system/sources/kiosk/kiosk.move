@@ -40,7 +40,9 @@ module kanari_system::kiosk {
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::transfer;
     use kanari_system::transfer_policy::{Self, TransferPolicy, TransferRequest};
+    use kanari_system::kiosk_rule;
     use kanari_system::tx_context::{Self, TxContext};
+    use std::option;
     use kanari_system::vec_map::{Self, VecMap};
 
     /// The caller does not hold this kiosk's owner capability.
@@ -98,6 +100,12 @@ module kanari_system::kiosk {
     /// through a module that knows how.
     const E_POLICY_HAS_RULES: u64 = 16;
 
+    /// A delist was attempted while the listing's lockout window was still
+    /// active. The lockout is the seller's binding promise: a buyer who
+    /// started engaging with the listing gets a time window in which the
+    /// seller cannot pull the item back.
+    const E_LOCKOUT_ACTIVE: u64 = 17;
+
     /// The type has no transferable policy, so a locked item could never be
     /// sold again.
     const E_NO_POLICY: u64 = 10;
@@ -122,7 +130,14 @@ module kanari_system::kiosk {
 
     /// Full authority over one kiosk. Deliberately separate from the items
     /// themselves: holding an item gives no power over the kiosk.
-    struct KioskOwnerCap has key, store {
+    ///
+    /// The `K: key` trait-phase parameter is the Sui personal-kiosk device:
+    /// the type only the owner's own package can construct, so an extension
+    /// package can bind an entry point to exactly one kiosk family by naming
+    /// `K` in its signature. `new` issues the cap for whichever `K` the
+    /// creator names, which is what gives "personal kiosk" meaning without a
+    /// second implementation.
+    struct KioskOwnerCap<phantom K: key> has key, store {
         id: UID,
         kiosk: ID,
     }
@@ -141,6 +156,12 @@ module kanari_system::kiosk {
         /// When set, only the holder of the matching `PurchaseCap` may buy.
         /// `@0x0` means the listing is open to anyone.
         purchase_cap: ID,
+        /// Unix-ms epoch time until which the seller cannot withdraw or
+        /// delist this item. `0` means no lockout. This is the Sui
+        /// marketplace-lockout extension: a buyer who reserved or started a
+        /// purchase on an item gets a time window in which the seller cannot
+        /// yank the listing or pull the item back to their own inventory.
+        lockout_end_ms: u64,
     }
 
     /// A handle for an item inside a kiosk.
@@ -162,14 +183,33 @@ module kanari_system::kiosk {
         item: ID,
     }
 
-    /// Create a kiosk and its owner capability.
-    public fun new(ctx: &mut TxContext): (Kiosk, KioskOwnerCap) {
+    /// A proof that the presenter holds a `KioskOwnerCap<K>` for some `K`.
+    ///
+    /// An extension package can require a `PersonalWitness` at its entry
+    /// points: producing one proves kiosk ownership without ever exposing the
+    /// cap itself, and `K` being phantom means only kiosks created under that
+    /// extension's own `K` can satisfy it. Mirrors `sui::kiosk::PersonalWitness`.
+    struct PersonalWitness has copy, drop {}
+
+    /// Issue a `PersonalWitness` by presenting the owner cap.
+    ///
+    /// The cap is only borrowed and the witness is worthless on its own — its
+    /// value is that it can only be minted while holding a real
+    /// `KioskOwnerCap<K>`, so extension flows can gate on it.
+    public fun issue_personal_witness<K: key>(cap: &KioskOwnerCap<K>): PersonalWitness {
+        let _ = cap;
+        PersonalWitness {}
+    }
+
+    /// Create a kiosk and its owner capability. `K` is the owning key type —
+    /// the package whose witness will ever authenticate against this cap.
+    public fun new<K: key>(ctx: &mut TxContext): (Kiosk, KioskOwnerCap<K>) {
         let kiosk = Kiosk {
             id: object::new(ctx),
             items: vec_map::empty<ID, Listing>(),
             profits: vec_map::empty<vector<u8>, u64>()
         };
-        let cap = KioskOwnerCap {
+        let cap = KioskOwnerCap<K> {
             id: object::new(ctx),
             kiosk: object::uid_to_inner(&kiosk.id)
         };
@@ -177,7 +217,7 @@ module kanari_system::kiosk {
     }
 
     /// Share the kiosk and hand the capability to its owner.
-    public fun share(kiosk: Kiosk, cap: KioskOwnerCap, recipient: address) {
+    public fun share<K: key>(kiosk: Kiosk, cap: KioskOwnerCap<K>, recipient: address) {
         transfer::share_object(kiosk);
         transfer::public_transfer(cap, recipient);
     }
@@ -185,7 +225,7 @@ module kanari_system::kiosk {
     /// Freeze the owner capability: items can still trade, but the listing can
     /// never change again. This is how a creator permanently opens a collection
     /// to trading without giving up curation.
-    public fun freeze_cap(cap: KioskOwnerCap) {
+    public fun freeze_cap<K: key>(cap: KioskOwnerCap<K>) {
         transfer::public_freeze_object(cap);
     }
 
@@ -195,7 +235,7 @@ module kanari_system::kiosk {
     }
 
     /// The kiosk an owner capability controls.
-    public fun owner_cap_kiosk(cap: &KioskOwnerCap): ID {
+    public fun owner_cap_kiosk<K: key>(cap: &KioskOwnerCap<K>): ID {
         cap.kiosk
     }
 
@@ -207,9 +247,12 @@ module kanari_system::kiosk {
     /// `new` returns `(Kiosk, KioskOwnerCap)` and an entry function cannot
     /// return values, so this is the shape a CLI can actually call. Calling
     /// `new` then `share` from a transaction would leave a window where the
-    /// kiosk exists but nobody can list in it.
-    public entry fun create(recipient: address, ctx: &mut TxContext) {
-        let (kiosk, cap) = new(ctx);
+    /// kiosk exists but nobody can list in it. `witness` is a live object of
+    /// the owning key type `K`, so only that package's flow can mint a cap of
+    /// its own family.
+    public entry fun create<K: key>(witness: &K, recipient: address, ctx: &mut TxContext) {
+        let _ = witness;
+        let (kiosk, cap) = new<K>(ctx);
         share(kiosk, cap, recipient);
     }
 
@@ -218,33 +261,52 @@ module kanari_system::kiosk {
     /// `place` returns an `ItemId`, which an entry function may not do. The
     /// handle is still recoverable — it is the `item_id` the caller passed —
     /// so nothing is lost by dropping it here.
-    public entry fun place_item<T: key + store>(
+    public entry fun place_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         item: T,
     ) {
-        let handle = place<T>(kiosk, cap, item_id, item);
+        let handle = place<K, T>(kiosk, cap, item_id, item);
         let _ = handle;
     }
 
     /// Put an item into the kiosk and lock it immediately, discarding the
     /// handle. See `place_item` for why the return value is dropped.
-    public entry fun lock_item<T: key + store>(
+    public entry fun lock_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         policy: &TransferPolicy<T>,
         item: T,
     ) {
-        let handle = lock<T>(kiosk, cap, item_id, policy, item);
+        let handle = lock<K, T>(kiosk, cap, item_id, policy, item);
+        let _ = handle;
+    }
+
+    /// Lock an item, list it at `price`, and bind the seller with a
+    /// `lockout_ms` window during which delist is refused. See
+    /// `lock_with_lockout`.
+    public entry fun lock_item_with_lockout<K: key, T: key + store>(
+        kiosk: &mut Kiosk,
+        cap: &KioskOwnerCap<K>,
+        item_id: ID,
+        policy: &TransferPolicy<T>,
+        item: T,
+        price: u64,
+        lockout_ms: u64,
+        ctx: &mut TxContext,
+    ) {
+        let handle = lock_with_lockout<K, T>(
+            kiosk, cap, item_id, policy, item, price, lockout_ms, ctx
+        );
         let _ = handle;
     }
 
     /// List the item at `item_id` for `price`.
-    public entry fun list_item<T: key + store>(
+    public entry fun list_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         price: u64,
         ctx: &TxContext,
@@ -253,20 +315,21 @@ module kanari_system::kiosk {
             kiosk: object::uid_to_inner(&kiosk.id),
             item: item_id
         };
-        list<T>(kiosk, cap, handle, price, ctx);
+        list<K, T>(kiosk, cap, handle, price, ctx);
     }
 
     /// Stop selling the item at `item_id`.
-    public entry fun delist_item<T: key + store>(
+    public entry fun delist_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
+        ctx: &mut TxContext,
     ) {
         let handle = ItemId {
             kiosk: object::uid_to_inner(&kiosk.id),
             item: item_id
         };
-        delist<T>(kiosk, cap, handle);
+        delist<K, T>(kiosk, cap, handle, ctx);
     }
 
     /// Take the item at `item_id` back out and send it to `recipient`.
@@ -274,9 +337,9 @@ module kanari_system::kiosk {
     /// `take` returns the item, which an entry function cannot do, and the
     /// caller has to end up owning it anyway — so the transfer is folded in
     /// rather than left dangling.
-    public entry fun take_to<T: key + store>(
+    public entry fun take_to<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         recipient: address,
     ) {
@@ -284,7 +347,7 @@ module kanari_system::kiosk {
             kiosk: object::uid_to_inner(&kiosk.id),
             item: item_id
         };
-        let item = take<T>(kiosk, cap, handle);
+        let item = take<K, T>(kiosk, cap, handle);
         transfer::public_transfer(item, recipient);
     }
 
@@ -295,9 +358,9 @@ module kanari_system::kiosk {
     /// unusable until `unreserve_to` is called. That is a real limitation of the
     /// entry boundary, not a shortcut: the non-entry `reserve` returns the cap
     /// and is what a composing module should call.
-    public entry fun reserve_item<T: key + store>(
+    public entry fun reserve_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         ctx: &mut TxContext,
     ) {
@@ -305,7 +368,7 @@ module kanari_system::kiosk {
             kiosk: object::uid_to_inner(&kiosk.id),
             item: item_id
         };
-        let purchase_cap = reserve<T>(kiosk, cap, handle, ctx);
+        let purchase_cap = reserve<K, T>(kiosk, cap, handle, ctx);
         // Burn the cap so the listing is not left reserved against an object
         // nobody can hold.
         let PurchaseCap { id, kiosk: _, item: _ } = purchase_cap;
@@ -314,9 +377,9 @@ module kanari_system::kiosk {
 
     /// Put an item into the kiosk. The owner may take it back at any time until
     /// it is locked.
-    public fun place<T: key + store>(
+    public fun place<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         item: T,
     ): ItemId {
@@ -330,9 +393,9 @@ module kanari_system::kiosk {
     /// `purchase`, which creates a `TransferRequest<T>`. `policy` is required as
     /// proof that such a request can be resolved — without one the item would be
     /// unsellable forever.
-    public fun lock<T: key + store>(
+    public fun lock<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         item_id: ID,
         policy: &TransferPolicy<T>,
         item: T,
@@ -347,11 +410,80 @@ module kanari_system::kiosk {
         insert_item<T>(kiosk, item_id, item, true, 0, @0x0)
     }
 
+    /// Lock an item, list it at `price` immediately, and bind the seller with
+    /// a `lockout_ms` window (the Sui marketplace-lockout extension).
+    ///
+    /// This is the shape a buyer-facing marketplace wants to see: the item is
+    /// for sale *now*, locked against withdrawal, and the seller cannot delist
+    /// it until `epoch_timestamp_ms + lockout_ms`. It answers "what if the
+    /// seller yanks the listing the instant I pay the royalty" with a timing
+    /// commitment instead of asking the buyer to trust one. `lockout_end_ms`
+    /// is `0`-cleared on purchase and on `reserve`, so a later re-listing of
+    /// the same handle starts clean.
+    public fun lock_with_lockout<K: key, T: key + store>(
+        kiosk: &mut Kiosk,
+        cap: &KioskOwnerCap<K>,
+        item_id: ID,
+        policy: &TransferPolicy<T>,
+        item: T,
+        price: u64,
+        lockout_ms: u64,
+        ctx: &mut TxContext,
+    ): ItemId {
+        let handle = lock<K, T>(kiosk, cap, item_id, policy, item);
+        list_with_lockout<K, T>(kiosk, cap, handle, price, lockout_ms, ctx);
+        handle
+    }
+
+    /// List at `price` with a `lockout_ms` window during which delist is
+    /// refused. Lockout lives in a listing field, so it applies while the
+    /// item is listed; `purchase` and `reserve` clear it. Body mirrors
+    /// `list` (which takes an immutable ctx this path cannot produce) with
+    /// the lockout field folded in.
+    public fun list_with_lockout<K: key, T: key + store>(
+        kiosk: &mut Kiosk,
+        cap: &KioskOwnerCap<K>,
+        handle: ItemId,
+        price: u64,
+        lockout_ms: u64,
+        ctx: &mut TxContext,
+    ) {
+        assert_owner(kiosk, cap);
+        assert!(price > 0, E_PRICE_ZERO);
+        assert!(price <= MAX_PRICE, E_PRICE_OUT_OF_RANGE);
+        assert!(lockout_ms > 0, E_LOCKOUT_ACTIVE);
+        assert!(
+            dof::exists_with_type<ID, T>(&kiosk.id, handle.item),
+            E_ITEM_TYPE_MISMATCH
+        );
+        let listing = listing_of(kiosk, &handle);
+        assert!(listing.price == 0, E_ALREADY_LISTED);
+        let updated = Listing {
+            type_name: listing.type_name,
+            locked: listing.locked,
+            price,
+            seller: tx_context::sender(ctx),
+            purchase_cap: listing.purchase_cap,
+            lockout_end_ms: tx_context::epoch_timestamp_ms(ctx) + lockout_ms,
+        };
+        set_listing(kiosk, handle.item, updated);
+    }
+
+    /// Unix-ms instant until which delist is refused for this listing.
+    /// `0` means the listing carries no lockout.
+    ///
+    /// `K`/`T` mirror the sibling view functions for a uniform cap-returning
+    /// surface; neither appears in the body.
+    #[allow(unused_type_parameter)]
+    public fun lockout_end_of<K: key, T: key + store>(kiosk: &Kiosk, handle: &ItemId): u64 {
+        listing_of(kiosk, handle).lockout_end_ms
+    }
+
     /// Take an item back out. Refuses while the item is locked, which is the
     /// guarantee a buyer relies on: a locked listing cannot be withdrawn.
-    public fun take<T: key + store>(
+    public fun take<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         handle: ItemId,
     ): T {
         assert_owner(kiosk, cap);
@@ -364,9 +496,9 @@ module kanari_system::kiosk {
 
     /// List an item at `price`, paid to the transaction sender. A locked item
     /// stays locked; an unlocked one may still be taken back.
-    public fun list<T: key + store>(
+    public fun list<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         handle: ItemId,
         price: u64,
         ctx: &TxContext,
@@ -385,16 +517,21 @@ module kanari_system::kiosk {
             locked: listing.locked,
             price,
             seller: tx_context::sender(ctx),
-            purchase_cap: listing.purchase_cap
+            purchase_cap: listing.purchase_cap,
+            lockout_end_ms: listing.lockout_end_ms,
         };
         set_listing(kiosk, handle.item, updated);
     }
 
     /// Stop selling. The item stays in the kiosk and can be listed again.
-    public fun delist<T: key + store>(
+    ///
+    /// Refused while the listing's lockout window is still active: a buyer
+    /// who started against this listing gets the whole window to complete.
+    public fun delist<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         handle: ItemId,
+        ctx: &TxContext,
     ) {
         assert_owner(kiosk, cap);
         assert!(
@@ -402,12 +539,17 @@ module kanari_system::kiosk {
             E_ITEM_TYPE_MISMATCH
         );
         let listing = listing_of(kiosk, &handle);
+        assert!(
+            listing.lockout_end_ms <= tx_context::epoch_timestamp_ms(ctx),
+            E_LOCKOUT_ACTIVE
+        );
         let updated = Listing {
             type_name: listing.type_name,
             locked: listing.locked,
             price: 0,
             seller: @0x0,
-            purchase_cap: listing.purchase_cap
+            purchase_cap: listing.purchase_cap,
+            lockout_end_ms: listing.lockout_end_ms,
         };
         set_listing(kiosk, handle.item, updated);
     }
@@ -427,9 +569,14 @@ module kanari_system::kiosk {
     /// Refuses when the listing is reserved (`exclusive`), which is what stops
     /// the general path from stealing a sale that was promised to a specific
     /// buyer. A reserved listing must be filled through `purchase_with_cap`.
-    public fun purchase<T: key + store, Asset: key + store>(
+    ///
+    /// `K` is kept (despite being unused) so every kiosk-facing call site can
+    /// name the same kiosk family it binds everywhere else; `Asset` is the
+    /// actual currency, distinct from the policy type `T` on purpose.
+    #[allow(unused_type_parameter)]
+    public fun purchase<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
-        policy: &TransferPolicy<T>,
+        policy: &mut TransferPolicy<T>,
         handle: ItemId,
         payment: &mut Coin<Asset>,
         from: ID,
@@ -463,9 +610,9 @@ module kanari_system::kiosk {
     /// Only the kiosk owner may reserve, and only one cap may be outstanding
     /// per listing — a second reservation would silently invalidate the first
     /// holder's right, so it is rejected rather than overwritten.
-    public fun reserve<T: key + store>(
+    public fun reserve<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         handle: ItemId,
         ctx: &mut TxContext,
     ): PurchaseCap {
@@ -490,7 +637,8 @@ module kanari_system::kiosk {
             locked: listing.locked,
             price: listing.price,
             seller: listing.seller,
-            purchase_cap: object::uid_to_inner(&purchase_cap.id)
+            purchase_cap: object::uid_to_inner(&purchase_cap.id),
+            lockout_end_ms: 0,
         };
         set_listing(kiosk, handle.item, updated);
         purchase_cap
@@ -503,9 +651,9 @@ module kanari_system::kiosk {
     /// listing's recorded id: a `UID` cannot be rebuilt from an address without
     /// forging object identity, and taking the real one proves the caller holds
     /// the cap rather than merely knows its id.
-    public fun unreserve<T: key + store>(
+    public fun unreserve<K: key, T: key + store>(
         kiosk: &mut Kiosk,
-        cap: &KioskOwnerCap,
+        cap: &KioskOwnerCap<K>,
         handle: ItemId,
         purchase_cap: PurchaseCap,
     ): PurchaseCap {
@@ -526,7 +674,8 @@ module kanari_system::kiosk {
             locked: listing.locked,
             price: listing.price,
             seller: listing.seller,
-            purchase_cap: object::id_from_address(@0x0)
+            purchase_cap: object::id_from_address(@0x0),
+            lockout_end_ms: 0,
         };
         set_listing(kiosk, handle.item, updated);
         purchase_cap
@@ -534,9 +683,11 @@ module kanari_system::kiosk {
 
     /// Buy a reserved listing. `purchase_cap` is consumed, so one cap buys
     /// exactly one item and cannot be replayed.
-    public fun purchase_with_cap<T: key + store, Asset: key + store>(
+    /// `K` is kept for the same call-site uniformity as `purchase`.
+    #[allow(unused_type_parameter)]
+    public fun purchase_with_cap<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
-        policy: &TransferPolicy<T>,
+        policy: &mut TransferPolicy<T>,
         handle: ItemId,
         purchase_cap: PurchaseCap,
         payment: &mut Coin<Asset>,
@@ -594,9 +745,9 @@ module kanari_system::kiosk {
     /// that type's rules, and those belong to the type owner, not to the
     /// marketplace. A type with rules must be sold through `kanari_pet::trade`
     /// or another module that knows how to discharge the hot potato.
-    public entry fun buy_unregulated<T: key + store, Asset: key + store>(
+    public entry fun buy_unregulated<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
-        policy: &TransferPolicy<T>,
+        policy: &mut TransferPolicy<T>,
         item_id: ID,
         payment: &mut Coin<Asset>,
         recipient: address,
@@ -608,7 +759,7 @@ module kanari_system::kiosk {
             item: item_id
         };
         let from = object::id_from_address(tx_context::sender(ctx));
-        let (item, request) = purchase<T, Asset>(kiosk, policy, handle, payment, from, ctx);
+        let (item, request) = purchase<K, T, Asset>(kiosk, policy, handle, payment, from, ctx);
         let (_i, _p, _f) = transfer_policy::confirm_request<T>(policy, request);
         transfer::public_transfer(item, recipient);
     }
@@ -626,7 +777,7 @@ module kanari_system::kiosk {
     /// seller, hand over the item, mint the request — is identical for both.
     fun settle<T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
-        policy: &TransferPolicy<T>,
+        policy: &mut TransferPolicy<T>,
         handle: ItemId,
         listing: Listing,
         payment: &mut Coin<Asset>,
@@ -645,7 +796,8 @@ module kanari_system::kiosk {
             locked: listing.locked,
             price: 0,
             seller: @0x0,
-            purchase_cap: object::id_from_address(@0x0)
+            purchase_cap: object::id_from_address(@0x0),
+            lockout_end_ms: 0,
         };
         set_listing(kiosk, handle.item, cleared);
 
@@ -653,8 +805,21 @@ module kanari_system::kiosk {
         let payout = coin::split(payment, price, ctx);
         transfer::public_transfer(payout, seller);
 
+        // The request carries the item's *real* object id — the address the
+        // dynamic field actually resolved to — not the caller-supplied field
+        // name. `place` lets anything be the name; the child's address is the
+        // identity other modules (royalty accounting, marketplace indexes,
+        // explorers) can rely on. Read it before the field is removed.
+        let real_item_id = *option::borrow(&dof::id<ID>(&kiosk.id, handle.item));
         let item = remove_item<T>(kiosk, &handle);
-        let request = transfer_policy::new_request(policy, handle.item, price, from);
+        let request = transfer_policy::new_request(policy, real_item_id, price, from);
+        // The kiosk rule grants its own receipt here — the sale is happening
+        // inside the kiosk module itself, which is the only way a kiosk-rule
+        // receipt can ever be minted. Without this hook, a type with the
+        // kiosk rule registered could never be sold from a kiosk at all.
+        if (kiosk_rule::is_enabled(policy)) {
+            kiosk_rule::kiosk_receipt<T>(policy, &mut request);
+        };
         (item, request)
     }
 
@@ -716,7 +881,7 @@ module kanari_system::kiosk {
     }
 
     // ==================== Internals ====================
-    fun assert_owner(kiosk: &Kiosk, cap: &KioskOwnerCap) {
+    fun assert_owner<K: key>(kiosk: &Kiosk, cap: &KioskOwnerCap<K>) {
         assert!(cap.kiosk == object::uid_to_inner(&kiosk.id), E_NOT_OWNER);
     }
 
@@ -746,7 +911,8 @@ module kanari_system::kiosk {
             locked,
             price,
             seller,
-            purchase_cap: object::id_from_address(@0x0)
+            purchase_cap: object::id_from_address(@0x0),
+            lockout_end_ms: 0,
         };
         dof::add<ID, T>(&mut kiosk.id, item_id, item);
         set_listing(kiosk, item_id, listing);
@@ -850,14 +1016,20 @@ module kanari_system::kiosk {
     /// The currency a listing is paid in.
     struct KIOSK_FEE has key, store, drop {}
 
+    #[test_only]
+    /// Phantom key type standing in for the kiosk owner's package, so the
+    /// generic `KioskOwnerCap<K>` has a name in tests. Fieldless: `K` is never
+    /// instantiated, only used to brand a cap family.
+    struct PERSONAL_KIOSK has key {}
+
     #[test]
     fun test_place_and_take_roundtrip() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item = ITEM { id: object::new(&mut ctx) };
         let item_id = fresh_id<ITEM>(&kiosk);
 
-        let handle = place<ITEM>(&mut kiosk, &cap, item_id, item);
+        let handle = place<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, item_id, item);
         assert!(has_item(&kiosk, &handle), 0);
         assert!(item_count(&kiosk) == 1, 1);
         assert!(!is_listed(&kiosk, &handle), 2);
@@ -866,7 +1038,7 @@ module kanari_system::kiosk {
 
         // The item is back with the owner. `KIOSK` has no `drop` — the traded
         // item must always be explicitly disposed of — so it is frozen.
-        let taken = take<ITEM>(&mut kiosk, &cap, handle);
+        let taken = take<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, handle);
         assert!(item_count(&kiosk) == 0, 4);
         transfer::public_freeze_object(taken);
 
@@ -881,11 +1053,11 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            lock<ITEM>(
+            lock<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
@@ -894,7 +1066,7 @@ module kanari_system::kiosk {
             );
         // Must abort: a locked item may only leave through `purchase`. The line
         // after is unreachable but required, since `KIOSK` has no `drop`.
-        let taken = take<ITEM>(&mut kiosk, &owner_cap, handle);
+        let taken = take<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle);
         transfer::public_freeze_object(taken);
 
         transfer::public_freeze_object(kiosk);
@@ -912,12 +1084,12 @@ module kanari_system::kiosk {
         // A policy with no rules: any request it confirms is unconstrained, so
         // locking against it would leave the item untradeable in practice.
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         // Aborts: the policy has no rules.
         let handle =
-            lock<ITEM>(
+            lock<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
@@ -937,14 +1109,14 @@ module kanari_system::kiosk {
     #[expected_failure(abort_code = E_NOT_OWNER)]
     fun test_stranger_cannot_place() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         // A capability belonging to a different kiosk.
-        let (other_kiosk, other_cap) = new(&mut ctx);
+        let (other_kiosk, other_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         // Aborts: `other_cap` does not control `kiosk`.
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &other_cap,
                 item_id,
@@ -961,21 +1133,21 @@ module kanari_system::kiosk {
     #[test]
     fun test_list_and_delist() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
-        let handle = place<ITEM>(
+        let handle = place<PERSONAL_KIOSK, ITEM>(
             &mut kiosk,
             &cap,
             item_id,
             ITEM { id: object::new(&mut ctx) }
         );
 
-        list<ITEM>(&mut kiosk, &cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, handle, 500, &ctx);
         assert!(is_listed(&kiosk, &handle), 0);
         assert!(price(&kiosk, &handle) == 500, 1);
         assert!(seller(&kiosk, &handle) == tx_context::sender(&ctx), 2);
 
-        delist<ITEM>(&mut kiosk, &cap, handle);
+        delist<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, handle, &ctx);
         assert!(!is_listed(&kiosk, &handle), 3);
         assert!(price(&kiosk, &handle) == 0, 4);
 
@@ -989,11 +1161,11 @@ module kanari_system::kiosk {
         let ctx = tx_context::dummy();
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
@@ -1008,9 +1180,9 @@ module kanari_system::kiosk {
         // them. Confirming the request is the only way to consume the hot
         // potato, and there are no rules so it succeeds.
         let (item, request) =
-            purchase<ITEM, KIOSK_FEE>(
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 &mut payment,
                 from,
@@ -1034,24 +1206,24 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase<ITEM, KIOSK_FEE>(
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 &mut payment,
                 from,
@@ -1087,24 +1259,24 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase<ITEM, KIOSK_FEE>(
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 &mut payment,
                 from,
@@ -1130,12 +1302,227 @@ module kanari_system::kiosk {
     }
 
     #[test]
+    fun test_kiosk_rule_receipt_minted_by_kiosk_sale() {
+        let ctx = tx_context::dummy();
+        let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
+        // Only the kiosk rule is registered: confirming requires proof that
+        // the sale went through the kiosk.
+        kiosk_rule::add_rule(&mut policy, &cap);
+        assert!(kiosk_rule::is_enabled(&policy), 0);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+
+        let item_id = fresh_id<ITEM>(&kiosk);
+        let handle =
+            lock<PERSONAL_KIOSK, ITEM>(
+                &mut kiosk,
+                &owner_cap,
+                item_id,
+                &policy,
+                ITEM { id: object::new(&mut ctx) }
+            );
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+
+        let payment = fee_coin(&mut ctx, 1_000);
+        let from = object::id_from_address(@0xF00D);
+        let (item, request) =
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
+                &mut kiosk,
+                &mut policy,
+                handle,
+                &mut payment,
+                from,
+                &mut ctx
+            );
+        // `settle` minted the kiosk-rule receipt itself, so the request is
+        // already confirmable without the buyer doing anything: the receipt
+        // is attested by the kiosk module, not by the buyer.
+        let (_item_id, paid, _from) = transfer_policy::confirm_request(
+            &policy, request
+        );
+        assert!(paid == 500, 1);
+
+        transfer::public_freeze_object(item);
+        let balance = coin::into_balance(payment);
+        let _ = balance::destroy_for_testing(balance);
+        transfer::public_freeze_object(kiosk);
+        transfer::public_freeze_object(owner_cap);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(publisher);
+    }
+
+    #[test]
+    fun test_transfer_request_carries_the_items_real_object_id() {
+        let ctx = tx_context::dummy();
+        let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
+        // `lock` refuses a policy without rules: the item must be sellable.
+        let policy = with_royalty(policy, &cap);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+
+        // A field name chosen by the caller — deliberately NOT what the
+        // stored child's address will be.
+        let field_name = object::id_from_address(@0x3016);
+        let handle =
+            lock<PERSONAL_KIOSK, ITEM>(
+                &mut kiosk,
+                &owner_cap,
+                field_name,
+                &policy,
+                ITEM { id: object::new(&mut ctx) }
+            );
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+
+        // The dynamic field's real child id, read while the item is still
+        // in the kiosk. This is what the request must carry.
+        let expected = dof::id<ID>(&kiosk.id, field_name);
+        assert!(option::is_some(&expected), 0);
+
+        let payment = fee_coin(&mut ctx, 1_000);
+        let from = object::id_from_address(@0xF00D);
+        let (item, request) =
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
+                &mut kiosk,
+                &mut policy,
+                handle,
+                &mut payment,
+                from,
+                &mut ctx
+            );
+        // The royalty rule is registered on this policy, so the buyer pays
+        // it before confirming; `kiosk_rule` is not, so the only receipt the
+        // incoming request needs is the royalty one.
+        let request = pay_royalty(&mut policy, request, &mut payment, &mut ctx);
+        let (item_id, _paid, _from) = transfer_policy::confirm_request(
+            &policy, request
+        );
+        assert!(option::is_some(&expected) && item_id == *option::borrow(&expected), 1);
+
+        transfer::public_freeze_object(item);
+        let balance = coin::into_balance(payment);
+        let _ = balance::destroy_for_testing(balance);
+        transfer::public_freeze_object(kiosk);
+        transfer::public_freeze_object(owner_cap);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(publisher);
+    }
+
+    #[test]
+    fun test_lockout_expires_and_frees_the_listing() {
+        let now = 1_000;
+        let ctx = tx_context::new_from_hint(@0x5A59, 7, 0, now, 0);
+        let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
+        // The rule set is what lock requires as proof the item can exit.
+        let policy = with_royalty(policy, &cap);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+
+        let item_id = fresh_id<ITEM>(&kiosk);
+        let handle =
+            lock_with_lockout<PERSONAL_KIOSK, ITEM>(
+                &mut kiosk,
+                &owner_cap,
+                item_id,
+                &policy,
+                ITEM { id: object::new(&mut ctx) },
+                500,
+                10_000,
+                &mut ctx
+            );
+        assert!(lockout_end_of<PERSONAL_KIOSK, ITEM>(&kiosk, &handle) == now + 10_000, 0);
+        assert!(is_listed(&kiosk, &handle), 1);
+        assert!(price(&kiosk, &handle) == 500, 2);
+
+        // Past the window, the seller may pull the listing back again.
+        tx_context::increment_epoch_timestamp(&mut ctx, 10_000);
+        delist<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &ctx);
+        assert!(!is_listed(&kiosk, &handle), 3);
+        assert!(price(&kiosk, &handle) == 0, 4);
+
+        transfer::public_freeze_object(kiosk);
+        transfer::public_freeze_object(owner_cap);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(publisher);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_LOCKOUT_ACTIVE)]
+    fun test_lockout_blocks_active_delist() {
+        let now = 1_000;
+        let ctx = tx_context::new_from_hint(@0x5A59, 8, 0, now, 0);
+        let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
+        // The rule set is what lock requires as proof the item can exit.
+        let policy = with_royalty(policy, &cap);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+
+        let item_id = fresh_id<ITEM>(&kiosk);
+        let handle =
+            lock_with_lockout<PERSONAL_KIOSK, ITEM>(
+                &mut kiosk,
+                &owner_cap,
+                item_id,
+                &policy,
+                ITEM { id: object::new(&mut ctx) },
+                500,
+                10_000,
+                &mut ctx
+            );
+        // Inside the window: the seller cannot pull the listing back. This is
+        // the whole point of the lockout — a buyer gets the window unblocked.
+        delist<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &ctx);
+        // Unreachable but required: `KIOSK` and every framework object above
+        // lack `drop`.
+        transfer::public_freeze_object(kiosk);
+        transfer::public_freeze_object(owner_cap);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(publisher);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_LOCKOUT_ACTIVE)]
+    fun test_zero_lockout_window_rejected() {
+        let now = 1_000;
+        let ctx = tx_context::new_from_hint(@0x5A59, 9, 0, now, 0);
+        let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
+        let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
+        // The rule set is what lock requires as proof the item can exit.
+        let policy = with_royalty(policy, &cap);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+
+        let item_id = fresh_id<ITEM>(&kiosk);
+        let handle =
+            lock_with_lockout<PERSONAL_KIOSK, ITEM>(
+                &mut kiosk,
+                &owner_cap,
+                item_id,
+                &policy,
+                ITEM { id: object::new(&mut ctx) },
+                500,
+                0,
+                &mut ctx
+            );
+        // A zero window is a no-op masquerading as a promise: reject it rather
+        // than accept and immediately unfreeze. The lines after never run.
+        assert!(is_listed(&kiosk, &handle), 0);
+        transfer::public_freeze_object(kiosk);
+        transfer::public_freeze_object(owner_cap);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(publisher);
+    }
+
+    #[test]
     #[expected_failure(abort_code = E_PRICE_ZERO)]
     fun test_zero_price_listing_aborts() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
-        let handle = place<ITEM>(
+        let handle = place<PERSONAL_KIOSK, ITEM>(
             &mut kiosk,
             &cap,
             item_id,
@@ -1144,7 +1531,7 @@ module kanari_system::kiosk {
 
         // Aborts: `price == 0` is the internal "not listed" marker, so a
         // zero-price listing would read back as withdrawn and never be buyable.
-        list<ITEM>(&mut kiosk, &cap, handle, 0, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, handle, 0, &ctx);
         let _ = handle;
 
         transfer::public_freeze_object(kiosk);
@@ -1155,9 +1542,9 @@ module kanari_system::kiosk {
     #[expected_failure(abort_code = E_ITEM_TYPE_MISMATCH)]
     fun test_cannot_take_an_item_as_the_wrong_type() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
-        let handle = place<ITEM>(
+        let handle = place<PERSONAL_KIOSK, ITEM>(
             &mut kiosk,
             &cap,
             item_id,
@@ -1167,7 +1554,7 @@ module kanari_system::kiosk {
         // Aborts: the kiosk holds an `ITEM`, so naming a different type cannot
         // succeed. This is what stops a caller from reinterpreting a stored
         // value as whatever type it likes.
-        let stolen = take<OTHER_ITEM>(&mut kiosk, &cap, handle);
+        let stolen = take<PERSONAL_KIOSK, OTHER_ITEM>(&mut kiosk, &cap, handle);
         transfer::public_freeze_object(stolen);
 
         transfer::public_freeze_object(kiosk);
@@ -1178,9 +1565,9 @@ module kanari_system::kiosk {
     #[expected_failure(abort_code = E_ITEM_EXISTS)]
     fun test_cannot_place_two_items_under_the_same_id() {
         let ctx = tx_context::dummy();
-        let (kiosk, cap) = new(&mut ctx);
+        let (kiosk, cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
-        let handle = place<ITEM>(
+        let handle = place<PERSONAL_KIOSK, ITEM>(
             &mut kiosk,
             &cap,
             item_id,
@@ -1188,7 +1575,7 @@ module kanari_system::kiosk {
         );
 
         // Aborts: the first item still occupies this field name.
-        let second = place<ITEM>(
+        let second = place<PERSONAL_KIOSK, ITEM>(
             &mut kiosk,
             &cap,
             item_id,
@@ -1196,7 +1583,7 @@ module kanari_system::kiosk {
         );
         let _ = second;
 
-        let taken = take<ITEM>(&mut kiosk, &cap, handle);
+        let taken = take<PERSONAL_KIOSK, ITEM>(&mut kiosk, &cap, handle);
         transfer::public_freeze_object(taken);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(cap);
@@ -1208,19 +1595,19 @@ module kanari_system::kiosk {
         let ctx = tx_context::dummy();
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
         assert!(!is_exclusive(&kiosk, &handle), 0);
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
         assert!(is_exclusive(&kiosk, &handle), 1);
         assert!(purchase_cap_item(&purchase_cap) == handle.item, 2);
 
@@ -1228,9 +1615,9 @@ module kanari_system::kiosk {
         let payment = fee_coin(&mut ctx, 1_000);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase<ITEM, KIOSK_FEE>(
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 &mut payment,
                 from,
@@ -1254,25 +1641,25 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase_with_cap<ITEM, KIOSK_FEE>(
+            purchase_with_cap<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 purchase_cap,
                 &mut payment,
@@ -1303,11 +1690,11 @@ module kanari_system::kiosk {
         let ctx = tx_context::dummy();
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let first_id = fresh_id<ITEM>(&kiosk);
         let first =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 first_id,
@@ -1315,28 +1702,28 @@ module kanari_system::kiosk {
             );
         let second_id = fresh_id<ITEM>(&kiosk);
         let second =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 second_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, first, 500, &ctx);
-        list<ITEM>(&mut kiosk, &owner_cap, second, 700, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, first, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, second, 700, &ctx);
 
         // Both listings are reserved, each with its own cap. Presenting the
         // first cap against the second listing has to fail: without the
         // per-item binding, one cap would unlock every listing in the kiosk.
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, first, &mut ctx);
-        let _second_cap = reserve<ITEM>(&mut kiosk, &owner_cap, second, &mut ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, first, &mut ctx);
+        let _second_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, second, &mut ctx);
 
         // Aborts: `purchase_cap.item` names the first listing, not this one.
         let payment = fee_coin(&mut ctx, 1_000);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase_with_cap<ITEM, KIOSK_FEE>(
+            purchase_with_cap<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 second,
                 purchase_cap,
                 &mut payment,
@@ -1359,22 +1746,22 @@ module kanari_system::kiosk {
     #[expected_failure(abort_code = E_ALREADY_EXCLUSIVE)]
     fun test_cannot_reserve_a_listing_twice() {
         let ctx = tx_context::dummy();
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
-        let first = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        let first = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
 
         // Aborts: a second reservation would silently void the first holder's
         // right, so it must be refused rather than overwrite it.
-        let second = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        let second = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
         transfer::public_freeze_object(first);
         transfer::public_freeze_object(second);
         transfer::public_freeze_object(kiosk);
@@ -1385,11 +1772,11 @@ module kanari_system::kiosk {
     #[expected_failure(abort_code = E_NOT_OWNER)]
     fun test_stranger_cannot_reserve_a_listing() {
         let ctx = tx_context::dummy();
-        let (kiosk, owner_cap) = new(&mut ctx);
-        let (other, other_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
+        let (other, other_cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
@@ -1397,7 +1784,7 @@ module kanari_system::kiosk {
             );
 
         // Aborts: reserving is a curation right, not a public one.
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &other_cap, handle, &mut ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &other_cap, handle, &mut ctx);
         transfer::public_freeze_object(purchase_cap);
         transfer::public_freeze_object(kiosk);
         transfer::public_freeze_object(owner_cap);
@@ -1408,21 +1795,21 @@ module kanari_system::kiosk {
     #[test]
     fun test_unreserve_reopens_the_listing() {
         let ctx = tx_context::dummy();
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
         assert!(is_exclusive(&kiosk, &handle), 0);
 
-        let purchase_cap = unreserve<ITEM>(&mut kiosk, &owner_cap, handle, purchase_cap);
+        let purchase_cap = unreserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, purchase_cap);
         assert!(!is_exclusive(&kiosk, &handle), 1);
         // The price survives; only the reservation was withdrawn.
         assert!(price(&kiosk, &handle) == 500, 2);
@@ -1438,25 +1825,25 @@ module kanari_system::kiosk {
         let ctx = tx_context::dummy();
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
         // Aborts: 499 does not cover a 500 asking price.
         let payment = fee_coin(&mut ctx, 499);
         let from = object::id_from_address(@0xF00D);
         let (item, request) =
-            purchase<ITEM, KIOSK_FEE>(
+            purchase<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
                 &mut kiosk,
-                &policy,
+                &mut policy,
                 handle,
                 &mut payment,
                 from,
@@ -1484,22 +1871,22 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
-        buy_unregulated<ITEM, KIOSK_FEE>(
+        buy_unregulated<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
             &mut kiosk,
-            &policy,
+            &mut policy,
             item_id,
             &mut payment,
             @0xBEEF,
@@ -1522,23 +1909,23 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
         let policy = with_royalty(policy, &cap);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
-        buy_unregulated<ITEM, KIOSK_FEE>(
+        buy_unregulated<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
             &mut kiosk,
-            &policy,
+            &mut policy,
             item_id,
             &mut payment,
             @0xBEEF,
@@ -1562,23 +1949,23 @@ module kanari_system::kiosk {
         let ctx = tx_context::dummy();
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
-        let purchase_cap = reserve<ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        let purchase_cap = reserve<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, &mut ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
-        buy_unregulated<ITEM, KIOSK_FEE>(
+        buy_unregulated<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
             &mut kiosk,
-            &policy,
+            &mut policy,
             item_id,
             &mut payment,
             @0xBEEF,
@@ -1603,22 +1990,22 @@ module kanari_system::kiosk {
         let publisher = package::new<KIOSK>(KIOSK {}, &mut ctx);
         // No royalty rule installed.
         let (policy, cap) = transfer_policy::new<ITEM, KIOSK>(&publisher, &mut ctx);
-        let (kiosk, owner_cap) = new(&mut ctx);
+        let (kiosk, owner_cap) = new<PERSONAL_KIOSK>(&mut ctx);
 
         let item_id = fresh_id<ITEM>(&kiosk);
         let handle =
-            place<ITEM>(
+            place<PERSONAL_KIOSK, ITEM>(
                 &mut kiosk,
                 &owner_cap,
                 item_id,
                 ITEM { id: object::new(&mut ctx) }
             );
-        list<ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
+        list<PERSONAL_KIOSK, ITEM>(&mut kiosk, &owner_cap, handle, 500, &ctx);
 
         let payment = fee_coin(&mut ctx, 1_000);
-        buy_unregulated<ITEM, KIOSK_FEE>(
+        buy_unregulated<PERSONAL_KIOSK, ITEM, KIOSK_FEE>(
             &mut kiosk,
-            &policy,
+            &mut policy,
             item_id,
             &mut payment,
             @0xBEEF,

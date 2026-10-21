@@ -50,6 +50,7 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
+    let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
     let writer = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
 
     let _ = writer

@@ -148,12 +148,21 @@ _any_ entry path (plain `coin::split` + `public_transfer`,
 `pay::split_and_transfer`, redirecting game rewards), and a paused type
 cannot move anywhere at all. Both gates execute the framework's own
 `deny_list_contains`/`deny_list_paused` reads in a fresh session, so the
-deny-key rendering can never drift from the framework; unresolvable reads
-fail open with a warning (same posture as the input gate). Destination-side
-enforcement is pinned by
+deny-key rendering can never drift from the framework. Both gates are
+**fail-closed**: a missing, corrupt, or otherwise unreadable deny singleton
+rejects the transaction rather than waving it through, so deny state that
+cannot be verified can never be used to launder a coin transfer — pinned by
+`deny_policy_rejects_missing_singleton` and
+`deny_policy_rejects_corrupt_singleton` in `tests/unit/move_runtime_tests.rs`.
+Destination-side enforcement is pinned by
 `move-execution/v2/kanari-move-runtime-v2/tests/deny_list_recipient_enforcement.rs`
 (denied recipient rejected and state untouched, allowed recipient passes, pausing
-blocks everyone, unpausing restores). Royalty probing closed:
+blocks everyone, unpausing restores). The gates' inner policy read runs on a
+fixed budget (`DENY_POLICY_GAS_BUDGET` in `entry.rs`), decoupled from the
+transaction's own gas allowance — `tests/deny_list_batch_capacity.rs` pins it by
+populating the list to 64 entries and proving an allowed transfer still passes
+(full-list `contains` scan) and a denied transfer is still rejected. Royalty
+probing closed:
 `royalty_rule::pay` is pinned by tests for the full-flow split, the
 E_INSUFFICIENT abort, and the duplicate receipt abort (`vec_set::insert`
 code 0) that stops one request from being charged twice.
@@ -170,6 +179,44 @@ declared input whose stored owner is not the transaction sender. Shared
 objects keep Sui-style semantics (any sender may mutably borrow a canonical
 shared object). Regression tests live in
 `crates/kanari-core/tests/unit/engine_mutable_input_tests.rs`.
+
+**Balance destruction is paired with the supply ledger.** Sui has no
+`balance::destroy` because you cannot reach a foreign balance value at all.
+Kanari's legacy `balance` exposes its value as a `store` field, which made a
+bare `destroy<T>(balance: Balance<T>)` reachable from any package: unpaired
+destruction would let value leave circulation without the supply ledger's
+paired burn bookkeeping, desyncing every cap-checked invariant downstream.
+Now closed the same way Sui closes minting — `friend`-based capability:
+`kanari_system::coin` is the only module allowed to destroy, and `coin::burn`
+pairs the destruction with `decrease_supply` under `TreasuryCap` before
+locking it. `create`/`increase`/`decrease`/`destroy` are all
+`public(friend)`; `destroy_zero` is the public zero-value exit that tests
+and UX flows may use, `balance::burn(supply, balance)` is the paired public
+path for DEX-style LP burning, and the unit-test sink is the test-only
+`destroy_for_testing`. The vault audit story (a balance can be emptied but
+its slot cannot vanish silently) holds because emptying now goes through
+`decrease`, which is friend-gated too.
+
+**Kiosk: personal witnesses and the kiosk rule shipped.** The last
+functional Sui-parity items:
+
+- `KioskOwnerCap<phantom K: key>` — the cap carries the personal-kiosk type
+  parameter Sui uses; `kiosk::new<K>` brands a cap family with the owner's
+  package key type, so an extension package can bind its entry points to
+  exactly one kiosk family by naming `K`.
+- `kiosk::PersonalWitness` + `issue_personal_witness<K>(cap)` — proves cap
+  possession to extension flows without exposing the cap, matching
+  `sui::kiosk`.
+- `kiosk_rule.move` — `sui::kiosk_rule` parity with the same adversarial
+  model: once `add_rule` registers the rule on `T`'s policy,
+  `transfer_policy::confirm_request` aborts unless the rule's receipt is on
+  the request, and the receipt is mintable **only** inside
+  `kiosk::settle` — `kiosk_rule::kiosk_receipt` is `public(friend)` whose
+  sole friend is the kiosk module, so a trade that bypasses the kiosk cannot
+  confirm. The kiosk is trustworthy here because `purchase`/
+  `purchase_with_cap` receive the live `Kiosk` object (`&mut`) whose identity
+  the runtime enforces; the receipt is attested by the kiosk module, not by
+  the buyer.
 
 ## Migration cost, in order
 
@@ -209,12 +256,23 @@ All six items are done. What actually shipped, and what each one cost:
   exist for marketplaces that batch payouts, but nothing yet moves that ledger.
 - **`ItemId.item` is the dynamic-field name, not the child object id.** The
   caller supplies the id at `place` because Move cannot read a generic `T`'s
-  fields to extract its own. It is the handle key throughout. What the _stored_
-  child's real address is, and whether that should be what
-  `TransferRequest.item` carries, is unresolved — `dof::id` is available if it
-  needs changing.
+  fields to extract its own. It is the handle key throughout. `settle` however
+  reads the child object's **real** address via `dof::id` (the stored child's
+  leading-32-byte UID) and puts _that_ on `TransferRequest.item`, so policy
+  rules inspect the actual object id, not the field name —
+  `test_transfer_request_carries_the_items_real_object_id` pins it. The only
+  residual mismatch with Sui is that Sui's kiosk notifies of _the same_
+  address in both places because its items are merged-domain objects.
+- **A lockout window on every locked listing.** Sui's kiosk can be deadlocked
+  by a malicious `lock_with_policy`: the item is locked forever and the policy
+  is never collected, so the seller can never `delist`. Kanari adds
+  `list_with_lockout` / `lock_with_lockout(ms)`: after `ms` elapses
+  (`epoch_timestamp_ms` clock), `delist` is permitted again
+  (`E_LOCKOUT_ACTIVE` until then). Unlike Sui's `time_lock` (a wrapper the
+  marketplace must opt into before locking), this is enforced _by the kiosk
+  itself_ on the existing `delist` — a guaranteed exit for the seller without
+  weakening any lock semantic the buyer relies on before expiry.
 - **No `PurchaseCap` for kiosk-wide purchase rights**, only per-item reservation.
-- **No `personal_witness` / kiosk deny-list rules.**
 
 ## Constraints for whoever implements this
 

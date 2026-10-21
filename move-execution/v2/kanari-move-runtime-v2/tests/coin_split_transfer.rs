@@ -46,6 +46,7 @@ fn split_and_transfer_separates_objects() -> Result<()> {
 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
+    let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
     let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
 
     let _ = runtime
@@ -163,6 +164,7 @@ fn system_pay_split_and_transfer_separates_objects() -> Result<()> {
 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
+    let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
     let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
 
     let _ = runtime
