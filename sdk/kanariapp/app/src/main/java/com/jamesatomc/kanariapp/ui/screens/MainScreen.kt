@@ -147,7 +147,8 @@ fun MainScreen(
                     onNavigateToReceive = { navController.navigate(Screen.Receive.route) },
                     onNavigateToSettings = { selectedItem = 2 },
                     onNavigateToSend = { showSendSheet = true },
-                    onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
+                    onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
+                    onNavigateToNfts = { navController.navigate(Screen.Nfts.route) }
                 )
 
                 1 -> HistoryScreen(viewModel = viewModel)

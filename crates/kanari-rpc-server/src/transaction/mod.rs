@@ -11,10 +11,11 @@ use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::{
     BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
-    BuildPublishModuleRequest, BuildPublishPackageRequest, BuildTokenTransferRequest,
-    CallFunctionRequest, FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest,
-    ObjectTransferData, PublishModuleRequest, PublishPackageRequest, TransactionDetails,
-    TransactionErrorData, TransactionErrorReason, ViewFunctionRequest, methods,
+    BuildNftTransferRequest, BuildPublishModuleRequest, BuildPublishPackageRequest,
+    BuildTokenTransferRequest, CallFunctionRequest, FungibleAssetTransactionsResponse,
+    GetFungibleAssetTransactionsRequest, ObjectTransferData, PublishModuleRequest,
+    PublishPackageRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
+    ViewFunctionRequest, methods,
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
@@ -2569,6 +2570,130 @@ pub async fn handle_build_token_transfer(
             function: UsdModule::function_names().transfer_amount.to_string(),
             type_args: vec![],
             args: vec![coin_object_id, amount, recipient],
+            object_inputs: Some(vec![object_input]),
+            gas_limit: build_data.gas_limit,
+            gas_price: effective_gas_price_value,
+            nonce: Some(nonce),
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}
+
+/// Handle build NFT transfer request:
+/// constructs the canonical `0x2::transfer::public_transfer<T>(obj, recipient)`
+/// call with the NFT pre-seeded as a declared object input.
+pub async fn handle_build_nft_transfer(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildNftTransferRequest =
+        match parse_labeled_params(request.id, &request.params, "build NFT transfer data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    let recipient = match parse_hex_address(request.id, &build_data.recipient, "recipient") {
+        Ok(address) => address,
+        Err(response) => return *response,
+    };
+    if build_data.object_id.trim().is_empty() {
+        return invalid_params_response(request.id, "object_id is required");
+    }
+    if normalize_addr(&build_data.object_id) == normalize_addr(&build_data.recipient) {
+        return invalid_params_response(request.id, "recipient must differ from the NFT object id");
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    // The NFT must already be owned by the sender; look it up in the owner's
+    // object list so version/digest come from the same snapshot as gas.
+    let owned_nft = owned_objects
+        .iter()
+        .find(|object| normalize_addr(&object.id) == normalize_addr(&build_data.object_id))
+        .cloned();
+    let Some(owned_nft) = owned_nft else {
+        return invalid_params_response(
+            request.id,
+            format!(
+                "NFT object {} not found in sender's owned object list",
+                build_data.object_id
+            ),
+        );
+    };
+    let object_input = match build_object_input(&owned_nft, &build_data.sender) {
+        Ok(input) => input,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    // The NFT itself is the declared, mutable input; any affordable gas coin
+    // the wallet still holds may pay for execution.
+    let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        &[owned_nft.id.clone()],
+        &state.engine.pending_access_keys_snapshot(),
+        &std::collections::BTreeMap::new(),
+    ) {
+        Ok(selected) => selected,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+    let recipient = match serialize_move_arg(
+        request.id,
+        &recipient.to_account_address(),
+        "recipient address",
+    ) {
+        Ok(recipient) => recipient,
+        Err(response) => return *response,
+    };
+
+    respond_with_serialize(
+        request.id,
+        CallFunctionRequest {
+            sender: build_data.sender,
+            // The canonical transfer lives in the framework package;
+            // `public_transfer<T: key + store>(obj: T, recipient: address)`
+            // takes no context and binds `T` as the single type argument.
+            package: "0x2".to_string(),
+            module: "transfer".to_string(),
+            function: "public_transfer".to_string(),
+            type_args: vec![owned_nft.type_.clone()],
+            args: vec![recipient],
             object_inputs: Some(vec![object_input]),
             gas_limit: build_data.gas_limit,
             gas_price: effective_gas_price_value,

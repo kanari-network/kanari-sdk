@@ -10,7 +10,6 @@ use kanari_types::collection::CollectionModule;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
-
 #[allow(dead_code)]
 #[derive(Deserialize)]
 struct MoveString {
@@ -74,6 +73,47 @@ fn move_str_vec_to_strings(vec: &[MoveString]) -> Vec<String> {
     vec.iter().map(move_str_to_string).collect()
 }
 
+/// Single-labeled-parameter tolerance: the OpenAPI shape is a bare value
+/// (`params = "0x..."`), but some clients wrap it as `{ "field": value }`.
+/// Accept both so one wire change cannot strand either caller.
+struct LabeledSingleParam {
+    value: String,
+}
+
+impl<'de> Deserialize<'de> for LabeledSingleParam {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let map = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        let value = map
+            .values()
+            .next()
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                serde::de::Error::custom(
+                    "expected a single string param or { \"field\": \"value\" }",
+                )
+            })?
+            .to_string();
+        Ok(LabeledSingleParam { value })
+    }
+}
+
+fn parse_single_string_param(
+    id: u64,
+    params: &serde_json::Value,
+    field: &str,
+) -> Result<String, Box<crate::RpcResponse>> {
+    if let serde_json::Value::String(s) = params {
+        return Ok(s.clone());
+    }
+    match parse_labeled_params::<LabeledSingleParam>(id, params, field) {
+        Ok(labeled) => Ok(labeled.value),
+        Err(response) => Err(response),
+    }
+}
+
 fn parse_collection_fields(
     obj: &kanari_move_runtime_v2::changeset::CreatedObject,
 ) -> (String, String, String, String, u64) {
@@ -97,7 +137,7 @@ fn parse_collection_fields(
 }
 
 pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let owner: String = match parse_labeled_params(request.id, &request.params, "owner") {
+    let owner: String = match parse_single_string_param(request.id, &request.params, "owner") {
         Ok(owner) => owner,
         Err(response) => return *response,
     };
@@ -171,7 +211,7 @@ pub async fn handle_get_nfts_by_collection(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let coll_id: String = match parse_labeled_params(request.id, &request.params, "id") {
+    let coll_id: String = match parse_single_string_param(request.id, &request.params, "id") {
         Ok(id) => id,
         Err(response) => return *response,
     };

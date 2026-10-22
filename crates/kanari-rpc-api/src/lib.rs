@@ -892,6 +892,22 @@ pub struct BuildTokenTransferRequest {
     pub execute_immediate: Option<bool>,
 }
 
+/// Build NFT transfer request (`kanari_buildNftTransfer`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildNftTransferRequest {
+    pub sender: String,
+    pub recipient: String,
+    /// Object id of the NFT (`0x`-prefixed). Must be owned by `sender`.
+    pub object_id: String,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnedObjectsResponse {
     pub objects: Vec<ObjectInfo>,
@@ -1549,6 +1565,14 @@ pub mod methods {
         tags = ["function"]
     )]
     pub const BUILD_TOKEN_TRANSFER: &str = "kanari_buildTokenTransfer";
+    #[open_rpc_method(
+        summary = "Build NFT transfer transaction",
+        description = "Resolves the owned NFT object input, gas, and nonce, and returns a canonical unsigned `0x2::transfer::public_transfer<T>` call.",
+        params = [("call", "Unsigned NFT transfer payload.", true, schema_object())],
+        result = ("call", "Prepared NFT-transfer call request.", schema_object()),
+        tags = ["nft"]
+    )]
+    pub const BUILD_NFT_TRANSFER: &str = "kanari_buildNftTransfer";
     #[open_rpc_method(
         summary = "Claim 100 USD from the web faucet",
         description = "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",

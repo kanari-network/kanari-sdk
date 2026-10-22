@@ -39,4 +39,10 @@ interface KanariRpcService {
 
     @POST("rpc")
     suspend fun getAllTransactions(@Body request: RpcRequest): RpcResponse<List<TransactionDetails>>
+
+    @POST("rpc")
+    suspend fun getOwnedNfts(@Body request: RpcRequest): RpcResponse<List<OwnedNft>>
+
+    @POST("rpc")
+    suspend fun buildNftTransfer(@Body request: RpcRequest): RpcResponse<CallFunctionData>
 }

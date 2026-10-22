@@ -3,6 +3,7 @@
 package com.jamesatomc.kanariapp.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -18,6 +19,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -45,6 +48,7 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToSend: () -> Unit,
     onNavigateToWalletGen: () -> Unit,
+    onNavigateToNfts: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
@@ -56,8 +60,10 @@ fun DashboardScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState(pageCount = { wallets.size + 1 })
     var showEnvDialog by remember { mutableStateOf(false) }
+    var showAllObjectsDialog by remember { mutableStateOf(false) }
     var walletToDelete by remember { mutableStateOf<WalletRecord?>(null) }
     var walletForDetails by remember { mutableStateOf<WalletRecord?>(null) }
+    val objects = accountInfo?.ownedObjects ?: emptyList()
     LaunchedEffect(activeWallet) {
         val idx =
             wallets.indexOfFirst { it.id == activeWallet?.id }; if (idx >= 0 && pagerState.currentPage != idx) pagerState.animateScrollToPage(
@@ -118,28 +124,140 @@ fun DashboardScreen(
                 selectedIndex = pagerState.currentPage,
                 modifier = Modifier.fillMaxWidth()
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LoadingButton(
-                    onClick = onNavigateToSend,
-                    text = "Send",
-                    icon = Icons.AutoMirrored.Filled.Send,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = KanariColors.Lime,
-                        contentColor = KanariColors.Ink
-                    )
-                )
-                OutlinedButton(
-                    onClick = onNavigateToReceive,
-                    modifier = Modifier.weight(1f).height(60.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            // Quick Services Grid (Fintech style matching reference screenshot)
+            SectionHeader(title = "Quick Services")
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Receive", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    QuickServiceItem(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = "Send",
+                        containerColor = KanariColors.Lime,
+                        contentColor = KanariColors.Ink,
+                        onClick = onNavigateToSend
+                    )
+                    QuickServiceItem(
+                        icon = Icons.Default.QrCode,
+                        label = "Receive",
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        onClick = onNavigateToReceive
+                    )
+                    QuickServiceItem(
+                        icon = Icons.Default.CollectionsBookmark,
+                        label = "NFTs",
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        onClick = onNavigateToNfts
+                    )
+                    QuickServiceItem(
+                        icon = Icons.Default.AddCard,
+                        label = "Wallet+",
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        onClick = onNavigateToWalletGen
+                    )
                 }
             }
+
+            // Promo Banners Pager (3 items with auto-scroll)
+            val promoPagerState = rememberPagerState(pageCount = { 3 })
+            LaunchedEffect(Unit) {
+                while (true) {
+                    kotlinx.coroutines.delay(4000L)
+                    val nextPage = (promoPagerState.currentPage + 1) % 3
+                    promoPagerState.animateScrollToPage(nextPage)
+                }
+            }
+
+            val banners = listOf(
+                Triple("⚡ Kanari Network", "Secure Web3 & ZkLogin Powered", "Manage assets, multi-curve wallets & NFTs securely."),
+                Triple("🛡️ Multi-Curve & Post-Quantum", "Advanced Cryptography", "Built-in Dilithium, Falcon & Ed25519 wallet support."),
+                Triple("💎 NFTs & Assets", "Instant Transfers & BCS Parsing", "Explore, view and transfer your collectibles effortlessly.")
+            )
+            val bannerImages = listOf(
+                "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=1000&auto=format&fit=crop",
+                "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop",
+                "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1000&auto=format&fit=crop"
+            )
+
+            HorizontalPager(
+                state = promoPagerState,
+                modifier = Modifier.fillMaxWidth().height(130.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp),
+                pageSpacing = 12.dp
+            ) { page ->
+                val (tag, title, subtitle) = banners[page]
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        AsyncImage(
+                            model = bannerImages[page],
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color.Black.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.35f))
+                                    )
+                                )
+                                .padding(20.dp)
+                        ) {
+                            Column(
+                                Modifier.fillMaxHeight(),
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        tag,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    subtitle,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            DotsIndicator(
+                totalDots = 3,
+                selectedIndex = promoPagerState.currentPage,
+                modifier = Modifier.fillMaxWidth()
+            )
             SectionHeader(title = "Assets")
             error?.let { ErrorBanner(error = it) }
             when {
@@ -156,10 +274,25 @@ fun DashboardScreen(
 
                 else -> tokenBalances.forEach { AssetItem(it) }
             }
-            val objects = accountInfo?.ownedObjects ?: emptyList()
             if (objects.isNotEmpty()) {
-                SectionHeader(title = "Objects & NFTs", modifier = Modifier.padding(top = 8.dp))
-                objects.forEach { ObjectItem(it) }
+                SectionHeader(
+                    title = "Objects & NFTs",
+                    modifier = Modifier.padding(top = 8.dp),
+                    trailing = {
+                        TextButton(onClick = { showAllObjectsDialog = true }) {
+                            Text("All >", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                        }
+                    }
+                )
+                objects.take(2).forEach { ObjectItem(it) }
+                if (objects.size > 2) {
+                    TextButton(
+                        onClick = { showAllObjectsDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View all ${objects.size} objects >", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -193,6 +326,28 @@ fun DashboardScreen(
                 }
             )
         }
+    }
+    if (showAllObjectsDialog) {
+        AlertDialog(
+            onDismissRequest = { showAllObjectsDialog = false },
+            title = { Text("All Objects & NFTs (${objects.size})", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    objects.forEach { ObjectItem(it) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAllObjectsDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 
@@ -663,5 +818,45 @@ fun WalletDetailFullScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun QuickServiceItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+            .width(68.dp)
+    ) {
+        Surface(
+            color = containerColor,
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.size(52.dp)
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = contentColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

@@ -119,6 +119,47 @@ class KanariClient(private val environment: KanariEnvironment) {
         return rpcService.getAllTransactions(request).orEmptyOnNotFound(emptyList())
     }
 
+    /** NFT-like objects owned by `address` (`kanari_getOwnedNfts`). */
+    suspend fun getOwnedNfts(address: String): List<OwnedNft> {
+        val request = RpcRequest(
+            method = "kanari_getOwnedNfts",
+            params = buildJsonObject {
+                put("owner", normalizeAddress(address))
+            }
+        )
+        return rpcService.getOwnedNfts(request)
+            .orEmptyOnNotFound(emptyList())
+            .map { it.withLocalParse() }
+    }
+
+    /**
+     * Build the canonical NFT transfer: the server resolves the NFT object
+     * input, gas coin, and nonce, and returns an unsigned
+     * `0x2::transfer::public_transfer<T>(obj, recipient)` call.
+     */
+    suspend fun buildNftTransfer(
+        sender: String,
+        recipient: String,
+        objectId: String,
+        gasLimit: ULong = 100000uL,
+        gasPrice: ULong = DEFAULT_GAS_PRICE
+    ): CallFunctionData? {
+        val request = RpcRequest(
+            method = "kanari_buildNftTransfer",
+            params = buildJsonObject {
+                put("sender", sender)
+                put("recipient", normalizeAddress(recipient))
+                put("object_id", normalizeAddress(objectId))
+                put("gas_limit", gasLimit.toLong())
+                put("gas_price", gasPrice.toLong())
+                put("execute_immediate", true)
+            }
+        )
+        val response = rpcService.buildNftTransfer(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result
+    }
+
     suspend fun buildNativeTransfer(
         sender: String,
         recipient: String,
@@ -273,7 +314,17 @@ class KanariClient(private val environment: KanariEnvironment) {
     ): TokenPrepared {
         val prepared = buildTokenTransfer(sender, recipient, tokenType, amount)
             ?: throw Exception("Failed to build token transfer: RPC returned no data")
+        return prepareCallTx(prepared)
+    }
 
+    /**
+     * Normalize + BCS-encode + hash any server-prepared call
+     * (`ExecuteFunction`) that is not yet signed. Works for both token
+     * transfers and NFT transfers (`0x2::transfer::public_transfer<T>`).
+     */
+    private fun prepareCallTx(
+        prepared: CallFunctionData,
+    ): TokenPrepared {
         val nonce = prepared.nonce ?: throw Exception("Prepared token transfer missing nonce")
         if (nonce == 0uL) throw Exception("Prepared token transfer nonce must be non-zero")
 
@@ -397,6 +448,48 @@ class KanariClient(private val environment: KanariEnvironment) {
         amount: ULong,
     ): TransactionResult? {
         val p = prepareTokenTransfer("ZkLogin:${session.address}", recipient, tokenType, amount)
+        val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
+            .sign(session, p.hash, System.currentTimeMillis() / 1000)
+        return submitCallFunction(
+            p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
+        )
+    }
+
+    /**
+     * Send an NFT owned by `wallet` to `recipient`, signing the prepared
+     * `0x2::transfer::public_transfer<T>` call with the wallet key.
+     */
+    suspend fun transferNft(
+        wallet: KanariWallet,
+        recipient: String,
+        objectId: String,
+    ): TransactionResult? {
+        val p = prepareCallTx(
+            buildNftTransfer(wallet.taggedAddress, recipient, objectId)
+                ?: throw Exception("Failed to build NFT transfer: RPC returned no data")
+        )
+
+        val signature = wallet.sign(p.hash)
+
+        try {
+            KanariCrypto.verifySignature(wallet.taggedAddress, p.hash, signature, wallet.curveType)
+        } catch (e: Exception) {
+            Log.w("KanariClient", "NFT local verify ignored: ${e.message}")
+        }
+
+        return submitCallFunction(p.normalized.copy(signature = signature.map { it.toInt() and 0xFF }))
+    }
+
+    /** zkLogin flavor of [transferNft]: signs with the on-device session. */
+    suspend fun transferNftZkLogin(
+        session: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.Session,
+        recipient: String,
+        objectId: String,
+    ): TransactionResult? {
+        val p = prepareCallTx(
+            buildNftTransfer("ZkLogin:${session.address}", recipient, objectId)
+                ?: throw Exception("Failed to build NFT transfer: RPC returned no data")
+        )
         val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
             .sign(session, p.hash, System.currentTimeMillis() / 1000)
         return submitCallFunction(

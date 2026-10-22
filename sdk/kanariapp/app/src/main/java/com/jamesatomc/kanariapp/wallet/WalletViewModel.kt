@@ -38,6 +38,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _transactions = MutableStateFlow<List<TransactionDetails>>(emptyList())
     val transactions: StateFlow<List<TransactionDetails>> = _transactions.asStateFlow()
 
+    private val _ownedNfts = MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>>(emptyList())
+    val ownedNfts: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>> = _ownedNfts.asStateFlow()
+
     private val _isLoading = MutableStateFlow(value = false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -132,12 +135,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
                 val txs = client.getAllTransactions(address)
                 _transactions.value = txs
+
+                val nfts = client.getOwnedNfts(address)
+                _ownedNfts.value = nfts
             } catch (e: Exception) {
                 // Ignore "Owner not found" as a hard error for new wallets
                 if (e.message?.contains("Owner not found", ignoreCase = true) == true) {
                     _accountInfo.value = null
                     _tokenBalances.value = emptyList()
                     _transactions.value = emptyList()
+                    _ownedNfts.value = emptyList()
                 } else {
                     _error.value = "Failed to refresh balance: ${e.message}"
                 }
@@ -337,6 +344,69 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         // Amount is already in token's smallest units (as per parseAmountToMist)
                         client.transferToken(wallet, recipient, tokenType, amount)
                     }
+                }
+
+            val status = result?.status?.lowercase(java.util.Locale.US)
+            val isSuccess = result?.success == true ||
+                    status == "success" || status == "executed" ||
+                    status == "committed" || status == "pending" ||
+                    status == "simulated_pending"
+
+            if (isSuccess) {
+                _error.value = null
+                refreshBalance()
+                true
+            } else {
+                val msg = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
+                _error.value = mapTransferError(msg)
+                false
+            }
+        } catch (_: ZkLoginTxSigner.SessionExpiredException) {
+            _error.value = "Google session expired — open Login and sign in with Google again, then retry the transfer."
+            false
+        } catch (_: ZkLoginTxSigner.SessionIncompleteException) {
+            _error.value = "Google session file is from an old app version — sign in with Google again."
+            false
+        } catch (e: Exception) {
+            _error.value = mapTransferError(e.message ?: "Unknown error")
+            false
+        }
+    }
+
+    /**
+     * Send an owned NFT object ([objectId]) to [recipient]. Mirrors
+     * [transfer]'s signing flows: key wallets sign with the decrypted key,
+     * zkLogin wallets with the on-device Google session.
+     */
+    suspend fun sendNft(recipient: String, objectId: String): Boolean {
+        val record = _activeWallet.value ?: run {
+            _error.value = "No active wallet"
+            return false
+        }
+
+        return try {
+            val result: com.jamesatomc.kanariapp.network.models.TransactionResult? =
+                if (record.curveType == "ZkLogin") {
+                    val session = try {
+                        ZkLoginAuth.loadSession(getApplication(), record.address)
+                    } catch (_: Exception) {
+                        _error.value =
+                            "No Google session for this wallet — sign in with Google from the Login screen first."
+                        return false
+                    }
+                    client.transferNftZkLogin(session, recipient, objectId)
+                } else {
+                    val pin = unlockedPin ?: run {
+                        _error.value = "Wallet is locked. Please unlock again."
+                        return false
+                    }
+                    val privateKeyEncrypted = record.privateKeyEncrypted ?: run {
+                        _error.value = "Wallet missing private key"
+                        return false
+                    }
+                    val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
+                    val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+                    client.transferNft(wallet, recipient, objectId)
                 }
 
             val status = result?.status?.lowercase(java.util.Locale.US)
