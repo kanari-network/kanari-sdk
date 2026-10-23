@@ -1,35 +1,10 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Minimal generic NFT, mirroring `sui::nft`.
-///
-/// Deliberately minimal: `id`, `name`, `description`, `image_url`, and
-/// per-token `attributes`. No supply counter, no collection pointer, no royalty
-/// field. That is not laziness — it is the same reason Sui's is minimal:
-///
-/// - **Supply** belongs to the issuer's own module, gated by a capability the
-///   framework cannot tie to an arbitrary package's type (see
-///   `kanari_system::package`). `kanari_system::collection` offers a shared
-///   `NftCap` counter for those who want it.
-/// - **Display metadata** belongs on `kanari_system::display::Display<T>`,
-///   keyed by type, so a wallet can render any type without per-token fields.
-///   Putting `name`/`image_url` on every token object here would be a second
-///   source of truth that disagrees with the display.
-/// - **Royalties** belong on a `transfer_policy` rule, so the owner can change
-///   them and the change applies to every instance at once.
-///
-/// **Attributes are per-token, and that is the one deliberate departure from
-/// the display split.** `Display<T>` answers "what *kind* of thing is this" and
-/// is shared by every token of the type. Attributes answer "what is *this
-/// particular* one" — a level, a serial, a trait — and are exactly the data
-/// that cannot be hoisted to the type. So they stay on the token while
-/// name/description/image_url do not.
-///
-/// Stored as `VecMap<String, String>`, matching `NFT_STANDARDS.md`, not as the
-/// parallel `vector<String>` / `vector<String>` pair the legacy `james::KariKid`
-/// uses. A parallel pair has no structural link between the two sides: a caller
-/// can pass 3 keys and 5 values, and every later read has to guess which
-/// alignment it meant. A map cannot be built into that state at all.
+/// Kanari's collection-bound unique NFT standard. Every production mint and
+/// burn is paired with the matching `Collection` and `NftCap`; metadata and
+/// attributes live on the object, while ownership stays in the object runtime.
+/// Issuer modules may wrap `transfer` to enforce their own policies.
 module kanari_system::krc_721 {
     use std::string::String;
     use std::vector;
@@ -37,9 +12,11 @@ module kanari_system::krc_721 {
     use kanari_system::address;
     use kanari_system::collection::{Self, NftCap};
     use kanari_system::deny_list::{Self, DenyList};
+    use kanari_system::event;
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
+    use kanari_system::tx_context;
     use kanari_system::url::Url;
     use kanari_system::vec_map::{Self, VecMap};
 
@@ -49,6 +26,9 @@ module kanari_system::krc_721 {
 
     /// `attributes` holds more entries than `MAX_ATTRIBUTES`.
     const E_TOO_MANY_ATTRIBUTES: u64 = 1;
+
+    /// The NFT does not belong to the supplied collection.
+    const E_NFT_COLLECTION_MISMATCH: u64 = 2;
 
     /// Upper bound on attribute count per token. Not a storage limit — it is a
     /// bound on how much arbitrary text one token can carry, which matters
@@ -65,18 +45,24 @@ module kanari_system::krc_721 {
     #[test_only]
     use std::string as string_alias;
 
-    #[test_only]
-    use kanari_system::tx_context;
-
-    /// A single NFT. The `UID` is the token id; there is no separate integer.
+    /// A single NFT. The UID is its identity; `number` is its mint ordinal.
     struct Nft has key, store {
         id: UID,
+        collection: address,
+        number: u64,
         name: String,
         description: Option<String>,
         image_url: Option<Url>,
         /// Per-token traits, keyed by name. Insertion order is preserved so a
         /// renderer shows them in the order the issuer chose.
         attributes: VecMap<String, String>,
+    }
+
+    /// Mint index event: object id, original creator, then collection id.
+    struct MintLog has copy, drop {
+        object_id: address,
+        creator: address,
+        collection_id: address,
     }
 
     /// Add an address to the deny list for the collection governed by `cap`.
@@ -151,10 +137,8 @@ module kanari_system::krc_721 {
         )
     }
 
-    /// Mint an NFT with no attributes.
-    ///
-    /// Open, unlike a supply-capped mint. Wrapping a cap or counter around this
-    /// is the issuer's job — see the module docs for why the framework cannot.
+    // Construct an unindexed NFT fixture for unit tests only.
+    #[test_only]
     public fun create(
         name: String,
         description: Option<String>,
@@ -171,15 +155,8 @@ module kanari_system::krc_721 {
         )
     }
 
-    /// Mint an NFT carrying `attributes`, given as parallel key and value
-    /// vectors.
-    ///
-    /// Parallel vectors are the input shape because that is what the legacy
-    /// mint entry points and the CLI already take, so callers do not have to
-    /// build a map themselves. They are converted immediately and never stored:
-    /// `from_keys_values` aborts `E_ATTRIBUTE_LENGTH_MISMATCH` on a length
-    /// mismatch, which is the whole reason the map is the storage form. For new
-    /// code that already holds a `VecMap`, use `from_vec_map` instead.
+    // Construct a test fixture from parallel key and value vectors.
+    #[test_only]
     public fun create_with_attributes(
         name: String,
         description: Option<String>,
@@ -193,6 +170,8 @@ module kanari_system::krc_721 {
         let attributes = build_attributes(attribute_keys, attribute_values);
         Nft {
             id: object::new(ctx),
+            collection: @0x0,
+            number: 0,
             name,
             description,
             image_url,
@@ -200,11 +179,8 @@ module kanari_system::krc_721 {
         }
     }
 
-    /// Mint an NFT whose attributes are already a `VecMap`.
-    ///
-    /// This is the form to prefer when the caller has a map in hand — it skips
-    /// the unpack/repack round trip and cannot hit a length mismatch because
-    /// there is nothing to mismatch.
+    // Construct a test fixture whose attributes are already a `VecMap`.
+    #[test_only]
     public fun from_vec_map(
         name: String,
         description: Option<String>,
@@ -215,6 +191,8 @@ module kanari_system::krc_721 {
         assert!(vec_map::size(&attributes) <= MAX_ATTRIBUTES, E_TOO_MANY_ATTRIBUTES);
         Nft {
             id: object::new(ctx),
+            collection: @0x0,
+            number: 0,
             name,
             description,
             image_url,
@@ -246,10 +224,100 @@ module kanari_system::krc_721 {
         nft.image_url = image_url;
     }
 
-    /// Destroy the NFT.
-    public fun burn(nft: Nft) {
+    // Test-only destruction for metadata and attribute unit tests.
+    #[test_only]
+    public fun destroy_for_test(nft: Nft) {
         let Nft {
             id,
+            collection: _,
+            number: _,
+            name: _,
+            description: _,
+            image_url: _,
+            attributes: _
+        } = nft;
+        object::delete(id);
+    }
+
+    /// Mint one token against the supplied collection's capped supply.
+    /// Both objects are required so the collection module verifies that the
+    /// cap belongs to this collection. The caller may then transfer the result.
+    public fun mint(
+        cap: &mut NftCap,
+        collection_ref: &collection::Collection,
+        name: String,
+        description: Option<String>,
+        image_url: Option<Url>,
+        attribute_keys: vector<String>,
+        attribute_values: vector<String>,
+        ctx: &mut TxContext,
+    ): Nft {
+        let attributes = build_attributes(attribute_keys, attribute_values);
+        collection::consume_for_mint(cap, collection_ref);
+        let number = collection::issued(cap);
+        let nft = Nft {
+            id: object::new(ctx),
+            collection: collection::collection_id(collection_ref),
+            number,
+            name,
+            description,
+            image_url,
+            attributes
+        };
+        event::emit(MintLog {
+            object_id: object::uid_address(&nft.id),
+            creator: tx_context::sender(ctx),
+            collection_id: nft.collection
+        });
+        nft
+    }
+
+    /// Mint with an attribute map already assembled by the issuer module.
+    public fun mint_with_attributes(
+        cap: &mut NftCap,
+        collection_ref: &collection::Collection,
+        name: String,
+        description: Option<String>,
+        image_url: Option<Url>,
+        attributes: VecMap<String, String>,
+        ctx: &mut TxContext,
+    ): Nft {
+        assert!(vec_map::size(&attributes) <= MAX_ATTRIBUTES, E_TOO_MANY_ATTRIBUTES);
+        collection::consume_for_mint(cap, collection_ref);
+        let number = collection::issued(cap);
+        let nft = Nft {
+            id: object::new(ctx),
+            collection: collection::collection_id(collection_ref),
+            number,
+            name,
+            description,
+            image_url,
+            attributes
+        };
+        event::emit(MintLog {
+            object_id: object::uid_address(&nft.id),
+            creator: tx_context::sender(ctx),
+            collection_id: nft.collection
+        });
+        nft
+    }
+
+    /// Burn a token from its original collection and release one remaining
+    /// supply unit. The historical issued ordinal is never reused.
+    public fun burn(
+        cap: &mut NftCap,
+        collection_ref: &collection::Collection,
+        nft: Nft,
+    ) {
+        assert!(
+            nft.collection == collection::collection_id(collection_ref),
+            E_NFT_COLLECTION_MISMATCH
+        );
+        collection::return_from_burn(cap, collection_ref);
+        let Nft {
+            id,
+            collection: _,
+            number: _,
             name: _,
             description: _,
             image_url: _,
@@ -266,6 +334,15 @@ module kanari_system::krc_721 {
     /// The NFT's object address.
     public fun nft_address(nft: &Nft): address {
         object::uid_address(&nft.id)
+    }
+
+    public fun collection_of(nft: &Nft): address {
+        nft.collection
+    }
+
+    /// 1-based historical mint ordinal within the collection.
+    public fun number(nft: &Nft): u64 {
+        nft.number
     }
 
     /// The name field.
@@ -488,7 +565,7 @@ module kanari_system::krc_721 {
         assert!(name(&nft) == string_alias::utf8(b"Two"), 4);
         assert!(option_alias::is_none(&description(&nft)), 5);
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -541,7 +618,7 @@ module kanari_system::krc_721 {
         assert!(*vector::borrow(&all_values, 0) == string_alias::utf8(b"10"), 8);
         assert!(*vector::borrow(&all_keys, 2) == string_alias::utf8(b"Rarity"), 9);
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -571,7 +648,7 @@ module kanari_system::krc_721 {
         assert!(removed == string_alias::utf8(b"2"), 3);
         assert!(attribute_count(&nft) == 0, 4);
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -608,7 +685,7 @@ module kanari_system::krc_721 {
             2
         );
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -635,7 +712,7 @@ module kanari_system::krc_721 {
         assert!(!has_attribute(&nft, &string_alias::utf8(b"Old")), 1);
         assert!(has_attribute(&nft, &string_alias::utf8(b"New")), 2);
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -659,7 +736,7 @@ module kanari_system::krc_721 {
                 values,
                 &mut ctx
             );
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -679,7 +756,7 @@ module kanari_system::krc_721 {
             set_attribute(&mut nft, key_n(i), string_alias::utf8(b"v"));
             i = i + 1;
         };
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test]
@@ -713,7 +790,7 @@ module kanari_system::krc_721 {
         set_attribute(&mut nft, key_n(999), string_alias::utf8(b"new"));
         assert!(attribute_count(&nft) == MAX_ATTRIBUTES, 2);
 
-        burn(nft);
+        destroy_for_test(nft);
     }
 
     #[test_only]

@@ -51,18 +51,31 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 -  [Struct `AnyRule`](#0x2_transfer_policy_AnyRule)
 -  [Resource `TransferPolicy`](#0x2_transfer_policy_TransferPolicy)
 -  [Resource `TransferPolicyCap`](#0x2_transfer_policy_TransferPolicyCap)
+-  [Resource `Krc721CollectionScope`](#0x2_transfer_policy_Krc721CollectionScope)
+-  [Resource `Krc721CollectionPolicyCap`](#0x2_transfer_policy_Krc721CollectionPolicyCap)
 -  [Struct `TransferRequest`](#0x2_transfer_policy_TransferRequest)
 -  [Constants](#@Constants_2)
 -  [Function `new`](#0x2_transfer_policy_new)
+-  [Function `new_for_krc_721_collection`](#0x2_transfer_policy_new_for_krc_721_collection)
 -  [Function `share`](#0x2_transfer_policy_share)
 -  [Function `destroy`](#0x2_transfer_policy_destroy)
 -  [Function `transfer_cap`](#0x2_transfer_policy_transfer_cap)
 -  [Function `freeze_cap`](#0x2_transfer_policy_freeze_cap)
+-  [Function `share_krc_721_scope`](#0x2_transfer_policy_share_krc_721_scope)
+-  [Function `transfer_krc_721_collection_cap`](#0x2_transfer_policy_transfer_krc_721_collection_cap)
+-  [Function `krc_721_scope_collection_id`](#0x2_transfer_policy_krc_721_scope_collection_id)
+-  [Function `add_krc_721_collection_rule`](#0x2_transfer_policy_add_krc_721_collection_rule)
+-  [Function `replace_krc_721_collection_rule`](#0x2_transfer_policy_replace_krc_721_collection_rule)
+-  [Function `remove_krc_721_collection_rule`](#0x2_transfer_policy_remove_krc_721_collection_rule)
+-  [Function `assert_krc_721_policy_cap`](#0x2_transfer_policy_assert_krc_721_policy_cap)
 -  [Function `id`](#0x2_transfer_policy_id)
 -  [Function `cap_id`](#0x2_transfer_policy_cap_id)
 -  [Function `new_request`](#0x2_transfer_policy_new_request)
+-  [Function `is_krc_721_type`](#0x2_transfer_policy_is_krc_721_type)
+-  [Function `new_krc_721_request`](#0x2_transfer_policy_new_krc_721_request)
 -  [Function `confirm_request`](#0x2_transfer_policy_confirm_request)
 -  [Function `are_receipts_complete`](#0x2_transfer_policy_are_receipts_complete)
+-  [Function `assert_request_policy`](#0x2_transfer_policy_assert_request_policy)
 -  [Function `item`](#0x2_transfer_policy_item)
 -  [Function `paid`](#0x2_transfer_policy_paid)
 -  [Function `from`](#0x2_transfer_policy_from)
@@ -90,6 +103,8 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 <pre><code><b>use</b> <a href="dependencies/move-stdlib/ascii.md#0x1_ascii">0x1::ascii</a>;
 <b>use</b> <a href="dependencies/move-stdlib/bcs.md#0x1_bcs">0x1::bcs</a>;
 <b>use</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">0x1::type_name</a>;
+<b>use</b> <a href="collection.md#0x2_collection">0x2::collection</a>;
+<b>use</b> <a href="krc_721.md#0x2_krc_721">0x2::krc_721</a>;
 <b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
 <b>use</b> <a href="package.md#0x2_package">0x2::package</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
@@ -219,6 +234,92 @@ rules, so it is the object that must never leak.
 
 </details>
 
+<a name="0x2_transfer_policy_Krc721CollectionScope"></a>
+
+## Resource `Krc721CollectionScope`
+
+Shared collection binding for a KRC-721 transfer policy.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a> <b>has</b> store, key
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="object.md#0x2_object_UID">object::UID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>policy_id: <a href="object.md#0x2_object_ID">object::ID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>collection_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_Krc721CollectionPolicyCap"></a>
+
+## Resource `Krc721CollectionPolicyCap`
+
+Collection owner capability bound to one KRC-721 policy and collection.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a> <b>has</b> store, key
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="object.md#0x2_object_UID">object::UID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>policy_id: <a href="object.md#0x2_object_ID">object::ID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>collection_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>cap: <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">transfer_policy::TransferPolicyCap</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
 <a name="0x2_transfer_policy_TransferRequest"></a>
 
 ## Struct `TransferRequest`
@@ -255,6 +356,12 @@ A pending transfer awaiting rule resolution. No abilities, on purpose.
  Where the item came from (e.g. the kiosk id).
 </dd>
 <dt>
+<code>policy_id: <a href="object.md#0x2_object_ID">object::ID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
 <code>receipts: <a href="vec_set.md#0x2_vec_set_VecSet">vec_set::VecSet</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
 </dt>
 <dd>
@@ -268,6 +375,24 @@ A pending transfer awaiting rule resolution. No abilities, on purpose.
 <a name="@Constants_2"></a>
 
 ## Constants
+
+
+<a name="0x2_transfer_policy_E_COLLECTION_MISMATCH"></a>
+
+
+
+<pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_MISMATCH">E_COLLECTION_MISMATCH</a>: u64 = 15;
+</code></pre>
+
+
+
+<a name="0x2_transfer_policy_E_COLLECTION_SCOPE_REQUIRED"></a>
+
+
+
+<pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_SCOPE_REQUIRED">E_COLLECTION_SCOPE_REQUIRED</a>: u64 = 14;
+</code></pre>
+
 
 
 <a name="0x2_transfer_policy_E_INCOMPLETE_RECEIPTS"></a>
@@ -296,6 +421,15 @@ A receipt or collection was submitted for an unregistered rule.
 
 
 <pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>: u64 = 12;
+</code></pre>
+
+
+
+<a name="0x2_transfer_policy_E_POLICY_MISMATCH"></a>
+
+
+
+<pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_POLICY_MISMATCH">E_POLICY_MISMATCH</a>: u64 = 13;
 </code></pre>
 
 
@@ -348,6 +482,55 @@ not own.
     };
     <b>let</b> cap = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) };
     (policy, cap)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_new_for_krc_721_collection"></a>
+
+## Function `new_for_krc_721_collection`
+
+Create a KRC-721 policy scoped to the collection authorized by <code>cap</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_for_krc_721_collection">new_for_krc_721_collection</a>(cap: &<a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>, collection_ref: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">transfer_policy::Krc721CollectionScope</a>, <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_for_krc_721_collection">new_for_krc_721_collection</a>(
+    cap: &NftCap,
+    collection_ref: &Collection,
+    ctx: &<b>mut</b> TxContext,
+): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;, <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a>, <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>) {
+    <b>let</b> collection_id = <a href="collection.md#0x2_collection_collection_id">collection::collection_id</a>(collection_ref);
+    <b>assert</b>!(<a href="collection.md#0x2_collection_cap_collection_id">collection::cap_collection_id</a>(cap) == collection_id, <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_MISMATCH">E_COLLECTION_MISMATCH</a>);
+    <b>let</b> policy = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        rules: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, <a href="transfer_policy.md#0x2_transfer_policy_AnyRule">AnyRule</a>&gt;(),
+        amounts: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, u64&gt;(),
+        owed: 0,
+    };
+    <b>let</b> policy_id = <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id);
+    <b>let</b> scope = <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        policy_id,
+        collection_id,
+    };
+    <b>let</b> cap = <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        policy_id,
+        collection_id,
+        cap: <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;Nft&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) },
+    };
+    (policy, scope, cap)
 }
 </code></pre>
 
@@ -463,6 +646,203 @@ Freeze the owner cap so rules can never be changed again.
 
 </details>
 
+<a name="0x2_transfer_policy_share_krc_721_scope"></a>
+
+## Function `share_krc_721_scope`
+
+Share collection scope information for KRC-721 trade entry points.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_share_krc_721_scope">share_krc_721_scope</a>(scope: <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">transfer_policy::Krc721CollectionScope</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_share_krc_721_scope">share_krc_721_scope</a>(scope: <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a>) {
+    <a href="transfer.md#0x2_transfer_share_object">transfer::share_object</a>(scope);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_transfer_krc_721_collection_cap"></a>
+
+## Function `transfer_krc_721_collection_cap`
+
+Transfer control of a collection-scoped KRC-721 policy.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_transfer_krc_721_collection_cap">transfer_krc_721_collection_cap</a>(cap: <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>, recipient: <b>address</b>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_transfer_krc_721_collection_cap">transfer_krc_721_collection_cap</a>(
+    cap: <a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>,
+    recipient: <b>address</b>,
+) {
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(cap, recipient);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_krc_721_scope_collection_id"></a>
+
+## Function `krc_721_scope_collection_id`
+
+The collection governed by a KRC-721 scope.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_krc_721_scope_collection_id">krc_721_scope_collection_id</a>(scope: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">transfer_policy::Krc721CollectionScope</a>): <b>address</b>
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_krc_721_scope_collection_id">krc_721_scope_collection_id</a>(scope: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a>): <b>address</b> {
+    scope.collection_id
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_add_krc_721_collection_rule"></a>
+
+## Function `add_krc_721_collection_rule`
+
+Replace or register a rule on a collection-scoped KRC-721 policy.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_add_krc_721_collection_rule">add_krc_721_collection_rule</a>&lt;Rule: drop&gt;(rule: Rule, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>, config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_add_krc_721_collection_rule">add_krc_721_collection_rule</a>&lt;Rule: drop&gt;(
+    rule: Rule,
+    policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;,
+    cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>,
+    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+) {
+    <a href="transfer_policy.md#0x2_transfer_policy_assert_krc_721_policy_cap">assert_krc_721_policy_cap</a>(policy, cap);
+    <a href="transfer_policy.md#0x2_transfer_policy_add_rule">add_rule</a>&lt;Rule, Nft&gt;(rule, policy, &cap.cap, config);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_replace_krc_721_collection_rule"></a>
+
+## Function `replace_krc_721_collection_rule`
+
+Update a rule on a collection-scoped KRC-721 policy.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_replace_krc_721_collection_rule">replace_krc_721_collection_rule</a>&lt;Rule: drop&gt;(rule: Rule, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>, config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_replace_krc_721_collection_rule">replace_krc_721_collection_rule</a>&lt;Rule: drop&gt;(
+    rule: Rule,
+    policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;,
+    cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>,
+    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+) {
+    <a href="transfer_policy.md#0x2_transfer_policy_assert_krc_721_policy_cap">assert_krc_721_policy_cap</a>(policy, cap);
+    <a href="transfer_policy.md#0x2_transfer_policy_replace_rule">replace_rule</a>&lt;Rule, Nft&gt;(rule, policy, &cap.cap, config);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_remove_krc_721_collection_rule"></a>
+
+## Function `remove_krc_721_collection_rule`
+
+Remove a rule from a collection-scoped KRC-721 policy.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_remove_krc_721_collection_rule">remove_krc_721_collection_rule</a>&lt;Rule: drop&gt;(rule: Rule, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_remove_krc_721_collection_rule">remove_krc_721_collection_rule</a>&lt;Rule: drop&gt;(
+    rule: Rule,
+    policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;,
+    cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>,
+) {
+    <a href="transfer_policy.md#0x2_transfer_policy_assert_krc_721_policy_cap">assert_krc_721_policy_cap</a>(policy, cap);
+    <a href="transfer_policy.md#0x2_transfer_policy_remove_rule">remove_rule</a>&lt;Rule, Nft&gt;(rule, policy, &cap.cap);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_assert_krc_721_policy_cap"></a>
+
+## Function `assert_krc_721_policy_cap`
+
+
+
+<pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_krc_721_policy_cap">assert_krc_721_policy_cap</a>(policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_krc_721_policy_cap">assert_krc_721_policy_cap</a>(
+    policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;,
+    cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">Krc721CollectionPolicyCap</a>,
+) {
+    <b>assert</b>!(cap.policy_id == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id), <a href="transfer_policy.md#0x2_transfer_policy_E_POLICY_MISMATCH">E_POLICY_MISMATCH</a>);
+}
+</code></pre>
+
+
+
+</details>
+
 <a name="0x2_transfer_policy_id"></a>
 
 ## Function `id`
@@ -522,7 +902,7 @@ abilities and must be resolved by <code>confirm_request</code> before the
 transaction can end.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_request">new_request</a>&lt;T: store, key&gt;(_policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: <a href="object.md#0x2_object_ID">object::ID</a>, paid: u64, from: <a href="object.md#0x2_object_ID">object::ID</a>): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_request">new_request</a>&lt;T: store, key&gt;(policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item: <a href="object.md#0x2_object_ID">object::ID</a>, paid: u64, from: <a href="object.md#0x2_object_ID">object::ID</a>): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;
 </code></pre>
 
 
@@ -532,15 +912,84 @@ transaction can end.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_request">new_request</a>&lt;T: key + store&gt;(
-    _policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
+    policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     item: ID,
     paid: u64,
     from: ID,
 ): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt; {
+    <b>assert</b>!(!<a href="transfer_policy.md#0x2_transfer_policy_is_krc_721_type">is_krc_721_type</a>&lt;T&gt;(), <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_SCOPE_REQUIRED">E_COLLECTION_SCOPE_REQUIRED</a>);
     <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt; {
         item,
         paid,
         from,
+        policy_id: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id),
+        receipts: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>(),
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_is_krc_721_type"></a>
+
+## Function `is_krc_721_type`
+
+
+
+<pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_is_krc_721_type">is_krc_721_type</a>&lt;T: store, key&gt;(): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_is_krc_721_type">is_krc_721_type</a>&lt;T: key + store&gt;(): bool {
+    <b>let</b> actual_name = <a href="dependencies/move-stdlib/type_name.md#0x1_type_name_get">type_name::get</a>&lt;T&gt;();
+    <b>let</b> nft_type_name = <a href="dependencies/move-stdlib/type_name.md#0x1_type_name_get">type_name::get</a>&lt;Nft&gt;();
+    *<a href="dependencies/move-stdlib/type_name.md#0x1_type_name_borrow_string">type_name::borrow_string</a>(&actual_name)
+        == *<a href="dependencies/move-stdlib/type_name.md#0x1_type_name_borrow_string">type_name::borrow_string</a>(&nft_type_name)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_new_krc_721_request"></a>
+
+## Function `new_krc_721_request`
+
+Open a request for a KRC-721 NFT after checking its collection against
+the policy scope.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_krc_721_request">new_krc_721_request</a>(policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, scope: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">transfer_policy::Krc721CollectionScope</a>, nft: &<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>, paid: u64, from: <a href="object.md#0x2_object_ID">object::ID</a>): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_krc_721_request">new_krc_721_request</a>(
+    policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;Nft&gt;,
+    scope: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionScope">Krc721CollectionScope</a>,
+    nft: &Nft,
+    paid: u64,
+    from: ID,
+): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;Nft&gt; {
+    <b>assert</b>!(scope.policy_id == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id), <a href="transfer_policy.md#0x2_transfer_policy_E_POLICY_MISMATCH">E_POLICY_MISMATCH</a>);
+    <b>assert</b>!(scope.collection_id == <a href="krc_721.md#0x2_krc_721_collection_of">krc_721::collection_of</a>(nft), <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_MISMATCH">E_COLLECTION_MISMATCH</a>);
+    <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;Nft&gt; {
+        item: <a href="krc_721.md#0x2_krc_721_id">krc_721::id</a>(nft),
+        paid,
+        from,
+        policy_id: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id),
         receipts: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>(),
     }
 }
@@ -574,8 +1023,9 @@ reachable only while holding a request.
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     request: <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
 ): (ID, u64, ID) {
+    <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>(policy, &request);
     <b>assert</b>!(<a href="transfer_policy.md#0x2_transfer_policy_are_receipts_complete">are_receipts_complete</a>(policy, &request), <a href="transfer_policy.md#0x2_transfer_policy_E_INCOMPLETE_RECEIPTS">E_INCOMPLETE_RECEIPTS</a>);
-    <b>let</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a> { item, paid, from, receipts } = request;
+    <b>let</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a> { item, paid, from, policy_id: _, receipts } = request;
     <b>let</b> _ = receipts;
     (item, paid, from)
 }
@@ -615,6 +1065,37 @@ True iff every registered rule has reported on <code>request</code>.
         i = i + 1;
     };
     <b>true</b>
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_assert_request_policy"></a>
+
+## Function `assert_request_policy`
+
+Abort unless <code>request</code> was created by <code>policy</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>&lt;T: store, key&gt;(policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">transfer_policy::TransferRequest</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>&lt;T: key + store&gt;(
+    policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
+    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+) {
+    <b>assert</b>!(
+        request.policy_id == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id),
+        <a href="transfer_policy.md#0x2_transfer_policy_E_POLICY_MISMATCH">E_POLICY_MISMATCH</a>
+    );
 }
 </code></pre>
 
@@ -957,6 +1438,7 @@ witness, so a rule's module is the only thing that can declare it paid.
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     request: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
 ) {
+    <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>(policy, request);
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>);
     <a href="vec_set.md#0x2_vec_set_insert">vec_set::insert</a>(&<b>mut</b> <a href="vec_map.md#0x2_vec_map_get_mut">vec_map::get_mut</a>(&<b>mut</b> policy.rules, &key).receipts, key);

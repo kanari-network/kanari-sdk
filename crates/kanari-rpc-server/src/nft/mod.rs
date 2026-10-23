@@ -37,6 +37,17 @@ struct UniversalStandardNft {
     creator: [u8; 32],
 }
 
+#[derive(Deserialize)]
+struct Krc721Nft {
+    _id: [u8; 32],
+    collection: [u8; 32],
+    number: u64,
+    name: MoveString,
+    description: Option<MoveString>,
+    image_url: Option<MoveUrl>,
+    attributes: Vec<(MoveString, MoveString)>,
+}
+
 #[allow(dead_code)]
 #[derive(Deserialize)]
 struct ParsedCollection {
@@ -49,7 +60,24 @@ struct ParsedCollection {
     max_supply: u64,
 }
 
-fn parse_any_nft(_type_tag: &str, data: &[u8]) -> Option<serde_json::Value> {
+fn parse_any_nft(type_tag: &str, data: &[u8]) -> Option<serde_json::Value> {
+    if type_tag.ends_with("::krc_721::Nft")
+        && let Ok(parsed) = bcs::from_bytes::<Krc721Nft>(data)
+    {
+        let (keys, values): (Vec<_>, Vec<_>) = parsed
+            .attributes
+            .iter()
+            .map(|(key, value)| (move_str_to_string(key), move_str_to_string(value)))
+            .unzip();
+        return Some(json!({
+            "name": move_str_to_string(&parsed.name),
+            "image_url": parsed.image_url.map(|url| move_str_to_string(&url.inner)),
+            "description": parsed.description.map(|value| move_str_to_string(&value)),
+            "number": parsed.number.to_string(),
+            "collection_id": format!("0x{}", hex::encode(parsed.collection)),
+            "attributes": { "keys": keys, "values": values }
+        }));
+    }
     if let Ok(parsed) = bcs::from_bytes::<UniversalStandardNft>(data) {
         return Some(json!({
             "name": move_str_to_string(&parsed.name),
@@ -170,7 +198,8 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
             && (collection_nft_ids.contains(&id)
                 || obj
                     .type_
-                    .ends_with(&format!("::{}::Nft", CollectionModule::NFT_MODULE)))
+                    .ends_with(&format!("::{}::Nft", CollectionModule::NFT_MODULE))
+                || obj.type_.ends_with("::krc_721::Nft"))
         {
             nfts.push(json!({
                 "object_id": id,

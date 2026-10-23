@@ -2693,7 +2693,7 @@ pub async fn handle_build_nft_transfer(
         &build_data.sender,
         build_data.gas_limit,
         build_data.gas_price,
-        &[owned_nft.id.clone()],
+        std::slice::from_ref(&owned_nft.id),
         &state.engine.pending_access_keys_snapshot(),
         &std::collections::BTreeMap::new(),
     ) {

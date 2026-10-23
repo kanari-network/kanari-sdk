@@ -49,8 +49,7 @@ data class OwnedNft(
 
     /**
      * This object with a client-side BCS decode applied when the RPC left
-     * `parsed` empty (its standard parser only covers the james-style layout;
-     * kanari_pet and framework Nft layouts need this local fallback).
+     * `parsed` empty (framework KRC-721 layouts need this local fallback).
      */
     fun withLocalParse(): OwnedNft {
         if (parsed != null) return this

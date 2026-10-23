@@ -65,7 +65,10 @@
                 "type": "string"
               }
             },
-            "required": ["owner", "token_type"],
+            "required": [
+              "owner",
+              "token_type"
+            ],
             "type": "object"
           }
         }
@@ -103,7 +106,9 @@
                 "type": "string"
               }
             },
-            "required": ["owner"],
+            "required": [
+              "owner"
+            ],
             "type": "object"
           }
         }
@@ -163,7 +168,9 @@
                 "type": "string"
               }
             },
-            "required": ["token_type"],
+            "required": [
+              "token_type"
+            ],
             "type": "object"
           }
         }
@@ -210,7 +217,10 @@
                         "type": "string"
                       }
                     },
-                    "required": ["balance", "owner"],
+                    "required": [
+                      "balance",
+                      "owner"
+                    ],
                     "type": "object"
                   },
                   {
@@ -233,7 +243,9 @@
                 "type": "string"
               }
             },
-            "required": ["token_type"],
+            "required": [
+              "token_type"
+            ],
             "type": "object"
           }
         }
@@ -292,7 +304,9 @@
                 "type": "string"
               }
             },
-            "required": ["token_type"],
+            "required": [
+              "token_type"
+            ],
             "type": "object"
           }
         }
@@ -648,7 +662,9 @@
                 "type": "boolean"
               }
             },
-            "required": ["audit"],
+            "required": [
+              "audit"
+            ],
             "type": "object"
           }
         }
@@ -723,7 +739,9 @@
                 "type": "array"
               }
             },
-            "required": ["entries"],
+            "required": [
+              "entries"
+            ],
             "type": "object"
           }
         }
@@ -1045,7 +1063,10 @@
                 "type": "string"
               }
             },
-            "required": ["address", "name"],
+            "required": [
+              "address",
+              "name"
+            ],
             "type": "object"
           }
         }
@@ -1106,7 +1127,9 @@
                 "type": "array"
               }
             },
-            "required": ["module_bytes"],
+            "required": [
+              "module_bytes"
+            ],
             "type": "object"
           }
         }
@@ -1340,7 +1363,9 @@
                 "type": "string"
               }
             },
-            "required": ["object_id"],
+            "required": [
+              "object_id"
+            ],
             "type": "object"
           }
         }
@@ -1385,7 +1410,9 @@
                 "type": "string"
               }
             },
-            "required": ["owner"],
+            "required": [
+              "owner"
+            ],
             "type": "object"
           }
         }
@@ -1420,7 +1447,9 @@
                 "type": "string"
               }
             },
-            "required": ["object_type"],
+            "required": [
+              "object_type"
+            ],
             "type": "object"
           }
         }
@@ -1486,7 +1515,9 @@
                 "type": "object"
               }
             },
-            "required": ["object_ref"],
+            "required": [
+              "object_ref"
+            ],
             "type": "object"
           }
         }

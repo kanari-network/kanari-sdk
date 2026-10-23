@@ -3,19 +3,13 @@ package com.jamesatomc.kanariapp.network.models
 /**
  * Minimal BCS reader for NFT object payloads the RPC did not pre-parse.
  *
- * The server family has three shapes in the wild; `parsed` is `null` whenever
- * the byte layout behind `data` does not match the RPC's standard parser, so
- * the client decodes locally as a fallback instead of showing a bare type tag:
+ * The client locally decodes supported framework NFT layouts when the RPC
+ * leaves `parsed` empty:
  *
- * - **james `nft::Nft`** (also the RPC's "universal" shape):
- *   `id: UID, name: String, image_url: Url, description: String,
- *   attribute_keys: vector<String>, attribute_values: vector<String>,
- *   number: String, collection_id: address, creator: address`
- * - **kanari_pet `pet::KanariPet`**: same until attributes, which is a
- *   `VecMap<String, String>` (one length prefix, then flat key/value pairs)
- *   instead of two parallel vectors
- * - **framework `nft::Nft`**: `id: UID, name: String, description: Option<String>,
- *   image_url: Option<Url>, attributes: VecMap<String, String>` and nothing else
+ * - **framework `krc_721::Nft`**: `id: UID, collection: address, number: u64,
+ *   name: String, description: Option<String>, image_url: Option<Url>,
+ *   attributes: VecMap<String, String>`
+ * - **legacy framework NFT**: same metadata fields without collection/number
  *
  * BCS has no field names, only ordered fields, so every attempt is just a
  * sequential read of the expected layout; the first one that consumes cleanly
@@ -50,6 +44,12 @@ object NftBcsParser {
         fun skip(n: Int) {
             take(n)
         }
+
+        fun u64String(): String {
+            val littleEndian = take(8)
+            val bigEndian = littleEndian.reversedArray()
+            return java.math.BigInteger(1, bigEndian).toString()
+        }
     }
 
     private fun readString(r: Reader): String {
@@ -77,8 +77,7 @@ object NftBcsParser {
 
     /** Parse `data` into the shared [NftParsedData], or `null` if no layout matches. */
     fun parse(data: ByteArray): NftParsedData? = listOf(
-        ::parseJamesLike,
-        ::parsePetLike,
+        ::parseKrc721,
         ::parseFrameworkNft,
     ).firstNotNullOfOrNull { attempt ->
         try {
@@ -88,44 +87,20 @@ object NftBcsParser {
         }
     }
 
-    private fun parseJamesLike(data: ByteArray): NftParsedData? {
+    private fun parseKrc721(data: ByteArray): NftParsedData? {
         val r = Reader(data)
         r.skip(32) // UID
+        r.skip(32) // collection address
+        val number = r.u64String()
         val name = readString(r)
-        val imageUrl = readString(r)
-        val description = readString(r)
-        val keyCount = r.uleb()
-        val keys = List(keyCount) { readString(r) }
-        val valueCount = r.uleb()
-        val values = List(valueCount) { readString(r) }
-        val number = readString(r)
-        r.skip(32) // collection_id
-        r.skip(32) // creator
-        if (!finished(r) || name.isBlank()) return null
-        return NftParsedData(
-            name = name,
-            imageUrl = imageUrl.takeIf { it.isNotBlank() },
-            description = description,
-            number = number,
-            attributes = NftAttributes(keys, values),
-        )
-    }
-
-    private fun parsePetLike(data: ByteArray): NftParsedData? {
-        val r = Reader(data)
-        r.skip(32) // UID
-        val name = readString(r)
-        val imageUrl = readString(r)
-        val description = readString(r)
+        val description = readOptional(r)
+        val imageUrl = readOptional(r)
         val attributes = readVecMap(r)
-        val number = readString(r)
-        r.skip(32) // collection_id
-        r.skip(32) // creator
         if (!finished(r) || name.isBlank()) return null
         return NftParsedData(
             name = name,
-            imageUrl = imageUrl.takeIf { it.isNotBlank() },
-            description = description,
+            imageUrl = imageUrl?.takeIf { it.isNotBlank() },
+            description = description ?: "",
             number = number,
             attributes = NftAttributes(
                 attributes.map { it.first },

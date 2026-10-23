@@ -33,6 +33,7 @@ module kanari_system::royalty_rule {
         TransferPolicy,
         TransferPolicyCap,
         TransferRequest,
+        Krc721CollectionPolicyCap,
     };
     use kanari_system::tx_context::TxContext;
 
@@ -77,6 +78,42 @@ module kanari_system::royalty_rule {
         assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
         let config = encode_config(amount_bp, min_amount, beneficiary);
         transfer_policy::add_rule<Rule, T>(Rule {}, policy, cap, config);
+    }
+
+    /// Install royalties on one KRC-721 collection's scoped policy.
+    public fun add_for_krc_721_collection(
+        policy: &mut TransferPolicy<kanari_system::krc_721::Nft>,
+        cap: &Krc721CollectionPolicyCap,
+        amount_bp: u64,
+        min_amount: u64,
+        beneficiary: address,
+    ) {
+        assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
+        assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
+        let config = encode_config(amount_bp, min_amount, beneficiary);
+        transfer_policy::add_krc_721_collection_rule<Rule>(Rule {}, policy, cap, config);
+    }
+
+    /// Update royalties on one KRC-721 collection's scoped policy.
+    public fun update_for_krc_721_collection(
+        policy: &mut TransferPolicy<kanari_system::krc_721::Nft>,
+        cap: &Krc721CollectionPolicyCap,
+        amount_bp: u64,
+        min_amount: u64,
+        beneficiary: address,
+    ) {
+        assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
+        assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
+        let config = encode_config(amount_bp, min_amount, beneficiary);
+        transfer_policy::replace_krc_721_collection_rule<Rule>(Rule {}, policy, cap, config);
+    }
+
+    /// Remove royalties from one KRC-721 collection's scoped policy.
+    public fun remove_for_krc_721_collection(
+        policy: &mut TransferPolicy<kanari_system::krc_721::Nft>,
+        cap: &Krc721CollectionPolicyCap,
+    ) {
+        transfer_policy::remove_krc_721_collection_rule<Rule>(Rule {}, policy, cap);
     }
 
     /// Update the rule's terms in place.

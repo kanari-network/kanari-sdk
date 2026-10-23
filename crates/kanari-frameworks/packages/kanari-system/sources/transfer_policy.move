@@ -37,6 +37,9 @@
 module kanari_system::transfer_policy {
     use std::bcs;
     use std::vector;
+    use std::type_name;
+    use kanari_system::collection::{Self, Collection, NftCap};
+    use kanari_system::krc_721::{Self, Nft};
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::package::{Self, Publisher};
     use kanari_system::transfer;
@@ -57,6 +60,9 @@ module kanari_system::transfer_policy {
 
     /// A receipt or collection was submitted for an unregistered rule.
     const E_NO_SUCH_RULE: u64 = 12;
+    const E_POLICY_MISMATCH: u64 = 13;
+    const E_COLLECTION_SCOPE_REQUIRED: u64 = 14;
+    const E_COLLECTION_MISMATCH: u64 = 15;
 
     /// Type-erased state for one rule. `config` holds BCS bytes the rule module
     /// encoded; this module cannot interpret them, which is the point.
@@ -92,6 +98,21 @@ module kanari_system::transfer_policy {
         id: UID,
     }
 
+    /// Shared collection binding for a KRC-721 transfer policy.
+    struct Krc721CollectionScope has key, store {
+        id: UID,
+        policy_id: ID,
+        collection_id: address,
+    }
+
+    /// Collection owner capability bound to one KRC-721 policy and collection.
+    struct Krc721CollectionPolicyCap has key, store {
+        id: UID,
+        policy_id: ID,
+        collection_id: address,
+        cap: TransferPolicyCap<Nft>,
+    }
+
     /// A pending transfer awaiting rule resolution. No abilities, on purpose.
     struct TransferRequest<phantom T: key> {
         /// The item being traded.
@@ -100,6 +121,7 @@ module kanari_system::transfer_policy {
         paid: u64,
         /// Where the item came from (e.g. the kiosk id).
         from: ID,
+        policy_id: ID,
         /// Receipt names collected so far.
         receipts: VecSet<vector<u8>>,
     }
@@ -131,6 +153,35 @@ module kanari_system::transfer_policy {
         (policy, cap)
     }
 
+    /// Create a KRC-721 policy scoped to the collection authorized by `cap`.
+    public fun new_for_krc_721_collection(
+        cap: &NftCap,
+        collection_ref: &Collection,
+        ctx: &mut TxContext,
+    ): (TransferPolicy<Nft>, Krc721CollectionScope, Krc721CollectionPolicyCap) {
+        let collection_id = collection::collection_id(collection_ref);
+        assert!(collection::cap_collection_id(cap) == collection_id, E_COLLECTION_MISMATCH);
+        let policy = TransferPolicy<Nft> {
+            id: object::new(ctx),
+            rules: vec_map::empty<vector<u8>, AnyRule>(),
+            amounts: vec_map::empty<vector<u8>, u64>(),
+            owed: 0,
+        };
+        let policy_id = object::uid_to_inner(&policy.id);
+        let scope = Krc721CollectionScope {
+            id: object::new(ctx),
+            policy_id,
+            collection_id,
+        };
+        let cap = Krc721CollectionPolicyCap {
+            id: object::new(ctx),
+            policy_id,
+            collection_id,
+            cap: TransferPolicyCap<Nft> { id: object::new(ctx) },
+        };
+        (policy, scope, cap)
+    }
+
     /// Share the policy, making `T` tradable.
     public fun share<T: key + store>(policy: TransferPolicy<T>) {
         transfer::share_object(policy);
@@ -159,6 +210,63 @@ module kanari_system::transfer_policy {
         transfer::public_freeze_object(cap);
     }
 
+    /// Share collection scope information for KRC-721 trade entry points.
+    public fun share_krc_721_scope(scope: Krc721CollectionScope) {
+        transfer::share_object(scope);
+    }
+
+    /// Transfer control of a collection-scoped KRC-721 policy.
+    public fun transfer_krc_721_collection_cap(
+        cap: Krc721CollectionPolicyCap,
+        recipient: address,
+    ) {
+        transfer::public_transfer(cap, recipient);
+    }
+
+    /// The collection governed by a KRC-721 scope.
+    public fun krc_721_scope_collection_id(scope: &Krc721CollectionScope): address {
+        scope.collection_id
+    }
+
+    /// Replace or register a rule on a collection-scoped KRC-721 policy.
+    public fun add_krc_721_collection_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &Krc721CollectionPolicyCap,
+        config: vector<u8>,
+    ) {
+        assert_krc_721_policy_cap(policy, cap);
+        add_rule<Rule, Nft>(rule, policy, &cap.cap, config);
+    }
+
+    /// Update a rule on a collection-scoped KRC-721 policy.
+    public fun replace_krc_721_collection_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &Krc721CollectionPolicyCap,
+        config: vector<u8>,
+    ) {
+        assert_krc_721_policy_cap(policy, cap);
+        replace_rule<Rule, Nft>(rule, policy, &cap.cap, config);
+    }
+
+    /// Remove a rule from a collection-scoped KRC-721 policy.
+    public fun remove_krc_721_collection_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &Krc721CollectionPolicyCap,
+    ) {
+        assert_krc_721_policy_cap(policy, cap);
+        remove_rule<Rule, Nft>(rule, policy, &cap.cap);
+    }
+
+    fun assert_krc_721_policy_cap(
+        policy: &TransferPolicy<Nft>,
+        cap: &Krc721CollectionPolicyCap,
+    ) {
+        assert!(cap.policy_id == object::uid_to_inner(&policy.id), E_POLICY_MISMATCH);
+    }
+
     /// The policy's id.
     public fun id<T: key + store>(policy: &TransferPolicy<T>): ID {
         object::uid_to_inner(&policy.id)
@@ -175,15 +283,44 @@ module kanari_system::transfer_policy {
     /// abilities and must be resolved by `confirm_request` before the
     /// transaction can end.
     public fun new_request<T: key + store>(
-        _policy: &TransferPolicy<T>,
+        policy: &TransferPolicy<T>,
         item: ID,
         paid: u64,
         from: ID,
     ): TransferRequest<T> {
+        assert!(!is_krc_721_type<T>(), E_COLLECTION_SCOPE_REQUIRED);
         TransferRequest<T> {
             item,
             paid,
             from,
+            policy_id: object::uid_to_inner(&policy.id),
+            receipts: vec_set::empty(),
+        }
+    }
+
+    fun is_krc_721_type<T: key + store>(): bool {
+        let actual_name = type_name::get<T>();
+        let nft_type_name = type_name::get<Nft>();
+        *type_name::borrow_string(&actual_name)
+            == *type_name::borrow_string(&nft_type_name)
+    }
+
+    /// Open a request for a KRC-721 NFT after checking its collection against
+    /// the policy scope.
+    public fun new_krc_721_request(
+        policy: &TransferPolicy<Nft>,
+        scope: &Krc721CollectionScope,
+        nft: &Nft,
+        paid: u64,
+        from: ID,
+    ): TransferRequest<Nft> {
+        assert!(scope.policy_id == object::uid_to_inner(&policy.id), E_POLICY_MISMATCH);
+        assert!(scope.collection_id == krc_721::collection_of(nft), E_COLLECTION_MISMATCH);
+        TransferRequest<Nft> {
+            item: krc_721::id(nft),
+            paid,
+            from,
+            policy_id: object::uid_to_inner(&policy.id),
             receipts: vec_set::empty(),
         }
     }
@@ -197,8 +334,9 @@ module kanari_system::transfer_policy {
         policy: &TransferPolicy<T>,
         request: TransferRequest<T>,
     ): (ID, u64, ID) {
+        assert_request_policy(policy, &request);
         assert!(are_receipts_complete(policy, &request), E_INCOMPLETE_RECEIPTS);
-        let TransferRequest { item, paid, from, receipts } = request;
+        let TransferRequest { item, paid, from, policy_id: _, receipts } = request;
         let _ = receipts;
         (item, paid, from)
     }
@@ -218,6 +356,17 @@ module kanari_system::transfer_policy {
             i = i + 1;
         };
         true
+    }
+
+    /// Abort unless `request` was created by `policy`.
+    public fun assert_request_policy<T: key + store>(
+        policy: &TransferPolicy<T>,
+        request: &TransferRequest<T>,
+    ) {
+        assert!(
+            request.policy_id == object::uid_to_inner(&policy.id),
+            E_POLICY_MISMATCH
+        );
     }
 
     /// The item being traded.
@@ -324,6 +473,7 @@ module kanari_system::transfer_policy {
         policy: &mut TransferPolicy<T>,
         request: &mut TransferRequest<T>,
     ) {
+        assert_request_policy(policy, request);
         let key = rule_key<Rule>();
         assert!(vec_map::contains(&policy.rules, &key), E_NO_SUCH_RULE);
         vec_set::insert(&mut vec_map::get_mut(&mut policy.rules, &key).receipts, key);

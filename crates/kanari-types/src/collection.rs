@@ -111,11 +111,11 @@ impl CollectionModule {
     pub const COLLECTION_STRUCT: &'static str = "Collection";
     pub const NFTCAP_STRUCT: &'static str = "NftCap";
 
-    /// Module name of the NFT mint event emitter, mirroring `nft::MintLog`.
+    /// Legacy module name of the NFT mint event emitter.
     pub const NFT_MODULE: &'static str = "nft";
-    /// Event struct emitted on every NFT mint. Mirrors
-    /// `nft::MintLog { object_id, creator, collection_id }` — three addresses
-    /// in source order, so the payload is `3 * 32` bytes.
+    /// Event struct name emitted on NFT mint. Both `nft` and `krc_721` use
+    /// `{ object_id, creator, collection_id }` — three addresses in source
+    /// order, so the payload is `3 * 32` bytes.
     pub const MINT_LOG_EVENT: &'static str = "MintLog";
     /// Byte offset of the minted NFT object id inside a `MintLog` payload.
     pub const MINT_LOG_OBJECT_ID_OFFSET: usize = 0;
@@ -154,6 +154,7 @@ impl CollectionModule {
     /// Whether a type name is an `nft::MintLog` mint event.
     pub fn is_mint_log_type(type_name: &str) -> bool {
         type_name.contains(&format!("::{}::{}", Self::NFT_MODULE, Self::MINT_LOG_EVENT))
+            || type_name.contains("::krc_721::MintLog")
     }
 
     /// Parse `(minted NFT id, collection id)` out of a `MintLog` payload.

@@ -1,57 +1,62 @@
 // End-to-end coverage for the Sui-parity stack, wired together the way `init`
-// does it: Publisher -> Display -> TransferPolicy -> royalty rule.
+// does it: collection-scoped display -> scoped transfer policy -> royalty rule.
 //
 // The point of these tests is not that each primitive works in isolation (the
 // framework's own tests cover that). It is that the pieces compose, and
 // specifically that the royalty gate holds across the whole trade path.
 #[test_only]
 module kanari_pet::pet_tests {
-    use kanari_pet::pet::{Self, KanariPet, FEE};
+    use kanari_pet::pet::{Self, FEE};
     use kanari_system::balance;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::collection;
     use kanari_system::display;
     use kanari_system::object;
-    use kanari_system::package::Publisher;
+    use kanari_system::krc_721::{Self, Nft};
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
-    use kanari_system::transfer_policy::{Self, TransferPolicy, TransferPolicyCap};
-    use std::vector;
+    use kanari_system::transfer_policy::{
+        Self,
+        Krc721CollectionPolicyCap,
+        Krc721CollectionScope,
+        TransferPolicy,
+    };
     use std::string::String;
+    use std::vector;
     use kanari_system::tx_context::{Self, TxContext};
-
-    #[test_only]
-    /// One-time witness for this test module, named after it in caps so
-    /// `package::new` accepts it. Stands in for the package`s own witness,
-    /// which lives in `kanari_pet::pet` and is not reachable from a test.
-    struct PET_TESTS has drop {}
 
     const ALICE: address = @0xA11CE;
     const CREATOR: address = @0xC8EA70;
 
-    /// Wire up a policy with the 5% royalty exactly as `init` does. The
-    /// publisher is consumed and handed back so callers can dispose of it —
-    /// `Publisher` has `store` but not `drop`.
+    /// Wire up a collection-scoped policy with the 5% royalty as `init` does.
     fun setup(
         ctx: &mut TxContext,
-    ): (TransferPolicy<KanariPet>, TransferPolicyCap<KanariPet>, Publisher<PET_TESTS>) {
-        let publisher = kanari_system::package::new<PET_TESTS>(PET_TESTS {}, ctx);
-        let (policy, cap) = transfer_policy::new<KanariPet, PET_TESTS>(&publisher, ctx);
-        royalty_rule::add<KanariPet>(&mut policy, &cap, 500, 0, CREATOR);
-        (policy, cap, publisher)
+    ): (
+        TransferPolicy<Nft>,
+        Krc721CollectionPolicyCap,
+        Krc721CollectionScope,
+        collection::Collection,
+        collection::NftCap,
+    ) {
+        let (coll, mint_cap) =
+            collection::create_collection(ctx, b"Pets", b"Test", b"https://b", b"https://w", 10);
+        let (policy, scope, cap) =
+            transfer_policy::new_for_krc_721_collection(&mint_cap, &coll, ctx);
+        royalty_rule::add_for_krc_721_collection(&mut policy, &cap, 500, 0, CREATOR);
+        (policy, cap, scope, coll, mint_cap)
     }
 
     /// `royalty_rule::pay` needs a `&mut TransferRequest`, and this edition has
     /// no `let mut`, so the hot potato is threaded through a helper and
     /// returned. It is the same value; only moved.
     fun pay_fee(
-        policy: &mut TransferPolicy<KanariPet>,
-        request: transfer_policy::TransferRequest<KanariPet>,
+        policy: &mut TransferPolicy<Nft>,
+        request: transfer_policy::TransferRequest<Nft>,
         payment: &mut coin::Coin<FEE>,
         ctx: &mut TxContext,
-    ): transfer_policy::TransferRequest<KanariPet> {
+    ): transfer_policy::TransferRequest<Nft> {
         let request_ref = &mut request;
-        royalty_rule::pay<KanariPet, FEE>(policy, request_ref, payment, ctx);
+        royalty_rule::pay<Nft, FEE>(policy, request_ref, payment, ctx);
         request
     }
 
@@ -77,19 +82,19 @@ module kanari_pet::pet_tests {
     #[test]
     fun test_royalty_gate_holds_for_a_full_trade() {
         let ctx = tx_context::dummy();
-        let (policy, cap, publisher) = setup(&mut ctx);
+        let (policy, cap, scope, coll, mint_cap) = setup(&mut ctx);
 
         // A 1000-unit sale owes 5% = 50.
         assert!(pet::quote_royalty(&policy, 1_000) == 50, 0);
 
-        let item = object::id_from_address(@0x1);
+        let nft = pet::mint_for_test(&mut mint_cap, &coll, &mut ctx);
         let from = object::id_from_address(@0x2);
         let payment = mint_fees(1_000, &mut ctx);
-        let request = transfer_policy::new_request<KanariPet>(&policy, item, 1_000, from);
+        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
 
         let request = pay_fee(&mut policy, request, &mut payment, &mut ctx);
         let (_item, paid, _from) =
-            transfer_policy::confirm_request<KanariPet>(&policy, request);
+            transfer_policy::confirm_request<Nft>(&policy, request);
         assert!(paid == 1_000, 1);
         // `pay` split the 5% fee off and forwarded it to the beneficiary, so
         // 950 must remain with the buyer.
@@ -101,53 +106,154 @@ module kanari_pet::pet_tests {
 
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(publisher);
+        transfer::public_freeze_object(scope);
+        transfer::public_freeze_object(nft);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(mint_cap);
     }
 
     #[test]
     #[expected_failure]
     fun test_trade_without_paying_royalty_aborts() {
         let ctx = tx_context::dummy();
-        let (policy, cap, publisher) = setup(&mut ctx);
+        let (policy, cap, scope, coll, mint_cap) = setup(&mut ctx);
 
-        let item = object::id_from_address(@0x1);
+        let nft = pet::mint_for_test(&mut mint_cap, &coll, &mut ctx);
         let from = object::id_from_address(@0x2);
-        let request = transfer_policy::new_request<KanariPet>(&policy, item, 1_000, from);
+        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
 
         // Deliberately skip `royalty_rule::pay`. No receipt is ever added, so
         // `confirm_request` aborts on the incomplete-receipt check. This is the
         // enforcement the hot potato buys: the buyer cannot opt out of the fee.
         let (_item, _paid, _from) =
-            transfer_policy::confirm_request<KanariPet>(&policy, request);
+            transfer_policy::confirm_request<Nft>(&policy, request);
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
-        transfer::public_freeze_object(publisher);
+        transfer::public_freeze_object(scope);
+        transfer::public_freeze_object(nft);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(mint_cap);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::transfer_policy, abort_code = 15)]
+    fun test_collection_policy_rejects_another_collections_nft() {
+        let ctx = tx_context::dummy();
+        let (policy, policy_cap, scope, _policy_collection, _policy_mint_cap) = setup(&mut ctx);
+        let (other_collection, other_mint_cap) = collection::create_collection(
+            &mut ctx, b"Other", b"Test", b"https://b", b"https://w", 10,
+        );
+        let nft = pet::mint_for_test(&mut other_mint_cap, &other_collection, &mut ctx);
+        let from = object::id_from_address(@0x2);
+
+        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
+        transfer_policy::confirm_request(&policy, request);
+
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(policy_cap);
+        transfer::public_freeze_object(scope);
+        transfer::public_freeze_object(_policy_collection);
+        transfer::public_freeze_object(_policy_mint_cap);
+        transfer::public_freeze_object(other_collection);
+        transfer::public_freeze_object(other_mint_cap);
+        transfer::public_freeze_object(nft);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::transfer_policy, abort_code = 14)]
+    fun test_krc721_policy_rejects_unscoped_requests() {
+        let ctx = tx_context::dummy();
+        let (policy, cap, scope, coll, mint_cap) = setup(&mut ctx);
+        let item = object::id_from_address(@0x1);
+        let from = object::id_from_address(@0x2);
+
+        let request = transfer_policy::new_request<Nft>(&policy, item, 1_000, from);
+        transfer_policy::confirm_request(&policy, request);
+
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(scope);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(mint_cap);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::transfer_policy, abort_code = 13)]
+    fun test_collection_policy_cap_cannot_change_another_policy() {
+        let ctx = tx_context::dummy();
+        let (policy_a, cap_a, scope_a, coll_a, mint_cap_a) = setup(&mut ctx);
+        let (policy_b, cap_b, scope_b, coll_b, mint_cap_b) = setup(&mut ctx);
+
+        royalty_rule::update_for_krc_721_collection(&mut policy_b, &cap_a, 500, 0, CREATOR);
+
+        transfer::public_freeze_object(policy_a);
+        transfer::public_freeze_object(cap_a);
+        transfer::public_freeze_object(scope_a);
+        transfer::public_freeze_object(coll_a);
+        transfer::public_freeze_object(mint_cap_a);
+        transfer::public_freeze_object(policy_b);
+        transfer::public_freeze_object(cap_b);
+        transfer::public_freeze_object(scope_b);
+        transfer::public_freeze_object(coll_b);
+        transfer::public_freeze_object(mint_cap_b);
     }
 
     #[test]
     fun test_display_is_type_keyed_and_readable() {
         let ctx = tx_context::dummy();
-        let publisher = kanari_system::package::new<PET_TESTS>(PET_TESTS {}, &mut ctx);
+        let (coll, cap) = collection::create_collection(
+            &mut ctx, b"Pets", b"Test", b"https://b", b"https://w", 10,
+        );
 
         let keys = vector::empty<vector<u8>>();
         let values = vector::empty<vector<u8>>();
         vector::push_back(&mut keys, b"name");
         vector::push_back(&mut values, b"Kanari Pet");
-        let d = display::create_with_fields<KanariPet, PET_TESTS>(
-            &publisher,
-            keys,
-            values,
-            &mut ctx,
-        );
+        let d = display::create_krc_721_collection_display(&cap, keys, values, &mut ctx);
 
         // The type name is always a field, so a client can identify the display
         // from its object alone.
-        assert!(display::field_count<KanariPet>(&d) == 2, 0);
-        let name = display::get<KanariPet>(&d, b"name");
-        assert!(*std::option::borrow(&name) == std::string::utf8(b"Kanari Pet"), 1);
+        assert!(display::krc_721_collection_field_count(&d) == 2, 0);
+        assert!(
+            display::krc_721_collection_id(&d) == collection::collection_id(&coll),
+            1,
+        );
+        let name = display::get_krc_721_collection_field(&d, b"name");
+        assert!(*std::option::borrow(&name) == std::string::utf8(b"Kanari Pet"), 2);
+        display::add_krc_721_collection_field(&mut d, &cap, b"name", b"Pets");
+        let updated_name = display::get_krc_721_collection_field(&d, b"name");
+        assert!(*std::option::borrow(&updated_name) == std::string::utf8(b"Pets"), 3);
 
         transfer::public_freeze_object(d);
-        transfer::public_freeze_object(publisher);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(cap);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::display, abort_code = 2)]
+    fun test_collection_display_rejects_another_collections_cap() {
+        let ctx = tx_context::dummy();
+        let (coll_a, cap_a) = collection::create_collection(
+            &mut ctx, b"A", b"Test", b"https://b", b"https://w", 10,
+        );
+        let (coll_b, cap_b) = collection::create_collection(
+            &mut ctx, b"B", b"Test", b"https://b", b"https://w", 10,
+        );
+        let keys = vector::empty<vector<u8>>();
+        let values = vector::empty<vector<u8>>();
+        let mut_ref_display =
+            display::create_krc_721_collection_display(&cap_a, keys, values, &mut ctx);
+        display::add_krc_721_collection_field(
+            &mut mut_ref_display,
+            &cap_b,
+            b"creator",
+            b"wrong",
+        );
+        transfer::public_freeze_object(mut_ref_display);
+        transfer::public_freeze_object(coll_a);
+        transfer::public_freeze_object(cap_a);
+        transfer::public_freeze_object(coll_b);
+        transfer::public_freeze_object(cap_b);
     }
 
     #[test]
@@ -161,9 +267,10 @@ module kanari_pet::pet_tests {
             b"https://w",
             1,
         );
+        let stats = test_stats(&mut ctx);
 
         // One mint is allowed.
-        pet::mint(&mut cap, &coll, ALICE, &mut ctx);
+        pet::mint(&mut cap, &coll, ALICE, &mut stats, &mut ctx);
         assert!(collection::remaining(&cap) == 0, 0);
         // A second cannot: `consume_for_mint` bounds the monotonic `issued`
         // counter against `max_supply`, so faking burns cannot reopen supply.
@@ -174,6 +281,7 @@ module kanari_pet::pet_tests {
         // discarded and strand the remaining supply. Both must be disposed of.
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
@@ -188,13 +296,15 @@ module kanari_pet::pet_tests {
             b"https://w",
             1,
         );
-        pet::mint(&mut cap, &coll, ALICE, &mut ctx);
+        let stats = test_stats(&mut ctx);
+        pet::mint(&mut cap, &coll, ALICE, &mut stats, &mut ctx);
         // The second mint aborts. The freezes below are unreachable; they exist
         // because `Collection` and `NftCap` have no `drop`, so the compiler
         // requires every path to dispose of them even past an abort.
-        pet::mint(&mut cap, &coll, ALICE, &mut ctx);
+        pet::mint(&mut cap, &coll, ALICE, &mut stats, &mut ctx);
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test_only]
@@ -205,7 +315,7 @@ module kanari_pet::pet_tests {
         cap: &mut collection::NftCap,
         coll: &collection::Collection,
         ctx: &mut TxContext,
-    ): KanariPet {
+    ): Nft {
         pet::mint_for_test(cap, coll, ctx)
     }
 
@@ -306,9 +416,14 @@ module kanari_pet::pet_tests {
         let pet = pet::mint_for_test(&mut cap, &coll, &mut ctx);
 
         assert!(pet::name(&pet) == std::string::utf8(b"Kanari Pet"), 0);
-        assert!(pet::description(&pet) == std::string::utf8(b"Test pet"), 1);
+        let description = pet::description(&pet);
         assert!(
-            kanari_system::url::inner_url(&pet::image_url(&pet))
+            *std::option::borrow(&description) == std::string::utf8(b"Test pet"),
+            1,
+        );
+        let image_url = pet::image_url(&pet);
+        assert!(
+            kanari_system::url::inner_url(std::option::borrow(&image_url))
                 == std::ascii::string(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"),
             2,
         );
@@ -341,7 +456,7 @@ module kanari_pet::pet_tests {
         level: u64,
         ctx: &mut TxContext,
     ): (
-        KanariPet,
+        Nft,
         collection::Collection,
         collection::NftCap,
         pet::Stats,
@@ -350,7 +465,7 @@ module kanari_pet::pet_tests {
             ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
         );
         let stats = test_stats(ctx);
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &stats, level, ctx);
+        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &mut stats, level, ctx);
         (pet, coll, cap, stats)
     }
 
@@ -358,7 +473,7 @@ module kanari_pet::pet_tests {
     /// Freeze the four objects every progression test ends with. The bodies
     /// end on one line instead of four boilerplate calls.
     fun seal(
-        pet: KanariPet,
+        pet: Nft,
         coll: collection::Collection,
         cap: collection::NftCap,
         stats: pet::Stats,
@@ -392,24 +507,81 @@ module kanari_pet::pet_tests {
         let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
         // Level 0: nothing yet.
-        assert!(pet::level(&pet) == 0, 0);
-        assert!(pet::power(&pet) == 0, 1);
-        assert!(pet::rarity(&pet) == std::string::utf8(b"Common"), 2);
+        assert!(pet::level(&stats, &pet) == 0, 0);
+        assert!(pet::power(&stats, &pet) == 0, 1);
+        assert!(pet::rarity(&stats, &pet) == std::string::utf8(b"Common"), 2);
 
         let payment = usd(1_000_000, &mut ctx);
-        pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
+        pet::upgrade(&mut pet, &mut stats, &mut payment, &mut ctx);
 
-        assert!(pet::level(&pet) == 1, 3);
+        assert!(pet::level(&stats, &pet) == 1, 3);
         // Power is derived from level, not caller-supplied.
-        assert!(pet::power(&pet) == 10, 4);
+        assert!(pet::power(&stats, &pet) == 10, 4);
         // Level 1 is still Common.
-        assert!(pet::rarity(&pet) == std::string::utf8(b"Common"), 5);
+        assert!(pet::rarity(&stats, &pet) == std::string::utf8(b"Common"), 5);
         // The exact quoted cost left the payer.
         assert!(coin::value(&payment) == 0, 6);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy_for_testing(balance);
         seal(pet, coll, cap, stats);
+    }
+
+    #[test]
+    /// KRC-721 setters are intentionally public. Forging the display metadata
+    /// through the framework must not change gameplay progression.
+    fun test_framework_attribute_setter_cannot_forge_progression() {
+        let ctx = tx_context::dummy();
+        let (pet, coll, cap, stats) = stage(0, &mut ctx);
+
+        krc_721::set_attribute(
+            &mut pet,
+            std::string::utf8(b"level"),
+            std::string::utf8(b"999"),
+        );
+        krc_721::set_attribute(
+            &mut pet,
+            std::string::utf8(b"power"),
+            std::string::utf8(b"999999"),
+        );
+        krc_721::set_attribute(
+            &mut pet,
+            std::string::utf8(b"rarity"),
+            std::string::utf8(b"Legendary"),
+        );
+
+        assert!(pet::level(&stats, &pet) == 0, 0);
+        assert!(pet::power(&stats, &pet) == 0, 1);
+        assert!(pet::rarity(&stats, &pet) == std::string::utf8(b"Common"), 2);
+
+        let payment = usd(1_000_000, &mut ctx);
+        pet::upgrade(&mut pet, &mut stats, &mut payment, &mut ctx);
+        assert!(pet::level(&stats, &pet) == 1, 3);
+        assert!(pet::power(&stats, &pet) == 10, 4);
+
+        let balance = coin::into_balance(payment);
+        let _ = balance::destroy_for_testing(balance);
+        seal(pet, coll, cap, stats);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_pet::pet, abort_code = 0)]
+    /// Free-form pet mint APIs cannot seed reserved progression metadata.
+    fun test_mint_rejects_reserved_progression_attributes() {
+        let ctx = tx_context::dummy();
+        let (coll, cap) = collection::create_collection(
+            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 1,
+        );
+        let stats = test_stats(&mut ctx);
+        let keys = vector::empty<vector<u8>>();
+        let values = vector::empty<vector<u8>>();
+        vector::push_back(&mut keys, b"level");
+        vector::push_back(&mut values, b"999");
+
+        pet::mint_with_attributes(&mut cap, &coll, ALICE, &mut stats, keys, values, &mut ctx);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
@@ -445,13 +617,13 @@ module kanari_pet::pet_tests {
         let payment = usd(100_000_000, &mut ctx);
         let i = 0;
         while (i < 40) {
-            pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
+            pet::upgrade(&mut pet, &mut stats, &mut payment, &mut ctx);
             i = i + 1;
         };
 
-        assert!(pet::level(&pet) == 40, 0);
-        assert!(pet::power(&pet) == 400, 1);
-        assert!(pet::rarity(&pet) == std::string::utf8(b"Legendary"), 2);
+        assert!(pet::level(&stats, &pet) == 40, 0);
+        assert!(pet::power(&stats, &pet) == 400, 1);
+        assert!(pet::rarity(&stats, &pet) == std::string::utf8(b"Legendary"), 2);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy_for_testing(balance);
@@ -468,7 +640,7 @@ module kanari_pet::pet_tests {
 
         // Every level costs a flat $1.00; a cent short aborts.
         let payment = usd(999_999, &mut ctx);
-        pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
+        pet::upgrade(&mut pet, &mut stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy_for_testing(balance);
@@ -552,7 +724,7 @@ module kanari_pet::pet_tests {
     fun test_wholesale_replace_preserves_progression() {
         let ctx = tx_context::dummy();
         let (pet, coll, cap, stats) = stage(7, &mut ctx);
-        assert!(pet::level(&pet) == 7, 0);
+        assert!(pet::level(&stats, &pet) == 7, 0);
 
         let keys = vector::empty<String>();
         let values = vector::empty<String>();
@@ -561,8 +733,8 @@ module kanari_pet::pet_tests {
         pet::set_string_attributes(&mut pet, keys, values);
 
         // Level survived the wholesale replace.
-        assert!(pet::level(&pet) == 7, 1);
-        assert!(pet::power(&pet) == 70, 2);
+        assert!(pet::level(&stats, &pet) == 7, 1);
+        assert!(pet::power(&stats, &pet) == 70, 2);
         // And the caller's trait landed alongside it.
         assert!(pet::has_attribute(&pet, &std::string::utf8(b"breed")), 3);
 
@@ -577,10 +749,10 @@ module kanari_pet::pet_tests {
     fun test_upgrade_aborts_at_max_level() {
         let ctx = tx_context::dummy();
         let (pet, coll, cap, stats) = stage(1_000, &mut ctx);
-        assert!(pet::level(&pet) == 1_000, 0);
+        assert!(pet::level(&stats, &pet) == 1_000, 0);
 
         let payment = usd(100_000_000, &mut ctx);
-        pet::upgrade(&mut pet, &stats, &mut payment, &mut ctx);
+        pet::upgrade(&mut pet, &mut stats, &mut payment, &mut ctx);
 
         let balance = coin::into_balance(payment);
         let _ = balance::destroy_for_testing(balance);
@@ -645,7 +817,7 @@ module kanari_pet::pet_tests {
         let keys = vector::empty<String>();
         let values = vector::empty<String>();
         vector::push_back(&mut keys, std::string::utf8(b"breed"));
-        vector::push_back(&mut keys, std::string::utf8(b"level"));
+        vector::push_back(&mut keys, std::string::utf8(b"mood"));
         // One key, one value: not a pair.
         vector::push_back(&mut values, std::string::utf8(b"shiba"));
 
@@ -675,17 +847,19 @@ module kanari_pet::pet_tests {
             b"https://w",
             1,
         );
+        let stats = test_stats(&mut ctx);
         assert!(collection::remaining(&cap) == 1, 0);
 
         let pet = mint_here(&mut cap, &coll, &mut ctx);
         assert!(collection::remaining(&cap) == 0, 1);
 
-        pet::burn(&mut cap, &coll, pet, &ctx);
+        pet::burn(&mut cap, &coll, &mut stats, pet, &ctx);
         // The unit came back.
         assert!(collection::remaining(&cap) == 1, 2);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
@@ -707,12 +881,13 @@ module kanari_pet::pet_tests {
             b"https://w",
             1,
         );
+        let stats = test_stats(&mut ctx);
 
         let pet = mint_here(&mut cap, &coll, &mut ctx);
         assert!(collection::issued(&cap) == 1, 0);
         assert!(collection::remaining(&cap) == 0, 1);
 
-        pet::burn(&mut cap, &coll, pet, &ctx);
+        pet::burn(&mut cap, &coll, &mut stats, pet, &ctx);
         // `remaining` went back up...
         assert!(collection::remaining(&cap) == 1, 2);
         // ...but `issued` is unchanged and still at the cap. The enforcement
@@ -721,6 +896,7 @@ module kanari_pet::pet_tests {
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
@@ -739,9 +915,10 @@ module kanari_pet::pet_tests {
             b"https://w",
             1,
         );
+        let stats = test_stats(&mut ctx);
 
         let pet = mint_here(&mut cap, &coll, &mut ctx);
-        pet::burn(&mut cap, &coll, pet, &ctx);
+        pet::burn(&mut cap, &coll, &mut stats, pet, &ctx);
         // `remaining` is back to 1, which is exactly what makes this look
         // mintable. It is not.
         assert!(collection::remaining(&cap) == 1, 0);
@@ -751,6 +928,7 @@ module kanari_pet::pet_tests {
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
@@ -767,6 +945,7 @@ module kanari_pet::pet_tests {
             b"https://w",
             2,
         );
+        let stats = test_stats(&mut ctx);
 
         let keys = vector::empty<String>();
         let values = vector::empty<String>();
@@ -781,15 +960,16 @@ module kanari_pet::pet_tests {
         );
         assert!(pet::attribute_count(&pet) == 1, 0);
 
-        pet::burn(&mut cap, &coll, pet, &ctx);
+        pet::burn(&mut cap, &coll, &mut stats, pet, &ctx);
         assert!(collection::remaining(&cap) == 2, 1);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
-    #[expected_failure(location = kanari_system::collection, abort_code = 3)]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 2)]
     /// Burning must be bound to the collection that issued the pet. A cap
     /// transferred to another collection would otherwise reclaim supply from an
     /// unrelated pool.
@@ -803,6 +983,7 @@ module kanari_pet::pet_tests {
             b"https://w",
             5,
         );
+        let stats = test_stats(&mut ctx);
         let (coll_b, _cap_b) = collection::create_collection(
             &mut ctx,
             b"B",
@@ -814,19 +995,20 @@ module kanari_pet::pet_tests {
 
         let pet = mint_here(&mut cap_a, &coll_a, &mut ctx);
         // cap_a belongs to coll_a, not coll_b.
-        pet::burn(&mut cap_a, &coll_b, pet, &ctx);
+        pet::burn(&mut cap_a, &coll_b, &mut stats, pet, &ctx);
 
         transfer::public_freeze_object(coll_a);
         transfer::public_freeze_object(cap_a);
         transfer::public_freeze_object(coll_b);
         transfer::public_freeze_object(_cap_b);
+        transfer::public_freeze_object(stats);
     }
 
     #[test]
     /// Regression note for a confirmed exploit, kept because the guard is
     /// invisible from inside this package.
     ///
-    /// `upgrade` takes a caller-supplied `&Stats`, so while `new_stats` was
+    /// `upgrade` takes a caller-supplied `&mut Stats`, so while `new_stats` was
     /// `public` a caller built `Stats { base_cost_usd: 1, power_per_level:
     /// 1_000_000, max_level: 9_999 }` and bought a million power for one
     /// micro-USD.
@@ -850,9 +1032,9 @@ module kanari_pet::pet_tests {
         assert!(pet::upgrade_cost(&honest, 0) == 1_000_000, 2);
         assert!(pet::treasury(&honest) == CREATOR, 3);
 
-        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &honest, 3, &mut ctx);
-        assert!(pet::level(&pet) == 3, 4);
-        assert!(pet::power(&pet) == 30, 5);
+        let pet = pet::mint_with_level_for_test(&mut cap, &coll, &mut honest, 3, &mut ctx);
+        assert!(pet::level(&honest, &pet) == 3, 4);
+        assert!(pet::power(&honest, &pet) == 30, 5);
 
         transfer::public_freeze_object(pet);
         transfer::public_freeze_object(honest);

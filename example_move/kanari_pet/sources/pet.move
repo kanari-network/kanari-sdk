@@ -1,52 +1,50 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// `KanariPet` — the showcase token for the Sui-parity stack.
+/// `KanariPet` — a game example implemented with the framework KRC-721 type.
 ///
 /// Deliberately thin. Everything that matters lives in the framework, wired
 /// together in `init`:
 ///
 /// | Concern          | Primitive                            |
 /// |------------------|--------------------------------------|
-/// | type authority   | `kanari_system::package::Publisher`  |
-/// | display metadata | `kanari_system::display::Display`    |
+/// | token type       | `kanari_system::krc_721::Nft`        |
+/// | display metadata | collection-scoped framework display |
 /// | trade rules      | `kanari_system::transfer_policy`     |
 /// | royalty          | `kanari_system::royalty_rule`        |
 /// | per-token traits | `kanari_system::krc_721` attribute model |
 /// | supply           | `kanari_system::collection::NftCap`   |
 ///
-/// Each pet stores its own name, artwork, and description. Publisher, Display,
-/// TransferPolicy, and keyed attributes use framework primitives.
+/// Pet progression is stored in issuer-controlled state, separate from
+/// holder-editable KRC-721 metadata.
 module kanari_pet::pet {
     use std::option::{Self, Option};
     use std::string::{Self, String};
     use std::vector;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::collection::{Self, Collection, NftCap};
-    use kanari_system::display::{Self, Display};
+    use kanari_system::display::{Self, Krc721CollectionDisplay};
     use kanari_system::event;
-    use kanari_system::krc_721;
+    use kanari_system::krc_721::{Self, Nft};
     use kanari_system::object::{Self, UID};
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
-    use kanari_system::transfer_policy::{Self, TransferPolicy, TransferPolicyCap};
+    use kanari_system::transfer_policy::{
+        Self,
+        Krc721CollectionPolicyCap,
+        Krc721CollectionScope,
+        TransferPolicy,
+    };
+    use kanari_system::table::{Self, Table};
     use kanari_system::tx_context::{Self, TxContext};
-    use kanari_system::url::{Self, Url};
+    use kanari_system::url;
     use kanari_system::usd::USD;
-    use kanari_system::vec_map::VecMap;
-    use kanari_pet::nft as pet_nft;
-
-    #[test_only]
-    use kanari_system::package::Publisher;
 
     // ==================== Progression ====================
     //
-    // `power`, `level` and `rarity` are stored as ordinary attributes so a
-    // wallet renders them with no special-casing — but they are **reserved
-    // keys**. The generic `set_attribute` refuses them, so the only way to
-    // write them is `mint_with_level` (free, at birth) or `upgrade` (paid, in
-    // USD). Without that reservation the economy is void: anyone could call
-    // `set_attribute(pet, "power", "999999")` and buy nothing.
+    // Progression metadata is rendered as ordinary attributes, but the
+    // authoritative level lives in Stats. Framework-level attribute setters
+    // remain public, so gameplay must never trust these display values.
 
     /// Reserved attribute key holding the pet's power rating.
     const ATTR_POWER: vector<u8> = b"power";
@@ -56,11 +54,9 @@ module kanari_pet::pet {
 
     /// Reserved attribute key holding the pet's rarity band name.
     const ATTR_RARITY: vector<u8> = b"rarity";
-    const DEFAULT_IMAGE_URL: vector<u8> =
-        b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4";
+    const DEFAULT_IMAGE_URL: vector<u8> = b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4";
 
-    /// A caller tried to write a reserved key through the generic setter,
-    /// bypassing the paid upgrade path.
+    /// A caller tried to write a reserved key through a pet-module setter.
     const E_RESERVED_ATTRIBUTE: u64 = 0;
 
     /// The pet is already at `Stats::max_level`.
@@ -71,17 +67,12 @@ module kanari_pet::pet {
 
     /// The minted level exceeds the configured cap.
     const E_LEVEL_OUT_OF_RANGE: u64 = 3;
-
-    /// Only the collection creator may register a previously minted pet.
-    const E_NOT_COLLECTION_CREATOR: u64 = 4;
-
-    /// The supplied mint cap does not belong to the supplied collection.
-    const E_CAP_COLLECTION_MISMATCH: u64 = 5;
+    const E_NOT_PET: u64 = 6;
 
     /// Supply of the collection `init` creates.
     const MAX_SUPPLY: u64 = 10_000;
 
-    /// Upgrade economics for every `KanariPet`.
+    /// Upgrade economics for every `Nft`.
     ///
     /// Shared rather than per-pet so the parameters are one object an indexer
     /// can read and the creator can reason about, and so an upgrade reads the
@@ -90,53 +81,34 @@ module kanari_pet::pet {
         id: UID,
         /// Where upgrade payments go.
         treasury: address,
-        /// USD (6-decimal base units) charged for the step from level N to N+1.
-        /// The actual charge is `base_cost_usd * (N + 1)`, so later levels cost
-        /// progressively more instead of the sink being infinitely spammable at
-        /// a flat price.
+        /// USD (6-decimal base units) charged for each level, at a flat rate.
         base_cost_usd: u64,
         /// Power granted per level.
         power_per_level: u64,
         /// Hard ceiling. At this level `upgrade` refuses rather than wrapping.
         max_level: u64,
+        /// Authoritative level state. NFT attributes are display metadata only.
+        levels: Table<address, u64>
     }
 
-    /// The universal NFT layout used by `james::nft`, with pet progression
-    /// stored as ordinary keyed attributes.
-    struct KanariPet has key, store {
-        id: UID,
-        name: String,
-        image_url: Url,
-        description: String,
-        attributes: VecMap<String, String>,
-        number: String,
-        collection_id: address,
-        creator: address,
-    }
-
-    /// One-time witness for this package, named after the module in caps so
-    /// `types::is_one_time_witness` accepts it. Only this module can construct
-    /// it, so only this module can obtain a `Publisher`.
+    /// One-time module witness required by package initialization.
     struct PET has drop {}
 
-    /// One-time witness for this package's types. Its existence is what lets
-    /// `init` claim `Publisher<KanariPet>`; no other package can construct it.
-    /// The currency royalties are paid in. Fees settle in a stablecoin rather
-    /// than in the NFT itself, which is what every Sui royalty example does.
+    /// Currency used for royalty payments, separate from the NFT itself.
     struct FEE has key, store, drop {}
 
     /// Emitted when a pet is destroyed, so indexers can retire it without
     /// replaying every transfer.
     struct Burned has copy, drop {
         pet_id: address,
-        owner: address,
+        owner: address
     }
 
     /// Emitted when a pet's attributes change. Off-chain state that mirrors
     /// attributes has to hear about this; there is no other signal, because the
     /// object id does not change when a field does.
     struct AttributesChanged has copy, drop {
-        pet_id: address,
+        pet_id: address
     }
 
     /// Emitted when a pet is upgraded. Carries the USD actually charged so an
@@ -147,72 +119,73 @@ module kanari_pet::pet {
         level_before: u64,
         level_after: u64,
         power_after: u64,
-        usd_paid: u64,
+        usd_paid: u64
     }
 
     /// Publication-time setup, run once by the runtime.
     ///
-    /// Claims type authority, shares the display, and shares the transfer policy
-    /// with a 5% royalty to the publisher. **Sharing the policy is what makes
-    /// `KanariPet` tradable** — a type whose policy is never shared cannot trade
-    /// at all, so trading is opt-in by the type owner.
+    /// Creates collection-bound metadata and a 5% royalty policy.
     public fun init(_otw: PET, _fee_otw: FEE, ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
-        let publisher = kanari_system::package::new<PET>(_otw, ctx);
+        share_stats(sender, ctx);
+        let (collection, mint_cap) = create_pet_collection(ctx);
+        create_pet_display(&mint_cap, ctx);
+        create_pet_policy(&mint_cap, &collection, sender, ctx);
+        transfer::share_object(collection);
+        transfer::public_transfer(mint_cap, sender);
+    }
 
-        // Display metadata is keyed by type, not per token, so this is set once
-        // and every `KanariPet` ever minted renders from it.
-        let keys = vector::empty<vector<u8>>();
-        let values = vector::empty<vector<u8>>();
-        vector::push_back(&mut keys, b"name");
-        vector::push_back(&mut values, b"Kanari Pet");
-        vector::push_back(&mut keys, b"description");
-        vector::push_back(&mut values, b"An NFT built on the Kanari Sui-parity stack");
-        vector::push_back(&mut keys, b"image_url");
-        vector::push_back(
-            &mut values,
-            b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
-        );
-        vector::push_back(&mut keys, b"creator");
-        vector::push_back(&mut values, b"Kanari Labs");
-        let d = display::create_with_fields<KanariPet, PET>(&publisher, keys, values, ctx);
-        display::share<KanariPet>(d);
-
-        // Policy + owner cap, with the royalty rule installed.
-        let (policy, cap) = transfer_policy::new<KanariPet, PET>(&publisher, ctx);
-        let policy = install_royalty(policy, &cap, sender);
-        transfer_policy::share<KanariPet>(policy);
-
-        // Upgrade economics, shared so every pet reads the same numbers and the
-        // treasury is a single address rather than something carried per token.
+    fun share_stats(treasury: address, ctx: &mut TxContext) {
         transfer::share_object(
             Stats {
                 id: object::new(ctx),
-                treasury: sender,
-                // Flat $1.00 per level, in USD's 6-decimal base units.
+                treasury,
                 base_cost_usd: 1_000_000,
                 power_per_level: 10,
-                max_level: 1_000
+                max_level: 1_000,
+                levels: table::new<address, u64>(ctx)
             }
         );
+    }
 
-        // The collection object minting draws from. The `Collection` is shared
-        // so anyone can read supply (and `burn` can bind to it); the `NftCap`
-        // that authorises mints goes to the sender.
-        let (coll, mint_cap) =
-            collection::create_collection(
-                ctx,
+    fun create_pet_collection(ctx: &mut TxContext): (Collection, NftCap) {
+        collection::create_collection(
+            ctx,
+            b"Kanari Pet",
+            b"An NFT built on the Kanari Sui-parity stack",
+            b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4",
+            b"https://github.com/KanariNetwork/kanari-sdk",
+            MAX_SUPPLY
+        )
+    }
+
+    fun create_pet_display(cap: &NftCap, ctx: &mut TxContext) {
+        let display = display::create_krc_721_collection_display(
+            cap,
+            vector[b"name", b"description", b"image_url", b"creator"],
+            vector[
                 b"Kanari Pet",
                 b"An NFT built on the Kanari Sui-parity stack",
                 b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4",
-                b"https://github.com/KanariNetwork/kanari-sdk",
-                MAX_SUPPLY
-            );
-        transfer::share_object(coll);
+                b"Kanari Labs"
+            ],
+            ctx
+        );
+        display::share_krc_721_collection_display(display);
+    }
 
-        transfer::public_transfer(cap, sender);
-        transfer::public_transfer(mint_cap, sender);
-        transfer::public_transfer(publisher, sender);
+    fun create_pet_policy(
+        mint_cap: &NftCap,
+        collection: &Collection,
+        beneficiary: address,
+        ctx: &mut TxContext,
+    ) {
+        let (policy, scope, cap) =
+            transfer_policy::new_for_krc_721_collection(mint_cap, collection, ctx);
+        let policy = install_royalty(policy, &cap, beneficiary);
+        transfer_policy::share<Nft>(policy);
+        transfer_policy::share_krc_721_scope(scope);
+        transfer_policy::transfer_krc_721_collection_cap(cap, beneficiary);
     }
 
     /// Install the 5% royalty, returning the configured policy.
@@ -221,11 +194,11 @@ module kanari_pet::pet {
     /// bindings: taking `policy` by value and returning it is the way to get a
     /// `&mut` borrow.
     fun install_royalty(
-        policy: TransferPolicy<KanariPet>,
-        cap: &TransferPolicyCap<KanariPet>,
-        beneficiary: address,
-    ): TransferPolicy<KanariPet> {
-        royalty_rule::add<KanariPet>(&mut policy, cap, 500, 0, beneficiary);
+        policy: TransferPolicy<Nft>,
+        cap: &Krc721CollectionPolicyCap,
+        beneficiary: address
+    ): TransferPolicy<Nft> {
+        royalty_rule::add_for_krc_721_collection(&mut policy, cap, 500, 0, beneficiary);
         policy
     }
 
@@ -238,18 +211,19 @@ module kanari_pet::pet {
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
-        ctx: &mut TxContext,
+        stats: &mut Stats,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
             collection,
             recipient,
+            stats,
             string::utf8(b"Kanari Pet"),
             string::utf8(b"An NFT built on the Kanari Sui-parity stack"),
             url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL),
             vector::empty<String>(),
             vector::empty<String>(),
-            string::utf8(b""),
             ctx
         )
     }
@@ -259,24 +233,24 @@ module kanari_pet::pet {
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
+        stats: &mut Stats,
         name: vector<u8>,
         description: vector<u8>,
         image_url: vector<u8>,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        number: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
             collection,
             recipient,
+            stats,
             string::utf8(name),
             string::utf8(description),
             url::new_unsafe_from_bytes(image_url),
             utf8_all(attribute_keys),
             utf8_all(attribute_values),
-            string::utf8(number),
             ctx
         );
     }
@@ -293,20 +267,21 @@ module kanari_pet::pet {
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
+        stats: &mut Stats,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
             collection,
             recipient,
+            stats,
             string::utf8(b"Kanari Pet"),
             string::utf8(b"An NFT built on the Kanari Sui-parity stack"),
             url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL),
             utf8_all(attribute_keys),
             utf8_all(attribute_values),
-            string::utf8(b""),
             ctx
         );
     }
@@ -315,62 +290,32 @@ module kanari_pet::pet {
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
+        stats: &mut Stats,
         name: String,
         description: String,
-        image_url: Url,
+        image_url: kanari_system::url::Url,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        number: String,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        // Validate before consuming supply, so a rejected attribute set cannot
-        // burn a mint slot as a side effect of aborting.
-        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
-        collection::consume_for_mint(pet_cap, collection);
-        let creator = tx_context::sender(ctx);
-        let collection_id = collection::collection_id(collection);
-        let pet = KanariPet {
-            id: object::new(ctx),
-            name,
-            image_url,
-            description,
-            attributes,
-            number,
-            collection_id,
-            creator
+        let i = 0;
+        while (i < vector::length(&attribute_keys)) {
+            assert!(!is_reserved(vector::borrow(&attribute_keys, i)), E_RESERVED_ATTRIBUTE);
+            i = i + 1;
         };
-        pet_nft::emit_mint_log(
-            object::uid_address(&pet.id),
-            creator,
-            collection_id
-        );
-        transfer::public_transfer(pet, recipient);
-    }
-
-    /// Add a pet minted before collection membership events were introduced.
-    ///
-    /// The collection creator must own the pet and its matching mint cap.
-    public entry fun register_existing_pet(
-        pet: &KanariPet,
-        pet_cap: &NftCap,
-        collection: &Collection,
-        ctx: &TxContext,
-    ) {
-        let sender = tx_context::sender(ctx);
-        assert!(
-            collection::collection_creator(collection) == sender,
-            E_NOT_COLLECTION_CREATOR
-        );
-        assert!(
-            collection::cap_collection_id(pet_cap)
-                == collection::collection_id(collection),
-            E_CAP_COLLECTION_MISMATCH
-        );
-        pet_nft::emit_mint_log(
-            object::uid_address(&pet.id),
-            sender,
-            collection::collection_id(collection)
-        );
+        let pet =
+            krc_721::mint(
+                pet_cap,
+                collection,
+                name,
+                option::some(description),
+                option::some(image_url),
+                attribute_keys,
+                attribute_values,
+                ctx
+            );
+        table::add(&mut stats.levels, krc_721::nft_address(&pet), 0);
+        krc_721::transfer(pet, recipient);
     }
 
     /// Destroy a pet and return its supply unit to the cap.
@@ -388,29 +333,22 @@ module kanari_pet::pet {
     public entry fun burn(
         pet_cap: &mut NftCap,
         collection: &Collection,
-        pet: KanariPet,
-        ctx: &TxContext,
+        stats: &mut Stats,
+        pet: Nft,
+        ctx: &TxContext
     ) {
-        let pet_address = object::uid_address(&pet.id);
+        let pet_address = krc_721::nft_address(&pet);
         let owner = tx_context::sender(ctx);
         event::emit(Burned { pet_id: pet_address, owner });
-        collection::return_from_burn(pet_cap, collection);
-        let KanariPet {
-            id,
-            name: _,
-            image_url: _,
-            description: _,
-            attributes: _,
-            number: _,
-            collection_id: _,
-            creator: _
-        } = pet;
-        object::delete(id);
+        if (table::contains(&stats.levels, pet_address)) {
+            let _ = table::remove(&mut stats.levels, pet_address);
+        };
+        krc_721::burn(pet_cap, collection, pet);
     }
 
     /// Transfer the pet to another address.
     ///
-    /// Ownership moves as-is: the pet keeps its progression attributes,
+    /// Ownership moves as-is: the pet keeps its progression metadata,
     /// number, and artwork. This is the direct-transfer path — it matches
     /// `transfer::public_transfer` semantics, so royalties on the shared
     /// `TransferPolicy` do not apply here. Trading through a marketplace should
@@ -419,8 +357,8 @@ module kanari_pet::pet {
     /// Only the current owner can call this: the pet arrives as a declared
     /// owned object input, and the runtime rejects mutable owned inputs whose
     /// stored owner is not the sender.
-    public entry fun transfer(pet: KanariPet, recipient: address) {
-        transfer::public_transfer(pet, recipient);
+    public entry fun transfer(pet: Nft, recipient: address) {
+        krc_721::transfer(pet, recipient);
     }
 
     /// Insert or overwrite one attribute, taking raw bytes for the CLI.
@@ -431,64 +369,53 @@ module kanari_pet::pet {
     /// for nothing, which is the entire economy collapsed into one call. Those
     /// keys move only via `mint_with_level` or `upgrade`.
     public entry fun set_attribute(
-        pet: &mut KanariPet,
-        key: vector<u8>,
-        value: vector<u8>,
+        pet: &mut Nft, key: vector<u8>, value: vector<u8>
     ) {
         set_string_attribute(pet, string::utf8(key), string::utf8(value));
     }
 
     /// The `String`-typed body behind `set_attribute`.
     public fun set_string_attribute(
-        pet: &mut KanariPet,
-        key: String,
-        value: String,
+        pet: &mut Nft, key: String, value: String
     ) {
         assert!(!is_reserved(&key), E_RESERVED_ATTRIBUTE);
-        let pet_address = object::uid_address(&pet.id);
-        krc_721::set_attribute_on(&mut pet.attributes, key, value);
+        let pet_address = krc_721::nft_address(pet);
+        krc_721::set_attribute(pet, key, value);
         event::emit(AttributesChanged { pet_id: pet_address });
     }
 
     /// Remove one attribute and return its value. Aborts if absent.
     ///
-    /// Reserved keys cannot be removed either: dropping `level` would leave the
-    /// pet in a state `upgrade` could not reason about, since it reads the
-    /// current level back out of the map.
-    public fun remove_attribute(pet: &mut KanariPet, key: &String): String {
+    /// Reserved keys cannot be removed through this wrapper so wallet metadata
+    /// stays consistent. Gameplay progression is stored separately in `Stats`.
+    public fun remove_attribute(pet: &mut Nft, key: &String): String {
         assert!(!is_reserved(key), E_RESERVED_ATTRIBUTE);
-        let pet_address = object::uid_address(&pet.id);
-        let value = krc_721::remove_attribute_from(&mut pet.attributes, key);
+        let pet_address = krc_721::nft_address(pet);
+        let value = krc_721::remove_attribute(pet, key);
         event::emit(AttributesChanged { pet_id: pet_address });
         value
     }
 
     /// Replace the whole attribute set from parallel vectors.
     ///
-    /// Reserved keys are **preserved**, not replaced and not dropped. A caller
-    /// supplying its own key list would otherwise be able to erase every pet's
-    /// progression in one call, or to overwrite `level` outright.
+    /// Reserved keys are **preserved**, not replaced and not dropped, keeping
+    /// display metadata consistent when a caller replaces free-form attributes.
     public entry fun set_attributes(
-        pet: &mut KanariPet,
+        pet: &mut Nft,
         attribute_keys: vector<vector<u8>>,
-        attribute_values: vector<vector<u8>>,
+        attribute_values: vector<vector<u8>>
     ) {
-        set_string_attributes(
-            pet,
-            utf8_all(attribute_keys),
-            utf8_all(attribute_values)
-        );
+        set_string_attributes(pet, utf8_all(attribute_keys), utf8_all(attribute_values));
     }
 
     /// The `String`-typed body behind `set_attributes`.
     ///
-    /// Reserved keys are **preserved**, not replaced and not dropped. A caller
-    /// supplying its own key list would otherwise be able to erase every pet's
-    /// progression in one call, or to overwrite `level` outright.
+    /// Reserved keys are **preserved**, not replaced and not dropped, keeping
+    /// display metadata consistent when a caller replaces free-form attributes.
     public fun set_string_attributes(
-        pet: &mut KanariPet,
+        pet: &mut Nft,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
+        attribute_values: vector<String>
     ) {
         let i = 0;
         while (i < vector::length(&attribute_keys)) {
@@ -498,78 +425,84 @@ module kanari_pet::pet {
             );
             i = i + 1;
         };
-        let pet_address = object::uid_address(&pet.id);
-        let replacement = krc_721::build_attributes(attribute_keys, attribute_values);
-        copy_reserved(&pet.attributes, &mut replacement);
-        pet.attributes = replacement;
+        let pet_address = krc_721::nft_address(pet);
+        let (old_keys, old_values) = krc_721::all_attributes(pet);
+        let i = 0;
+        while (i < vector::length(&old_keys)) {
+            let old_key = *vector::borrow(&old_keys, i);
+            if (is_reserved(&old_key)) {
+                vector::push_back(&mut attribute_keys, old_key);
+                vector::push_back(&mut attribute_values, *vector::borrow(&old_values, i));
+            };
+            i = i + 1;
+        };
+        krc_721::set_attributes(pet, attribute_keys, attribute_values);
         event::emit(AttributesChanged { pet_id: pet_address });
     }
 
     /// The value stored under `key`, or `none`.
-    public fun attribute(pet: &KanariPet, key: &String): Option<String> {
-        krc_721::attribute_of(&pet.attributes, key)
+    public fun attribute(pet: &Nft, key: &String): Option<String> {
+        krc_721::attribute(pet, key)
     }
 
     /// True iff `key` is present.
-    public fun has_attribute(pet: &KanariPet, key: &String): bool {
-        krc_721::has_attribute_in(&pet.attributes, key)
+    public fun has_attribute(pet: &Nft, key: &String): bool {
+        krc_721::has_attribute(pet, key)
     }
 
     /// How many attributes the pet carries.
-    public fun attribute_count(pet: &KanariPet): u64 {
-        krc_721::attribute_count_of(&pet.attributes)
+    public fun attribute_count(pet: &Nft): u64 {
+        krc_721::attribute_count(pet)
     }
 
     /// Attribute keys in insertion order.
-    public fun attribute_keys(pet: &KanariPet): vector<String> {
-        krc_721::attribute_keys_of(&pet.attributes)
+    public fun attribute_keys(pet: &Nft): vector<String> {
+        krc_721::attribute_keys(pet)
     }
 
     /// Every `(key, value)` pair in insertion order, index-aligned.
-    public fun all_attributes(pet: &KanariPet): (vector<String>, vector<String>) {
-        krc_721::all_attributes_of(&pet.attributes)
+    public fun all_attributes(pet: &Nft): (vector<String>, vector<String>) {
+        krc_721::all_attributes(pet)
     }
 
-    public fun name(pet: &KanariPet): String {
-        pet.name
+    public fun name(pet: &Nft): String {
+        krc_721::name(pet)
     }
 
-    public fun image_url(pet: &KanariPet): Url {
-        pet.image_url
+    public fun image_url(pet: &Nft): Option<kanari_system::url::Url> {
+        krc_721::image_url(pet)
     }
 
-    public fun description(pet: &KanariPet): String {
-        pet.description
+    public fun description(pet: &Nft): Option<String> {
+        krc_721::description(pet)
     }
 
-    public fun number(pet: &KanariPet): String {
-        pet.number
+    public fun number(pet: &Nft): u64 {
+        krc_721::number(pet)
     }
 
-    public fun collection_id(pet: &KanariPet): address {
-        pet.collection_id
-    }
-
-    public fun creator(pet: &KanariPet): address {
-        pet.creator
+    public fun collection_id(pet: &Nft): address {
+        krc_721::collection_of(pet)
     }
 
     // ==================== Progression: reading ====================
 
-    /// The pet's current level. `0` if absent, which cannot happen for a pet
-    /// minted through this module but keeps the read total.
-    public fun level(pet: &KanariPet): u64 {
-        u64_of(pet, ATTR_LEVEL)
+    /// The authoritative pet level. Generic KRC-721 attribute setters cannot
+    /// change this issuer-controlled value.
+    public fun level(stats: &Stats, pet: &Nft): u64 {
+        let pet_address = krc_721::nft_address(pet);
+        assert!(table::contains(&stats.levels, pet_address), E_NOT_PET);
+        *table::borrow(&stats.levels, pet_address)
     }
 
-    /// The pet's power rating, derived from its level at mint/upgrade time.
-    public fun power(pet: &KanariPet): u64 {
-        u64_of(pet, ATTR_POWER)
+    /// The authoritative power rating, derived from issuer-controlled level.
+    public fun power(stats: &Stats, pet: &Nft): u64 {
+        power_for_level(stats, level(stats, pet))
     }
 
-    /// The pet's rarity band, derived from its level.
-    public fun rarity(pet: &KanariPet): String {
-        string_of(pet, ATTR_RARITY)
+    /// The authoritative rarity band, derived from issuer-controlled level.
+    public fun rarity(stats: &Stats, pet: &Nft): String {
+        rarity_for_level(level(stats, pet))
     }
 
     // ==================== Progression: upgrading ====================
@@ -577,7 +510,7 @@ module kanari_pet::pet {
     /// The USD cost of taking a pet from `current_level` to the next one.
     ///
     /// Flat: every level costs exactly `base_cost_usd` — $1.00 per level by
-    /// default, so a full climb to `max_level` is 50 x $1.00, not an
+    /// default, so a full climb to `max_level` is 1,000 x $1.00, not an
     /// escalating sum. Public and pure so a client can quote the next step
     /// before committing, and so the charged amount and the quoted amount
     /// cannot drift apart — `upgrade` calls this, not a private copy of the
@@ -594,15 +527,12 @@ module kanari_pet::pet {
     /// caller — a paid upgrade that let its buyer name their own power rating
     /// would not be a progression system at all.
     public entry fun upgrade(
-        pet: &mut KanariPet,
-        stats: &Stats,
-        payment: &mut Coin<USD>,
-        ctx: &mut TxContext,
+        pet: &mut Nft, stats: &mut Stats, payment: &mut Coin<USD>, ctx: &mut TxContext
     ) {
-        let pet_address = object::uid_address(&pet.id);
+        let pet_address = krc_721::nft_address(pet);
         let owner = tx_context::sender(ctx);
 
-        let current = level(pet);
+        let current = level(stats, pet);
         assert!(current < stats.max_level, E_MAX_LEVEL);
 
         let cost = upgrade_cost(stats, current);
@@ -616,9 +546,10 @@ module kanari_pet::pet {
         let next = current + 1;
         let next_power = power_for_level(stats, next);
 
-        set_reserved(&mut pet.attributes, ATTR_LEVEL, u64_string(next));
-        set_reserved(&mut pet.attributes, ATTR_POWER, u64_string(next_power));
-        set_reserved(&mut pet.attributes, ATTR_RARITY, rarity_for_level(next));
+        *table::borrow_mut(&mut stats.levels, pet_address) = next;
+        set_reserved(pet, ATTR_LEVEL, u64_string(next));
+        set_reserved(pet, ATTR_POWER, u64_string(next_power));
+        set_reserved(pet, ATTR_RARITY, rarity_for_level(next));
 
         event::emit(
             Upgraded {
@@ -641,36 +572,35 @@ module kanari_pet::pet {
         pet_cap: &mut NftCap,
         collection: &Collection,
         recipient: address,
-        stats: &Stats,
+        stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
         // Attributes are validated and progression stamped before the supply
         // unit is consumed, so a rejected level cannot cost a mint slot.
         let attribute_keys = vector::empty<String>();
         let attribute_values = vector::empty<String>();
-        let attributes = seed_progression(stats, initial_level, attribute_keys, attribute_values);
-        collection::consume_for_mint(pet_cap, collection);
-
-        let creator = tx_context::sender(ctx);
-        let collection_id = collection::collection_id(collection);
-        let pet = KanariPet {
-            id: object::new(ctx),
-            name: string::utf8(b"Kanari Pet"),
-            image_url: url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL),
-            description: string::utf8(b"An NFT built on the Kanari Sui-parity stack"),
-            attributes,
-            number: string::utf8(b""),
-            collection_id,
-            creator
-        };
-        pet_nft::emit_mint_log(
-            object::uid_address(&pet.id),
-            creator,
-            collection_id
-        );
-        transfer::public_transfer(pet, recipient);
+        let (attribute_keys, attribute_values) =
+            seed_progression(
+                stats,
+                initial_level,
+                attribute_keys,
+                attribute_values
+            );
+        let pet =
+            krc_721::mint(
+                pet_cap,
+                collection,
+                string::utf8(b"Kanari Pet"),
+                option::some(string::utf8(b"An NFT built on the Kanari Sui-parity stack")),
+                option::some(url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL)),
+                attribute_keys,
+                attribute_values,
+                ctx
+            );
+        table::add(&mut stats.levels, krc_721::nft_address(&pet), initial_level);
+        krc_721::transfer(pet, recipient);
     }
 
     /// Power for `level`: purely a function of level, so two pets at the same
@@ -712,7 +642,7 @@ module kanari_pet::pet {
     ///
     /// **`#[test_only]` is the security control, not a convenience.** This is
     /// deliberately unreachable outside tests: `upgrade` and `mint_with_level`
-    /// take a `&Stats`, so a publicly constructible `Stats` would let any
+    /// take a `&mut Stats`, so a publicly constructible `Stats` would let any
     /// caller pass their own economics — a one-unit price, a million power per
     /// level, no ceiling — and buy arbitrary progression for pennies. `init` is
     /// the only thing that may build one, which makes the shared object the
@@ -724,14 +654,15 @@ module kanari_pet::pet {
         base_cost_usd: u64,
         power_per_level: u64,
         max_level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Stats {
         Stats {
             id: object::new(ctx),
             treasury,
             base_cost_usd,
             power_per_level,
-            max_level
+            max_level,
+            levels: table::new<address, u64>(ctx)
         }
     }
 
@@ -761,78 +692,10 @@ module kanari_pet::pet {
             || k == string::utf8(b"rarity")
     }
 
-    /// Write a reserved key, bypassing the free-setter guard. Module-private on
-    /// purpose: only `upgrade` and `mint_with_level` may call it.
-    fun set_reserved(
-        attributes: &mut VecMap<String, String>,
-        key: vector<u8>,
-        value: String,
-    ) {
-        krc_721::set_attribute_on(attributes, string::utf8(key), value);
-    }
-
-    /// Copy reserved progression attributes to a replacement attribute set.
-    fun copy_reserved(
-        from: &VecMap<String, String>,
-        to: &mut VecMap<String, String>,
-    ) {
-        let keys = vector::empty<vector<u8>>();
-        vector::push_back(&mut keys, ATTR_LEVEL);
-        vector::push_back(&mut keys, ATTR_POWER);
-        vector::push_back(&mut keys, ATTR_RARITY);
-        let i = 0;
-        while (i < vector::length(&keys)) {
-            let key_bytes = *vector::borrow(&keys, i);
-            let key = string::utf8(key_bytes);
-            if (krc_721::has_attribute_in(from, &key)) {
-                set_reserved(to, key_bytes, string_of_map(from, key_bytes));
-            };
-            i = i + 1;
-        };
-    }
-
-    fun string_of_map(attributes: &VecMap<String, String>, key: vector<u8>): String {
-        let k = string::utf8(key);
-        let value = krc_721::attribute_of(attributes, &k);
-        if (option::is_some(&value)) {
-            *option::borrow(&value)
-        } else {
-            string::utf8(b"")
-        }
-    }
-
-    /// Read a reserved numeric attribute as `u64`, or 0 if absent or unparsable.
-    ///
-    /// The permissive default is deliberate: a malformed value must not wedge a
-    /// pet into an un-upgradeable state, and these keys are only ever written by
-    /// this module, so the parse cannot fail in practice.
-    fun u64_of(pet: &KanariPet, key: vector<u8>): u64 {
-        let k = string::utf8(key);
-        parse_u64(krc_721::attribute_of(&pet.attributes, &k))
-    }
-
-    /// Read a reserved attribute as a `String`, or empty if absent.
-    fun string_of(pet: &KanariPet, key: vector<u8>): String {
-        string_of_map(&pet.attributes, key)
-    }
-
-    /// Parse a base-10 `u64` from an attribute value. Returns 0 on any
-    /// non-digit, so a corrupt value degrades to "level 0" instead of aborting
-    /// inside a read that callers cannot guard.
-    fun parse_u64(value: Option<String>): u64 {
-        if (std::option::is_none(&value)) { return 0 };
-        let v = *std::option::borrow(&value);
-        let bytes = *string::bytes(&v);
-        let out = 0;
-        let i = 0;
-        let n = vector::length(&bytes);
-        while (i < n) {
-            let b = *vector::borrow(&bytes, i);
-            if (b < 48 || b > 57) { return 0 };
-            out = out * 10 + ((b - 48) as u64);
-            i = i + 1;
-        };
-        out
+    /// Write display metadata for a reserved key. The game never reads these
+    /// values as authoritative progression; only `Stats` is trusted.
+    fun set_reserved(pet: &mut Nft, key: vector<u8>, value: String) {
+        krc_721::set_attribute(pet, string::utf8(key), value);
     }
 
     /// Decimal rendering of `value`, written by hand because this edition has no
@@ -857,8 +720,8 @@ module kanari_pet::pet {
     /// No `TransferRequest` is created: a direct transfer has no sale price for
     /// a royalty rule to charge against. If the owner wants rules on every
     /// movement, route through `trade` instead.
-    public entry fun transfer_pet(pet: KanariPet, recipient: address) {
-        transfer::public_transfer(pet, recipient);
+    public entry fun transfer_pet(pet: Nft, recipient: address) {
+        krc_721::transfer(pet, recipient);
     }
 
     /// Sell a pet: open a request, let the royalty rule take its cut, confirm.
@@ -868,21 +731,23 @@ module kanari_pet::pet {
     /// `TransferRequest` has no `drop`, omitting either step fails the whole
     /// transaction instead of letting a free trade through.
     public entry fun trade(
-        policy: &mut TransferPolicy<KanariPet>,
-        pet: KanariPet,
+        policy: &mut TransferPolicy<Nft>,
+        policy_scope: &Krc721CollectionScope,
+        pet: Nft,
         payment: &mut Coin<FEE>,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        let item = object::uid_to_inner(&pet.id);
         let from = object::id_from_address(tx_context::sender(ctx));
         let paid = coin::value(payment);
-        let request = transfer_policy::new_request<KanariPet>(policy, item, paid, from);
+        let request =
+            transfer_policy::new_krc_721_request(policy, policy_scope, &pet, paid, from);
         let request = pay_royalty(policy, request, payment, ctx);
 
-        let (_item, _paid, _from) =
-            transfer_policy::confirm_request<KanariPet>(policy, request);
-        transfer::public_transfer(pet, recipient);
+        let (_item, _paid, _from) = transfer_policy::confirm_request<Nft>(
+            policy, request
+        );
+        krc_721::transfer(pet, recipient);
     }
 
     /// `royalty_rule::pay` needs a `&mut TransferRequest`, and this edition has
@@ -890,39 +755,32 @@ module kanari_pet::pet {
     /// rather than rebound at the call site. Returning it keeps ownership: the
     /// value is still the same hot potato, merely moved.
     fun pay_royalty(
-        policy: &mut TransferPolicy<KanariPet>,
-        request: transfer_policy::TransferRequest<KanariPet>,
+        policy: &mut TransferPolicy<Nft>,
+        request: transfer_policy::TransferRequest<Nft>,
         payment: &mut Coin<FEE>,
-        ctx: &mut TxContext,
-    ): transfer_policy::TransferRequest<KanariPet> {
+        ctx: &mut TxContext
+    ): transfer_policy::TransferRequest<Nft> {
         let mut_ref = &mut request;
-        royalty_rule::pay<KanariPet, FEE>(policy, mut_ref, payment, ctx);
+        royalty_rule::pay<Nft, FEE>(policy, mut_ref, payment, ctx);
         request
     }
 
     /// The royalty owed on a sale of `paid` base units, quotable before a trade
     /// so a buyer can price it.
-    public fun quote_royalty(
-        policy: &TransferPolicy<KanariPet>,
-        paid: u64,
-    ): u64 {
-        royalty_rule::fee_amount<KanariPet>(policy, paid)
+    public fun quote_royalty(policy: &TransferPolicy<Nft>, paid: u64): u64 {
+        royalty_rule::fee_amount<Nft>(policy, paid)
     }
 
-    /// Read a field off the shared `Display<KanariPet>`.
-    public fun display_field(d: &Display<KanariPet>, key: vector<u8>): option::Option<String> {
-        display::get(d, key)
+    /// Read a field off the collection-scoped KRC-721 display.
+    public fun display_field(
+        d: &Krc721CollectionDisplay, key: vector<u8>
+    ): option::Option<String> {
+        display::get_krc_721_collection_field(d, key)
     }
 
     /// The display's object address, for clients that want to find it.
-    public fun display_address(d: &Display<KanariPet>): address {
-        display::display_address(d)
-    }
-
-    #[test_only]
-    /// Create the publisher for this type. Split out so tests can exercise the
-    public fun new_publisher(ctx: &mut TxContext): Publisher<PET> {
-        kanari_system::package::new<PET>(PET {}, ctx)
+    public fun display_address(d: &Krc721CollectionDisplay): address {
+        display::krc_721_collection_display_address(d)
     }
 
     #[test_only]
@@ -936,10 +794,8 @@ module kanari_pet::pet {
     /// which unit tests cannot retrieve objects from, so the tests need a way to
     /// hold the pet in order to read and mutate its attributes.
     public fun mint_for_test(
-        pet_cap: &mut NftCap,
-        collection: &Collection,
-        ctx: &mut TxContext,
-    ): KanariPet {
+        pet_cap: &mut NftCap, collection: &Collection, ctx: &mut TxContext
+    ): Nft {
         mint_with_attributes_for_test(
             pet_cap,
             collection,
@@ -957,20 +813,18 @@ module kanari_pet::pet {
         collection: &Collection,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext,
-    ): KanariPet {
-        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
-        collection::consume_for_mint(pet_cap, collection);
-        KanariPet {
-            id: object::new(ctx),
-            name: string::utf8(b"Kanari Pet"),
-            image_url: url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL),
-            description: string::utf8(b"Test pet"),
-            attributes,
-            number: string::utf8(b"0"),
-            collection_id: collection::collection_id(collection),
-            creator: tx_context::sender(ctx)
-        }
+        ctx: &mut TxContext
+    ): Nft {
+        krc_721::mint(
+            pet_cap,
+            collection,
+            string::utf8(b"Kanari Pet"),
+            option::some(string::utf8(b"Test pet")),
+            option::some(url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL)),
+            attribute_keys,
+            attribute_values,
+            ctx
+        )
     }
 
     #[test_only]
@@ -979,43 +833,52 @@ module kanari_pet::pet {
     public fun mint_with_level_for_test(
         pet_cap: &mut NftCap,
         collection: &Collection,
-        stats: &Stats,
+        stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext,
-    ): KanariPet {
+        ctx: &mut TxContext
+    ): Nft {
         // Same ceiling check as `mint_with_level`, so the test variant cannot
         // construct a pet the public entry point would refuse.
         assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
         let attribute_keys = vector::empty<String>();
         let attribute_values = vector::empty<String>();
-        let attributes = seed_progression(stats, initial_level, attribute_keys, attribute_values);
-        collection::consume_for_mint(pet_cap, collection);
-        KanariPet {
-            id: object::new(ctx),
-            name: string::utf8(b"Kanari Pet"),
-            image_url: url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL),
-            description: string::utf8(b"Test pet"),
-            attributes,
-            number: string::utf8(b"0"),
-            collection_id: collection::collection_id(collection),
-            creator: tx_context::sender(ctx)
-        }
+        let (attribute_keys, attribute_values) =
+            seed_progression(
+                stats,
+                initial_level,
+                attribute_keys,
+                attribute_values
+            );
+        let pet = krc_721::mint(
+            pet_cap,
+            collection,
+            string::utf8(b"Kanari Pet"),
+            option::some(string::utf8(b"Test pet")),
+            option::some(url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL)),
+            attribute_keys,
+            attribute_values,
+            ctx
+        );
+        table::add(&mut stats.levels, krc_721::nft_address(&pet), initial_level);
+        pet
     }
 
-    /// Stamp progression attributes onto a fresh attribute map.
+    /// Stamp progression display metadata onto a fresh KRC-721 attribute set.
     fun seed_progression(
         stats: &Stats,
         initial_level: u64,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
-    ): VecMap<String, String> {
+        attribute_values: vector<String>
+    ): (vector<String>, vector<String>) {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
-        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
         let start_power = power_for_level(stats, initial_level);
-        set_reserved(&mut attributes, ATTR_LEVEL, u64_string(initial_level));
-        set_reserved(&mut attributes, ATTR_POWER, u64_string(start_power));
-        set_reserved(&mut attributes, ATTR_RARITY, rarity_for_level(initial_level));
-        attributes
+        vector::push_back(&mut attribute_keys, string::utf8(ATTR_LEVEL));
+        vector::push_back(&mut attribute_values, u64_string(initial_level));
+        vector::push_back(&mut attribute_keys, string::utf8(ATTR_POWER));
+        vector::push_back(&mut attribute_values, u64_string(start_power));
+        vector::push_back(&mut attribute_keys, string::utf8(ATTR_RARITY));
+        vector::push_back(&mut attribute_values, rarity_for_level(initial_level));
+        (attribute_keys, attribute_values)
     }
 }

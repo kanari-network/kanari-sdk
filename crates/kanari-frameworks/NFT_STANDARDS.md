@@ -54,10 +54,11 @@ build on it rather than duplicating the supply accounting. **This is the one
 piece of the existing framework that already matches both standards** and
 should not be redesigned.
 
-The current `krc_721` module provides generic NFT and attribute primitives,
-plus collection-scoped deny-list helpers backed by the framework
-`deny_list::DenyList`. The collection-bound mint/burn lifecycle described
-below remains the target design.
+The `krc_721` module implements the collection-bound mint/burn lifecycle,
+generic attribute primitives, and collection-scoped deny-list helpers backed
+by the framework `deny_list::DenyList`. The concrete source API uses `Nft`
+with optional display strings and `VecMap` attributes; the snippets below
+describe the shape and invariants rather than exact Move signatures.
 
 ---
 
@@ -68,16 +69,16 @@ below remains the target design.
 ```move
 /// One unique token. Each mint produces a distinct object with its own UID,
 /// which is the token id.
-struct Token has key, store {
+struct Nft has key, store {
     id: UID,
     collection: address,
-    /// 0-based mint ordinal within the collection, for off-chain indexing
+    /// 1-based historical mint ordinal within the collection, for indexing
     /// and the "which one is this" query. Not an identity: `uid_to_inner`
     /// is the identity.
     number: u64,
     name: String,
-    description: String,
-    image_url: Url,
+    description: Option<String>,
+    image_url: Option<Url>,
     attributes: VecMap<String, String>,
 }
 ```
@@ -95,11 +96,13 @@ scope.
 public fun mint(
     cap: &mut NftCap,
     collection: &Collection,
-    name: vector<u8>, description: vector<u8>, image_url: vector<u8>,
-    attributes: (vector<vector<u8>>, vector<vector<u8>>),
-    recipient: address,
+    name: String,
+    description: Option<String>,
+    image_url: Option<Url>,
+    attribute_keys: vector<String>,
+    attribute_values: vector<String>,
     ctx: &mut TxContext,
-): Token
+): Nft
 ```
 
 The `(cap, collection)` pair is the security-relevant part of this signature.
@@ -110,19 +113,21 @@ passed in would let the holder mint against the wrong supply pool. `mint` must
 apply the same check rather than trusting `cap.collection_id` alone.
 
 ```move
-public fun burn(cap: &mut NftCap, collection: &Collection, token: Token, ctx: &mut TxContext)
+public fun burn(cap: &mut NftCap, collection: &Collection, nft: Nft)
 ```
 
 Returns the supply unit via `collection::return_from_burn`, which re-checks the
-pair. `issued_counter` is intentionally not decremented (existing behaviour:
-it is a historical counter, not a live balance).
+pair. `issued_counter` is intentionally not decremented: it enforces a lifetime
+mint cap, while `remaining` tracks supply units returned by burns. Burning
+therefore does not permit minting beyond `max_supply` over the collection's
+entire lifetime.
 
 ### Transfer
 
 ```move
 /// Ownership transfer is `transfer::public_transfer` — no framework function
 /// needed. Provided only so wallets have one obvious call site.
-public fun transfer(token: Token, recipient: address, ctx: &mut TxContext)
+public fun transfer(nft: Nft, recipient: address)
 ```
 
 ### Compliance surface
@@ -135,10 +140,10 @@ So the framework provides read helpers and _no_ registry of "which types are
 721":
 
 ```move
-public fun token_id(token: &Token): ID            // object::uid_to_inner(&token.id)
-public fun number(token: &Token): u64
-public fun collection_of(token: &Token): address
-public fun attribute(token: &Token, key: &String): Option<String>
+public fun id(nft: &Nft): ID                     // object::uid_to_inner(&nft.id)
+public fun number(nft: &Nft): u64
+public fun collection_of(nft: &Nft): address
+public fun attribute(nft: &Nft, key: &String): Option<String>
 ```
 
 Registration would be self-attested by the issuer anyway, so a registry would
@@ -300,10 +305,11 @@ struct BalanceMinted has copy, drop { token_type: address, owner: address, amoun
 struct BalanceBurned has copy, drop { token_type: address, owner: address, amount: u64 }
 ```
 
-`james::nft` already emits a `MintLog` that
-`kanari_types::collection::MINT_LOG_EVENT` parses at fixed offsets
-(`MINT_LOG_EVENT_SIZE = 96`). These new events are additional, not a
-replacement; the existing `MintLog` decoding keeps working.
+Both legacy `james::nft` and `krc_721` emit `MintLog` with the same
+`object_id, creator, collection_id` address order. The runtime indexer parses
+that 96-byte payload to populate collection membership, so minted KRC-721 NFTs
+appear in both owner and collection queries. The additional lifecycle events
+above remain a future extension; the legacy `MintLog` decoding keeps working.
 
 ---
 
