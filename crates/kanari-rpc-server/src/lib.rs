@@ -421,7 +421,7 @@ async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl I
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
-        // Web USD faucet: fixed 100 USD claim as two 50 USD objects.
+        // Web USD faucet: fixed 100 USD claim as one coin object.
         methods::REQUEST_USD_FAUCET => {
             handle_request_usd_faucet(&state, &request, client_ip.as_deref()).await
         }

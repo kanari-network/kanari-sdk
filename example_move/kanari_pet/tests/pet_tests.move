@@ -273,6 +273,25 @@ module kanari_pet::pet_tests {
     }
 
     #[test]
+    /// `transfer` is the direct-transfer path: the runtime executes the
+    /// native move and the pet leaves the test scope owned by the recipient.
+    fun test_transfer_moves_the_pet_to_the_recipient() {
+        let ctx = tx_context::dummy();
+        let (coll, cap) = collection::create_collection(
+            &mut ctx,
+            b"Coll",
+            b"D",
+            b"https://b",
+            b"https://w",
+            1,
+        );
+        let pet = mint_here(&mut cap, &coll, &mut ctx);
+        pet::transfer(pet, @0xFEED);
+        transfer::public_freeze_object(coll);
+        transfer::public_freeze_object(cap);
+    }
+
+    #[test]
     /// Universal metadata is stored directly on each minted pet.
     fun test_direct_metadata_is_available() {
         let ctx = tx_context::dummy();
@@ -608,10 +627,10 @@ module kanari_pet::pet_tests {
     }
 
     #[test]
-    #[expected_failure(location = kanari_system::nft, abort_code = 0)]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 0)]
     /// The length guard has to hold on the showcase mint too, not just inside
-    /// the framework module — `kanari_pet` calls `nft::build_attributes`, but a
-    /// test that only exercised `nft::Nft` would not prove that.
+    /// the framework module — `kanari_pet` calls `krc_721::build_attributes`, but a
+    /// test that only exercised `krc_721::Nft` would not prove that.
     fun test_mismatched_attribute_lengths_abort_at_mint() {
         let ctx = tx_context::dummy();
         let (coll, cap) = collection::create_collection(

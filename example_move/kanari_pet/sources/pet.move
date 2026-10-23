@@ -12,7 +12,7 @@
 /// | display metadata | `kanari_system::display::Display`    |
 /// | trade rules      | `kanari_system::transfer_policy`     |
 /// | royalty          | `kanari_system::royalty_rule`        |
-/// | per-token traits | `kanari_system::nft` attribute model |
+/// | per-token traits | `kanari_system::krc_721` attribute model |
 /// | supply           | `kanari_system::collection::NftCap`   |
 ///
 /// Each pet stores its own name, artwork, and description. Publisher, Display,
@@ -25,7 +25,7 @@ module kanari_pet::pet {
     use kanari_system::collection::{Self, Collection, NftCap};
     use kanari_system::display::{Self, Display};
     use kanari_system::event;
-    use kanari_system::nft;
+    use kanari_system::krc_721;
     use kanari_system::object::{Self, UID};
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
@@ -325,7 +325,7 @@ module kanari_pet::pet {
     ) {
         // Validate before consuming supply, so a rejected attribute set cannot
         // burn a mint slot as a side effect of aborting.
-        let attributes = nft::build_attributes(attribute_keys, attribute_values);
+        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
         collection::consume_for_mint(pet_cap, collection);
         let creator = tx_context::sender(ctx);
         let collection_id = collection::collection_id(collection);
@@ -408,6 +408,21 @@ module kanari_pet::pet {
         object::delete(id);
     }
 
+    /// Transfer the pet to another address.
+    ///
+    /// Ownership moves as-is: the pet keeps its progression attributes,
+    /// number, and artwork. This is the direct-transfer path — it matches
+    /// `transfer::public_transfer` semantics, so royalties on the shared
+    /// `TransferPolicy` do not apply here. Trading through a marketplace should
+    /// use the kiosk/policy flow instead.
+    ///
+    /// Only the current owner can call this: the pet arrives as a declared
+    /// owned object input, and the runtime rejects mutable owned inputs whose
+    /// stored owner is not the sender.
+    public entry fun transfer(pet: KanariPet, recipient: address) {
+        transfer::public_transfer(pet, recipient);
+    }
+
     /// Insert or overwrite one attribute, taking raw bytes for the CLI.
     ///
     /// Anyone holding the pet may do this, but **not** for a reserved key.
@@ -431,7 +446,7 @@ module kanari_pet::pet {
     ) {
         assert!(!is_reserved(&key), E_RESERVED_ATTRIBUTE);
         let pet_address = object::uid_address(&pet.id);
-        nft::set_attribute_on(&mut pet.attributes, key, value);
+        krc_721::set_attribute_on(&mut pet.attributes, key, value);
         event::emit(AttributesChanged { pet_id: pet_address });
     }
 
@@ -443,7 +458,7 @@ module kanari_pet::pet {
     public fun remove_attribute(pet: &mut KanariPet, key: &String): String {
         assert!(!is_reserved(key), E_RESERVED_ATTRIBUTE);
         let pet_address = object::uid_address(&pet.id);
-        let value = nft::remove_attribute_from(&mut pet.attributes, key);
+        let value = krc_721::remove_attribute_from(&mut pet.attributes, key);
         event::emit(AttributesChanged { pet_id: pet_address });
         value
     }
@@ -484,7 +499,7 @@ module kanari_pet::pet {
             i = i + 1;
         };
         let pet_address = object::uid_address(&pet.id);
-        let replacement = nft::build_attributes(attribute_keys, attribute_values);
+        let replacement = krc_721::build_attributes(attribute_keys, attribute_values);
         copy_reserved(&pet.attributes, &mut replacement);
         pet.attributes = replacement;
         event::emit(AttributesChanged { pet_id: pet_address });
@@ -492,27 +507,27 @@ module kanari_pet::pet {
 
     /// The value stored under `key`, or `none`.
     public fun attribute(pet: &KanariPet, key: &String): Option<String> {
-        nft::attribute_of(&pet.attributes, key)
+        krc_721::attribute_of(&pet.attributes, key)
     }
 
     /// True iff `key` is present.
     public fun has_attribute(pet: &KanariPet, key: &String): bool {
-        nft::has_attribute_in(&pet.attributes, key)
+        krc_721::has_attribute_in(&pet.attributes, key)
     }
 
     /// How many attributes the pet carries.
     public fun attribute_count(pet: &KanariPet): u64 {
-        nft::attribute_count_of(&pet.attributes)
+        krc_721::attribute_count_of(&pet.attributes)
     }
 
     /// Attribute keys in insertion order.
     public fun attribute_keys(pet: &KanariPet): vector<String> {
-        nft::attribute_keys_of(&pet.attributes)
+        krc_721::attribute_keys_of(&pet.attributes)
     }
 
     /// Every `(key, value)` pair in insertion order, index-aligned.
     public fun all_attributes(pet: &KanariPet): (vector<String>, vector<String>) {
-        nft::all_attributes_of(&pet.attributes)
+        krc_721::all_attributes_of(&pet.attributes)
     }
 
     public fun name(pet: &KanariPet): String {
@@ -753,7 +768,7 @@ module kanari_pet::pet {
         key: vector<u8>,
         value: String,
     ) {
-        nft::set_attribute_on(attributes, string::utf8(key), value);
+        krc_721::set_attribute_on(attributes, string::utf8(key), value);
     }
 
     /// Copy reserved progression attributes to a replacement attribute set.
@@ -769,7 +784,7 @@ module kanari_pet::pet {
         while (i < vector::length(&keys)) {
             let key_bytes = *vector::borrow(&keys, i);
             let key = string::utf8(key_bytes);
-            if (nft::has_attribute_in(from, &key)) {
+            if (krc_721::has_attribute_in(from, &key)) {
                 set_reserved(to, key_bytes, string_of_map(from, key_bytes));
             };
             i = i + 1;
@@ -778,7 +793,7 @@ module kanari_pet::pet {
 
     fun string_of_map(attributes: &VecMap<String, String>, key: vector<u8>): String {
         let k = string::utf8(key);
-        let value = nft::attribute_of(attributes, &k);
+        let value = krc_721::attribute_of(attributes, &k);
         if (option::is_some(&value)) {
             *option::borrow(&value)
         } else {
@@ -793,7 +808,7 @@ module kanari_pet::pet {
     /// this module, so the parse cannot fail in practice.
     fun u64_of(pet: &KanariPet, key: vector<u8>): u64 {
         let k = string::utf8(key);
-        parse_u64(nft::attribute_of(&pet.attributes, &k))
+        parse_u64(krc_721::attribute_of(&pet.attributes, &k))
     }
 
     /// Read a reserved attribute as a `String`, or empty if absent.
@@ -944,7 +959,7 @@ module kanari_pet::pet {
         attribute_values: vector<String>,
         ctx: &mut TxContext,
     ): KanariPet {
-        let attributes = nft::build_attributes(attribute_keys, attribute_values);
+        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
         collection::consume_for_mint(pet_cap, collection);
         KanariPet {
             id: object::new(ctx),
@@ -996,7 +1011,7 @@ module kanari_pet::pet {
     ): VecMap<String, String> {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
-        let attributes = nft::build_attributes(attribute_keys, attribute_values);
+        let attributes = krc_721::build_attributes(attribute_keys, attribute_values);
         let start_power = power_for_level(stats, initial_level);
         set_reserved(&mut attributes, ATTR_LEVEL, u64_string(initial_level));
         set_reserved(&mut attributes, ATTR_POWER, u64_string(start_power));

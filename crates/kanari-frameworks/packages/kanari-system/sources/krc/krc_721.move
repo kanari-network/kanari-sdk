@@ -30,10 +30,13 @@
 /// uses. A parallel pair has no structural link between the two sides: a caller
 /// can pass 3 keys and 5 values, and every later read has to guess which
 /// alignment it meant. A map cannot be built into that state at all.
-module kanari_system::nft {
+module kanari_system::krc_721 {
     use std::string::String;
     use std::vector;
     use std::option::Option;
+    use kanari_system::address;
+    use kanari_system::collection::{Self, NftCap};
+    use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::transfer;
     use kanari_system::tx_context::TxContext;
@@ -53,6 +56,9 @@ module kanari_system::nft {
     /// rewrite costs the chain.
     const MAX_ATTRIBUTES: u64 = 64;
 
+    /// Separate deny-list namespace from regulated coins.
+    const KRC_721_DENY_LIST_INDEX: u64 = 1;
+
     #[test_only]
     use std::option as option_alias;
 
@@ -71,6 +77,78 @@ module kanari_system::nft {
         /// Per-token traits, keyed by name. Insertion order is preserved so a
         /// renderer shows them in the order the issuer chose.
         attributes: VecMap<String, String>,
+    }
+
+    /// Add an address to the deny list for the collection governed by `cap`.
+    public fun deny_add(
+        deny_list: &mut DenyList,
+        cap: &NftCap,
+        addr: address,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v1_add(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection::cap_collection_id(cap)),
+            addr,
+            ctx
+        );
+    }
+
+    /// Remove an address from the deny list for the collection governed by `cap`.
+    public fun deny_remove(
+        deny_list: &mut DenyList,
+        cap: &NftCap,
+        addr: address,
+    ) {
+        deny_list::v1_remove(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection::cap_collection_id(cap)),
+            addr
+        );
+    }
+
+    /// Pause all KRC-721 transfers for the collection governed by `cap`.
+    public fun deny_pause(
+        deny_list: &mut DenyList,
+        cap: &NftCap,
+        ctx: &mut TxContext,
+    ) {
+        deny_list::v2_enable_global_pause(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection::cap_collection_id(cap)),
+            ctx
+        );
+    }
+
+    /// Lift the KRC-721 transfer pause for the collection governed by `cap`.
+    public fun deny_unpause(deny_list: &mut DenyList, cap: &NftCap) {
+        deny_list::v2_disable_global_pause(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection::cap_collection_id(cap))
+        );
+    }
+
+    /// Return whether `addr` is denied for `collection_id`.
+    public fun is_denied(deny_list: &DenyList, collection_id: address, addr: address): bool {
+        deny_list::v1_contains(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection_id),
+            addr
+        )
+    }
+
+    /// Return whether transfers are paused for `collection_id`.
+    public fun is_paused(deny_list: &DenyList, collection_id: address): bool {
+        deny_list::v2_is_global_pause_enabled(
+            deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection_id)
+        )
     }
 
     /// Mint an NFT with no attributes.

@@ -38,12 +38,15 @@ impl StateManager {
             let Ok(stored) = bcs::from_bytes::<StoredObject>(&value) else {
                 continue;
             };
-            if matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
-                owner_ids.insert(stored.owner.to_hex_literal());
-                owned_objects
-                    .entry(stored.owner)
-                    .or_default()
-                    .insert(object_id);
+            if let ObjectOwnerKind::AddressOwner(owner_hex) = &stored.owner_kind
+                && let Ok(owner) = AccountAddress::from_hex_literal(owner_hex)
+            {
+                // `owner_kind` is the current ownership authority. Older
+                // transfers can leave `StoredObject.owner` pointing at the
+                // previous wallet, so rebuilding from that field perpetuates
+                // stale owned-object indexes after every restart.
+                owner_ids.insert(owner.to_hex_literal());
+                owned_objects.entry(owner).or_default().insert(object_id);
             }
         }
 

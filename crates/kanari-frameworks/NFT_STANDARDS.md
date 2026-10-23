@@ -5,7 +5,8 @@ NFT standards, expressed in the object model this runtime actually implements
 (owned objects with `UID`, explicit capabilities, runtime-dispatched entry
 functions).
 
-The naming `erc721` / `erc1155` is a _conceptual_ reference only. Kanari has
+The ERC names are _conceptual_ references only; Kanari's unique-token module is
+named `krc_721`. Kanari has
 no contract ABI, no `balanceOf(address, tokenId)` mapping, and no `transferFrom`
 reentrancy surface, so these modules deliberately do **not** clone the Solidity
 surface. They port the semantics those standards exist to express:
@@ -39,10 +40,11 @@ contract. Kanari models it as _object ownership_: an NFT is an object with a
 
 ## Module layout
 
-Two new modules alongside the existing `collection.move`:
+The KRC-721 module lives alongside the existing `collection.move`; KRC-1155 is
+the planned semi-fungible module:
 
 ```
-kanari_system::erc721   -- unique tokens, one object each
+kanari_system::krc_721  -- unique tokens, one object each
 kanari_system::erc1155  -- semi-fungible, shared object + u64 balances
 ```
 
@@ -52,9 +54,14 @@ build on it rather than duplicating the supply accounting. **This is the one
 piece of the existing framework that already matches both standards** and
 should not be redesigned.
 
+The current `krc_721` module provides generic NFT and attribute primitives,
+plus collection-scoped deny-list helpers backed by the framework
+`deny_list::DenyList`. The collection-bound mint/burn lifecycle described
+below remains the target design.
+
 ---
 
-## `kanari_system::erc721`
+## `kanari_system::krc_721`
 
 ### Types
 
@@ -271,14 +278,14 @@ Both standards need a pause/deny path. Neither module implements one.
 - **Coin types** already have the framework `deny_list`, and the
   `public(friend)` hardening just completed means only `coin::create_regulated_currency`
   can mint the `DenyCap`. That path is closed to NFTs by construction.
-- **Object families** cannot use the framework registry (the same finding that
-  moved KariKid to `james::kdeny`). A family that needs a blocklist owns one,
-  gated by its own capability — exactly `james::kdeny`, which keys off
-  `&collection::NftCap`.
+- **Object families** cannot call the coin-facing deny-list API, whose
+  capability is minted only for regulated coins. `krc_721` provides the
+  framework-only bridge for NFT collections: it gates writes on that
+  collection's `&collection::NftCap` and keys entries by collection id.
 
-So the framework exposes no pause hook in `erc721`/`erc1155`. Adding one would
-either duplicate `deny_list` or reintroduce a permissionless write path, both of
-which are the bug the hardening just closed.
+The `krc_721` pause hook uses the same framework deny-list data and is scoped
+to one collection. Adding a second family-owned list would duplicate storage
+and enforcement.
 
 ### Events
 
@@ -337,9 +344,9 @@ standards, and 2 should have an integration test before either standard ships.
 ## Suggested order of work
 
 1. Fix `update_metadata` (gap 1) and add the commit/re-read integration test
-   for supply accounting (gap 2). Both are prerequisites — `erc721::mint` and
+   for supply accounting (gap 2). Both are prerequisites — `krc_721::mint` and
    `erc1155::mint` build directly on `consume_for_mint`.
-2. `erc721` — it is the smaller surface and validates the
+2. `krc_721` — it is the smaller surface and validates the
    `(cap, collection)` pairing pattern.
 3. `erc1155` — `HolderRegistry` + `Balance` split, `split`/`join`.
 4. Parsers in `crates/kanari-types/src/collection.rs` for off-chain display,

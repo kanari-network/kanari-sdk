@@ -24,6 +24,7 @@ use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
     SignedTransaction, Transaction,
 };
+use kanari_types::transfer::TransferModule;
 use kanari_types::usd_coin::UsdModule;
 use kanari_types::{effective_gas_price, gas_price_is_valid};
 use move_binary_format::{
@@ -37,7 +38,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
 
-/// In-node USD faucet: web claims mint 10 USD as two 5 USD objects.
+/// In-node USD faucet: each web claim mints 100 USD as one coin object.
 pub mod faucet;
 
 // Extract function names from module bytecode (returns None on error)
@@ -256,7 +257,18 @@ fn build_object_input(
 ) -> anyhow::Result<ObjectInput> {
     let owner = match &object.owner_kind {
         ObjectOwnerKind::AddressOwner(address) => {
-            if normalize_addr(address) != normalize_addr(sender) {
+            // Object owners are always canonical hex addresses, while wallet
+            // senders may be curve-tagged public keys (for example
+            // `Ed25519Dilithium3:...`). Compare their derived account
+            // addresses instead of comparing the strings verbatim.
+            let same_account = match (
+                Address::parse_to_account_address(address),
+                Address::parse_to_account_address(sender),
+            ) {
+                (Ok(owner), Ok(sender)) => owner == sender,
+                _ => normalize_addr(address) == normalize_addr(sender),
+            };
+            if !same_account {
                 anyhow::bail!(
                     "Object input {} is owned by {}, not sender {}",
                     object.id,
@@ -568,6 +580,28 @@ fn select_native_transfer_and_gas_payment(
 
     native_coins.sort_by_key(|(_, balance)| *balance);
 
+    // Match Sui's native transfer behavior: prefer the gas coin as the
+    // transfer coin when it can cover both the amount and maximum gas budget.
+    if let Some((coin_ref, _)) = native_coins
+        .iter()
+        .filter(|(_, balance)| {
+            *balance >= transfer_amount && balance.saturating_sub(transfer_amount) >= required_gas
+        })
+        .min_by_key(|(_, balance)| *balance)
+    {
+        return Ok((
+            coin_ref.clone(),
+            GasPayment {
+                payment_objects: vec![coin_ref.clone()],
+                owner: sender.to_string(),
+                budget: gas_limit,
+                price: gas_price,
+                coin_type: None,
+                price_version: None,
+            },
+        ));
+    }
+
     let mut best_pair: Option<((ObjectRef, u64), (ObjectRef, u64))> = None;
     for (transfer_ref, transfer_balance) in native_coins
         .iter()
@@ -629,10 +663,10 @@ fn select_native_transfer_and_gas_payment(
         );
     }
 
-    let has_distinct_gas_coin = native_coins
+    let has_gas_coin = native_coins
         .iter()
         .any(|(_, balance)| *balance >= required_gas);
-    if !has_distinct_gas_coin {
+    if !has_gas_coin {
         anyhow::bail!(
             "No spendable native gas coin object found with at least {} Mist",
             required_gas
@@ -640,7 +674,7 @@ fn select_native_transfer_and_gas_payment(
     }
 
     anyhow::bail!(
-        "Native transfer requires two distinct Coin<{}> objects: one mutable transfer input and one separate gas payment object",
+        "Native transfer needs one Coin<{}> with enough balance for transfer plus gas, or two distinct coins with enough balance for each",
         GAS_COIN
     )
 }
@@ -1790,7 +1824,7 @@ fn classify_transaction_error_data(message: &str) -> Option<TransactionErrorData
         TransactionErrorData::with_native_transfer_policy(
             TransactionErrorReason::InsufficientGasCoinBalance,
         )
-    } else if message.contains("Native transfer requires two distinct Coin<") {
+    } else if message.contains("Native transfer needs one Coin<") {
         TransactionErrorData::with_native_transfer_policy(
             TransactionErrorReason::NativeTransferPolicyNotSatisfied,
         )
@@ -2167,7 +2201,7 @@ pub async fn handle_build_native_transfer(
                 jsonrpc: "2.0".into(),
                 result: None,
                 error: Some(transaction_error_with_reason(format!(
-                    "{}. Native KANARI transfer is a Move object call, so the gas object must not overlap the mutable transfer input.",
+                    "{}. Native KANARI transfer needs one coin to cover transfer plus gas, or separate coins for each.",
                     e
                 ))),
                 id: request.id,
@@ -2581,9 +2615,8 @@ pub async fn handle_build_token_transfer(
     )
 }
 
-/// Handle build NFT transfer request:
-/// constructs the canonical `0x2::transfer::public_transfer<T>(obj, recipient)`
-/// call with the NFT pre-seeded as a declared object input.
+/// Handle build NFT transfer request using the framework transfer entry for all
+/// key+store NFT object types.
 pub async fn handle_build_nft_transfer(
     state: &RpcServerState,
     request: &RpcRequest,
@@ -2635,7 +2668,7 @@ pub async fn handle_build_nft_transfer(
             ),
         );
     };
-    let object_input = match build_object_input(&owned_nft, &build_data.sender) {
+    let nft_input = match build_object_input(&owned_nft, &build_data.sender) {
         Ok(input) => input,
         Err(e) => {
             return RpcResponse {
@@ -2647,8 +2680,14 @@ pub async fn handle_build_nft_transfer(
         }
     };
 
-    // The NFT itself is the declared, mutable input; any affordable gas coin
-    // the wallet still holds may pay for execution.
+    let package = Address::KANARI_SYSTEM_ADDRESS.to_string();
+    let module = TransferModule::TRANSFER_MODULE.to_string();
+    let function = TransferModule::ENTRY_TRANSFER.to_string();
+    let type_args = vec![owned_nft.type_.clone()];
+    let mut args = vec![vec![]];
+    let object_inputs = vec![nft_input];
+
+    // Any affordable wallet coin can pay gas; the NFT stays excluded.
     let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
         &owned_objects,
         &build_data.sender,
@@ -2681,20 +2720,25 @@ pub async fn handle_build_nft_transfer(
         Ok(recipient) => recipient,
         Err(response) => return *response,
     };
+    // Object args use empty BCS slots; object refs are supplied separately.
+    args.push(recipient);
 
     respond_with_serialize(
         request.id,
         CallFunctionRequest {
             sender: build_data.sender,
-            // The canonical transfer lives in the framework package;
-            // `public_transfer<T: key + store>(obj: T, recipient: address)`
-            // takes no context and binds `T` as the single type argument.
-            package: "0x2".to_string(),
-            module: "transfer".to_string(),
-            function: "public_transfer".to_string(),
-            type_args: vec![owned_nft.type_.clone()],
-            args: vec![recipient],
-            object_inputs: Some(vec![object_input]),
+            // The canonical transfer lives in the framework package; the
+            // entry wrapper `transfer<T: key + store>(obj, recipient)` is the
+            // callable form — transactions only execute entry functions, and
+            // the plain `public_transfer` fun aborts with
+            // EXECUTE_ENTRY_FUNCTION_CALLED_ON_NON_ENTRY_FUNCTION. It takes no
+            // context and binds `T` as the single type argument.
+            package,
+            module,
+            function,
+            type_args,
+            args,
+            object_inputs: Some(object_inputs),
             gas_limit: build_data.gas_limit,
             gas_price: effective_gas_price_value,
             nonce: Some(nonce),

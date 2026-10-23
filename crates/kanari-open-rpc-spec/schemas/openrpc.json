@@ -65,10 +65,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "owner",
-              "token_type"
-            ],
+            "required": ["owner", "token_type"],
             "type": "object"
           }
         }
@@ -106,9 +103,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "owner"
-            ],
+            "required": ["owner"],
             "type": "object"
           }
         }
@@ -168,9 +163,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "token_type"
-            ],
+            "required": ["token_type"],
             "type": "object"
           }
         }
@@ -217,10 +210,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "balance",
-                      "owner"
-                    ],
+                    "required": ["balance", "owner"],
                     "type": "object"
                   },
                   {
@@ -243,9 +233,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "token_type"
-            ],
+            "required": ["token_type"],
             "type": "object"
           }
         }
@@ -304,9 +292,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "token_type"
-            ],
+            "required": ["token_type"],
             "type": "object"
           }
         }
@@ -574,7 +560,7 @@
     {
       "name": "kanari_buildNativeTransfer",
       "summary": "Build native transfer transaction",
-      "description": "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
+      "description": "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. One native coin may cover transfer plus gas; otherwise distinct transfer and gas coins are selected.",
       "params": [
         {
           "name": "transaction",
@@ -662,9 +648,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "audit"
-            ],
+            "required": ["audit"],
             "type": "object"
           }
         }
@@ -739,9 +723,7 @@
                 "type": "array"
               }
             },
-            "required": [
-              "entries"
-            ],
+            "required": ["entries"],
             "type": "object"
           }
         }
@@ -1063,10 +1045,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "address",
-              "name"
-            ],
+            "required": ["address", "name"],
             "type": "object"
           }
         }
@@ -1127,9 +1106,7 @@
                 "type": "array"
               }
             },
-            "required": [
-              "module_bytes"
-            ],
+            "required": ["module_bytes"],
             "type": "object"
           }
         }
@@ -1229,6 +1206,34 @@
       "tags": [
         {
           "name": "function"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildNftTransfer",
+      "summary": "Build NFT transfer transaction",
+      "description": "Resolves the owned NFT object input, gas, and nonce, and returns a canonical unsigned `0x2::transfer::public_transfer<T>` call.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Unsigned NFT transfer payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared NFT-transfer call request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "nft"
         }
       ]
     },
@@ -1335,9 +1340,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "object_id"
-            ],
+            "required": ["object_id"],
             "type": "object"
           }
         }
@@ -1382,9 +1385,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "owner"
-            ],
+            "required": ["owner"],
             "type": "object"
           }
         }
@@ -1419,9 +1420,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "object_type"
-            ],
+            "required": ["object_type"],
             "type": "object"
           }
         }
@@ -1487,9 +1486,7 @@
                 "type": "object"
               }
             },
-            "required": [
-              "object_ref"
-            ],
+            "required": ["object_ref"],
             "type": "object"
           }
         }

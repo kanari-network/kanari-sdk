@@ -38,6 +38,8 @@ import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.ui.theme.LocalKanariGradients
 import com.jamesatomc.kanariapp.wallet.WalletRecord
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,13 +66,22 @@ fun DashboardScreen(
     var walletToDelete by remember { mutableStateOf<WalletRecord?>(null) }
     var walletForDetails by remember { mutableStateOf<WalletRecord?>(null) }
     val objects = accountInfo?.ownedObjects ?: emptyList()
-    LaunchedEffect(activeWallet) {
+    LaunchedEffect(activeWallet?.id, wallets) {
         val idx =
             wallets.indexOfFirst { it.id == activeWallet?.id }; if (idx >= 0 && pagerState.currentPage != idx) pagerState.animateScrollToPage(
         idx
     )
     }
-    LaunchedEffect(pagerState.currentPage) { if (pagerState.currentPage < wallets.size) viewModel.switchWallet(wallets[pagerState.currentPage]) }
+    // Do not treat the pager's initial page (always 0) as a user wallet
+    // selection. The active wallet can be restored to wallet 2; switching to
+    // page 0 during the initial composition races the scroll to that wallet.
+    LaunchedEffect(pagerState, wallets) {
+        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }
+            .drop(1)
+            .collect { page ->
+                if (page in wallets.indices) viewModel.switchWallet(wallets[page])
+            }
+    }
     Scaffold(
         modifier = modifier,
         topBar = {

@@ -324,7 +324,7 @@ What the chain actually enforces, and what it does not.
 | 2    | `E_INSUFFICIENT_USD` — `Coin<USD>` does not cover the quote                          |
 | 3    | `E_LEVEL_OUT_OF_RANGE` — minted above the cap                                        |
 
-Attribute mismatches surface as `kanari_system::nft` code 0; supply errors as
+Attribute mismatches surface as `kanari_system::krc_721` code 0; supply errors as
 `kanari_system::collection` code 1 (no supply) or 3 (cap/collection mismatch).
 
 ## Kiosk error codes (`kanari_system::kiosk`)

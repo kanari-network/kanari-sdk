@@ -20,6 +20,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +65,7 @@ fun NftScreen(
 ) {
     val nfts by viewModel.ownedNfts.collectAsStateWithLifecycle()
     val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
+    val wallets by viewModel.wallets.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -72,6 +75,7 @@ fun NftScreen(
     var recipientInput by remember { mutableStateOf("") }
     var isSending by remember { mutableStateOf(false) }
     var sendStatus by remember { mutableStateOf<String?>(null) }
+    var walletMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -96,6 +100,34 @@ fun NftScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            if (wallets.size > 1) {
+                Box {
+                    TextButton(onClick = { walletMenuExpanded = true }) {
+                        Text(
+                            "Wallet: ${activeWallet?.name ?: "Select wallet"} · ${activeWallet?.address?.takeLast(8) ?: ""}"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = walletMenuExpanded,
+                        onDismissRequest = { walletMenuExpanded = false }
+                    ) {
+                        wallets.forEach { wallet ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text("${wallet.name} · ${wallet.address.takeLast(8)}")
+                                },
+                                onClick = {
+                                    walletMenuExpanded = false
+                                    selectedNft = null
+                                    sendingNft = null
+                                    sendStatus = null
+                                    viewModel.switchWallet(wallet)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
             error?.let { ErrorBanner(error = it) }
 
             when {

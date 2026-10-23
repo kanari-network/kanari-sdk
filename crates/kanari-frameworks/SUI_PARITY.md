@@ -19,7 +19,7 @@ Status as of the Kiosk landing. "present" means the primitive exists in
 | royalty rule (bps + min)                                         | Percentage/floor fee on trade                     | **present** (`royalty_rule.move`)                       |
 | `sui::kiosk`                                                     | Marketplace primitive, `Kiosk` / `KioskOwnerCap`  | **present** (`kiosk.move`), no `PurchaseCap` escrow     |
 | `sui::kiosk::PurchaseCap`                                        | Reserve a listing for one buyer                   | **present** (`reserve` / `purchase_with_cap`)           |
-| `sui::nft::Nft`                                                  | Minimal generic NFT                               | **present** (`nft.move`)                                |
+| `sui::nft::Nft`                                                  | Minimal generic NFT                               | **present** (`krc/krc_721.move`)                        |
 | `sui::collection`                                                | Display-only collection object                    | exists, but carries supply accounting Sui does not have |
 | `sui::package::claim`                                            | OTW -> Publisher                                  | `types::claim_witness` (different purpose)              |
 | `dynamic_field`, `deny_list`, `event`, `vec_map`, `bag`, `table` | shared infra                                      | present                                                 |
@@ -32,7 +32,7 @@ kanari_system::package        Publisher<T>                        (landed)
 kanari_system::display        Display<T>                          (landed)
 kanari_system::transfer_policy TransferPolicy<T>, TransferRequest<T>  (landed)
 kanari_system::royalty_rule   percentage + min fee                (landed)
-kanari_system::nft            Nft (minimal generic)               (landed)
+kanari_system::krc_721        Nft (minimal generic)               (landed)
 kanari_system::kiosk          Kiosk, PurchaseCap                  (landed)
 kanari_system::collection     existing                            (kept, see below)
 ```
@@ -121,11 +121,10 @@ framework. It was just hardened (`consume_for_mint` now bounds the monotonic
 divergence to fix — but it must not be confused with the Sui contract, and
 `create_collection` should document that it is not `sui::collection`.
 
-**The deny-list story.** Sui's `deny_list` is coin-only and the
-`public(friend)` hardening just completed here matches that. Object families
-own their own blocklist (`james::kdeny`) because Move cannot bind a framework
-capability to an arbitrary package's type. Sui has the same constraint and
-solves it by not offering object-family deny lists at all.
+**The deny-list story.** Coin writes remain gated by coin deny capabilities.
+`krc_721` is the framework friend that adds collection-scoped NFT entries to
+the same `deny_list::DenyList`; writes require that collection's `NftCap`, and
+each collection uses a separate key in a separate framework index.
 
 The checked regulated paths (`pay::split_and_transfer_checked`,
 `pay::join_vec_and_transfer_checked`,
@@ -240,7 +239,7 @@ All six items are done. What actually shipped, and what each one cost:
    one `init`, and its tests are the end-to-end proof. **james has not been
    migrated**; it remains a deliberate legacy reference.
 
-5. **`nft.move` generic `Nft`** — landed as a convenience type, matching Sui's
+5. **`krc/krc_721.move` generic `Nft`** — landed as a convenience type, matching Sui's
    "provided mostly for convenience" framing.
 
 6. **`kiosk.move`** — landed with `Kiosk`, `KioskOwnerCap`, `ItemId`, and

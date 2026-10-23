@@ -4,7 +4,6 @@
 module james::deny_list_tests {
     use james::euro;
     use james::james;
-    use james::kdeny;
     use james::nft;
     use james::thb;
     use kanari_system::coin;
@@ -218,14 +217,15 @@ module james::deny_list_tests {
     fun test_nft_deny_add_contains_remove() {
         let ctx = &mut tx_context::dummy();
         let (coll, cap) = setup_collection(ctx);
-        let deny_list = kdeny::new_for_testing(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
 
-        assert!(!nft::is_denied(&deny_list, ALICE), 0);
+        let collection_id = collection::collection_id(&coll);
+        assert!(!nft::is_denied(&deny_list, collection_id, ALICE), 0);
         nft::deny_add(&mut deny_list, &cap, ALICE, ctx);
-        assert!(nft::is_denied(&deny_list, ALICE), 1);
-        assert!(!nft::is_denied(&deny_list, BOB), 2);
+        assert!(nft::is_denied(&deny_list, collection_id, ALICE), 1);
+        assert!(!nft::is_denied(&deny_list, collection_id, BOB), 2);
         nft::deny_remove(&mut deny_list, &cap, ALICE, ctx);
-        assert!(!nft::is_denied(&deny_list, ALICE), 3);
+        assert!(!nft::is_denied(&deny_list, collection_id, ALICE), 3);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
@@ -233,10 +233,52 @@ module james::deny_list_tests {
     }
 
     #[test]
+    fun test_nft_deny_lists_are_scoped_to_their_collection() {
+        let ctx = &mut tx_context::dummy();
+        let (first_collection, first_cap) = setup_collection(ctx);
+        let (second_collection, second_cap) = setup_collection(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
+        let first_id = collection::collection_id(&first_collection);
+        let second_id = collection::collection_id(&second_collection);
+
+        nft::deny_add(&mut deny_list, &first_cap, ALICE, ctx);
+        assert!(nft::is_denied(&deny_list, first_id, ALICE), 0);
+        assert!(!nft::is_denied(&deny_list, second_id, ALICE), 1);
+
+        nft::deny_pause(&mut deny_list, &first_cap, ctx);
+        assert!(nft::is_paused(&deny_list, first_id), 2);
+        assert!(!nft::is_paused(&deny_list, second_id), 3);
+
+        transfer::public_freeze_object(first_collection);
+        transfer::public_freeze_object(first_cap);
+        transfer::public_freeze_object(second_collection);
+        transfer::public_freeze_object(second_cap);
+        transfer::public_freeze_object(deny_list);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::deny_list, abort_code = 1)]
+    fun test_nft_cap_cannot_remove_another_collections_entry() {
+        let ctx = &mut tx_context::dummy();
+        let (first_collection, first_cap) = setup_collection(ctx);
+        let (second_collection, second_cap) = setup_collection(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
+
+        nft::deny_add(&mut deny_list, &first_cap, ALICE, ctx);
+        nft::deny_remove(&mut deny_list, &second_cap, ALICE, ctx);
+
+        transfer::public_freeze_object(first_collection);
+        transfer::public_freeze_object(first_cap);
+        transfer::public_freeze_object(second_collection);
+        transfer::public_freeze_object(second_cap);
+        transfer::public_freeze_object(deny_list);
+    }
+
+    #[test]
     fun test_nft_transfer_ok_when_clean() {
         let ctx = &mut tx_context::dummy();
         let (coll, cap) = setup_collection(ctx);
-        let deny_list = kdeny::new_for_testing(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
 
         let nft = nft::mint_for_test(&mut cap, &coll, ctx);
         nft::transfer_with_list(nft, BOB, &deny_list, ctx);
@@ -251,7 +293,7 @@ module james::deny_list_tests {
     fun test_nft_transfer_denied_aborts() {
         let ctx = &mut tx_context::dummy();
         let (coll, cap) = setup_collection(ctx);
-        let deny_list = kdeny::new_for_testing(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
         nft::deny_add(&mut deny_list, &cap, ALICE, ctx);
 
         let nft = nft::mint_for_test(&mut cap, &coll, ctx);
@@ -266,13 +308,14 @@ module james::deny_list_tests {
     fun test_nft_pause_unpause() {
         let ctx = &mut tx_context::dummy();
         let (coll, cap) = setup_collection(ctx);
-        let deny_list = kdeny::new_for_testing(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
 
-        assert!(!nft::is_paused(&deny_list), 0);
+        let collection_id = collection::collection_id(&coll);
+        assert!(!nft::is_paused(&deny_list, collection_id), 0);
         nft::deny_pause(&mut deny_list, &cap, ctx);
-        assert!(nft::is_paused(&deny_list), 1);
+        assert!(nft::is_paused(&deny_list, collection_id), 1);
         nft::deny_unpause(&mut deny_list, &cap, ctx);
-        assert!(!nft::is_paused(&deny_list), 2);
+        assert!(!nft::is_paused(&deny_list, collection_id), 2);
 
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
@@ -284,7 +327,7 @@ module james::deny_list_tests {
     fun test_nft_transfer_paused_aborts() {
         let ctx = &mut tx_context::dummy();
         let (coll, cap) = setup_collection(ctx);
-        let deny_list = kdeny::new_for_testing(ctx);
+        let deny_list = deny_list::new_for_testing(ctx);
         nft::deny_pause(&mut deny_list, &cap, ctx);
 
         // BOB is not denied, but the pause still blocks the transfer.

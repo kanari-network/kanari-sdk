@@ -492,9 +492,9 @@ arbitrary addresses for arbitrary coin types and bypass every check in
 Add <code>addr</code> to the deny set for <code>type</code> under <code>per_type_index</code>. The
 per-type set object is created on first use.
 
-Friend-only: callers reach this through <code><a href="coin.md#0x2_coin_deny_list_add">coin::deny_list_add</a></code>, which
-requires <code>&<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;</code> and derives the key from <code>T</code>. Raw
-<code>(per_type_index, type)</code> pairs are never accepted from outside.
+Friend-only: callers reach this through coin or KRC-721 wrappers, which
+gate writes on their matching capability. Raw <code>(per_type_index, type)</code>
+pairs are never accepted from outside the framework.
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_v1_add">v1_add</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, per_type_index: u64, type: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, addr: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -554,8 +554,7 @@ requires <code>&<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt
 Remove a previously denied address. Aborts <code><a href="deny_list.md#0x2_deny_list_ENotDenied">ENotDenied</a></code> when the
 address is not on the list for <code>type</code>.
 
-Friend-only: callers reach this through <code><a href="coin.md#0x2_coin_deny_list_remove">coin::deny_list_remove</a></code>,
-which requires <code>&<a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;</code>.
+Friend-only: callers reach this through coin or KRC-721 wrappers.
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_v1_remove">v1_remove</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, per_type_index: u64, type: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, addr: <b>address</b>)
@@ -636,8 +635,8 @@ Open membership read: anyone may check whether <code>addr</code> is denied for
 ## Function `v2_enable_global_pause`
 
 Pause all regulated flows for <code>type</code>. Creates the type's set object
-(unpaused-addresses, paused flag) on first use. Only <code><a href="coin.md#0x2_coin">coin</a></code>
-(DenyCap-gated wrappers) may call this.
+(unpaused-addresses, paused flag) on first use. Only coin and KRC-721
+capability-gated wrappers may call this.
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_v2_enable_global_pause">v2_enable_global_pause</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, per_type_index: u64, type: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -679,7 +678,7 @@ Pause all regulated flows for <code>type</code>. Creates the type's set object
 ## Function `v2_disable_global_pause`
 
 Lift the pause for <code>type</code>. Missing set object means not paused:
-a no-op rather than an abort. Friend-only, via <code><a href="coin.md#0x2_coin_deny_list_unpause">coin::deny_list_unpause</a></code>.
+a no-op rather than an abort. Friend-only.
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_v2_disable_global_pause">v2_disable_global_pause</a>(<a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, per_type_index: u64, type: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;)

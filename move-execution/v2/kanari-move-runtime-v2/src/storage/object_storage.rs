@@ -70,12 +70,24 @@ pub struct StoredObject {
 }
 
 impl StoredObject {
-    #[cfg(test)]
-    pub fn owner_address(&self) -> Option<AccountAddress> {
-        match self.owner_kind {
-            ObjectOwnerKind::AddressOwner(_) => Some(self.owner),
+    /// Returns the current address owner recorded by `owner_kind`.
+    pub fn current_address_owner(&self) -> Option<AccountAddress> {
+        match &self.owner_kind {
+            ObjectOwnerKind::AddressOwner(owner) => AccountAddress::from_hex_literal(owner).ok(),
             ObjectOwnerKind::Shared | ObjectOwnerKind::Immutable => None,
         }
+    }
+
+    /// Keeps the legacy owner field aligned with the canonical ownership tag.
+    pub fn normalize_owner(&mut self) {
+        if let Some(owner) = self.current_address_owner() {
+            self.owner = owner;
+        }
+    }
+
+    #[cfg(test)]
+    pub fn owner_address(&self) -> Option<AccountAddress> {
+        self.current_address_owner()
     }
 }
 
@@ -217,11 +229,12 @@ impl ObjectStorage {
         if let Some(ids) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes())? {
             for id in ids {
                 let object_key = crate::common::keys::object_key(&id);
-                let object = store.load::<StoredObject>(&object_key)?.ok_or_else(|| {
+                let mut object = store.load::<StoredObject>(&object_key)?.ok_or_else(|| {
                     anyhow::anyhow!(
                         "object index references missing object {id}; refusing to start with a partial object cache"
                     )
                 })?;
+                object.normalize_owner();
                 objects_map.insert(id, object);
             }
         }
@@ -242,7 +255,8 @@ impl ObjectStorage {
         Ok(Box::new(Self::new_with_store(store)?))
     }
 
-    fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
+    fn store_object(&self, mut obj: StoredObject) -> Result<(), ObjectStorageError> {
+        obj.normalize_owner();
         let id = obj.id.clone();
         let owner = obj.owner;
         let mut old_owner = None;
@@ -255,7 +269,7 @@ impl ObjectStorage {
         {
             let state = self.state.read().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = state.objects.get(&id) {
-                old_owner = Some(existing.owner);
+                old_owner = Some(existing.current_address_owner().unwrap_or(existing.owner));
                 old_owner_kind = Some(existing.owner_kind.clone());
             }
         }
@@ -265,7 +279,7 @@ impl ObjectStorage {
             && let Some(existing) =
                 store.load::<StoredObject>(&crate::common::keys::object_key(&id))?
         {
-            old_owner = Some(existing.owner);
+            old_owner = Some(existing.current_address_owner().unwrap_or(existing.owner));
             old_owner_kind = Some(existing.owner_kind);
         }
 
@@ -332,7 +346,8 @@ impl ObjectStorage {
     /// Replaces the cached copy of `obj`. Persistent state and the owner /
     /// object indexes are left alone: the id and owner are unchanged when a
     /// resource is mutated in place.
-    fn refresh_cached_object(&self, obj: StoredObject) {
+    fn refresh_cached_object(&self, mut obj: StoredObject) {
+        obj.normalize_owner();
         let id = obj.id.clone();
         self.state
             .write()
@@ -344,13 +359,17 @@ impl ObjectStorage {
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
         if let Some(obj) = state.objects.get(id) {
-            return Ok(Some(obj.clone()));
+            let mut obj = obj.clone();
+            obj.normalize_owner();
+            return Ok(Some(obj));
         }
         drop(state);
 
         if let Some(store) = &self.persistent
-            && let Some(obj) = store.load::<StoredObject>(&crate::common::keys::object_key(id))?
+            && let Some(mut obj) =
+                store.load::<StoredObject>(&crate::common::keys::object_key(id))?
         {
+            obj.normalize_owner();
             let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
             write_state.objects.insert(id.to_string(), obj.clone());
             return Ok(Some(obj));

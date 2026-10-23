@@ -13,11 +13,13 @@
 /// `pay::join_vec_and_transfer_checked`, `multisig::execute_transfer_checked`)
 /// consult this list via `coin::deny_list_contains`.
 module kanari_system::deny_list {
-    // Only `coin` may mutate the registry: it alone computes the per-type key
-    // from `T` and gates writes behind `DenyCap<T>`. Without this, any package
-    // could deny-list an arbitrary `(per_type_index, type_bytes)` pair by
-    // calling `v1_add`/`v1_remove` directly, bypassing the capability check.
+    // Only framework wrappers may mutate the registry. They derive the key
+    // from a type or collection and gate writes behind the matching cap.
+    // Without this, any package could deny-list an arbitrary
+    // `(per_type_index, type_bytes)` pair by calling `v1_add`/`v1_remove`.
     friend kanari_system::coin;
+
+    friend kanari_system::krc_721;
 
     use kanari_system::bag::{Self, Bag};
     use kanari_system::dynamic_object_field as ofield;
@@ -175,9 +177,9 @@ module kanari_system::deny_list {
     /// Add `addr` to the deny set for `type` under `per_type_index`. The
     /// per-type set object is created on first use.
     ///
-    /// Friend-only: callers reach this through `coin::deny_list_add`, which
-    /// requires `&DenyCap<T>` and derives the key from `T`. Raw
-    /// `(per_type_index, type)` pairs are never accepted from outside.
+    /// Friend-only: callers reach this through coin or KRC-721 wrappers, which
+    /// gate writes on their matching capability. Raw `(per_type_index, type)`
+    /// pairs are never accepted from outside the framework.
     public(friend) fun v1_add(
         deny_list: &mut DenyList,
         per_type_index: u64,
@@ -217,8 +219,7 @@ module kanari_system::deny_list {
     /// Remove a previously denied address. Aborts `ENotDenied` when the
     /// address is not on the list for `type`.
     ///
-    /// Friend-only: callers reach this through `coin::deny_list_remove`,
-    /// which requires `&DenyCap<T>`.
+    /// Friend-only: callers reach this through coin or KRC-721 wrappers.
     public(friend) fun v1_remove(
         deny_list: &mut DenyList,
         per_type_index: u64,
@@ -269,8 +270,8 @@ module kanari_system::deny_list {
     // this runtime applies config without epoch-gated governance.
 
     /// Pause all regulated flows for `type`. Creates the type's set object
-    /// (unpaused-addresses, paused flag) on first use. Only `coin`
-    /// (DenyCap-gated wrappers) may call this.
+    /// (unpaused-addresses, paused flag) on first use. Only coin and KRC-721
+    /// capability-gated wrappers may call this.
     public(friend) fun v2_enable_global_pause(
         deny_list: &mut DenyList,
         per_type_index: u64,
@@ -292,7 +293,7 @@ module kanari_system::deny_list {
     }
 
     /// Lift the pause for `type`. Missing set object means not paused:
-    /// a no-op rather than an abort. Friend-only, via `coin::deny_list_unpause`.
+    /// a no-op rather than an abort. Friend-only.
     public(friend) fun v2_disable_global_pause(
         deny_list: &mut DenyList,
         per_type_index: u64,

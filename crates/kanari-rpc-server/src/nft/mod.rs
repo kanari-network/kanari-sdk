@@ -7,6 +7,7 @@ use crate::{
 use kanari_rpc_api::{RpcRequest, RpcResponse};
 use kanari_types::address::Address;
 use kanari_types::collection::CollectionModule;
+use kanari_types::transaction::ObjectOwnerKind;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
@@ -162,6 +163,10 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
 
     for id in owned_ids {
         if let Ok(Some(obj)) = state_guard.get_object(&id)
+            // `owner_kind` records the current address owner. Some existing
+            // objects retain their former owner in the legacy `owner` field.
+            && matches!(&obj.owner_kind, ObjectOwnerKind::AddressOwner(owner)
+                if Address::parse_to_account_address(owner).ok() == Some(addr))
             && (collection_nft_ids.contains(&id)
                 || obj
                     .type_

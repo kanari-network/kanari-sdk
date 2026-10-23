@@ -546,7 +546,7 @@ fn backend_native_transfer_partial_split_indexes_output_coin() {
 }
 
 #[test]
-fn backend_native_transfer_rejects_gas_overlap_before_execution() {
+fn backend_native_transfer_allows_same_canonical_coin_for_gas_and_transfer() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
@@ -562,22 +562,17 @@ fn backend_native_transfer_rejects_gas_overlap_before_execution() {
         1_000_000,
         8,
     );
-    let changeset = engine.execute_transaction_with_runtime_internal(
-        &signed_tx.transaction,
-        &engine.runtime_pool[0],
-        &engine.state,
-        false,
-        Some(124),
-        false,
-    );
-
-    let error = changeset.unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("cannot overlap with a mutable object input"),
-        "{error:#}"
-    );
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &signed_tx.transaction,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            Some(124),
+            false,
+        )
+        .expect("native transfer may use the same canonical coin for gas");
+    assert!(changeset.success, "{:?}", changeset.error_message);
 }
 
 #[test]
@@ -3450,14 +3445,16 @@ fn native_transfer_rejects_custom_gas_coin() {
 }
 
 #[test]
-fn move_transfer_rejects_gas_payment_overlap_with_transfer_coin() {
+fn move_transfer_allows_gas_payment_overlap_with_transfer_coin() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+    // The active v3.1 model requires enough balance for the maximum declared
+    // gas budget even though the actual transfer only sends one base unit.
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 100_000_000);
 
     let tx = Transaction::new_transfer_with_object_ref(
         sender.tagged_address(),
-        native_coin_object_ref("0xaaaa", 1_000_000),
+        native_coin_object_ref("0xaaaa", 100_000_000),
         generate_keypair(CurveType::Ed25519).unwrap().address,
         1,
         0,
@@ -3467,13 +3464,10 @@ fn move_transfer_rejects_gas_payment_overlap_with_transfer_coin() {
         .sign(&sender.private_key, sender.curve_type)
         .unwrap();
 
-    assert!(
-        engine
-            .execute_transaction_immediate(signed_tx)
-            .unwrap_err()
-            .to_string()
-            .contains("cannot overlap with a mutable object input")
-    );
+    let (_, changeset) = engine
+        .execute_transaction_immediate(signed_tx)
+        .expect("native transfer may use its coin as gas payment when balance is sufficient");
+    assert!(changeset.success, "{:?}", changeset.error_message);
 }
 
 #[test]

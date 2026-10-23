@@ -204,14 +204,20 @@ impl super::MoveRuntime {
             let key = crate::common::keys::object_key(candidate_id);
             if let Some(value) = overlay.and_then(|overlay| overlay.get(&key)) {
                 return match value {
-                    Some(bytes) => Ok(Some(bcs::from_bytes(bytes)?)),
+                    Some(bytes) => {
+                        let mut object: crate::storage::object_storage::StoredObject =
+                            bcs::from_bytes(bytes)?;
+                        object.normalize_owner();
+                        Ok(Some(object))
+                    }
                     None => Ok(None),
                 };
             }
         }
 
         for candidate_id in &object_ids {
-            if let Some(object) = self.object_storage.get_object(candidate_id)? {
+            if let Some(mut object) = self.object_storage.get_object(candidate_id)? {
+                object.normalize_owner();
                 return Ok(Some(object));
             }
         }
@@ -219,9 +225,10 @@ impl super::MoveRuntime {
         let store = self.state.store();
         for candidate_id in &object_ids {
             let key = crate::common::keys::object_key(candidate_id);
-            if let Some(object) =
+            if let Some(mut object) =
                 store.load::<crate::storage::object_storage::StoredObject>(&key)?
             {
+                object.normalize_owner();
                 let _ = self.object_storage.store_object(object.clone());
                 return Ok(Some(object));
             }
@@ -230,8 +237,9 @@ impl super::MoveRuntime {
         let canonical_id = crate::common::ids::canonical_object_id_or_raw(object_id);
         if let Ok(object_addr) =
             move_core_types::account_address::AccountAddress::from_hex_literal(&canonical_id)
-            && let Some(object) = self.state.try_get_stored_object(&object_addr)?
+            && let Some(mut object) = self.state.try_get_stored_object(&object_addr)?
         {
+            object.normalize_owner();
             let _ = self.object_storage.store_object(object.clone());
             return Ok(Some(object));
         }

@@ -168,8 +168,9 @@ impl StateManager {
             .ok()
             .map(IDRecord::new);
 
+        let owner = stored.current_address_owner().unwrap_or(stored.owner);
         Ok(Some(CreatedObject {
-            owner: stored.owner,
+            owner,
             owner_kind: stored.owner_kind,
             uid,
             id,

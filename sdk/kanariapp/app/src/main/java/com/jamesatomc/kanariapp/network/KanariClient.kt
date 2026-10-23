@@ -133,9 +133,9 @@ class KanariClient(private val environment: KanariEnvironment) {
     }
 
     /**
-     * Build the canonical NFT transfer: the server resolves the NFT object
-     * input, gas coin, and nonce, and returns an unsigned
-     * `0x2::transfer::public_transfer<T>(obj, recipient)` call.
+     * Build the NFT transfer: the server resolves the NFT object
+     * input, gas payment, nonce, and canonical call. Object arguments are
+     * resolved through `object_inputs` and must remain empty BCS slots.
      */
     suspend fun buildNftTransfer(
         sender: String,
@@ -252,7 +252,7 @@ class KanariClient(private val environment: KanariEnvironment) {
             ?: throw Exception("Failed to build transaction: RPC returned no data")
 
         val coinRef = prepared.coinObjectRef
-            ?: throw Exception("Transaction building failed: No valid coin object found for balance. Native KANARI transfer needs two distinct Coin<0x2::kanari::KANARI> objects: one coin to send and another coin to pay gas. Receive/fund this wallet once more, then try again.")
+            ?: throw Exception("Transaction building failed: No Coin<KANARI> object can cover the transfer amount and gas. Reduce the amount or fund this wallet.")
 
         // Validate nonce - must be non-zero and present. Large u64 values may have been truncated if parsed as signed Long.
         val nonce = prepared.nonce
@@ -320,7 +320,7 @@ class KanariClient(private val environment: KanariEnvironment) {
     /**
      * Normalize + BCS-encode + hash any server-prepared call
      * (`ExecuteFunction`) that is not yet signed. Works for both token
-     * transfers and NFT transfers (`0x2::transfer::public_transfer<T>`).
+     * transfers and NFT transfers (`0x2::transfer::transfer<T>`).
      */
     private fun prepareCallTx(
         prepared: CallFunctionData,
@@ -457,17 +457,20 @@ class KanariClient(private val environment: KanariEnvironment) {
 
     /**
      * Send an NFT owned by `wallet` to `recipient`, signing the prepared
-     * `0x2::transfer::public_transfer<T>` call with the wallet key.
+     * `0x2::transfer::transfer<T>` entry call with the wallet key.
      */
     suspend fun transferNft(
         wallet: KanariWallet,
         recipient: String,
         objectId: String,
     ): TransactionResult? {
-        val p = prepareCallTx(
-            buildNftTransfer(wallet.taggedAddress, recipient, objectId)
-                ?: throw Exception("Failed to build NFT transfer: RPC returned no data")
-        )
+        // Query and validate owned objects with the wallet's canonical
+        // account address. Keep the curve-tagged sender in the signed
+        // transaction so hybrid signature verification still identifies
+        // the correct key type.
+        val prepared = buildNftTransfer(wallet.address, recipient, objectId)
+            ?: throw Exception("Failed to build NFT transfer: RPC returned no data")
+        val p = prepareCallTx(prepared.copy(sender = wallet.taggedAddress))
 
         val signature = wallet.sign(p.hash)
 

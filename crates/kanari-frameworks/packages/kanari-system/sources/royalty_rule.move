@@ -304,7 +304,6 @@ module kanari_system::royalty_rule {
     // named const: the docs generator treats every const (test-only or not)
     // as an abort-code description, and the real module already maps
     // `E_BPS_TOO_LARGE = 0`, so a second zero-code const is a hard error.
-
     #[test]
     fun test_pay_splits_the_fee_and_unblocks_confirmation() {
         let ctx = tx_context::dummy();

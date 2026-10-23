@@ -1,7 +1,8 @@
 // Kanari Labs NFT Module - Universal Standard Version
 module james::nft {
     use std::string::{String, utf8};
-    use james::kdeny::{Self, DenyList};
+    use kanari_system::deny_list::DenyList;
+    use kanari_system::krc_721;
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
     use kanari_system::transfer;
@@ -68,10 +69,6 @@ module james::nft {
             );
         transfer::public_transfer(issuer, sender);
         transfer::public_transfer(coll, sender);
-        // The family blocklist is created and shared here so `transfer` has a
-        // stable shared object to consult. Its id is emitted in the init
-        // effects; clients read it before building a transfer.
-        kdeny::create_shared(ctx);
     }
 
     /// Replaces collection artwork without recreating the collection. Only the
@@ -144,8 +141,7 @@ module james::nft {
 
     /// NFT transfer (regulated): aborts `EDENIED` when `recipient` is on the
     /// issuer-controlled KariKid blocklist or transfers are globally paused.
-    /// The blocklist is the shared `kdeny::DenyList` created at publication,
-    /// so it is an explicit object input rather than a framework singleton.
+    /// The list is the framework's shared `DenyList`, passed as an object input.
     public entry fun transfer(
         list: &DenyList,
         nft: KariKid,
@@ -164,8 +160,11 @@ module james::nft {
         ctx: &mut TxContext,
     ) {
         let _ = ctx;
-        assert!(!is_denied(deny_list, recipient), EDENIED);
-        assert!(!is_paused(deny_list), EDENIED);
+        assert!(
+            !krc_721::is_denied(deny_list, nft.collection_id, recipient),
+            EDENIED
+        );
+        assert!(!krc_721::is_paused(deny_list, nft.collection_id), EDENIED);
         transfer::public_transfer(nft, recipient)
     }
 
@@ -183,12 +182,8 @@ module james::nft {
     // ==========================================
     // Deny-list management (regulated NFT)
     // ==========================================
-    /// Writes go to `kdeny::DenyList`, which is gated by `&collection::NftCap`
-    /// and therefore only the collection issuer can maintain it. The
-    /// framework `deny_list` registry is coin-only by design: its mutators
-    /// are `public(friend)` and `DenyCap<T>` is mintable only through
-    /// `coin::create_regulated_currency`, so no package can write an NFT
-    /// namespace into the shared `@0x403` registry.
+    /// Writes use the framework deny list and are gated by this collection's
+    /// `NftCap`.
 
     /// Add `addr` to the KariKid deny list. Only the NftCap holder.
     public entry fun deny_add(
@@ -197,7 +192,7 @@ module james::nft {
         addr: address,
         ctx: &mut TxContext,
     ) {
-        kdeny::deny_add(deny_list, cap, addr, ctx);
+        krc_721::deny_add(deny_list, cap, addr, ctx);
     }
 
     /// Remove `addr` from the KariKid deny list. Aborts when not denied.
@@ -207,7 +202,7 @@ module james::nft {
         addr: address,
         _: &mut TxContext,
     ) {
-        kdeny::deny_remove(deny_list, cap, addr);
+        krc_721::deny_remove(deny_list, cap, addr);
     }
 
     /// Pause all KariKid transfers (fail-closed kill-switch).
@@ -216,26 +211,30 @@ module james::nft {
         cap: &collection::NftCap,
         ctx: &mut TxContext,
     ) {
-        kdeny::deny_pause(deny_list, cap, ctx);
+        krc_721::deny_pause(deny_list, cap, ctx);
     }
 
     /// Lift the KariKid pause.
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
         cap: &collection::NftCap,
-        ctx: &mut TxContext,
+        _: &mut TxContext,
     ) {
-        kdeny::deny_unpause(deny_list, cap, ctx);
+        krc_721::deny_unpause(deny_list, cap);
     }
 
     /// Open read: true iff `addr` is denied for KariKid.
-    public fun is_denied(deny_list: &DenyList, addr: address): bool {
-        kdeny::is_denied(deny_list, addr)
+    public fun is_denied(
+        deny_list: &DenyList,
+        collection_id: address,
+        addr: address,
+    ): bool {
+        krc_721::is_denied(deny_list, collection_id, addr)
     }
 
     /// Open read: true iff KariKid transfers are globally paused.
-    public fun is_paused(deny_list: &DenyList): bool {
-        kdeny::is_paused(deny_list)
+    public fun is_paused(deny_list: &DenyList, collection_id: address): bool {
+        krc_721::is_paused(deny_list, collection_id)
     }
 
     #[test_only]

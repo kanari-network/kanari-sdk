@@ -168,7 +168,12 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     if let Some(db) = registry.get(&path).and_then(Weak::upgrade) {
         return Ok(db);
     }
-    let db = DB::open(&opts, &path).context("Failed to open RocksDB for kanari")?;
+    let db = DB::open(&opts, &path).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to open RocksDB for kanari at {}: {error:?}",
+            path.display()
+        )
+    })?;
     let arc = Arc::new(db);
     registry.insert(path, Arc::downgrade(&arc));
     Ok(arc)

@@ -57,6 +57,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     val unlockedPin: String? get() = _unlockedPin
 
     private var client = KanariClient(_environment.value)
+    private var balanceRefreshGeneration = 0L
 
     private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
     private val walletMutationMutex = Mutex()
@@ -121,41 +122,59 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshBalance() {
-        val address = _activeWallet.value?.address ?: return
+        val selectedWallet = _activeWallet.value ?: return
+        val requestGeneration = ++balanceRefreshGeneration
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
 
             try {
-                val info = client.getAccount(address)
-                _accountInfo.value = info
+                // Keep the response local until all queries finish. A slower
+                // request for the previously selected wallet must never
+                // overwrite the currently selected wallet's assets.
+                val info = client.getAccount(selectedWallet.address)
+                val balances = client.getAllBalances(selectedWallet.address)
+                val txs = client.getAllTransactions(selectedWallet.address)
+                val nfts = client.getOwnedNfts(selectedWallet.address)
 
-                val balances = client.getAllBalances(address)
-                _tokenBalances.value = balances
-
-                val txs = client.getAllTransactions(address)
-                _transactions.value = txs
-
-                val nfts = client.getOwnedNfts(address)
-                _ownedNfts.value = nfts
+                if (requestGeneration == balanceRefreshGeneration &&
+                    _activeWallet.value?.id == selectedWallet.id
+                ) {
+                    _accountInfo.value = info
+                    _tokenBalances.value = balances
+                    _transactions.value = txs
+                    _ownedNfts.value = nfts
+                }
             } catch (e: Exception) {
-                // Ignore "Owner not found" as a hard error for new wallets
-                if (e.message?.contains("Owner not found", ignoreCase = true) == true) {
-                    _accountInfo.value = null
-                    _tokenBalances.value = emptyList()
-                    _transactions.value = emptyList()
-                    _ownedNfts.value = emptyList()
-                } else {
-                    _error.value = "Failed to refresh balance: ${e.message}"
+                if (requestGeneration == balanceRefreshGeneration &&
+                    _activeWallet.value?.id == selectedWallet.id
+                ) {
+                    // Ignore "Owner not found" as a hard error for new wallets.
+                    if (e.message?.contains("Owner not found", ignoreCase = true) == true) {
+                        _accountInfo.value = null
+                        _tokenBalances.value = emptyList()
+                        _transactions.value = emptyList()
+                        _ownedNfts.value = emptyList()
+                    } else {
+                        _error.value = "Failed to refresh balance: ${e.message}"
+                    }
                 }
             }
-            _isLoading.value = false
+            if (requestGeneration == balanceRefreshGeneration) {
+                _isLoading.value = false
+            }
         }
     }
 
     fun switchWallet(record: WalletRecord) {
+        if (_activeWallet.value?.id == record.id) return
         _activeWallet.value = record
         prefs.edit { putString(KEY_ACTIVE_WALLET_ID, record.id) }
+        _accountInfo.value = null
+        _tokenBalances.value = emptyList()
+        _transactions.value = emptyList()
+        _ownedNfts.value = emptyList()
+        _error.value = null
         refreshBalance()
     }
 
@@ -406,6 +425,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
                     val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+                    if (!sameAccountAddress(wallet.address, record.address)) {
+                        _error.value =
+                            "This wallet's saved key does not match its address. Re-import the private key or recovery phrase for ${record.address.take(14)}… before sending this NFT."
+                        return false
+                    }
                     client.transferNft(wallet, recipient, objectId)
                 }
 
@@ -485,7 +509,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             text.contains("requires two distinct") || text.contains("native_transfer_policy_not_satisfied") ||
                     text.contains("allows_single_coin_for_transfer_and_gas") ->
-                "Native KANARI transfer needs two separate Coin<KANARI> objects: one coin to send and another coin to pay gas. Receive/fund this wallet once more, then try again."
+                "Native KANARI transfer needs enough balance to cover both the amount and gas. Reduce the amount or fund this wallet."
 
             text.contains("no single coin") && text.contains("can cover requested amount") ->
                 "Native KANARI transfer needs one Coin<KANARI> with enough balance to cover amount. Try a smaller amount or fund another coin."
@@ -499,5 +523,14 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             raw.startsWith("Transfer failed:") -> raw
             else -> "Transfer failed: $raw"
         }
+    }
+
+    private fun sameAccountAddress(left: String, right: String): Boolean {
+        fun canonical(value: String): String? {
+            val hex = value.trim().removePrefix("0x").removePrefix("0X")
+            if (hex.isEmpty() || hex.any { it.digitToIntOrNull(16) == null }) return null
+            return hex.lowercase(java.util.Locale.US).padStart(64, '0')
+        }
+        return canonical(left) != null && canonical(left) == canonical(right)
     }
 }

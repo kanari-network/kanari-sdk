@@ -19,6 +19,7 @@ Uses proper address types with validation
 -  [Function `freeze_object`](#0x2_transfer_freeze_object)
 -  [Function `public_freeze_object`](#0x2_transfer_public_freeze_object)
 -  [Function `public_transfer`](#0x2_transfer_public_transfer)
+-  [Function `transfer`](#0x2_transfer_transfer)
 -  [Function `transfer_with_uid`](#0x2_transfer_transfer_with_uid)
 -  [Function `share_object`](#0x2_transfer_share_object)
 
@@ -374,6 +375,40 @@ Transfer an owned object to another address.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>) {
     <a href="transfer.md#0x2_transfer_transfer_with_uid">transfer_with_uid</a>(obj, recipient);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_transfer"></a>
+
+## Function `transfer`
+
+Entry wrapper for <code>public_transfer</code>.
+
+Transactions may only execute <code>entry</code> functions, while the primitive
+above is a plain <code><b>public</b> <b>fun</b></code>. Clients that build a direct asset
+transfer (wallet <code>Send NFT</code>, explorers) must target this wrapper so the
+call passes the entry gate. Ownership is still enforced by the runtime:
+<code>obj</code> must arrive as a mutable owned input whose stored owner is the
+sender. No royalty/<code>TransferPolicy</code> gate runs here — this is the
+direct-transfer path, the on-chain escape hatch equivalent of Sui
+<code>public_transfer</code> in a PTB.
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>) {
+    <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>(obj, recipient);
 }
 </code></pre>
 

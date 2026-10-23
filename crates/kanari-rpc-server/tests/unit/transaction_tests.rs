@@ -111,7 +111,7 @@ fn structured_transaction_error_sets_reason_data() {
 #[test]
 fn structured_transaction_error_attaches_native_transfer_policy() {
     let error = transaction_error_with_reason(
-        "Transaction error: Native transfer requires two distinct Coin<0x2::kanari::KANARI> objects: one mutable transfer input and one separate gas payment object",
+        "Transaction error: Native transfer needs one Coin<0x2::kanari::KANARI> with enough balance for transfer plus gas, or two distinct coins with enough balance for each",
     );
     let details = error
         .transaction_error_details()
@@ -560,7 +560,7 @@ proptest! {
 }
 
 #[test]
-fn selects_distinct_native_transfer_and_gas_objects() {
+fn selects_distinct_native_transfer_and_gas_objects_when_one_coin_is_insufficient() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -598,7 +598,7 @@ fn selects_distinct_native_transfer_and_gas_objects() {
         &owned_objects,
         "0xa",
         60,
-        10,
+        50,
         1,
         &pending_access_keys,
         &HashSet::new(),
@@ -610,7 +610,7 @@ fn selects_distinct_native_transfer_and_gas_objects() {
 }
 
 #[test]
-fn native_transfer_preserves_small_coin_as_gas_reserve() {
+fn native_transfer_prefers_one_coin_for_transfer_and_gas() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -644,7 +644,7 @@ fn native_transfer_preserves_small_coin_as_gas_reserve() {
     .unwrap();
 
     assert_eq!(transfer.object_id, "0xlarge");
-    assert_eq!(gas.payment_objects[0].object_id, "0xsmall");
+    assert_eq!(gas.payment_objects[0].object_id, transfer.object_id);
 }
 
 #[test]
@@ -684,11 +684,11 @@ fn native_transfer_selection_skips_pending_object_refs() {
 
     assert_ne!(coin.object_id, "0x1");
     assert_ne!(gas.payment_objects[0].object_id, "0x2");
-    assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(coin.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
-fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
+fn allows_native_transfer_when_one_coin_covers_transfer_and_gas() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -707,7 +707,7 @@ fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
     }];
 
     let pending_access_keys = HashSet::new();
-    let err = select_native_transfer_and_gas_payment(
+    let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
         "0xa",
         60,
@@ -716,12 +716,13 @@ fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
         &pending_access_keys,
         &HashSet::new(),
     )
-    .unwrap_err();
-    assert!(err.to_string().contains("two distinct Coin<"));
+    .unwrap();
+    assert_eq!(transfer.object_id, "0x1");
+    assert_eq!(gas.payment_objects[0].object_id, transfer.object_id);
 }
 
 #[test]
-fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
+fn native_transfer_uses_one_coin_when_pair_refs_are_locked() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -744,7 +745,7 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
 
     let pending_access_keys =
         HashSet::from(["mut:object:0x1".to_string(), "mut:gas:0x2".to_string()]);
-    let pending_error = select_native_transfer_and_gas_payment(
+    let (pending_transfer, pending_gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
         "0xa",
         10,
@@ -753,8 +754,12 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
         &pending_access_keys,
         &HashSet::new(),
     )
-    .unwrap_err();
-    assert!(pending_error.to_string().contains("two distinct Coin<"));
+    .unwrap();
+    assert_eq!(pending_transfer.object_id, "0x3");
+    assert_eq!(
+        pending_gas.payment_objects[0].object_id,
+        pending_transfer.object_id
+    );
 
     let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
@@ -766,7 +771,7 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
         &HashSet::new(),
     )
     .unwrap();
-    assert_ne!(transfer.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(transfer.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
@@ -807,7 +812,7 @@ fn native_transfer_selection_skips_client_excluded_object_refs() {
     assert_ne!(coin.object_id, "0x2");
     assert_ne!(gas.payment_objects[0].object_id, "0x1");
     assert_ne!(gas.payment_objects[0].object_id, "0x2");
-    assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(coin.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
