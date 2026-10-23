@@ -205,7 +205,7 @@ impl MoveRuntime {
                 bypass_entry_check,
             )?;
 
-            let probe = ParamProbe::new(&session);
+            let probe = ParamProbe::new(&session, &ty_args_loaded);
             let binding_requirements = probe.binding_requirements(&func.parameters);
 
             // System functions (bypass_entry_check) bind object references via the
@@ -247,7 +247,8 @@ impl MoveRuntime {
                 let explicit_binding_index = if matches!(
                     probe.type_tag_for_param(param_type),
                     Some(TypeTag::Struct(_))
-                ) {
+                ) || object_mutability.is_some()
+                {
                     let argument_address = AccountAddress::from_bytes(&final_args[i]).ok();
                     let matching_input = argument_address.and_then(|address| {
                         object_inputs.iter().enumerate().find_map(|(index, input)| {
@@ -310,6 +311,20 @@ impl MoveRuntime {
                     if let Some(stored_obj) =
                         self.get_object_for_execution(&object_id, state_overlay.as_deref())?
                     {
+                        if let Some(expected_type) = probe.type_tag_for_param(param_type) {
+                            let actual_type =
+                                stored_obj.type_name.parse::<TypeTag>().map_err(|_| {
+                                    anyhow::anyhow!(
+                                        "Stored object {object_id} has invalid type tag {}",
+                                        stored_obj.type_name
+                                    )
+                                })?;
+                            anyhow::ensure!(
+                                actual_type == expected_type,
+                                "Object input {object_id} has type {actual_type}, expected {expected_type} for entry parameter {i}"
+                            );
+                        }
+
                         // Raw address args (not declared in object_inputs) may
                         // only touch sender-owned / system / zero-address
                         // objects. Objects declared explicitly in object_inputs
@@ -336,12 +351,7 @@ impl MoveRuntime {
 
                         final_args[i] = stored_obj.data.clone();
 
-                        if matches!(
-                            param_type,
-                            RuntimeType::MutableReference(_)
-                                | RuntimeType::Struct(_)
-                                | RuntimeType::StructInstantiation(_)
-                        ) {
+                        if object_mutability == Some(true) {
                             loaded_mutable_objects.push((
                                 i,
                                 stored_obj.id.clone(),
@@ -376,7 +386,10 @@ impl MoveRuntime {
                         }
                         _ => param_type,
                     };
-                    let Ok(layout) = session.type_to_type_layout(value_type) else {
+                    let Some(concrete_type) = probe.concrete_type_for_param(value_type) else {
+                        continue;
+                    };
+                    let Ok(layout) = session.type_to_type_layout(&concrete_type) else {
                         continue;
                     };
                     if move_vm_types::values::Value::simple_deserialize(arg, &layout).is_none() {

@@ -98,6 +98,26 @@ function readBcsAddress(bytes: Uint8Array, cursor: BcsCursor): string | null {
   return `0x${address}`;
 }
 
+function readBcsU64(bytes: Uint8Array, cursor: BcsCursor): string | null {
+  if (cursor.offset + 8 > bytes.length) return null;
+  let value = BigInt(0);
+  for (let i = 0; i < 8; i += 1) {
+    value |= BigInt(bytes[cursor.offset + i]) << BigInt(i * 8);
+  }
+  cursor.offset += 8;
+  return value.toString();
+}
+
+function readBcsOptionString(
+  bytes: Uint8Array,
+  cursor: BcsCursor,
+): string | null {
+  const variant = readBcsLength(bytes, cursor);
+  if (variant === 0) return "";
+  if (variant !== 1) return null;
+  return readBcsString(bytes, cursor);
+}
+
 function isKanariPet(value: unknown): boolean {
   const record = asRecord(value);
   const type = readString(record, "type", readString(record, "type_", ""));
@@ -147,6 +167,53 @@ function parseKanariPetBcs(value: unknown): NftMetadata | null {
   };
 }
 
+/** Parses the current `kanari_system::krc_721::Nft` object layout. */
+function parseKrc721Bcs(value: unknown): NftMetadata | null {
+  const record = asRecord(value);
+  const type = readString(record, "type", readString(record, "type_", ""));
+  if (!type.endsWith("::krc_721::Nft") || !isByteArray(record.data))
+    return null;
+
+  const bytes = Uint8Array.from(record.data);
+  const cursor = { offset: 32 }; // Nft.id: UID (ID wraps a 32-byte address)
+  const collectionId = readBcsAddress(bytes, cursor);
+  const number = readBcsU64(bytes, cursor);
+  const name = readBcsString(bytes, cursor);
+  const description = readBcsOptionString(bytes, cursor);
+  const imageUrl = readBcsOptionString(bytes, cursor);
+  const attributeCount = readBcsLength(bytes, cursor);
+
+  if (
+    collectionId === null ||
+    number === null ||
+    name === null ||
+    description === null ||
+    imageUrl === null ||
+    attributeCount === null
+  ) {
+    return null;
+  }
+
+  const attributes: NftMetadata["attributes"] = [];
+  for (let i = 0; i < attributeCount; i += 1) {
+    const key = readBcsString(bytes, cursor);
+    const attributeValue = readBcsString(bytes, cursor);
+    if (key === null || attributeValue === null) return null;
+    attributes.push({ key, value: attributeValue });
+  }
+
+  if (cursor.offset !== bytes.length) return null;
+  return {
+    name,
+    imageUrl,
+    description,
+    number,
+    collectionId,
+    creator: "",
+    attributes,
+  };
+}
+
 function parsedMetadata(value: unknown): NftMetadata | null {
   const record = asRecord(value);
   const parsed = asRecord(record.parsed);
@@ -177,7 +244,9 @@ function parsedMetadata(value: unknown): NftMetadata | null {
 }
 
 export function nftMetadata(value: unknown): NftMetadata | null {
-  return parseKanariPetBcs(value) ?? parsedMetadata(value);
+  return (
+    parseKrc721Bcs(value) ?? parseKanariPetBcs(value) ?? parsedMetadata(value)
+  );
 }
 
 function normalizeImageUrl(value: string): string | null {

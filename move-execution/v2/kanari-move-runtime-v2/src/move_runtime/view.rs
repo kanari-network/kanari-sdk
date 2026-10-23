@@ -54,7 +54,7 @@ impl MoveRuntime {
         let mut final_args = args.to_vec();
 
         if let Ok(func) = session.load_function(&module_id, ident, &ty_args_loaded) {
-            let probe = ParamProbe::new(&session);
+            let probe = ParamProbe::new(&session, &ty_args_loaded);
             let binding_requirements = probe.binding_requirements(&func.parameters);
             Self::validate_object_input_bindings(object_inputs, &binding_requirements, true)?;
 
