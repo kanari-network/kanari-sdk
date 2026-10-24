@@ -207,7 +207,7 @@ two applies. Setting <code>amount_bp</code> to 0 makes it a flat commission.
 Install royalties on one KRC-721 collection's scoped policy.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_add_for_krc_721_collection">add_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>, amount_bp: u64, min_amount: u64, beneficiary: <b>address</b>)
+<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_add_for_krc_721_collection">add_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="krc_721.md#0x2_krc_721_CollectionPolicyCap">krc_721::CollectionPolicyCap</a>, amount_bp: u64, min_amount: u64, beneficiary: <b>address</b>)
 </code></pre>
 
 
@@ -217,8 +217,8 @@ Install royalties on one KRC-721 collection's scoped policy.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_add_for_krc_721_collection">add_for_krc_721_collection</a>(
-    policy: &<b>mut</b> TransferPolicy&lt;kanari_system::krc_721::Nft&gt;,
-    cap: &Krc721CollectionPolicyCap,
+    policy: &<b>mut</b> TransferPolicy&lt;Nft&gt;,
+    cap: &CollectionPolicyCap,
     amount_bp: u64,
     min_amount: u64,
     beneficiary: <b>address</b>,
@@ -226,7 +226,7 @@ Install royalties on one KRC-721 collection's scoped policy.
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
     <b>let</b> config = <a href="royalty_rule.md#0x2_royalty_rule_encode_config">encode_config</a>(amount_bp, min_amount, beneficiary);
-    <a href="transfer_policy.md#0x2_transfer_policy_add_krc_721_collection_rule">transfer_policy::add_krc_721_collection_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap, config);
+    <a href="krc_721.md#0x2_krc_721_add_collection_policy_rule">krc_721::add_collection_policy_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap, config);
 }
 </code></pre>
 
@@ -241,7 +241,7 @@ Install royalties on one KRC-721 collection's scoped policy.
 Update royalties on one KRC-721 collection's scoped policy.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_update_for_krc_721_collection">update_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>, amount_bp: u64, min_amount: u64, beneficiary: <b>address</b>)
+<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_update_for_krc_721_collection">update_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="krc_721.md#0x2_krc_721_CollectionPolicyCap">krc_721::CollectionPolicyCap</a>, amount_bp: u64, min_amount: u64, beneficiary: <b>address</b>)
 </code></pre>
 
 
@@ -251,8 +251,8 @@ Update royalties on one KRC-721 collection's scoped policy.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_update_for_krc_721_collection">update_for_krc_721_collection</a>(
-    policy: &<b>mut</b> TransferPolicy&lt;kanari_system::krc_721::Nft&gt;,
-    cap: &Krc721CollectionPolicyCap,
+    policy: &<b>mut</b> TransferPolicy&lt;Nft&gt;,
+    cap: &CollectionPolicyCap,
     amount_bp: u64,
     min_amount: u64,
     beneficiary: <b>address</b>,
@@ -260,7 +260,7 @@ Update royalties on one KRC-721 collection's scoped policy.
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
     <b>let</b> config = <a href="royalty_rule.md#0x2_royalty_rule_encode_config">encode_config</a>(amount_bp, min_amount, beneficiary);
-    <a href="transfer_policy.md#0x2_transfer_policy_replace_krc_721_collection_rule">transfer_policy::replace_krc_721_collection_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap, config);
+    <a href="krc_721.md#0x2_krc_721_replace_collection_policy_rule">krc_721::replace_collection_policy_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap, config);
 }
 </code></pre>
 
@@ -275,7 +275,7 @@ Update royalties on one KRC-721 collection's scoped policy.
 Remove royalties from one KRC-721 collection's scoped policy.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_remove_for_krc_721_collection">remove_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_Krc721CollectionPolicyCap">transfer_policy::Krc721CollectionPolicyCap</a>)
+<pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_remove_for_krc_721_collection">remove_for_krc_721_collection</a>(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;<a href="krc_721.md#0x2_krc_721_Nft">krc_721::Nft</a>&gt;, cap: &<a href="krc_721.md#0x2_krc_721_CollectionPolicyCap">krc_721::CollectionPolicyCap</a>)
 </code></pre>
 
 
@@ -285,10 +285,10 @@ Remove royalties from one KRC-721 collection's scoped policy.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_remove_for_krc_721_collection">remove_for_krc_721_collection</a>(
-    policy: &<b>mut</b> TransferPolicy&lt;kanari_system::krc_721::Nft&gt;,
-    cap: &Krc721CollectionPolicyCap,
+    policy: &<b>mut</b> TransferPolicy&lt;Nft&gt;,
+    cap: &CollectionPolicyCap,
 ) {
-    <a href="transfer_policy.md#0x2_transfer_policy_remove_krc_721_collection_rule">transfer_policy::remove_krc_721_collection_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap);
+    <a href="krc_721.md#0x2_krc_721_remove_collection_policy_rule">krc_721::remove_collection_policy_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap);
 }
 </code></pre>
 

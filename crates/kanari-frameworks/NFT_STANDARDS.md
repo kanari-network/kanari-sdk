@@ -40,12 +40,12 @@ contract. Kanari models it as _object ownership_: an NFT is an object with a
 
 ## Module layout
 
-The KRC-721 module lives alongside the existing `collection.move`; KRC-1155 is
-the planned semi-fungible module:
+The KRC-721 module lives alongside the existing `collection.move`; KRC-1155
+is the semi-fungible module:
 
 ```
 kanari_system::krc_721  -- unique tokens, one object each
-kanari_system::erc1155  -- semi-fungible, shared object + u64 balances
+kanari_system::krc_1155 -- semi-fungible, token type + owned balance objects
 ```
 
 `collection.move` stays as-is: it already provides `Collection`, `NftCap`,
@@ -126,7 +126,8 @@ entire lifetime.
 
 ```move
 /// Ownership transfer is `transfer::public_transfer` — no framework function
-/// needed. Provided only so wallets have one obvious call site.
+/// needed. The consensus runtime nevertheless enforces the collection's
+/// deny/pause policy for this canonical KRC-721 type, including direct calls.
 public fun transfer(nft: Nft, recipient: address)
 ```
 
@@ -359,6 +360,7 @@ standards, and 2 should have an integration test before either standard ships.
    alongside the existing `Collection` parser.
 5. RPC/indexer surfacing of the new events.
 
-Nothing here changes the runtime, the host natives, or the consensus rules — it
-is all framework Move plus a Rust-side parser, so it does not require the
-`KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE` dance that the deny-list hardening did.
+The KRC-721 deny/pause guarantee is additionally enforced by the runtime for
+the canonical framework NFT type. This deliberately closes direct
+`public_transfer` calls that would otherwise skip Move-level wrapper checks;
+therefore runtime and framework releases must be upgraded together.

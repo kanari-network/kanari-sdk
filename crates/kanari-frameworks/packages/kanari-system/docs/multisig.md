@@ -630,6 +630,24 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 
+<a name="0x2_multisig_E_INSUFFICIENT_BALANCE"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_INSUFFICIENT_BALANCE">E_INSUFFICIENT_BALANCE</a>: u64 = 10;
+</code></pre>
+
+
+
+<a name="0x2_multisig_E_ZERO_AMOUNT"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_AMOUNT">E_ZERO_AMOUNT</a>: u64 = 17;
+</code></pre>
+
+
+
 <a name="0x2_multisig_E_ALREADY_APPROVED"></a>
 
 
@@ -680,15 +698,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 <pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_EMPTY_OWNERS">E_EMPTY_OWNERS</a>: u64 = 6;
-</code></pre>
-
-
-
-<a name="0x2_multisig_E_INSUFFICIENT_BALANCE"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_INSUFFICIENT_BALANCE">E_INSUFFICIENT_BALANCE</a>: u64 = 10;
 </code></pre>
 
 
@@ -779,15 +788,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 <pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_ADDRESS">E_ZERO_ADDRESS</a>: u64 = 19;
-</code></pre>
-
-
-
-<a name="0x2_multisig_E_ZERO_AMOUNT"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_AMOUNT">E_ZERO_AMOUNT</a>: u64 = 17;
 </code></pre>
 
 

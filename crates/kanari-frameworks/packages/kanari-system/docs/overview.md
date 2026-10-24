@@ -60,6 +60,8 @@ The Kanari System is built on top of the Move programming language, providing a 
 -  [`0x2::kanari`](kanari.md#0x2_kanari)
 -  [`0x2::kiosk`](kiosk.md#0x2_kiosk)
 -  [`0x2::kiosk_rule`](kiosk_rule.md#0x2_kiosk_rule)
+-  [`0x2::krc_1155`](krc_1155.md#0x2_krc_1155)
+-  [`0x2::krc_20`](krc_20.md#0x2_krc_20)
 -  [`0x2::krc_721`](krc_721.md#0x2_krc_721)
 -  [`0x2::linked_table`](linked_table.md#0x2_linked_table)
 -  [`0x2::math`](math.md#0x2_math)

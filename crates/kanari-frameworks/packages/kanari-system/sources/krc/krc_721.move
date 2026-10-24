@@ -51,6 +51,9 @@ module kanari_system::krc_721 {
     /// The NFT is outside the collection bound to a policy scope.
     const E_POLICY_COLLECTION_MISMATCH: u64 = 7;
 
+    /// The sender, recipient, or collection is blocked by its deny policy.
+    const E_DENIED_OR_PAUSED: u64 = 8;
+
     /// Upper bound on attribute count per token. Not a storage limit — it is a
     /// bound on how much arbitrary text one token can carry, which matters
     /// because anyone holding the object can rewrite its attributes and every
@@ -460,6 +463,32 @@ module kanari_system::krc_721 {
     /// surface to get wrong.
     public fun transfer(nft: Nft, recipient: address) {
         transfer::public_transfer(nft, recipient);
+    }
+
+    /// KRC-721 transfer with explicit deny-list enforcement. This is useful to
+    /// issuers and tests that already pass the shared deny-list object.
+    public fun transfer_checked(
+        nft: Nft,
+        recipient: address,
+        deny: &DenyList,
+        ctx: &TxContext,
+    ) {
+        let collection_id = nft.collection;
+        let sender = tx_context::sender(ctx);
+        assert!(!is_denied(deny, collection_id, sender), E_DENIED_OR_PAUSED);
+        assert!(!is_denied(deny, collection_id, recipient), E_DENIED_OR_PAUSED);
+        assert!(!is_paused(deny, collection_id), E_DENIED_OR_PAUSED);
+        transfer::public_transfer(nft, recipient);
+    }
+
+    /// Canonical production transfer. The runtime-created deny-list singleton
+    /// is read automatically, so callers do not need to supply it as input.
+    public fun transfer_with_global_deny(
+        nft: Nft,
+        recipient: address,
+        ctx: &TxContext,
+    ) {
+        transfer_checked(nft, recipient, deny_list::borrow_singleton(), ctx)
     }
 
     /// Update the mutable descriptive fields.

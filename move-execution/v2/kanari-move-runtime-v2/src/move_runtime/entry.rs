@@ -3,7 +3,7 @@
 
 use super::*;
 
-use kanari_types::coin::CoinModule;
+use kanari_types::{coin::CoinModule, krc_721::Krc721Module};
 
 /// Gas budget for a deny-policy read (`deny_list_contains` /
 /// `deny_list_paused`) inside either runtime gate.
@@ -197,6 +197,18 @@ impl MoveRuntime {
             // the raw inputs, before binding) so entry code cannot bypass it.
             // Placed before `probe` borrows the session.
             self.enforce_coin_input_policy(
+                &mut session,
+                sender,
+                &object_inputs,
+                &final_args,
+                state_overlay.as_deref(),
+                bypass_entry_check,
+            )?;
+            // KRC-721 has `store` for composability, so a package can call
+            // `transfer::public_transfer` directly.  Enforce its
+            // collection deny/pause policy here, before any entry code binds
+            // the NFT, just as regulated coins are enforced above.
+            self.enforce_krc721_input_policy(
                 &mut session,
                 sender,
                 &object_inputs,
@@ -506,6 +518,12 @@ impl MoveRuntime {
                         &transferred,
                         state_overlay.clone(),
                     )?;
+                    self.enforce_krc721_output_policy(
+                        &vm_guard,
+                        &cs,
+                        &transferred,
+                        state_overlay.clone(),
+                    )?;
                 }
 
                 self.add_transferred_objects_to_changeset(
@@ -647,6 +665,165 @@ impl MoveRuntime {
                 Ok(None)
             }
         }
+    }
+
+    /// Read a non-generic KRC-721 deny-list predicate.  Like the generic
+    /// coin reader above, a failed read is deliberately returned as `None` so
+    /// every consensus caller can fail closed with context appropriate to its
+    /// phase (input or output).
+    fn read_krc721_deny_flag(
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        function_name: &str,
+        args: Vec<Vec<u8>>,
+        gas: &mut crate::kanari_gas_meter::KanariGasMeter,
+        collection: AccountAddress,
+    ) -> Result<Option<bool>> {
+        let ident = IdentStr::new(function_name)?;
+        match session.execute_function_bypass_visibility(
+            &Krc721Module::module_id(),
+            ident,
+            vec![],
+            args,
+            gas,
+        ) {
+            Ok(values) => Ok(Some(
+                values
+                    .return_values
+                    .first()
+                    .map(|(bytes, _)| !bytes.is_empty() && bytes[0] != 0)
+                    .unwrap_or(false),
+            )),
+            Err(error) => {
+                log::warn!(
+                    "[RUNTIME] KRC-721 deny policy read {function_name} failed for collection {}: {error:?}",
+                    collection.to_hex_literal(),
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    /// Return the collection carried by a canonical KRC-721 object, or a
+    /// fail-closed error when an object claiming that type has invalid BCS.
+    fn krc721_collection_candidate(
+        object_type: &str,
+        data: &[u8],
+    ) -> Result<Option<AccountAddress>> {
+        if !Krc721Module::is_nft_object_type(object_type) {
+            return Ok(None);
+        }
+        Krc721Module::collection_from_nft_bcs(data).map(Some).ok_or_else(|| {
+            anyhow::anyhow!(
+                "KRC-721 policy: malformed canonical NFT data; refusing to bypass collection deny policy"
+            )
+        })
+    }
+
+    /// Consensus gate for KRC-721 inputs.
+    ///
+    /// KRC-721 NFTs intentionally retain `store`, allowing wallet and
+    /// marketplace composition.  That also means Move's public-transfer
+    /// native is callable without the KRC wrapper.  This gate examines every
+    /// declared and raw object reference before the entry is bound and rejects
+    /// a denied sender or a paused collection irrespective of the called Move
+    /// function.  Missing/corrupt policy state rejects the transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn enforce_krc721_input_policy(
+        &self,
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        sender: Option<AccountAddress>,
+        object_inputs: &[ObjectInput],
+        raw_args: &[Vec<u8>],
+        overlay: Option<&std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
+        bypass_entry_check: bool,
+    ) -> Result<()> {
+        if bypass_entry_check {
+            return Ok(());
+        }
+        let Some(sender) = sender else {
+            return Ok(());
+        };
+
+        let mut collections = Vec::new();
+        for input in object_inputs {
+            if let Some(stored) =
+                self.get_object_for_execution(&input.object_ref.object_id, overlay)?
+                && let Some(collection) =
+                    Self::krc721_collection_candidate(&stored.type_name, &stored.data)?
+            {
+                collections.push(collection);
+            }
+        }
+        for arg in raw_args {
+            if arg.len() != AccountAddress::LENGTH {
+                continue;
+            }
+            let object_id = format!("0x{}", hex::encode(arg));
+            if let Some(stored) = self.get_object_for_execution(&object_id, overlay)?
+                && let Some(collection) =
+                    Self::krc721_collection_candidate(&stored.type_name, &stored.data)?
+            {
+                collections.push(collection);
+            }
+        }
+        collections.sort();
+        collections.dedup();
+        if collections.is_empty() {
+            return Ok(());
+        }
+
+        let Some(singleton) =
+            self.get_object_for_execution(&Self::deny_list_singleton_full_id(), overlay)?
+        else {
+            anyhow::bail!(
+                "KRC-721 policy: shared deny-list singleton {} is missing; refusing NFT movement",
+                Self::deny_list_singleton_full_id(),
+            );
+        };
+        let sender_bytes = bcs::to_bytes(&sender)?;
+        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
+        for collection in collections {
+            let collection_bytes = bcs::to_bytes(&collection)?;
+            let paused = Self::read_krc721_deny_flag(
+                session,
+                Krc721Module::IS_PAUSED_FUNCTION,
+                vec![singleton.data.clone(), collection_bytes.clone()],
+                &mut policy_gas,
+                collection,
+            )?.ok_or_else(|| anyhow::anyhow!(
+                "KRC-721 policy: pause state for collection {} could not be read; refusing transaction (fail-closed)",
+                collection.to_hex_literal(),
+            ))?;
+            if paused {
+                anyhow::bail!(
+                    "transaction sender {} is blocked: KRC-721 collection {} is globally paused (deny-list policy)",
+                    sender.to_hex_literal(),
+                    collection.to_hex_literal(),
+                );
+            }
+            let denied = Self::read_krc721_deny_flag(
+                session,
+                Krc721Module::IS_DENIED_FUNCTION,
+                vec![singleton.data.clone(), collection_bytes, sender_bytes.clone()],
+                &mut policy_gas,
+                collection,
+            )?.ok_or_else(|| anyhow::anyhow!(
+                "KRC-721 policy: sender deny state for collection {} could not be read; refusing transaction (fail-closed)",
+                collection.to_hex_literal(),
+            ))?;
+            if denied {
+                anyhow::bail!(
+                    "transaction sender {} is denied for KRC-721 collection {} (deny-list policy)",
+                    sender.to_hex_literal(),
+                    collection.to_hex_literal(),
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Protocol-level regulated-coin input policy.
@@ -941,6 +1118,99 @@ impl MoveRuntime {
                     "recipient {} is denied for regulated coin {} (deny-list policy)",
                     recipient.to_hex_literal(),
                     inner,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Consensus gate for KRC-721 outputs.
+    ///
+    /// Checks every final address owner produced by a KRC-721 transfer,
+    /// including a direct `transfer::public_transfer` call.  It runs before
+    /// `add_transferred_objects_to_changeset`, so a denied recipient or a
+    /// collection paused during execution cannot receive the NFT and no
+    /// partial state is persisted.
+    fn enforce_krc721_output_policy(
+        &self,
+        vm_guard: &std::sync::RwLockReadGuard<'_, MoveVM>,
+        _cs: &ChangeSet,
+        transferred: &[TransferredObject],
+        state_overlay: Option<crate::StateOverlay>,
+    ) -> Result<()> {
+        // Unlike fungible coins, a freshly minted KRC-721 object is not a
+        // transfer.  Restrict this scan to transfer-native records: that
+        // closes `public_transfer` while preserving the issuer's explicit
+        // authority to mint (including minting a replacement after a burn).
+        let mut targets: Vec<(AccountAddress, AccountAddress)> = Vec::new();
+        for object in transferred
+            .iter()
+            .filter(|object| object.should_persist && !object.is_frozen && !object.is_shared)
+        {
+            if object.recipient == AccountAddress::ZERO {
+                continue;
+            }
+            if let Some(collection) =
+                Self::krc721_collection_candidate(&object.object_type, &object.data)?
+            {
+                targets.push((collection, object.recipient));
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        if targets.is_empty() {
+            return Ok(());
+        }
+
+        let Some(singleton) = self.get_object_for_execution(
+            &Self::deny_list_singleton_full_id(),
+            state_overlay.as_deref(),
+        )?
+        else {
+            anyhow::bail!(
+                "KRC-721 output policy: shared deny-list singleton {} is missing; refusing NFT delivery",
+                Self::deny_list_singleton_full_id(),
+            );
+        };
+        let (resolver, _resolver_trace) = self
+            .resolver
+            .tracing_clone_with_overlay(state_overlay.clone());
+        let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
+        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
+        for (collection, recipient) in targets {
+            let collection_bytes = bcs::to_bytes(&collection)?;
+            let paused = Self::read_krc721_deny_flag(
+                &mut session,
+                Krc721Module::IS_PAUSED_FUNCTION,
+                vec![singleton.data.clone(), collection_bytes.clone()],
+                &mut policy_gas,
+                collection,
+            )?.ok_or_else(|| anyhow::anyhow!(
+                "KRC-721 output policy: pause state for collection {} could not be read; refusing transaction (fail-closed)",
+                collection.to_hex_literal(),
+            ))?;
+            if paused {
+                anyhow::bail!(
+                    "recipient {} cannot receive from KRC-721 collection {}: it is globally paused (deny-list policy)",
+                    recipient.to_hex_literal(),
+                    collection.to_hex_literal(),
+                );
+            }
+            let denied = Self::read_krc721_deny_flag(
+                &mut session,
+                Krc721Module::IS_DENIED_FUNCTION,
+                vec![singleton.data.clone(), collection_bytes, bcs::to_bytes(&recipient)?],
+                &mut policy_gas,
+                collection,
+            )?.ok_or_else(|| anyhow::anyhow!(
+                "KRC-721 output policy: recipient deny state for collection {} could not be read; refusing transaction (fail-closed)",
+                collection.to_hex_literal(),
+            ))?;
+            if denied {
+                anyhow::bail!(
+                    "recipient {} is denied for KRC-721 collection {} (deny-list policy)",
+                    recipient.to_hex_literal(),
+                    collection.to_hex_literal(),
                 );
             }
         }

@@ -12,6 +12,7 @@ pub mod error;
 pub mod event;
 pub mod gas_coin;
 pub mod gas_market;
+pub mod krc_721;
 pub mod object;
 pub mod pay;
 pub mod transaction;

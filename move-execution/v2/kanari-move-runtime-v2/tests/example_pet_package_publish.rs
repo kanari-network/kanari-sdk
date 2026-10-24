@@ -1,13 +1,8 @@
 //! End-to-end publish of the `kanari_pet` example package.
 //!
-//! `kanari_pet` is the package from the bug report: `pet` uses its sibling
-//! module `nft` (`use kanari_pet::nft as pet_nft;`), and the publish was
-//! rejected with `Missing dependency: <address>::nft` because the dependency
-//! check only looked at on-chain storage, where the sibling does not exist
-//! until the very transaction that publishes it.
-//!
-//! The package is published exactly as the CLI publishes it: every root
-//! module of the compiled package, in one package transaction.
+//! `kanari_pet` is a single-module KRC-721 NFT example. The package is
+//! published exactly as the CLI publishes it: every root module of the
+//! compiled package, in one package transaction.
 
 use anyhow::{Context, Result};
 use kanari_move_runtime_v2::move_runtime::MoveRuntime;
@@ -17,7 +12,7 @@ use move_package::BuildConfig;
 use std::path::PathBuf;
 
 #[test]
-fn example_pet_package_publishes_with_sibling_module_dependency() -> Result<()> {
+fn example_pet_package_publishes() -> Result<()> {
     let package_dir = example_package_path();
     anyhow::ensure!(
         package_dir.exists(),
@@ -40,11 +35,10 @@ fn example_pet_package_publishes_with_sibling_module_dependency() -> Result<()> 
         module_ids.push(module_id);
     }
 
-    // `pet` depends on `nft`, so the package must carry both.
+    // `pet` is the only root module in the package.
     anyhow::ensure!(
-        module_ids.iter().any(|id| id.name().as_str() == "pet")
-            && module_ids.iter().any(|id| id.name().as_str() == "nft"),
-        "the example package must compile the pet and nft modules"
+        module_ids.iter().any(|id| id.name().as_str() == "pet"),
+        "the example package must compile the pet module"
     );
 
     let sender = *module_ids[0].address();
