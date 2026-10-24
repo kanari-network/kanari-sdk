@@ -35,11 +35,12 @@
 /// Collected value is tracked as plain `u64` amounts per rule plus a running
 /// `Balance<T>`; `AnyRule` must stay type-erased to live in the rule table.
 module kanari_system::transfer_policy {
+    friend kanari_system::krc_721;
+
     use std::bcs;
+    use std::option::{Self, Option};
     use std::vector;
-    use std::type_name;
     use kanari_system::collection::{Self, Collection, NftCap};
-    use kanari_system::krc_721::{Self, Nft};
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::package::{Self, Publisher};
     use kanari_system::transfer;
@@ -60,9 +61,17 @@ module kanari_system::transfer_policy {
 
     /// A receipt or collection was submitted for an unregistered rule.
     const E_NO_SUCH_RULE: u64 = 12;
-    const E_POLICY_MISMATCH: u64 = 13;
+    const E_COLLECTION_CAP_MISMATCH: u64 = 13;
+
+    /// This policy can only open requests through its collection standard.
     const E_COLLECTION_SCOPE_REQUIRED: u64 = 14;
-    const E_COLLECTION_MISMATCH: u64 = 15;
+
+    /// A request was created by a different policy.
+    const E_POLICY_MISMATCH: u64 = 15;
+
+    /// The collection standard supplied an id different from this policy's
+    /// immutable collection binding.
+    const E_COLLECTION_BINDING_MISMATCH: u64 = 16;
 
     /// Type-erased state for one rule. `config` holds BCS bytes the rule module
     /// encoded; this module cannot interpret them, which is the point.
@@ -90,27 +99,18 @@ module kanari_system::transfer_policy {
         /// amount here for the owner's accounting, so no custody is needed and
         /// nothing can be stranded inside the policy.
         owed: u64,
+        /// Collection-bound policies may only create requests through the
+        /// standard module that validates the item belongs to the collection.
+        collection_scoped: bool,
+        /// Set only by `new_for_collection`; kept in the policy so collection
+        /// checks do not rely solely on companion objects supplied by callers.
+        collection_id: Option<address>,
     }
 
     /// Owner authority over `T`'s policy. Whoever holds this can change the
     /// rules, so it is the object that must never leak.
     struct TransferPolicyCap<phantom T: key + store> has key, store {
         id: UID,
-    }
-
-    /// Shared collection binding for a KRC-721 transfer policy.
-    struct Krc721CollectionScope has key, store {
-        id: UID,
-        policy_id: ID,
-        collection_id: address,
-    }
-
-    /// Collection owner capability bound to one KRC-721 policy and collection.
-    struct Krc721CollectionPolicyCap has key, store {
-        id: UID,
-        policy_id: ID,
-        collection_id: address,
-        cap: TransferPolicyCap<Nft>,
     }
 
     /// A pending transfer awaiting rule resolution. No abilities, on purpose.
@@ -148,38 +148,34 @@ module kanari_system::transfer_policy {
             rules: vec_map::empty<vector<u8>, AnyRule>(),
             amounts: vec_map::empty<vector<u8>, u64>(),
             owed: 0,
+            collection_scoped: false,
+            collection_id: option::none(),
         };
         let cap = TransferPolicyCap<T> { id: object::new(ctx) };
         (policy, cap)
     }
 
-    /// Create a KRC-721 policy scoped to the collection authorized by `cap`.
-    public fun new_for_krc_721_collection(
+    /// Create a policy authorized by a collection's mint capability.
+    ///
+    /// This construction primitive is available only to collection standards,
+    /// which bind the result to a concrete item type and collection.
+    public(friend) fun new_for_collection<T: key + store>(
         cap: &NftCap,
         collection_ref: &Collection,
         ctx: &mut TxContext,
-    ): (TransferPolicy<Nft>, Krc721CollectionScope, Krc721CollectionPolicyCap) {
+    ): (TransferPolicy<T>, TransferPolicyCap<T>) {
         let collection_id = collection::collection_id(collection_ref);
-        assert!(collection::cap_collection_id(cap) == collection_id, E_COLLECTION_MISMATCH);
-        let policy = TransferPolicy<Nft> {
+        assert!(collection::cap_collection_id(cap) == collection_id, E_COLLECTION_CAP_MISMATCH);
+        let policy = TransferPolicy<T> {
             id: object::new(ctx),
             rules: vec_map::empty<vector<u8>, AnyRule>(),
             amounts: vec_map::empty<vector<u8>, u64>(),
             owed: 0,
+            collection_scoped: true,
+            collection_id: option::some(collection_id),
         };
-        let policy_id = object::uid_to_inner(&policy.id);
-        let scope = Krc721CollectionScope {
-            id: object::new(ctx),
-            policy_id,
-            collection_id,
-        };
-        let cap = Krc721CollectionPolicyCap {
-            id: object::new(ctx),
-            policy_id,
-            collection_id,
-            cap: TransferPolicyCap<Nft> { id: object::new(ctx) },
-        };
-        (policy, scope, cap)
+        let policy_cap = TransferPolicyCap<T> { id: object::new(ctx) };
+        (policy, policy_cap)
     }
 
     /// Share the policy, making `T` tradable.
@@ -193,10 +189,14 @@ module kanari_system::transfer_policy {
     /// No value is stranded: rules pay beneficiaries directly, so the only thing
     /// lost is the `owed` accounting figure.
     public fun destroy<T: key + store>(policy: TransferPolicy<T>) {
-        let TransferPolicy { id, rules, amounts, owed } = policy;
+        let TransferPolicy {
+            id, rules, amounts, owed, collection_scoped, collection_id
+        } = policy;
         let _ = rules;
         let _ = amounts;
         let _ = owed;
+        let _ = collection_scoped;
+        let _ = collection_id;
         object::delete(id);
     }
 
@@ -208,63 +208,6 @@ module kanari_system::transfer_policy {
     /// Freeze the owner cap so rules can never be changed again.
     public fun freeze_cap<T: key + store>(cap: TransferPolicyCap<T>) {
         transfer::public_freeze_object(cap);
-    }
-
-    /// Share collection scope information for KRC-721 trade entry points.
-    public fun share_krc_721_scope(scope: Krc721CollectionScope) {
-        transfer::share_object(scope);
-    }
-
-    /// Transfer control of a collection-scoped KRC-721 policy.
-    public fun transfer_krc_721_collection_cap(
-        cap: Krc721CollectionPolicyCap,
-        recipient: address,
-    ) {
-        transfer::public_transfer(cap, recipient);
-    }
-
-    /// The collection governed by a KRC-721 scope.
-    public fun krc_721_scope_collection_id(scope: &Krc721CollectionScope): address {
-        scope.collection_id
-    }
-
-    /// Replace or register a rule on a collection-scoped KRC-721 policy.
-    public fun add_krc_721_collection_rule<Rule: drop>(
-        rule: Rule,
-        policy: &mut TransferPolicy<Nft>,
-        cap: &Krc721CollectionPolicyCap,
-        config: vector<u8>,
-    ) {
-        assert_krc_721_policy_cap(policy, cap);
-        add_rule<Rule, Nft>(rule, policy, &cap.cap, config);
-    }
-
-    /// Update a rule on a collection-scoped KRC-721 policy.
-    public fun replace_krc_721_collection_rule<Rule: drop>(
-        rule: Rule,
-        policy: &mut TransferPolicy<Nft>,
-        cap: &Krc721CollectionPolicyCap,
-        config: vector<u8>,
-    ) {
-        assert_krc_721_policy_cap(policy, cap);
-        replace_rule<Rule, Nft>(rule, policy, &cap.cap, config);
-    }
-
-    /// Remove a rule from a collection-scoped KRC-721 policy.
-    public fun remove_krc_721_collection_rule<Rule: drop>(
-        rule: Rule,
-        policy: &mut TransferPolicy<Nft>,
-        cap: &Krc721CollectionPolicyCap,
-    ) {
-        assert_krc_721_policy_cap(policy, cap);
-        remove_rule<Rule, Nft>(rule, policy, &cap.cap);
-    }
-
-    fun assert_krc_721_policy_cap(
-        policy: &TransferPolicy<Nft>,
-        cap: &Krc721CollectionPolicyCap,
-    ) {
-        assert!(cap.policy_id == object::uid_to_inner(&policy.id), E_POLICY_MISMATCH);
     }
 
     /// The policy's id.
@@ -288,7 +231,19 @@ module kanari_system::transfer_policy {
         paid: u64,
         from: ID,
     ): TransferRequest<T> {
-        assert!(!is_krc_721_type<T>(), E_COLLECTION_SCOPE_REQUIRED);
+        assert!(!policy.collection_scoped, E_COLLECTION_SCOPE_REQUIRED);
+        new_scoped_request<T>(policy, item, paid, from)
+    }
+
+    /// Construct a request for a collection-bound policy after its standard
+    /// module has verified the item's collection. Only declared friends can
+    /// invoke this path.
+    public(friend) fun new_scoped_request<T: key + store>(
+        policy: &TransferPolicy<T>,
+        item: ID,
+        paid: u64,
+        from: ID,
+    ): TransferRequest<T> {
         TransferRequest<T> {
             item,
             paid,
@@ -298,31 +253,16 @@ module kanari_system::transfer_policy {
         }
     }
 
-    fun is_krc_721_type<T: key + store>(): bool {
-        let actual_name = type_name::get<T>();
-        let nft_type_name = type_name::get<Nft>();
-        *type_name::borrow_string(&actual_name)
-            == *type_name::borrow_string(&nft_type_name)
-    }
-
-    /// Open a request for a KRC-721 NFT after checking its collection against
-    /// the policy scope.
-    public fun new_krc_721_request(
-        policy: &TransferPolicy<Nft>,
-        scope: &Krc721CollectionScope,
-        nft: &Nft,
-        paid: u64,
-        from: ID,
-    ): TransferRequest<Nft> {
-        assert!(scope.policy_id == object::uid_to_inner(&policy.id), E_POLICY_MISMATCH);
-        assert!(scope.collection_id == krc_721::collection_of(nft), E_COLLECTION_MISMATCH);
-        TransferRequest<Nft> {
-            item: krc_721::id(nft),
-            paid,
-            from,
-            policy_id: object::uid_to_inner(&policy.id),
-            receipts: vec_set::empty(),
-        }
+    /// Verify a collection id against a policy created by `new_for_collection`.
+    /// The check is friend-only so callers cannot treat it as a generic bypass
+    /// for the scoped request path.
+    public(friend) fun assert_collection_binding<T: key + store>(
+        policy: &TransferPolicy<T>,
+        collection_id: address,
+    ) {
+        assert!(policy.collection_scoped, E_COLLECTION_SCOPE_REQUIRED);
+        assert!(option::is_some(&policy.collection_id), E_COLLECTION_BINDING_MISMATCH);
+        assert!(*option::borrow(&policy.collection_id) == collection_id, E_COLLECTION_BINDING_MISMATCH);
     }
 
     /// Resolve a request, consuming the hot potato.

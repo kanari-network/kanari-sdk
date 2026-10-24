@@ -24,8 +24,6 @@ module kanari_system::display {
     use std::vector;
     use std::option::{Self, Option};
     use std::string::{String, utf8};
-    use kanari_system::collection::{Self, NftCap};
-    use kanari_system::krc_721::Nft;
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::package::{Self, Publisher};
     use kanari_system::transfer;
@@ -41,9 +39,6 @@ module kanari_system::display {
     /// `T`'s own type-name entry cannot be removed.
     const E_PROTECTED_FIELD: u64 = 1;
 
-    /// The cap does not govern the display's collection.
-    const E_COLLECTION_MISMATCH: u64 = 2;
-
     /// Shared metadata for every object of type `T`. `T` is `phantom`: the
     /// value stores no `T` data, and the parameter exists so that one
     /// `Display<T>` cannot be passed where `Display<U>` is expected. That is
@@ -53,110 +48,6 @@ module kanari_system::display {
         /// `T`'s canonical type name is always the first entry, so indexers
         /// can identify the display from its object alone.
         fields: VecMap<String, String>,
-    }
-
-    /// Collection-scoped display for the framework's shared KRC-721 type.
-    /// The mint cap, rather than a package publisher, controls its metadata.
-    struct Krc721CollectionDisplay has key, store {
-        id: UID,
-        collection_id: address,
-        fields: VecMap<String, String>,
-    }
-
-    /// Create collection-specific metadata for `krc_721::Nft`.
-    public fun create_krc_721_collection_display(
-        cap: &NftCap,
-        keys: vector<vector<u8>>,
-        values: vector<vector<u8>>,
-        ctx: &mut TxContext,
-    ): Krc721CollectionDisplay {
-        assert!(vector::length(&keys) == vector::length(&values), E_FIELD_COUNT_MISMATCH);
-        let type_name = utf8(type_name_bytes<Nft>());
-        let fields = seed_fields(keys, values, type_name);
-        Krc721CollectionDisplay {
-            id: object::new(ctx),
-            collection_id: collection::cap_collection_id(cap),
-            fields
-        }
-    }
-
-    /// Share a collection display so indexers and wallets can read it.
-    public fun share_krc_721_collection_display(
-        display: Krc721CollectionDisplay,
-    ) {
-        transfer::share_object(display);
-    }
-
-    /// Read one collection display field, or `none` when absent.
-    public fun get_krc_721_collection_field(
-        display: &Krc721CollectionDisplay,
-        name: vector<u8>,
-    ): Option<String> {
-        let key = utf8(name);
-        if (vec_map::contains(&display.fields, &key)) {
-            option::some(*vec_map::get(&display.fields, &key))
-        } else {
-            option::none<String>()
-        }
-    }
-
-    /// Count fields in a collection display.
-    public fun krc_721_collection_field_count(
-        display: &Krc721CollectionDisplay,
-    ): u64 {
-        vec_map::size(&display.fields)
-    }
-
-    /// Add or replace one field, authorized by the matching collection cap.
-    public fun add_krc_721_collection_field(
-        display: &mut Krc721CollectionDisplay,
-        cap: &NftCap,
-        name: vector<u8>,
-        value: vector<u8>,
-    ) {
-        assert!(
-            display.collection_id == collection::cap_collection_id(cap),
-            E_COLLECTION_MISMATCH
-        );
-        let key = utf8(name);
-        assert!(
-            key != utf8(type_name_bytes<Nft>()),
-            E_PROTECTED_FIELD
-        );
-        if (vec_map::contains(&display.fields, &key)) {
-            let (_old_key, _old_value) = vec_map::remove(&mut display.fields, &key);
-        };
-        vec_map::insert(&mut display.fields, key, utf8(value));
-    }
-
-    /// Remove one field while protecting the canonical KRC-721 type name.
-    public fun remove_krc_721_collection_field(
-        display: &mut Krc721CollectionDisplay,
-        cap: &NftCap,
-        name: vector<u8>,
-    ) {
-        assert!(
-            display.collection_id == collection::cap_collection_id(cap),
-            E_COLLECTION_MISMATCH
-        );
-        let key = utf8(name);
-        assert!(
-            key != utf8(type_name_bytes<Nft>()),
-            E_PROTECTED_FIELD
-        );
-        vec_map::remove(&mut display.fields, &key);
-    }
-
-    /// The display's object address.
-    public fun krc_721_collection_display_address(
-        display: &Krc721CollectionDisplay,
-    ): address {
-        object::uid_address(&display.id)
-    }
-
-    /// The collection governed by this display.
-    public fun krc_721_collection_id(display: &Krc721CollectionDisplay): address {
-        display.collection_id
     }
 
     /// Create a display for `T` with a `name` field already set.

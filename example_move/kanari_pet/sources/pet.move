@@ -10,7 +10,7 @@
 /// |------------------|--------------------------------------|
 /// | token type       | `kanari_system::krc_721::Nft`        |
 /// | display metadata | collection-scoped framework display |
-/// | trade rules      | `kanari_system::transfer_policy`     |
+/// | trade rules      | `kanari_system::krc_721`             |
 /// | royalty          | `kanari_system::royalty_rule`        |
 /// | per-token traits | `kanari_system::krc_721` attribute model |
 /// | supply           | `kanari_system::collection::NftCap`   |
@@ -23,16 +23,19 @@ module kanari_pet::pet {
     use std::vector;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::collection::{Self, Collection, NftCap};
-    use kanari_system::display::{Self, Krc721CollectionDisplay};
     use kanari_system::event;
-    use kanari_system::krc_721::{Self, Nft};
+    use kanari_system::krc_721::{
+        Self,
+        CollectionDisplay,
+        CollectionPolicyCap,
+        CollectionPolicyScope,
+        Nft,
+    };
     use kanari_system::object::{Self, UID};
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
     use kanari_system::transfer_policy::{
         Self,
-        Krc721CollectionPolicyCap,
-        Krc721CollectionScope,
         TransferPolicy,
     };
     use kanari_system::table::{Self, Table};
@@ -54,7 +57,8 @@ module kanari_pet::pet {
 
     /// Reserved attribute key holding the pet's rarity band name.
     const ATTR_RARITY: vector<u8> = b"rarity";
-    const DEFAULT_IMAGE_URL: vector<u8> = b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4";
+    const DEFAULT_IMAGE_URL: vector<u8> =
+        b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4";
 
     /// A caller tried to write a reserved key through a pet-module setter.
     const E_RESERVED_ATTRIBUTE: u64 = 0;
@@ -88,7 +92,7 @@ module kanari_pet::pet {
         /// Hard ceiling. At this level `upgrade` refuses rather than wrapping.
         max_level: u64,
         /// Authoritative level state. NFT attributes are display metadata only.
-        levels: Table<address, u64>
+        levels: Table<address, u64>,
     }
 
     /// One-time module witness required by package initialization.
@@ -101,14 +105,14 @@ module kanari_pet::pet {
     /// replaying every transfer.
     struct Burned has copy, drop {
         pet_id: address,
-        owner: address
+        owner: address,
     }
 
     /// Emitted when a pet's attributes change. Off-chain state that mirrors
     /// attributes has to hear about this; there is no other signal, because the
     /// object id does not change when a field does.
     struct AttributesChanged has copy, drop {
-        pet_id: address
+        pet_id: address,
     }
 
     /// Emitted when a pet is upgraded. Carries the USD actually charged so an
@@ -119,7 +123,7 @@ module kanari_pet::pet {
         level_before: u64,
         level_after: u64,
         power_after: u64,
-        usd_paid: u64
+        usd_paid: u64,
     }
 
     /// Publication-time setup, run once by the runtime.
@@ -160,7 +164,7 @@ module kanari_pet::pet {
     }
 
     fun create_pet_display(cap: &NftCap, ctx: &mut TxContext) {
-        let display = display::create_krc_721_collection_display(
+        let display = krc_721::create_collection_display(
             cap,
             vector[b"name", b"description", b"image_url", b"creator"],
             vector[
@@ -171,7 +175,7 @@ module kanari_pet::pet {
             ],
             ctx
         );
-        display::share_krc_721_collection_display(display);
+        krc_721::share_collection_display(display);
     }
 
     fun create_pet_policy(
@@ -181,11 +185,11 @@ module kanari_pet::pet {
         ctx: &mut TxContext,
     ) {
         let (policy, scope, cap) =
-            transfer_policy::new_for_krc_721_collection(mint_cap, collection, ctx);
+            krc_721::new_collection_policy(mint_cap, collection, ctx);
         let policy = install_royalty(policy, &cap, beneficiary);
-        transfer_policy::share<Nft>(policy);
-        transfer_policy::share_krc_721_scope(scope);
-        transfer_policy::transfer_krc_721_collection_cap(cap, beneficiary);
+        krc_721::share_collection_policy(policy);
+        krc_721::share_collection_policy_scope(scope);
+        krc_721::transfer_collection_policy_cap(cap, beneficiary);
     }
 
     /// Install the 5% royalty, returning the configured policy.
@@ -195,8 +199,8 @@ module kanari_pet::pet {
     /// `&mut` borrow.
     fun install_royalty(
         policy: TransferPolicy<Nft>,
-        cap: &Krc721CollectionPolicyCap,
-        beneficiary: address
+        cap: &CollectionPolicyCap,
+        beneficiary: address,
     ): TransferPolicy<Nft> {
         royalty_rule::add_for_krc_721_collection(&mut policy, cap, 500, 0, beneficiary);
         policy
@@ -212,7 +216,7 @@ module kanari_pet::pet {
         collection: &Collection,
         recipient: address,
         stats: &mut Stats,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         mint_pet(
             pet_cap,
@@ -239,7 +243,7 @@ module kanari_pet::pet {
         image_url: vector<u8>,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         mint_pet(
             pet_cap,
@@ -270,7 +274,7 @@ module kanari_pet::pet {
         stats: &mut Stats,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         mint_pet(
             pet_cap,
@@ -296,7 +300,7 @@ module kanari_pet::pet {
         image_url: kanari_system::url::Url,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let i = 0;
         while (i < vector::length(&attribute_keys)) {
@@ -335,7 +339,7 @@ module kanari_pet::pet {
         collection: &Collection,
         stats: &mut Stats,
         pet: Nft,
-        ctx: &TxContext
+        ctx: &TxContext,
     ) {
         let pet_address = krc_721::nft_address(&pet);
         let owner = tx_context::sender(ctx);
@@ -369,14 +373,18 @@ module kanari_pet::pet {
     /// for nothing, which is the entire economy collapsed into one call. Those
     /// keys move only via `mint_with_level` or `upgrade`.
     public entry fun set_attribute(
-        pet: &mut Nft, key: vector<u8>, value: vector<u8>
+        pet: &mut Nft,
+        key: vector<u8>,
+        value: vector<u8>,
     ) {
         set_string_attribute(pet, string::utf8(key), string::utf8(value));
     }
 
     /// The `String`-typed body behind `set_attribute`.
     public fun set_string_attribute(
-        pet: &mut Nft, key: String, value: String
+        pet: &mut Nft,
+        key: String,
+        value: String,
     ) {
         assert!(!is_reserved(&key), E_RESERVED_ATTRIBUTE);
         let pet_address = krc_721::nft_address(pet);
@@ -403,7 +411,7 @@ module kanari_pet::pet {
     public entry fun set_attributes(
         pet: &mut Nft,
         attribute_keys: vector<vector<u8>>,
-        attribute_values: vector<vector<u8>>
+        attribute_values: vector<vector<u8>>,
     ) {
         set_string_attributes(pet, utf8_all(attribute_keys), utf8_all(attribute_values));
     }
@@ -415,7 +423,7 @@ module kanari_pet::pet {
     public fun set_string_attributes(
         pet: &mut Nft,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>
+        attribute_values: vector<String>,
     ) {
         let i = 0;
         while (i < vector::length(&attribute_keys)) {
@@ -527,7 +535,10 @@ module kanari_pet::pet {
     /// caller — a paid upgrade that let its buyer name their own power rating
     /// would not be a progression system at all.
     public entry fun upgrade(
-        pet: &mut Nft, stats: &mut Stats, payment: &mut Coin<USD>, ctx: &mut TxContext
+        pet: &mut Nft,
+        stats: &mut Stats,
+        payment: &mut Coin<USD>,
+        ctx: &mut TxContext,
     ) {
         let pet_address = krc_721::nft_address(pet);
         let owner = tx_context::sender(ctx);
@@ -574,7 +585,7 @@ module kanari_pet::pet {
         recipient: address,
         stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
         // Attributes are validated and progression stamped before the supply
@@ -654,7 +665,7 @@ module kanari_pet::pet {
         base_cost_usd: u64,
         power_per_level: u64,
         max_level: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Stats {
         Stats {
             id: object::new(ctx),
@@ -732,16 +743,16 @@ module kanari_pet::pet {
     /// transaction instead of letting a free trade through.
     public entry fun trade(
         policy: &mut TransferPolicy<Nft>,
-        policy_scope: &Krc721CollectionScope,
+        policy_scope: &CollectionPolicyScope,
         pet: Nft,
         payment: &mut Coin<FEE>,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         let from = object::id_from_address(tx_context::sender(ctx));
         let paid = coin::value(payment);
         let request =
-            transfer_policy::new_krc_721_request(policy, policy_scope, &pet, paid, from);
+            krc_721::new_collection_request(policy, policy_scope, &pet, paid, from);
         let request = pay_royalty(policy, request, payment, ctx);
 
         let (_item, _paid, _from) = transfer_policy::confirm_request<Nft>(
@@ -758,7 +769,7 @@ module kanari_pet::pet {
         policy: &mut TransferPolicy<Nft>,
         request: transfer_policy::TransferRequest<Nft>,
         payment: &mut Coin<FEE>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): transfer_policy::TransferRequest<Nft> {
         let mut_ref = &mut request;
         royalty_rule::pay<Nft, FEE>(policy, mut_ref, payment, ctx);
@@ -773,14 +784,15 @@ module kanari_pet::pet {
 
     /// Read a field off the collection-scoped KRC-721 display.
     public fun display_field(
-        d: &Krc721CollectionDisplay, key: vector<u8>
+        d: &CollectionDisplay,
+        key: vector<u8>,
     ): option::Option<String> {
-        display::get_krc_721_collection_field(d, key)
+        krc_721::collection_display_field(d, key)
     }
 
     /// The display's object address, for clients that want to find it.
-    public fun display_address(d: &Krc721CollectionDisplay): address {
-        display::krc_721_collection_display_address(d)
+    public fun display_address(d: &CollectionDisplay): address {
+        krc_721::collection_display_address(d)
     }
 
     #[test_only]
@@ -794,7 +806,9 @@ module kanari_pet::pet {
     /// which unit tests cannot retrieve objects from, so the tests need a way to
     /// hold the pet in order to read and mutate its attributes.
     public fun mint_for_test(
-        pet_cap: &mut NftCap, collection: &Collection, ctx: &mut TxContext
+        pet_cap: &mut NftCap,
+        collection: &Collection,
+        ctx: &mut TxContext,
     ): Nft {
         mint_with_attributes_for_test(
             pet_cap,
@@ -813,7 +827,7 @@ module kanari_pet::pet {
         collection: &Collection,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Nft {
         krc_721::mint(
             pet_cap,
@@ -835,7 +849,7 @@ module kanari_pet::pet {
         collection: &Collection,
         stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Nft {
         // Same ceiling check as `mint_with_level`, so the test variant cannot
         // construct a pet the public entry point would refuse.
@@ -868,7 +882,7 @@ module kanari_pet::pet {
         stats: &Stats,
         initial_level: u64,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>
+        attribute_values: vector<String>,
     ): (vector<String>, vector<String>) {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;

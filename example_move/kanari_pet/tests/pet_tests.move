@@ -10,15 +10,17 @@ module kanari_pet::pet_tests {
     use kanari_system::balance;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::collection;
-    use kanari_system::display;
     use kanari_system::object;
-    use kanari_system::krc_721::{Self, Nft};
+    use kanari_system::krc_721::{
+        Self,
+        CollectionPolicyCap,
+        CollectionPolicyScope,
+        Nft,
+    };
     use kanari_system::royalty_rule;
     use kanari_system::transfer;
     use kanari_system::transfer_policy::{
         Self,
-        Krc721CollectionPolicyCap,
-        Krc721CollectionScope,
         TransferPolicy,
     };
     use std::string::String;
@@ -33,15 +35,15 @@ module kanari_pet::pet_tests {
         ctx: &mut TxContext,
     ): (
         TransferPolicy<Nft>,
-        Krc721CollectionPolicyCap,
-        Krc721CollectionScope,
+        CollectionPolicyCap,
+        CollectionPolicyScope,
         collection::Collection,
         collection::NftCap,
     ) {
         let (coll, mint_cap) =
             collection::create_collection(ctx, b"Pets", b"Test", b"https://b", b"https://w", 10);
         let (policy, scope, cap) =
-            transfer_policy::new_for_krc_721_collection(&mint_cap, &coll, ctx);
+            krc_721::new_collection_policy(&mint_cap, &coll, ctx);
         royalty_rule::add_for_krc_721_collection(&mut policy, &cap, 500, 0, CREATOR);
         (policy, cap, scope, coll, mint_cap)
     }
@@ -90,7 +92,7 @@ module kanari_pet::pet_tests {
         let nft = pet::mint_for_test(&mut mint_cap, &coll, &mut ctx);
         let from = object::id_from_address(@0x2);
         let payment = mint_fees(1_000, &mut ctx);
-        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
+        let request = krc_721::new_collection_request(&policy, &scope, &nft, 1_000, from);
 
         let request = pay_fee(&mut policy, request, &mut payment, &mut ctx);
         let (_item, paid, _from) =
@@ -120,7 +122,7 @@ module kanari_pet::pet_tests {
 
         let nft = pet::mint_for_test(&mut mint_cap, &coll, &mut ctx);
         let from = object::id_from_address(@0x2);
-        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
+        let request = krc_721::new_collection_request(&policy, &scope, &nft, 1_000, from);
 
         // Deliberately skip `royalty_rule::pay`. No receipt is ever added, so
         // `confirm_request` aborts on the incomplete-receipt check. This is the
@@ -136,7 +138,7 @@ module kanari_pet::pet_tests {
     }
 
     #[test]
-    #[expected_failure(location = kanari_system::transfer_policy, abort_code = 15)]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 7)]
     fun test_collection_policy_rejects_another_collections_nft() {
         let ctx = tx_context::dummy();
         let (policy, policy_cap, scope, _policy_collection, _policy_mint_cap) = setup(&mut ctx);
@@ -146,7 +148,7 @@ module kanari_pet::pet_tests {
         let nft = pet::mint_for_test(&mut other_mint_cap, &other_collection, &mut ctx);
         let from = object::id_from_address(@0x2);
 
-        let request = transfer_policy::new_krc_721_request(&policy, &scope, &nft, 1_000, from);
+        let request = krc_721::new_collection_request(&policy, &scope, &nft, 1_000, from);
         transfer_policy::confirm_request(&policy, request);
 
         transfer::public_freeze_object(policy);
@@ -157,6 +159,54 @@ module kanari_pet::pet_tests {
         transfer::public_freeze_object(other_collection);
         transfer::public_freeze_object(other_mint_cap);
         transfer::public_freeze_object(nft);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 6)]
+    fun test_collection_policy_rejects_a_scope_from_another_policy() {
+        let ctx = tx_context::dummy();
+        let (policy_a, cap_a, scope_a, coll_a, mint_cap_a) = setup(&mut ctx);
+        let (policy_b, cap_b, scope_b, coll_b, mint_cap_b) = setup(&mut ctx);
+        let nft = pet::mint_for_test(&mut mint_cap_a, &coll_a, &mut ctx);
+        let from = object::id_from_address(@0x2);
+
+        let request = krc_721::new_collection_request(&policy_a, &scope_b, &nft, 1_000, from);
+        transfer_policy::confirm_request(&policy_a, request);
+
+        transfer::public_freeze_object(policy_a);
+        transfer::public_freeze_object(cap_a);
+        transfer::public_freeze_object(scope_a);
+        transfer::public_freeze_object(coll_a);
+        transfer::public_freeze_object(mint_cap_a);
+        transfer::public_freeze_object(policy_b);
+        transfer::public_freeze_object(cap_b);
+        transfer::public_freeze_object(scope_b);
+        transfer::public_freeze_object(coll_b);
+        transfer::public_freeze_object(mint_cap_b);
+        transfer::public_freeze_object(nft);
+    }
+
+    #[test]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 7)]
+    fun test_collection_policy_rejects_a_mismatched_mint_cap_at_creation() {
+        let ctx = tx_context::dummy();
+        let (collection_a, cap_a) = collection::create_collection(
+            &mut ctx, b"A", b"Test", b"https://a", b"https://a", 10,
+        );
+        let (collection_b, cap_b) = collection::create_collection(
+            &mut ctx, b"B", b"Test", b"https://b", b"https://b", 10,
+        );
+
+        let (policy, scope, policy_cap) =
+            krc_721::new_collection_policy(&cap_a, &collection_b, &mut ctx);
+
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(scope);
+        transfer::public_freeze_object(policy_cap);
+        transfer::public_freeze_object(collection_a);
+        transfer::public_freeze_object(cap_a);
+        transfer::public_freeze_object(collection_b);
+        transfer::public_freeze_object(cap_b);
     }
 
     #[test]
@@ -178,7 +228,7 @@ module kanari_pet::pet_tests {
     }
 
     #[test]
-    #[expected_failure(location = kanari_system::transfer_policy, abort_code = 13)]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 6)]
     fun test_collection_policy_cap_cannot_change_another_policy() {
         let ctx = tx_context::dummy();
         let (policy_a, cap_a, scope_a, coll_a, mint_cap_a) = setup(&mut ctx);
@@ -209,19 +259,19 @@ module kanari_pet::pet_tests {
         let values = vector::empty<vector<u8>>();
         vector::push_back(&mut keys, b"name");
         vector::push_back(&mut values, b"Kanari Pet");
-        let d = display::create_krc_721_collection_display(&cap, keys, values, &mut ctx);
+        let d = krc_721::create_collection_display(&cap, keys, values, &mut ctx);
 
         // The type name is always a field, so a client can identify the display
         // from its object alone.
-        assert!(display::krc_721_collection_field_count(&d) == 2, 0);
+        assert!(krc_721::collection_display_field_count(&d) == 2, 0);
         assert!(
-            display::krc_721_collection_id(&d) == collection::collection_id(&coll),
+            krc_721::collection_display_collection_id(&d) == collection::collection_id(&coll),
             1,
         );
-        let name = display::get_krc_721_collection_field(&d, b"name");
+        let name = krc_721::collection_display_field(&d, b"name");
         assert!(*std::option::borrow(&name) == std::string::utf8(b"Kanari Pet"), 2);
-        display::add_krc_721_collection_field(&mut d, &cap, b"name", b"Pets");
-        let updated_name = display::get_krc_721_collection_field(&d, b"name");
+        krc_721::add_collection_display_field(&mut d, &cap, b"name", b"Pets");
+        let updated_name = krc_721::collection_display_field(&d, b"name");
         assert!(*std::option::borrow(&updated_name) == std::string::utf8(b"Pets"), 3);
 
         transfer::public_freeze_object(d);
@@ -230,7 +280,7 @@ module kanari_pet::pet_tests {
     }
 
     #[test]
-    #[expected_failure(location = kanari_system::display, abort_code = 2)]
+    #[expected_failure(location = kanari_system::krc_721, abort_code = 5)]
     fun test_collection_display_rejects_another_collections_cap() {
         let ctx = tx_context::dummy();
         let (coll_a, cap_a) = collection::create_collection(
@@ -242,8 +292,8 @@ module kanari_pet::pet_tests {
         let keys = vector::empty<vector<u8>>();
         let values = vector::empty<vector<u8>>();
         let mut_ref_display =
-            display::create_krc_721_collection_display(&cap_a, keys, values, &mut ctx);
-        display::add_krc_721_collection_field(
+            krc_721::create_collection_display(&cap_a, keys, values, &mut ctx);
+        krc_721::add_collection_display_field(
             &mut mut_ref_display,
             &cap_b,
             b"creator",

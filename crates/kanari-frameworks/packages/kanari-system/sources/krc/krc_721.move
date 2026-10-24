@@ -6,15 +6,21 @@
 /// attributes live on the object, while ownership stays in the object runtime.
 /// Issuer modules may wrap `transfer` to enforce their own policies.
 module kanari_system::krc_721 {
-    use std::string::String;
+    use std::string::{Self, String};
     use std::vector;
-    use std::option::Option;
+    use std::option::{Self, Option};
     use kanari_system::address;
     use kanari_system::collection::{Self, NftCap};
     use kanari_system::deny_list::{Self, DenyList};
     use kanari_system::event;
     use kanari_system::object::{Self, ID, UID};
     use kanari_system::transfer;
+    use kanari_system::transfer_policy::{
+        Self,
+        TransferPolicy,
+        TransferPolicyCap,
+        TransferRequest,
+    };
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
     use kanari_system::url::Url;
@@ -29,6 +35,21 @@ module kanari_system::krc_721 {
 
     /// The NFT does not belong to the supplied collection.
     const E_NFT_COLLECTION_MISMATCH: u64 = 2;
+
+    /// Display seed keys and values have different lengths.
+    const E_DISPLAY_FIELD_COUNT_MISMATCH: u64 = 3;
+
+    /// The canonical NFT type field cannot be removed or overwritten.
+    const E_PROTECTED_DISPLAY_FIELD: u64 = 4;
+
+    /// The capability belongs to another collection.
+    const E_DISPLAY_COLLECTION_MISMATCH: u64 = 5;
+
+    /// The policy capability does not govern the supplied policy.
+    const E_POLICY_MISMATCH: u64 = 6;
+
+    /// The NFT is outside the collection bound to a policy scope.
+    const E_POLICY_COLLECTION_MISMATCH: u64 = 7;
 
     /// Upper bound on attribute count per token. Not a storage limit — it is a
     /// bound on how much arbitrary text one token can carry, which matters
@@ -63,6 +84,240 @@ module kanari_system::krc_721 {
         object_id: address,
         creator: address,
         collection_id: address,
+    }
+
+    /// Collection-specific display fields for KRC-721 NFTs. The collection's
+    /// mint capability controls mutations; this display is independent of
+    /// generic type displays and is discoverable by its collection id.
+    struct CollectionDisplay has key, store {
+        id: UID,
+        collection_id: address,
+        fields: VecMap<String, String>,
+    }
+
+    /// Shared binding between one KRC-721 collection and its transfer policy.
+    /// Trade entry points must receive this object, so an NFT cannot be traded
+    /// through a policy belonging to a different collection.
+    struct CollectionPolicyScope has key, store {
+        id: UID,
+        policy_id: ID,
+        collection_id: address,
+    }
+
+    /// Collection-owner authority for one KRC-721 transfer policy.
+    struct CollectionPolicyCap has key, store {
+        id: UID,
+        policy_id: ID,
+        collection_id: address,
+        cap: TransferPolicyCap<Nft>,
+    }
+
+    /// Create metadata for a collection. The canonical KRC-721 type name is
+    /// inserted automatically as the first field.
+    public fun create_collection_display(
+        cap: &NftCap,
+        keys: vector<vector<u8>>,
+        values: vector<vector<u8>>,
+        ctx: &mut TxContext,
+    ): CollectionDisplay {
+        assert!(
+            vector::length(&keys) == vector::length(&values),
+            E_DISPLAY_FIELD_COUNT_MISMATCH
+        );
+        let type_name = string::utf8(nft_type_name_bytes());
+        let fields = vec_map::empty<String, String>();
+        vec_map::insert(&mut fields, type_name, type_name);
+        let n = vector::length(&keys);
+        let i = 0;
+        while (i < n) {
+            vec_map::insert(
+                &mut fields,
+                string::utf8(*vector::borrow(&keys, i)),
+                string::utf8(*vector::borrow(&values, i)),
+            );
+            i = i + 1;
+        };
+        CollectionDisplay {
+            id: object::new(ctx),
+            collection_id: collection::cap_collection_id(cap),
+            fields,
+        }
+    }
+
+    /// Share collection metadata for public discovery by wallets and indexers.
+    public fun share_collection_display(display: CollectionDisplay) {
+        transfer::share_object(display);
+    }
+
+    /// Read a collection display field, or `none` if it is absent.
+    public fun collection_display_field(
+        display: &CollectionDisplay,
+        name: vector<u8>,
+    ): Option<String> {
+        let key = string::utf8(name);
+        if (vec_map::contains(&display.fields, &key)) {
+            option::some(*vec_map::get(&display.fields, &key))
+        } else {
+            option::none<String>()
+        }
+    }
+
+    /// Number of fields in a collection display.
+    public fun collection_display_field_count(display: &CollectionDisplay): u64 {
+        vec_map::size(&display.fields)
+    }
+
+    /// Add or replace a field, authorized by the matching collection cap.
+    public fun add_collection_display_field(
+        display: &mut CollectionDisplay,
+        cap: &NftCap,
+        name: vector<u8>,
+        value: vector<u8>,
+    ) {
+        assert!(
+            display.collection_id == collection::cap_collection_id(cap),
+            E_DISPLAY_COLLECTION_MISMATCH
+        );
+        let key = string::utf8(name);
+        assert!(key != string::utf8(nft_type_name_bytes()), E_PROTECTED_DISPLAY_FIELD);
+        if (vec_map::contains(&display.fields, &key)) {
+            let (_old_key, _old_value) = vec_map::remove(&mut display.fields, &key);
+        };
+        vec_map::insert(&mut display.fields, key, string::utf8(value));
+    }
+
+    /// Remove a field, while preserving the canonical NFT type field.
+    public fun remove_collection_display_field(
+        display: &mut CollectionDisplay,
+        cap: &NftCap,
+        name: vector<u8>,
+    ) {
+        assert!(
+            display.collection_id == collection::cap_collection_id(cap),
+            E_DISPLAY_COLLECTION_MISMATCH
+        );
+        let key = string::utf8(name);
+        assert!(key != string::utf8(nft_type_name_bytes()), E_PROTECTED_DISPLAY_FIELD);
+        vec_map::remove(&mut display.fields, &key);
+    }
+
+    /// Address of this collection display object.
+    public fun collection_display_address(display: &CollectionDisplay): address {
+        object::uid_address(&display.id)
+    }
+
+    /// Collection id governed by the display.
+    public fun collection_display_collection_id(display: &CollectionDisplay): address {
+        display.collection_id
+    }
+
+    // ==================== Collection transfer policy ====================
+
+    /// Create a KRC-721 policy bound to the collection authorized by `cap`.
+    public fun new_collection_policy(
+        cap: &NftCap,
+        collection_ref: &collection::Collection,
+        ctx: &mut TxContext,
+    ): (TransferPolicy<Nft>, CollectionPolicyScope, CollectionPolicyCap) {
+        let collection_id = collection::collection_id(collection_ref);
+        assert!(collection::cap_collection_id(cap) == collection_id, E_POLICY_COLLECTION_MISMATCH);
+        let (policy, inner_cap) = transfer_policy::new_for_collection<Nft>(
+            cap, collection_ref, ctx
+        );
+        let policy_id = transfer_policy::id(&policy);
+        let scope = CollectionPolicyScope {
+            id: object::new(ctx),
+            policy_id,
+            collection_id,
+        };
+        let policy_cap = CollectionPolicyCap {
+            id: object::new(ctx),
+            policy_id,
+            collection_id,
+            cap: inner_cap,
+        };
+        (policy, scope, policy_cap)
+    }
+
+    /// Share a KRC-721 policy so it can be used by trade contracts.
+    public fun share_collection_policy(policy: TransferPolicy<Nft>) {
+        transfer_policy::share<Nft>(policy);
+    }
+
+    /// Share the public scope used to check collection ownership during trades.
+    public fun share_collection_policy_scope(scope: CollectionPolicyScope) {
+        transfer::share_object(scope);
+    }
+
+    /// Transfer collection policy administration to `recipient`.
+    public fun transfer_collection_policy_cap(cap: CollectionPolicyCap, recipient: address) {
+        transfer::public_transfer(cap, recipient);
+    }
+
+    /// Collection id governed by this policy scope.
+    public fun collection_policy_scope_collection_id(scope: &CollectionPolicyScope): address {
+        scope.collection_id
+    }
+
+    /// Register a rule on a collection-bound KRC-721 policy.
+    public fun add_collection_policy_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &CollectionPolicyCap,
+        config: vector<u8>,
+    ) {
+        assert_collection_policy_cap(policy, cap);
+        transfer_policy::add_rule<Rule, Nft>(rule, policy, &cap.cap, config);
+    }
+
+    /// Replace a rule's configuration on a collection-bound KRC-721 policy.
+    public fun replace_collection_policy_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &CollectionPolicyCap,
+        config: vector<u8>,
+    ) {
+        assert_collection_policy_cap(policy, cap);
+        transfer_policy::replace_rule<Rule, Nft>(rule, policy, &cap.cap, config);
+    }
+
+    /// Remove a rule from a collection-bound KRC-721 policy.
+    public fun remove_collection_policy_rule<Rule: drop>(
+        rule: Rule,
+        policy: &mut TransferPolicy<Nft>,
+        cap: &CollectionPolicyCap,
+    ) {
+        assert_collection_policy_cap(policy, cap);
+        transfer_policy::remove_rule<Rule, Nft>(rule, policy, &cap.cap);
+    }
+
+    /// Open a transfer request only when `nft` belongs to the scoped collection.
+    public fun new_collection_request(
+        policy: &TransferPolicy<Nft>,
+        scope: &CollectionPolicyScope,
+        nft: &Nft,
+        paid: u64,
+        from: ID,
+    ): TransferRequest<Nft> {
+        assert!(scope.policy_id == transfer_policy::id(policy), E_POLICY_MISMATCH);
+        transfer_policy::assert_collection_binding(policy, scope.collection_id);
+        assert!(scope.collection_id == collection_of(nft), E_POLICY_COLLECTION_MISMATCH);
+        transfer_policy::new_scoped_request<Nft>(policy, id(nft), paid, from)
+    }
+
+    fun assert_collection_policy_cap(policy: &TransferPolicy<Nft>, cap: &CollectionPolicyCap) {
+        assert!(cap.policy_id == transfer_policy::id(policy), E_POLICY_MISMATCH);
+        transfer_policy::assert_collection_binding(policy, cap.collection_id);
+    }
+
+    /// Canonical type name used by display indexers.
+    public fun nft_type_name(): vector<u8> {
+        nft_type_name_bytes()
+    }
+
+    fun nft_type_name_bytes(): vector<u8> {
+        let name = std::type_name::get<Nft>();
+        *std::ascii::as_bytes(std::type_name::borrow_string(&name))
     }
 
     /// Add an address to the deny list for the collection governed by `cap`.
