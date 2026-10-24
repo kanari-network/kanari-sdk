@@ -40,9 +40,14 @@ impl<C: Ctx> RealBlockHandler<C> {
             transaction_time: Default::default(),
             metrics,
             receiver,
-            pending_transactions: 0, // todo - need to initialize correctly when loaded from disk
+            pending_transactions: 0,
         };
         (this, sender)
+    }
+
+    /// Seeds the count with the unproposed transactions recovered from the WAL.
+    pub(super) fn recover_pending_transactions(&mut self, count: usize) {
+        self.pending_transactions = count;
     }
 
     fn receive_with_limit(&mut self) -> Option<Vec<Transaction>> {

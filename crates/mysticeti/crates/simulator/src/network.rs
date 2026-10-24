@@ -13,7 +13,8 @@ use tokio::{select, sync::mpsc};
 use super::context::SimulatorContext;
 use super::equivocator::Equivocator;
 use super::executor::Sleep;
-use super::latency::{LatencyModel, LinkLatency};
+use super::latency::{ExponentialJitter, LatencyModel, LinkLatency};
+use consensus::leader::LeaderElection;
 use dag::committee::Committee;
 use dag::context::Ctx;
 use dag::sync::network::{Connection, Network, NetworkMessage};
@@ -24,6 +25,7 @@ const MAX_IN_FLIGHT: usize = 1024;
 pub struct SimulatedNetwork {
     senders: Vec<mpsc::Sender<Connection>>,
     latency: LatencyModel,
+    jitter: Option<ExponentialJitter>,
     equivocators: HashMap<usize, Arc<Equivocator>>,
 }
 
@@ -42,23 +44,37 @@ impl SimulatedNetwork {
             Self {
                 senders,
                 latency,
+                jitter: None,
                 equivocators: HashMap::new(),
             },
             networks,
         )
     }
 
-    /// Make `leaders` equivocate in their leader rounds; `leader_count` is the cohort size.
-    pub fn with_equivocating_leaders(mut self, leaders: &[usize], leader_count: usize) -> Self {
+    /// Make `leaders` equivocate in their leader rounds; `leader_count` is the cohort size and
+    /// `leader_election` the protocol's election policy.
+    pub fn with_equivocating_leaders(
+        mut self,
+        leaders: &[usize],
+        leader_count: usize,
+        leader_election: LeaderElection,
+    ) -> Self {
         let committee_size = self.senders.len();
         for &index in leaders {
             assert!(
                 index < committee_size,
                 "equivocating leader {index} is not in the committee"
             );
-            let equivocator = Equivocator::new(index, committee_size, leader_count);
+            let equivocator =
+                Equivocator::new(index, committee_size, leader_count, leader_election);
             self.equivocators.insert(index, Arc::new(equivocator));
         }
+        self
+    }
+
+    /// Add `jitter` on top of every link's latency.
+    pub fn with_jitter(mut self, jitter: Option<ExponentialJitter>) -> Self {
+        self.jitter = jitter;
         self
     }
 
@@ -82,8 +98,9 @@ impl SimulatedNetwork {
 
     pub async fn connect(&self, a: usize, b: usize) {
         // `a_receiver` is what `a` hears, i.e. the `b -> a` direction.
-        let (a_sender, a_receiver) = Self::latency_channel(self.latency.link(b, a));
-        let (b_sender, b_receiver) = Self::latency_channel(self.latency.link(a, b));
+        let link = |from, to| self.latency.link(from, to).with_jitter(self.jitter);
+        let (a_sender, a_receiver) = Self::latency_channel(link(b, a));
+        let (b_sender, b_receiver) = Self::latency_channel(link(a, b));
         let (a_inbound, b_inbound) = (a_sender.clone(), b_sender.clone());
         let a_connection = Connection {
             peer_id: b,

@@ -233,7 +233,7 @@ impl MoveRuntime {
                 let mut bound_from_explicit_input = false;
 
                 if final_args[i].is_empty()
-                    && let Some(TypeTag::Struct(struct_tag)) = probe.type_tag_for_param(&param_type)
+                    && let Some(TypeTag::Struct(struct_tag)) = probe.type_tag_for_param(param_type)
                     && struct_tag.address == *module_id.address()
                     && struct_tag.module.as_str() == module_id.name().as_str()
                     && struct_tag.name.as_str() == module_id.name().as_str().to_ascii_uppercase()
@@ -244,7 +244,7 @@ impl MoveRuntime {
                 }
 
                 let explicit_binding_index = if matches!(
-                    probe.type_tag_for_param(&param_type),
+                    probe.type_tag_for_param(param_type),
                     Some(TypeTag::Struct(_))
                 ) || object_mutability.is_some()
                 {
@@ -310,7 +310,7 @@ impl MoveRuntime {
                     if let Some(stored_obj) =
                         self.get_object_for_execution(&object_id, state_overlay.as_deref())?
                     {
-                        if let Some(expected_type) = probe.type_tag_for_param(&param_type) {
+                        if let Some(expected_type) = probe.type_tag_for_param(param_type) {
                             let actual_type =
                                 stored_obj.type_name.parse::<TypeTag>().map_err(|_| {
                                     anyhow::anyhow!(
@@ -393,7 +393,7 @@ impl MoveRuntime {
                     };
                     if move_vm_types::values::Value::simple_deserialize(arg, &layout).is_none() {
                         let expected_type = probe
-                            .type_tag_for_param(&param_type)
+                            .type_tag_for_param(param_type)
                             .map(|tag| tag.to_string())
                             .unwrap_or_else(|| format!("{param_type:?}"));
                         anyhow::bail!(

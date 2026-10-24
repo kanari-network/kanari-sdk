@@ -35,6 +35,9 @@ ignore = [
     # for non-network-facing key operations. Do NOT use for remotely-timed
     # decryption; migrate off `rsa` once RustCrypto ships constant-time fix.
     { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; only used where attackers cannot observe timing" },
+    # crypto-bigint 0.5.5 timing sidechannel (RUSTSEC-2026-0387), unpatched in
+    # elliptic-curve 0.13.x chain via jsonwebtoken. Upgrade blocked by EC deps.
+    { id = "RUSTSEC-2026-0387", reason = "transitive via elliptic-curve/jsonwebtoken; no patched release available" },
 ]
 
 [bans]

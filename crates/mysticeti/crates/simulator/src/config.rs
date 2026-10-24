@@ -1,11 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt, time::Duration};
+use std::{fmt, num::NonZeroU64, time::Duration};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::latency::LatencyModel;
+use crate::latency::{ExponentialJitter, LatencyModel};
 use dag::config::ImportExport;
 use replica::config::{LoadGeneratorConfig, ReplicaParameters};
 
@@ -51,10 +51,13 @@ pub struct SimulationConfig {
     pub name: Option<String>,
     #[serde(default = "defaults::committee_size")]
     pub committee_size: usize,
-    // `singleton_map` writes enum variants as `variant: value` rather than a YAML `!variant`
-    // tag, which the untagged `SimulationMode` cannot read back.
+    // `singleton_map` keeps enum variants in the `variant: value` map form that configs and
+    // exported runs use, rather than serde_yaml's default `!variant` tag.
     #[serde(default, with = "serde_yaml::with::singleton_map")]
     pub latency: LatencyModel,
+    /// Extra exponential delay on every message, on top of `latency`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jitter: Option<ExponentialJitter>,
     #[serde(default, with = "serde_yaml::with::singleton_map")]
     pub topology: NetworkTopology,
     #[serde(default = "defaults::duration_secs")]
@@ -68,6 +71,9 @@ pub struct SimulationConfig {
     /// Authority indices that send twin blocks in their leader rounds (see docs/simulator.md).
     #[serde(default)]
     pub equivocating_leaders: Vec<usize>,
+    /// Snapshot every replica's metrics this often during the run (see docs/simulator.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_interval_secs: Option<NonZeroU64>,
 }
 
 impl Default for SimulationConfig {
@@ -76,12 +82,14 @@ impl Default for SimulationConfig {
             name: None,
             committee_size: defaults::committee_size(),
             latency: LatencyModel::default(),
+            jitter: None,
             topology: NetworkTopology::default(),
             duration_secs: defaults::duration_secs(),
             rng_seed: 0,
             replica_parameters: ReplicaParameters::default(),
             load_generator: Some(LoadGeneratorConfig::new_for_test()),
             equivocating_leaders: Vec::new(),
+            sample_interval_secs: None,
         }
     }
 }

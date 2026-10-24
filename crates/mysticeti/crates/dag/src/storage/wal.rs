@@ -611,6 +611,58 @@ mod tests {
     }
 
     #[test]
+    fn test_wal_iter_across_short_padding_gap() {
+        // An entry ending fewer than a header's bytes short of a map boundary
+        // leaves a sub-header zero-padding gap; iterating across it must skip
+        // to the next map, not read a header off the short tail. Cover the
+        // extremes of the padding range (1 and 15 bytes) and a mid value.
+        for gap in [1u64, 8, 15] {
+            let temp = tempfile::TempDir::new().unwrap();
+            let file = temp.path().join("wal");
+            let (mut writer, reader) = wal(&file).unwrap();
+            let big = vec![1u8; (MAP_SIZE - HEADER_LEN_BYTES - gap) as usize];
+            let small = [2u8; 4];
+            let big_pos = writer.write(7, &big).unwrap();
+            let small_pos = writer.write(9, &small).unwrap();
+            // The gap forces small past the boundary into the next map.
+            assert_eq!(offset(small_pos.start), MAP_SIZE, "gap {gap}");
+
+            let mut iter = reader.iter_until(&writer);
+            drop(writer);
+            assert_eq!(&big, rd_it(&mut iter, 7, big_pos).as_ref(), "gap {gap}");
+            assert_eq!(
+                &small[..],
+                rd_it(&mut iter, 9, small_pos).as_ref(),
+                "gap {gap}"
+            );
+            assert!(iter.next().is_none(), "gap {gap}");
+        }
+    }
+
+    #[test]
+    fn test_wal_iter_entry_flush_to_map_boundary() {
+        // An entry ending exactly HEADER_LEN_BYTES before the boundary leaves a
+        // residual of exactly a header: the guard must NOT fire and a
+        // zero-payload entry filling the final bytes must still read back. Pins
+        // the < vs <= boundary the padding guard hinges on.
+        let temp = tempfile::TempDir::new().unwrap();
+        let file = temp.path().join("wal");
+        let (mut writer, reader) = wal(&file).unwrap();
+        let big = vec![1u8; (MAP_SIZE - 2 * HEADER_LEN_BYTES) as usize];
+        let tail = [0u8; 0];
+        let big_pos = writer.write(7, &big).unwrap();
+        let tail_pos = writer.write(9, &tail).unwrap();
+        // tail fills the last header-sized slot of the first map, no relocation.
+        assert_eq!(tail_pos.start, MAP_SIZE - HEADER_LEN_BYTES);
+
+        let mut iter = reader.iter_until(&writer);
+        drop(writer);
+        assert_eq!(&big, rd_it(&mut iter, 7, big_pos).as_ref());
+        assert_eq!(&tail[..], rd_it(&mut iter, 9, tail_pos).as_ref());
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
     fn test_wal_read_after_write() {
         // Verify that mapping can read entries that are written to it after it is created
         let temp = tempfile::TempDir::new().unwrap();

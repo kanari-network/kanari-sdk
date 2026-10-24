@@ -1,8 +1,8 @@
 # Mysticeti — uncertified DAG consensus
 
 Reference implementations of several uncertified DAG-based consensus protocols
-(Mysticeti, Mahi-Mahi, Blue Bottle, Orcaella, Cordial Miners PS/Async, Nemo-Nemo,
-DagHydrangea). The codebase is deliberately small and modular, meant for benchmarking and
+(Mysticeti, Mahi-Mahi, each with a Hybrid variant, Blue Bottle, Orcaella PS/Async, Cordial Miners
+PS/Async, Nemo-Nemo PS/Async, Hydrozoan). The codebase is deliberately small and modular, meant for benchmarking and
 experimentation — **not production** — but uses real networking, cryptography, and
 persistent storage. Ships with a discrete-event simulator and a cloud orchestrator for
 running the protocols under custom scenarios.
@@ -17,7 +17,7 @@ crate's `replica` binary.
 | Crate | Responsibility |
 | --- | --- |
 | `crates/dag` | DAG primitives + storage the protocols run on: `Block`, `Authority`, `Committee`, `Core` (block manager + threshold clock), `Storage` (WAL-backed and ephemeral), `BlockReader`. |
-| `crates/consensus` | The commit rule, decoupled from the DAG: `Committer` applies direct/indirect rules, `Wave` owns round/wave arithmetic, `protocol.rs` holds per-protocol parameter sets. |
+| `crates/consensus` | The commit rule, decoupled from the DAG: `Committer` applies direct/indirect rules, `Wave` owns round/wave arithmetic, `protocol/` holds one file per protocol parameter set. |
 | `crates/replica` | A running node: wires a `dag::Core` to a consensus `Committer`, networking, storage, metrics, and a load generator. Also hosts the `LocalTestbedRunner`. |
 | `crates/orchestrator` | Cloud-testbed lifecycle (deploy/start/stop/destroy) over SSH + Prometheus metric collection. Protocol-agnostic; the CLI supplies the glue. |
 | `crates/simulator` | Discrete-event simulator for exercising protocols under custom network/failure scenarios. |
@@ -30,7 +30,7 @@ design notes.
 ## Lean formalization
 
 `lean/` holds a Lean 4 + mathlib formalization of the safety and liveness
-arguments of Hydrozoan (the paper name of `DagHydrangea`); the paper's
+arguments of Hydrozoan; the paper's
 theory-only variant Optimal-Hydrozoan lives in `gdanezis/lean-dag` as a peer
 arc of this development's mirror there. It is a separate lake project, not a Cargo crate:
 `cd lean && lake build`; `python3 lean/scripts/check_no_holes.py` scans for proof
@@ -61,12 +61,14 @@ bypassing the hook.
 All supported protocols share one committer; they differ only in a flat parameter set
 (`Protocol`: `direct_commit_quorum`, `direct_skip_quorum`, `certificate_quorum`,
 `quorum_threshold`, `fast_path`, `anchor_link_size`, `wave_length`, `leader_count`,
-`pipeline`, `leader_wait`, `require_crypto`). `ConsensusProtocol` is the user-facing enum
+`pipeline`, `leader_wait`, `require_crypto`, `leader_election`). `ConsensusProtocol` is the user-facing enum
 that validates inputs and builds a `Protocol`. Rounds group into *waves* (leader round →
 voting round(s) → decision round); a leader is **directly** committed/skipped from
 votes/blames in its own wave, or **indirectly** decided later via an anchor. With
-`leader_count > 1` a round elects a *cohort* of K leaders (offsets `0..K`). Dual-path
-protocols (DagHydrangea) set `fast_path: Some(..)`: a fast direct commit from votes at
+`leader_count > 1` a round elects a *cohort* of K leaders (offsets `0..K`). Partially synchronous
+protocols elect leaders round-robin; asynchronous ones use a `FakeCoin`, a PRF of a seed the
+validators share, which stands in for a real common coin and is sound for crash faults only. Dual-path
+protocols (Hydrozoan) set `fast_path: Some(..)`: a fast direct commit from votes at
 the voting round, reconciled with the certified slow path by a graded indirect rule
 (certificate → weak quorum → skip).
 
@@ -83,12 +85,36 @@ the voting round, reconciled with the certified slow path by a graded indirect r
   `refactor(...)`, `test(...)`, …).
 - **Test-only APIs** are gated behind `#[cfg(any(test, feature = "test-utils"))]`.
   Integration tests under `crates/<crate>/tests/` are separate crates and don't see
-  `cfg(test)`, so they enable the feature (consensus does this via a self `path`
+  `cfg(test)`, so they enable the feature (replica and simulator do this via a self `path`
   dev-dependency). Shared DAG test builders live in `dag::test_util`
   (`build_dag`, `build_dag_layer`, `build_split_chain`, `drop_leader`, `committee`).
+- **Consensus scenario tests** live in `crates/consensus/src/test_scenarios/`, one
+  protocol-agnostic `run` per scenario. Each protocol file under `src/protocol/` declares the
+  configurations it is tested at with `scenario_tests!(name, sizes: [n4, n20], |leader_count| ..)`
+  (add `fast_path` for dual-path protocols), which emits one `#[test]` per scenario and size.
+  A new protocol must add its own `scenario_tests!` calls; a new scenario is added to the macro.
 - **Style** (enforced by hooks): 100-char max line length; line-continuation indents are
   4-space multiples (not alignment padding). Use descriptive names, not C-style
   abbreviations. No section-divider comment banners — use modules/idioms.
+
+## Evaluation data
+
+Raw measurements (orchestrator `measurements-*.yaml`, simulator `.prom` dumps, logs) never go
+into git: `results/` is gitignored scratch space. Each campaign is published as a GitHub
+release of `asonnino/mysticeti`, and the paper repo holds the summaries, parsers, plots and
+run log, citing each archive by sha256 (e.g. `hydrozoan-paper/data/evaluation/EVALUATION.md`).
+
+- **One release per build.** Tag `eval-<short sha>` on the commit that produced the data:
+  `gh release create eval-<sha> -R asonnino/mysticeti --target <full sha> --latest=false`.
+  Data from different builds never shares a release or an archive, even within one paper.
+- **Assets:** one `.tar.gz` per day or kind (`aws-measurements-<date>`, `simulator-<date>`),
+  each rooted at a single directory, plus a `SHA256SUMS` covering every archive. Archive the
+  files as produced, minus `.DS_Store` (`COPYFILE_DISABLE=1 tar czf ...` on macOS).
+- **Notes:** build, dates, testbed, what each archive holds and its layout, and anything left
+  out and why.
+- **Verify before deleting local copies:** download every asset back and run
+  `shasum -a 256 -c SHA256SUMS`.
+- Existing: `eval-96dee8d` (Orcaella), `eval-0669999` and `eval-649ec4f` (Hydrozoan).
 
 ## Gotchas
 
