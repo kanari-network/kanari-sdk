@@ -277,7 +277,7 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 # Database
 # ============================================================================
-rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.41.0", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Proc Macro Dependencies
@@ -301,6 +301,7 @@ crossterm = "0.29.0"
 # ============================================================================
 # Workspace Members (Internal Crates)
 # ============================================================================
+kanari = { path = "crates/kanari" }
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
 kanari-auth = { path = "crates/kanari-auth" }
@@ -318,12 +319,13 @@ kanari-db-common = { path = "crates/kanari-db-common" }
 kanari-open-rpc = { path = "crates/kanari-open-rpc" }
 kanari-open-rpc-macros = { path = "crates/kanari-open-rpc-macros" }
 kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
+kanari-open-rpc-spec-builder = { path = "crates/kanari-open-rpc-spec-builder" }
 
 # SMT Support
 smt = { path = "crates/smt" }
 
 # Move Runtime
-# kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
+kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
 kanari-move-runtime-v2 = { path = "move-execution/v2/kanari-move-runtime-v2" }
 
 # Move dependencies

@@ -72,6 +72,7 @@ mod constructors;
 mod entry;
 mod init;
 mod object_lifecycle;
+mod protocol;
 pub(crate) use object_lifecycle::SupplyValidation;
 mod publish;
 mod view;
