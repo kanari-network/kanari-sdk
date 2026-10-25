@@ -15,7 +15,7 @@ use kanari_types::coin::CoinModule;
 use kanari_types::collection::CollectionModule;
 use kanari_types::deny_list::DenyListModule;
 use kanari_types::gas_coin::GasModule;
-use kanari_types::gas_market;
+use kanari_types::gas_market::GasMarketModule;
 use kanari_types::pay::PayModule;
 use kanari_types::transfer::TransferModule;
 use kanari_types::tx_context::TxContextModule;
@@ -99,19 +99,22 @@ const MIRRORED: &[(&str, &[(&str, u64)])] = &[
     (
         "gas_market.move",
         &[
-            ("USD_SCALE", gas_market::USD_SCALE),
+            ("USD_SCALE", GasMarketModule::USD_SCALE),
             (
                 "DEFAULT_USD_PER_GAS_UNIT",
-                gas_market::DEFAULT_USD_PER_GAS_UNIT_MICROS,
+                GasMarketModule::DEFAULT_USD_PER_GAS_UNIT_MICROS,
             ),
-            ("EUNSUPPORTED_GAS_COIN", gas_market::EUNSUPPORTED_GAS_COIN),
-            ("ESTALE_PRICE", gas_market::ESTALE_PRICE),
-            ("ESLIPPAGE_EXCEEDED", gas_market::ESLIPPAGE_EXCEEDED),
-            ("EZERO_INPUT", gas_market::EZERO_INPUT),
-            ("ENOT_AUTHORIZED", gas_market::ENOT_AUTHORIZED),
-            ("EOVERFLOW_QUOTE", gas_market::EOVERFLOW_QUOTE),
-            ("ELENGTH_MISMATCH", gas_market::ELENGTH_MISMATCH),
-            ("EINVALID_DECIMALS", gas_market::EINVALID_DECIMALS),
+            (
+                "EUNSUPPORTED_GAS_COIN",
+                GasMarketModule::EUNSUPPORTED_GAS_COIN,
+            ),
+            ("ESTALE_PRICE", GasMarketModule::ESTALE_PRICE),
+            ("ESLIPPAGE_EXCEEDED", GasMarketModule::ESLIPPAGE_EXCEEDED),
+            ("EZERO_INPUT", GasMarketModule::EZERO_INPUT),
+            ("ENOT_AUTHORIZED", GasMarketModule::ENOT_AUTHORIZED),
+            ("EOVERFLOW_QUOTE", GasMarketModule::EOVERFLOW_QUOTE),
+            ("ELENGTH_MISMATCH", GasMarketModule::ELENGTH_MISMATCH),
+            ("EINVALID_DECIMALS", GasMarketModule::EINVALID_DECIMALS),
         ],
     ),
     (

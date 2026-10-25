@@ -893,11 +893,12 @@ proptest! {
 
     #[test]
     fn native_transfer_multihop_conserves_objects_and_supply(
-        // Floor at the minimum native gas charge (100 Mist): this property
-        // asserts every hop succeeds, and the harness always pays gas from
-        // the sender's smallest coin. Amounts below 100 would strand a dust
-        // fragment that later legitimately fails gas validation â€” that
-        // rejection path is covered by gas-specific tests, not here.
+        // Floor at the minimum native gas charge (100 Mist) so every hop
+        // moves a meaningful amount. Gas is paid from the smallest coin that
+        // can still cover the fixed 100 Mist charge: earlier hops strand
+        // zero/dust fragments (a received coin equal to the gas charge is
+        // fully drained by it), and offering such a coin as the gas object is
+        // a client error that gas-specific tests cover, not this property.
         hop_amounts in prop::collection::vec(100u64..200_000u64, 1..8),
     ) {
         // Coins ping-pong between three parties. After every hop:
@@ -950,10 +951,30 @@ proptest! {
                     .collect();
                 prop_assert!(coins.len() >= 2, "sender must keep >= 2 coins");
                 coins.sort_by_key(|(_, balance)| *balance);
-                // Smallest coin pays gas; largest coin is split. Distinct by construction.
-                let gas_id = coins[0].0.clone();
-                let (transfer_id, transfer_balance) = coins.last().cloned().unwrap();
-                prop_assert!(transfer_balance > 0, "transfer coin must be funded");
+                // GasOperation::Transfer costs 100 metering units, and a price
+                // of 1 floors to 1 Mist/unit, so every hop charges 100 Mist.
+                const MIN_TRANSFER_GAS_COST: u64 = 100;
+                // Smallest coin that can still cover the gas charge pays gas;
+                // largest spendable coin that is not the gas coin is split.
+                let gas_position = coins
+                    .iter()
+                    .position(|(_, balance)| *balance >= MIN_TRANSFER_GAS_COST);
+                prop_assert!(
+                    gas_position.is_some(),
+                    "sender must own a coin able to pay the {} Mist gas charge",
+                    MIN_TRANSFER_GAS_COST
+                );
+                let gas_position = gas_position.unwrap();
+                let gas_id = coins[gas_position].0.clone();
+                let transfer_position = (0..coins.len())
+                    .rev()
+                    .find(|&index| index != gas_position && coins[index].1 > 0);
+                prop_assert!(
+                    transfer_position.is_some(),
+                    "sender must own a spendable transfer coin"
+                );
+                let (transfer_id, transfer_balance) =
+                    coins[transfer_position.unwrap()].clone();
                 let coin_ref = state
                     .get_object(&transfer_id)
                     .unwrap()

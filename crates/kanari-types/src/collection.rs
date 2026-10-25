@@ -113,6 +113,7 @@ impl CollectionModule {
 
     /// Legacy module name of the NFT mint event emitter.
     pub const NFT_MODULE: &'static str = "nft";
+    pub const NFT_STRUCT: &'static str = "Nft";
     /// Event struct name emitted on NFT mint. Both `nft` and `krc_721` use
     /// `{ object_id, creator, collection_id }` — three addresses in source
     /// order, so the payload is `3 * 32` bytes.

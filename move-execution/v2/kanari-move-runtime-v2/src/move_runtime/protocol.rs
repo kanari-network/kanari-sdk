@@ -217,7 +217,7 @@ impl MoveRuntime {
             let collection_bytes = bcs::to_bytes(&collection)?;
             let paused = Self::read_krc721_deny_flag(
                 session,
-                Krc721Module::IS_PAUSED_FUNCTION,
+                Krc721Module::function_names().is_paused,
                 vec![singleton.data.clone(), collection_bytes.clone()],
                 &mut policy_gas,
                 collection,
@@ -234,7 +234,7 @@ impl MoveRuntime {
             }
             let denied = Self::read_krc721_deny_flag(
                 session,
-                Krc721Module::IS_DENIED_FUNCTION,
+                Krc721Module::function_names().is_denied,
                 vec![singleton.data.clone(), collection_bytes, sender_bytes.clone()],
                 &mut policy_gas,
                 collection,
@@ -608,7 +608,7 @@ impl MoveRuntime {
             let collection_bytes = bcs::to_bytes(&collection)?;
             let paused = Self::read_krc721_deny_flag(
                 &mut session,
-                Krc721Module::IS_PAUSED_FUNCTION,
+                Krc721Module::function_names().is_paused,
                 vec![singleton.data.clone(), collection_bytes.clone()],
                 &mut policy_gas,
                 collection,
@@ -625,7 +625,7 @@ impl MoveRuntime {
             }
             let denied = Self::read_krc721_deny_flag(
                 &mut session,
-                Krc721Module::IS_DENIED_FUNCTION,
+                Krc721Module::function_names().is_denied,
                 vec![singleton.data.clone(), collection_bytes, bcs::to_bytes(&recipient)?],
                 &mut policy_gas,
                 collection,

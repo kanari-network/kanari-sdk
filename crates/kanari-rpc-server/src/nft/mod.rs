@@ -7,6 +7,7 @@ use crate::{
 use kanari_rpc_api::{RpcRequest, RpcResponse};
 use kanari_types::address::Address;
 use kanari_types::collection::CollectionModule;
+use kanari_types::krc_721::Krc721Module;
 use kanari_types::transaction::ObjectOwnerKind;
 use serde::Deserialize;
 use serde_json::json;
@@ -61,7 +62,7 @@ struct ParsedCollection {
 }
 
 fn parse_any_nft(type_tag: &str, data: &[u8]) -> Option<serde_json::Value> {
-    if type_tag.ends_with("::krc_721::Nft")
+    if Krc721Module::is_nft_object_type(type_tag)
         && let Ok(parsed) = bcs::from_bytes::<Krc721Nft>(data)
     {
         let (keys, values): (Vec<_>, Vec<_>) = parsed
@@ -196,10 +197,14 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
             && matches!(&obj.owner_kind, ObjectOwnerKind::AddressOwner(owner)
                 if Address::parse_to_account_address(owner).ok() == Some(addr))
             && (collection_nft_ids.contains(&id)
-                || obj
-                    .type_
-                    .ends_with(&format!("::{}::Nft", CollectionModule::NFT_MODULE))
-                || obj.type_.ends_with("::krc_721::Nft"))
+                    || obj
+                        .type_
+                        .ends_with(&format!(
+                        "::{}::{}",
+                        CollectionModule::NFT_MODULE,
+                        CollectionModule::NFT_STRUCT
+                    ))
+                    || Krc721Module::is_nft_object_type(&obj.type_))
         {
             nfts.push(json!({
                 "object_id": id,
