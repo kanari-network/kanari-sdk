@@ -7,6 +7,16 @@ use move_core_types::account_address::AccountAddress;
 
 /// Canonicalize an object ID to its normalized hex literal form (e.g., `0x1`).
 /// Returns `None` if the ID is not a valid hex-encoded Move address.
+///
+/// Note: this is Move's *short* form — `to_hex_literal` strips leading zeros,
+/// so an id like `0x0139…` canonicalizes to `0x139…`, not to the zero-padded
+/// 64-hex spelling. That is deliberate: [`object_id_variants`] probes
+/// short → raw → full, which keeps every historical storage spelling
+/// reachable. Do NOT "fix" this to the padded form — mixed-spelling storage
+/// would lose objects queried by their full id. Clients that pad ids to the
+/// 64-hex form (wallets) must be normalized against at the RPC boundary
+/// instead (see `canonical_object_id` in `kanari-rpc-server`'s transaction
+/// module, applied by the build handlers before hashing).
 pub(crate) fn canonical_object_id(id: &str) -> Option<String> {
     let trimmed = id.trim();
     // Reject non-hex characters early so the error is caught here instead of

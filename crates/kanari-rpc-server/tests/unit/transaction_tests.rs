@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{
-    apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, details_involve_owner, enrich_transfer_from_effect,
-    fresh_nonce, lookup_token_decimals, push_transfer_entry, select_gas_payment_with_table,
+    apply_committed_effect, base_transaction_details, canonical_object_id,
+    classify_transaction_error_data, derive_transaction_state_flags, details_involve_owner,
+    enrich_transfer_from_effect, fresh_nonce, lookup_token_decimals, push_transfer_entry,
     select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
     transaction_error_with_reason, transfers_from_effect, tx_matches_owner,
     validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
+use crate::transaction::gas_selection::select_gas_payment_with_table;
 use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
@@ -1431,4 +1432,49 @@ fn auto_gas_fails_when_no_coin_covers_max_cost() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("No spendable gas coin"));
+}
+
+/// Regression: a coin whose stored object id carries a shortened spelling
+/// (`0x1abc…`, missing leading zero) broke native transfers. The build
+/// handler hashed the short string, the wallet padded the id to the
+/// canonical 64-hex form before submitting, and the reconstructed
+/// transaction no longer matched the signed hash, so the engine rejected a
+/// perfectly valid signature with "Invalid transaction signature".
+#[test]
+fn canonical_object_id_pads_short_spellings() {
+    assert_eq!(
+        canonical_object_id("0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d"),
+        "0x0139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d"
+    );
+    let canonical = "0x9460dce8d1feeb593d1593b8b28246cd4bb1a7d24c8108faeff5c51fe4f4e127";
+    assert_eq!(canonical_object_id(canonical), canonical);
+    assert_eq!(canonical_object_id("not-hex"), "not-hex");
+}
+
+#[test]
+fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
+    let short = "0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d";
+    let make = |id: &str| {
+        Transaction::new_transfer_with_object_ref_and_gas(
+            "0x1".to_string(),
+            kanari_types::transaction::ObjectRef::new(
+                id.to_string(),
+                Some(1),
+                Some("0xaa".to_string()),
+            ),
+            "0x2".to_string(),
+            10_000_000_000,
+            1,
+            100_000,
+            1,
+        )
+    };
+    // The verbatim spelling really does change the hash (why both sides must
+    // normalize), while build-side and padded-wallet-side canonicalization
+    // converge on the same transaction hash.
+    assert_ne!(make(short).hash(), make(&canonical_object_id(short)).hash());
+    assert_eq!(
+        make(&canonical_object_id(short)).hash(),
+        make(&canonical_object_id(&canonical_object_id(short))).hash()
+    );
 }

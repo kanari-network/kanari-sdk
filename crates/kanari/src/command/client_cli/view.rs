@@ -44,21 +44,26 @@ pub struct View {
     #[clap(long = "type-arg", short = 't')]
     pub type_args: Vec<String>,
 
-    /// Function arguments in hex format (BCS serialized bytes).
+    /// Function arguments in hex format (BCS serialized bytes). For an object
+    /// parameter, pass its Object ID directly: the node resolves its current
+    /// owner, version, and digest automatically from the function signature.
     /// Can be specified multiple times for multiple arguments.
     /// Example: --arg 0xDEADBEEF or -a 0x1234
     #[clap(long = "arg", short = 'a')]
     pub args: Vec<String>,
 
-    /// Explicit owned object input in the form OWNER,OBJECT_ID,VERSION,DIGEST
+    /// Explicit owned object input in the form OWNER,OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "owned-input")]
     pub owned_inputs: Vec<String>,
 
-    /// Explicit shared object input in the form OBJECT_ID,VERSION,DIGEST
+    /// Explicit shared object input in the form OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "shared-input")]
     pub shared_inputs: Vec<String>,
 
-    /// Explicit immutable object input in the form OBJECT_ID,VERSION,DIGEST
+    /// Explicit immutable object input in the form OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "immutable-input")]
     pub immutable_inputs: Vec<String>,
 

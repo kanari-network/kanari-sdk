@@ -27,6 +27,7 @@
 //! Devnet only: never configure a funded mainnet key here.
 
 use super::{build_object_input, parse_hex_address};
+use crate::transaction::build_call_signed_tx;
 use crate::{RpcRequest, RpcResponse};
 use crate::{
     RpcServerState, internal_error_response, invalid_params_response, respond_with_serialize,
@@ -268,7 +269,7 @@ async fn mint_leg(
     )
     .context("Faucet build returned an invalid prepared call")?;
 
-    let mut unsigned = super::build_call_signed_tx(prepared.clone());
+    let mut unsigned = build_call_signed_tx(prepared.clone());
     unsigned
         .sign(&service.keypair.private_key, service.keypair.curve_type)
         .context("Failed to sign faucet mint transaction")?;

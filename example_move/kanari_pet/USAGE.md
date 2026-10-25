@@ -121,6 +121,12 @@ kanari client view --package $PKG --module pet --function attribute_count --arg 
 kanari client view --package $PKG --module pet --function attribute_keys  --arg $PET
 ```
 
+kanari client view --package 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146 --module pet --function level --owned-input 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x8242daa1ba6af89f55e78519d4cca9c03fa86ae8789f8f31bb321f72108caab9,4,0x65ba3d89a8d30f080946f47a884fa0c8263f67a4daf75350b1543e96c19772bf --owned-input 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x2d871dea53415b24a45a24a71b9a90e61db26d493601ed8b86b3aac60b09096b,1,0xdb9be76c095df18b1134e1ae07442e9f7a5d4929f96963b3874036df4ec70ec8
+
+
+kanari client view --package 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146 --module pet --function rarity --owned-input 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x8242daa1ba6af89f55e78519d4cca9c03fa86ae8789f8f31bb321f72108caab9,4,0x65ba3d89a8d30f080946f47a884fa0c8263f67a4daf75350b1543e96c19772bf --owned-input 0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x2d871dea53415b24a45a24a71b9a90e61db26d493601ed8b86b3aac60b09096b,1,0xdb9be76c095df18b1134e1ae07442e9f7a5d4929f96963b3874036df4ec70ec8
+
+
 ## 4. Edit free-form attributes
 
 ```bash

@@ -505,7 +505,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 "Transfer failed: Local crypto error (Unexpected CALL_ERROR). This was a bug in BCS signing that is now fixed. Please retry. If it persists, re-import wallet and ensure curve type is correct."
 
             text.contains("invalid transaction signature") || text.contains("invalid_transaction_signature") ->
-                "Transfer failed: Invalid transaction signature. BCS hash mismatch - please update app and retry."
+                "Transfer failed: the network rejected this transaction's signature. This is not a problem with your funds - it usually means the node runs older software than this app (its transaction hash differs from the one you signed), or this wallet's stored key no longer matches its address. Retry once; if it persists, check the node version or re-import the wallet with its recovery phrase."
 
             text.contains("requires two distinct") || text.contains("native_transfer_policy_not_satisfied") ||
                     text.contains("allows_single_coin_for_transfer_and_gas") ->
