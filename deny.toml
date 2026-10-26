@@ -38,8 +38,6 @@ ignore = [
     # crypto-bigint 0.5.5 timing sidechannel (RUSTSEC-2026-0387), unpatched in
     # elliptic-curve 0.13.x chain via jsonwebtoken. Upgrade blocked by EC deps.
     { id = "RUSTSEC-2026-0387", reason = "transitive via elliptic-curve/jsonwebtoken; no patched release available" },
-    # webpki-root-certs 1.0.9 emSign root (RUSTSEC-2026-0383), no compatible update in rustls-platform-verifier 0.7.1.
-    { id = "RUSTSEC-2026-0383", reason = "transitive via rustls-platform-verifier 0.7.1; no patched release available" },
 ]
 
 [bans]
