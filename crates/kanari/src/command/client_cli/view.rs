@@ -122,14 +122,19 @@ impl View {
             .map(|bytes| format!("0x{}", hex::encode(bytes)))
             .collect();
 
-        let request_data = serde_json::json!({
+        let mut request_data = serde_json::json!({
             "package": self.package,
             "module": self.module,
             "function": self.function,
             "type_args": self.type_args,
             "args": args_hex,
-            "object_inputs": object_inputs
         });
+        // Omit the field entirely when nothing was declared explicitly so the
+        // node auto-resolves object params from `args` (sending `[]` used to
+        // opt into "declared" mode with zero inputs and abort the call).
+        if !object_inputs.is_empty() {
+            request_data["object_inputs"] = serde_json::json!(object_inputs);
+        }
 
         let rpc_request = RpcRequest {
             jsonrpc: "2.0".to_string(),

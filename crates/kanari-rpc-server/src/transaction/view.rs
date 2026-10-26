@@ -26,18 +26,22 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         return *response;
     }
 
-    let object_inputs = if let Some(inputs) = view_data.object_inputs.clone() {
-        inputs
-    } else {
-        let object_param_indices = function_object_param_indices(
-            state,
-            &view_data.package,
-            &view_data.module,
-            &view_data.function,
-        );
-        match infer_view_object_inputs(state, &view_data.args, object_param_indices.as_ref()) {
-            Ok(inputs) => inputs,
-            Err(error) => return invalid_params_response(request.id, error.to_string()),
+    // An empty declared list means "nothing declared explicitly" (older CLIs
+    // always send the field), so fall through to auto-resolution exactly like
+    // an absent field. Only a non-empty list opts out of auto-resolution.
+    let object_inputs = match view_data.object_inputs.clone() {
+        Some(inputs) if !inputs.is_empty() => inputs,
+        _ => {
+            let object_param_indices = function_object_param_indices(
+                state,
+                &view_data.package,
+                &view_data.module,
+                &view_data.function,
+            );
+            match infer_view_object_inputs(state, &view_data.args, object_param_indices.as_ref()) {
+                Ok(inputs) => inputs,
+                Err(error) => return invalid_params_response(request.id, error.to_string()),
+            }
         }
     };
     if let Err(response) = validate_object_inputs_and_gas(request.id, &object_inputs, None) {
