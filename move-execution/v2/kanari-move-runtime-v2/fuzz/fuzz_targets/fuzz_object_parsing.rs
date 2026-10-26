@@ -26,7 +26,8 @@ fuzz_target!(|data: &[u8]| {
         && let Ok(version) = unstructured.arbitrary::<u64>()
     {
         let owner = sample_owner_address();
-        let owner_kind = ObjectOwnerKind::AddressOwner(owner.to_hex_literal());
+        let owner_kind =
+            ObjectOwnerKind::AddressOwner(kanari_types::object::object_id_for_address(&owner));
 
         let created = CreatedObject {
             owner,
@@ -58,8 +59,13 @@ fuzz_target!(|data: &[u8]| {
         // Digest and object_ref must match the stored payload.
         let digest = created.digest();
         assert!(!digest.is_empty(), "digest must never be empty");
-        let object_ref = created.object_ref("0xtest");
-        assert_eq!(object_ref.object_id, "0xtest");
+        let object_ref = created.object_ref(
+            "0x000000000000000000000000000000000000000000000000000000000000007e",
+        );
+        assert_eq!(
+            object_ref.object_id,
+            "0x000000000000000000000000000000000000000000000000000000000000007e"
+        );
         assert_eq!(object_ref.version, Some(created.version));
         assert_eq!(object_ref.digest.as_ref(), Some(&digest));
 
@@ -74,7 +80,9 @@ fuzz_target!(|data: &[u8]| {
             version,
         };
         assert_eq!(created_no_uid.digest(), digest);
-        let _ = created_no_uid.object_ref("0xtest2");
+        let _ = created_no_uid.object_ref(
+            "0x000000000000000000000000000000000000000000000000000000000000007f",
+        );
     }
 
     // OwnerState construction, serialization, and cloning.
@@ -125,7 +133,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Every ObjectOwnerKind variant must survive a serde roundtrip.
-    let owner_hex = sample_owner_address().to_hex_literal();
+    let owner_hex = kanari_types::object::object_id_for_address(&sample_owner_address());
     for kind in [
         ObjectOwnerKind::AddressOwner(owner_hex.clone()),
         ObjectOwnerKind::Shared,

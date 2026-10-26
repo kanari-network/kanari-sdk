@@ -24,6 +24,7 @@ sha2 = { workspace = true }
 
 smallvec = { workspace = true }
 kanari-crypto = { workspace = true }
+kanari-types = { workspace = true }
 # better_any is needed for NativeContextExtensions `Tid` derive
 better_any = { workspace = true }
 num-integer = { workspace = true }

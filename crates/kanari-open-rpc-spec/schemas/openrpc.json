@@ -3,7 +3,7 @@
   "info": {
     "title": "Kanari JSON-RPC",
     "description": "Kanari JSON-RPC API for interaction with kanari server.",
-    "version": "0.3.6",
+    "version": "0.3.7",
     "contact": {
       "name": "Kanari Network",
       "url": "https://kanarinetwork.site",
@@ -574,7 +574,7 @@
     {
       "name": "kanari_buildNativeTransfer",
       "summary": "Build native transfer transaction",
-      "description": "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
+      "description": "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. One native coin may cover transfer plus gas; otherwise distinct transfer and gas coins are selected.",
       "params": [
         {
           "name": "transaction",
@@ -1229,6 +1229,34 @@
       "tags": [
         {
           "name": "function"
+        }
+      ]
+    },
+    {
+      "name": "kanari_buildNftTransfer",
+      "summary": "Build NFT transfer transaction",
+      "description": "Resolves the owned NFT object input, gas, and nonce, and returns a canonical unsigned `0x2::transfer::public_transfer<T>` call.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Unsigned NFT transfer payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared NFT-transfer call request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "nft"
         }
       ]
     },

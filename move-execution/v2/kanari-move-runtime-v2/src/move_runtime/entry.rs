@@ -3,8 +3,6 @@
 
 use super::*;
 
-use kanari_types::coin::CoinModule;
-
 impl MoveRuntime {
     /// Execute a Move entry function with the given arguments and context.
     pub fn execute_entry_function(
@@ -143,7 +141,7 @@ impl MoveRuntime {
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
             .map(|input| {
-                crate::common::ids::canonical_object_id_or_raw(&input.object_ref.object_id)
+                crate::common::ids::canonical_object_id_invariant(&input.object_ref.object_id)
             })
             .collect();
         let mut used_explicit_object_bindings = HashSet::new();
@@ -164,7 +162,10 @@ impl MoveRuntime {
             final_args
                 .iter()
                 .filter(|arg| arg.len() == AccountAddress::LENGTH)
-                .map(|arg| format!("object:0x{}", hex::encode(arg)).into_bytes()),
+                .filter_map(|arg| {
+                    kanari_types::object::object_id_from_address_bytes(arg)
+                        .map(|id| format!("object:{id}").into_bytes())
+                }),
         );
         self.preload_object_ids_from_args(
             &mut session,
@@ -193,8 +194,20 @@ impl MoveRuntime {
                 state_overlay.as_deref(),
                 bypass_entry_check,
             )?;
+            // KRC-721 has `store` for composability, so a package can call
+            // `transfer::public_transfer` directly.  Enforce its
+            // collection deny/pause policy here, before any entry code binds
+            // the NFT, just as regulated coins are enforced above.
+            self.enforce_krc721_input_policy(
+                &mut session,
+                sender,
+                &object_inputs,
+                &final_args,
+                state_overlay.as_deref(),
+                bypass_entry_check,
+            )?;
 
-            let probe = ParamProbe::new(&session);
+            let probe = ParamProbe::new(&session, &ty_args_loaded);
             let binding_requirements = probe.binding_requirements(&func.parameters);
 
             // System functions (bypass_entry_check) bind object references via the
@@ -236,7 +249,8 @@ impl MoveRuntime {
                 let explicit_binding_index = if matches!(
                     probe.type_tag_for_param(param_type),
                     Some(TypeTag::Struct(_))
-                ) {
+                ) || object_mutability.is_some()
+                {
                     let argument_address = AccountAddress::from_bytes(&final_args[i]).ok();
                     let matching_input = argument_address.and_then(|address| {
                         object_inputs.iter().enumerate().find_map(|(index, input)| {
@@ -287,11 +301,12 @@ impl MoveRuntime {
                     else {
                         continue;
                     };
-                    let object_id = object_addr.to_hex_literal();
+                    let object_id = crate::common::ids::object_id_for_address(&object_addr);
                     if !bound_from_explicit_input
                         && !explicit_object_ids.is_empty()
-                        && !explicit_object_ids
-                            .contains(&crate::common::ids::canonical_object_id_or_raw(&object_id))
+                        && !explicit_object_ids.contains(
+                            &crate::common::ids::canonical_object_id_invariant(&object_id),
+                        )
                     {
                         continue;
                     }
@@ -299,6 +314,20 @@ impl MoveRuntime {
                     if let Some(stored_obj) =
                         self.get_object_for_execution(&object_id, state_overlay.as_deref())?
                     {
+                        if let Some(expected_type) = probe.type_tag_for_param(param_type) {
+                            let actual_type =
+                                stored_obj.type_name.parse::<TypeTag>().map_err(|_| {
+                                    anyhow::anyhow!(
+                                        "Stored object {object_id} has invalid type tag {}",
+                                        stored_obj.type_name
+                                    )
+                                })?;
+                            anyhow::ensure!(
+                                actual_type == expected_type,
+                                "Object input {object_id} has type {actual_type}, expected {expected_type} for entry parameter {i}"
+                            );
+                        }
+
                         // Raw address args (not declared in object_inputs) may
                         // only touch sender-owned / system / zero-address
                         // objects. Objects declared explicitly in object_inputs
@@ -309,7 +338,7 @@ impl MoveRuntime {
                         // function.
                         let declared_explicitly = bound_from_explicit_input
                             || explicit_object_ids.contains(
-                                &crate::common::ids::canonical_object_id_or_raw(&object_id),
+                                &crate::common::ids::canonical_object_id_invariant(&object_id),
                             );
                         if !declared_explicitly && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
@@ -325,12 +354,7 @@ impl MoveRuntime {
 
                         final_args[i] = stored_obj.data.clone();
 
-                        if matches!(
-                            param_type,
-                            RuntimeType::MutableReference(_)
-                                | RuntimeType::Struct(_)
-                                | RuntimeType::StructInstantiation(_)
-                        ) {
+                        if object_mutability == Some(true) {
                             loaded_mutable_objects.push((
                                 i,
                                 stored_obj.id.clone(),
@@ -365,7 +389,10 @@ impl MoveRuntime {
                         }
                         _ => param_type,
                     };
-                    let Ok(layout) = session.type_to_type_layout(value_type) else {
+                    let Some(concrete_type) = probe.concrete_type_for_param(value_type) else {
+                        continue;
+                    };
+                    let Ok(layout) = session.type_to_type_layout(&concrete_type) else {
                         continue;
                     };
                     if move_vm_types::values::Value::simple_deserialize(arg, &layout).is_none() {
@@ -475,6 +502,21 @@ impl MoveRuntime {
                     &mut processed_ids,
                 )?;
 
+                if !bypass_entry_check {
+                    self.enforce_coin_output_policy(
+                        &vm_guard,
+                        &cs,
+                        &transferred,
+                        state_overlay.clone(),
+                    )?;
+                    self.enforce_krc721_output_policy(
+                        &vm_guard,
+                        &cs,
+                        &transferred,
+                        state_overlay.clone(),
+                    )?;
+                }
+
                 self.add_transferred_objects_to_changeset(
                     &mut cs,
                     transferred,
@@ -548,212 +590,5 @@ impl MoveRuntime {
         vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
     ) -> Session<'r, 'r, KanariMoveResolver> {
         self.create_session_with_resolver(vm_guard, self.resolver.clone(), None)
-    }
-
-    fn create_session_with_resolver<'r>(
-        &'r self,
-        vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
-        resolver: KanariMoveResolver,
-        state_overlay: Option<crate::StateOverlay>,
-    ) -> Session<'r, 'r, KanariMoveResolver> {
-        // Register the core extensions used by object, event, and dynamic-field natives.
-        let mut extensions = NativeContextExtensions::default();
-        extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext(state_overlay.clone()));
-        extensions.add(EventsExt::default());
-        extensions.add(SavedObjectsExt::default());
-        extensions.add(DeletedObjectsExt::default());
-        extensions.add(TransferredObjectsExt::default());
-
-        // Track objects loaded and mutated through object native functions.
-        extensions.add(LoadedObjectsExt::default());
-        extensions.add(BorrowedObjectsExt::default());
-
-        // Type-convention and dynamic-object-field metadata registries.
-        extensions.add(self.claim_witness_ext(state_overlay.clone()));
-        extensions.add(self.child_index_ext(state_overlay));
-
-        vm_guard.new_session_with_extensions(resolver, extensions)
-    }
-
-    /// Execute a framework `deny_list_*` read and decode its `bool` result.
-    ///
-    /// A read that cannot be performed (unloadable or failing function) is
-    /// logged and yields `Ok(None)`; the caller decides how to fail open. Real
-    /// state errors surface from the main execution path itself.
-    fn read_deny_list_flag(
-        session: &mut move_vm_runtime::session::Session<
-            crate::storage::resolver::KanariMoveResolver,
-        >,
-        coin_module: &ModuleId,
-        function_name: &str,
-        coin_type: RuntimeType,
-        args: Vec<Vec<u8>>,
-        gas: &mut crate::kanari_gas_meter::KanariGasMeter,
-        coin_type_name: &str,
-    ) -> Result<Option<bool>> {
-        let ident = IdentStr::new(function_name)?;
-        match session.execute_function_bypass_visibility(
-            coin_module,
-            ident,
-            vec![coin_type],
-            args,
-            gas,
-        ) {
-            Ok(values) => Ok(Some(
-                values
-                    .return_values
-                    .first()
-                    .map(|(bytes, _)| !bytes.is_empty() && bytes[0] != 0)
-                    .unwrap_or(false),
-            )),
-            Err(error) => {
-                log::warn!(
-                    "[RUNTIME] deny policy read {function_name} failed for {coin_type_name}: {error:?}"
-                );
-                Ok(None)
-            }
-        }
-    }
-
-    /// Protocol-level regulated-coin input policy.
-    ///
-    /// A denied sender — or a globally paused coin type — may not use
-    /// `Coin<T>` objects as transaction inputs, regardless of which entry
-    /// function is called. Unchecked transfer paths (`coin::split` +
-    /// `public_transfer`, plain `pay::split_and_transfer`) skip the
-    /// Move-level checks by design, so this host-side gate is what makes
-    /// deny lists enforceable at consensus rather than advisory.
-    ///
-    /// Evaluated by executing the framework's own `deny_list_contains` /
-    /// `deny_list_paused` reads in this session, so deny-key rendering
-    /// always matches the framework (no duplicated key logic). Skipped for
-    /// system/init executions and when no sender is set. Unresolvable
-    /// inputs fail open with a warning; the main execution surfaces real
-    /// state errors itself.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn enforce_coin_input_policy(
-        &self,
-        session: &mut move_vm_runtime::session::Session<
-            crate::storage::resolver::KanariMoveResolver,
-        >,
-        sender: Option<AccountAddress>,
-        object_inputs: &[ObjectInput],
-        raw_args: &[Vec<u8>],
-        overlay: Option<&std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
-        bypass_entry_check: bool,
-    ) -> Result<()> {
-        use std::str::FromStr;
-
-        if bypass_entry_check {
-            return Ok(());
-        }
-        let Some(sender) = sender else {
-            return Ok(());
-        };
-
-        // Candidate Coin inputs: declared object inputs plus raw 32-byte
-        // args resolving to stored Coin objects (undeclared reads bind
-        // through the same path, so they must be policed too).
-        let mut coin_types: Vec<String> = Vec::new();
-        for input in object_inputs {
-            if let Some(stored) =
-                self.get_object_for_execution(&input.object_ref.object_id, overlay)?
-                && let Some(inner) = CoinModule::inner_type(&stored.type_name)
-            {
-                coin_types.push(inner);
-            }
-        }
-        for arg in raw_args {
-            if arg.len() != AccountAddress::LENGTH {
-                continue;
-            }
-            let object_id = format!("0x{}", hex::encode(arg));
-            if let Some(stored) = self.get_object_for_execution(&object_id, overlay)?
-                && let Some(inner) = CoinModule::inner_type(&stored.type_name)
-            {
-                coin_types.push(inner);
-            }
-        }
-        coin_types.sort();
-        coin_types.dedup();
-        if coin_types.is_empty() {
-            return Ok(());
-        }
-
-        let Some(singleton) =
-            self.get_object_for_execution(&Self::deny_list_singleton_full_id(), overlay)?
-        else {
-            log::debug!("[RUNTIME] deny policy skipped: singleton absent");
-            return Ok(());
-        };
-        let coin_module = ModuleId::new(
-            kanari_types::address::Address::kanari_system_account_address(),
-            move_core_types::identifier::Identifier::new(CoinModule::COIN_MODULE)?,
-        );
-        let coin_fns = CoinModule::function_names();
-        let sender_bytes = bcs::to_bytes(&sender)?;
-        let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(1_000_000);
-
-        for inner in &coin_types {
-            let tag = match move_core_types::language_storage::TypeTag::from_str(inner) {
-                Ok(tag) => tag,
-                Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy skipped unparsable coin type {inner}: {error}"
-                    );
-                    continue;
-                }
-            };
-            let ty = match session.load_type(&tag) {
-                Ok(ty) => ty,
-                Err(error) => {
-                    log::warn!(
-                        "[RUNTIME] deny policy skipped unloadable coin type {inner}: {:?}",
-                        error
-                    );
-                    continue;
-                }
-            };
-
-            // Each read fails open individually: a read that cannot run skips
-            // the rest of this coin type's checks, as before.
-            let paused = Self::read_deny_list_flag(
-                session,
-                &coin_module,
-                coin_fns.deny_list_paused,
-                ty.clone(),
-                vec![singleton.data.clone()],
-                &mut policy_gas,
-                inner,
-            )?;
-            let Some(paused) = paused else { continue };
-            if paused {
-                anyhow::bail!(
-                    "transaction sender {} is blocked: regulated coin type {} is globally paused (deny-list policy)",
-                    sender.to_hex_literal(),
-                    inner,
-                );
-            }
-
-            let denied = Self::read_deny_list_flag(
-                session,
-                &coin_module,
-                coin_fns.deny_list_contains,
-                ty,
-                vec![singleton.data.clone(), sender_bytes.clone()],
-                &mut policy_gas,
-                inner,
-            )?;
-            let Some(denied) = denied else { continue };
-            if denied {
-                anyhow::bail!(
-                    "transaction sender {} is denied for regulated coin {} (deny-list policy)",
-                    sender.to_hex_literal(),
-                    inner,
-                );
-            }
-        }
-        Ok(())
     }
 }

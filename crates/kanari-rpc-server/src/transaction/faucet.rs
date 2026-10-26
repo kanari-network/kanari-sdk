@@ -5,9 +5,9 @@
 //!
 //! Flow: the visitor enters an address on the web page → the node builds each
 //! 5 USD mint through `kanari_buildCallFunction`, signs it with the sponsor
-//! key, then submits it through `kanari_callFunction`. The two legs mint
-//! exactly 100 USD as **two** `Coin<USD>` objects (50 + 50) straight to that
-//! address through the permissionless `0x2::usd::mint` entry (shared
+//! key, then submits it through `kanari_callFunction`. One transaction mints
+//! exactly 100 USD as a single `Coin<USD>` object straight to that address
+//! through the permissionless `0x2::usd::mint` entry (shared
 //! `TreasuryCap`, no allowlist).
 //!
 //! Gas reality check: every transaction needs gas, so a node-side sponsor
@@ -27,6 +27,7 @@
 //! Devnet only: never configure a funded mainnet key here.
 
 use super::{build_object_input, parse_hex_address};
+use crate::transaction::build_call_signed_tx;
 use crate::{RpcRequest, RpcResponse};
 use crate::{
     RpcServerState, internal_error_response, invalid_params_response, respond_with_serialize,
@@ -46,14 +47,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Fixed claim: 100 USD total, minted as two 50 USD coin objects so the
-/// recipient can immediately transfer again (transfers need a transfer coin
-/// plus a SEPARATE gas coin).
-const CLAIM_HALVES: [u64; 2] = [50_000_000, 50_000_000];
+/// Fixed claim: one 100 USD coin object. Gas is paid by the faucet sponsor in
+/// KANARI; splitting USD into multiple objects does not provide gas funds.
+const CLAIM_AMOUNT: u64 = 100_000_000;
 const FAUCET_GAS_LIMIT: u64 = 100_000;
 const FAUCET_GAS_PRICE: u64 = 1_000;
-const COMMIT_POLL_INTERVAL: Duration = Duration::from_millis(500);
-const COMMIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 struct FaucetConfig {
@@ -144,7 +142,7 @@ fn faucet_service() -> Option<Arc<FaucetService>> {
     }) {
         Ok((config, keypair)) => {
             tracing::info!(
-                "USD web faucet enabled: 100 USD (2x50) per claim, cooldown {}s per address / {}s per IP",
+                "USD web faucet enabled: 100 USD per claim, cooldown {}s per address / {}s per IP",
                 config.cooldown.as_secs(),
                 config.ip_cooldown.as_secs()
             );
@@ -172,37 +170,6 @@ fn valid_address(address: &str) -> bool {
     address.starts_with("0x")
         && address.len() == 66
         && address[2..].chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn is_committed(state: &RpcServerState, tx_hash: &[u8]) -> bool {
-    {
-        let chain = state
-            .engine
-            .blockchain
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        if chain
-            .get_transaction_location_with_effect(tx_hash)
-            .is_some()
-        {
-            return true;
-        }
-    }
-    state
-        .engine
-        .get_committed_transaction_from_history(tx_hash)
-        .is_some()
-}
-
-async fn wait_for_commit(state: &RpcServerState, tx_hash: &[u8], timeout: Duration) -> Result<()> {
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        if is_committed(state, tx_hash) {
-            return Ok(());
-        }
-        tokio::time::sleep(COMMIT_POLL_INTERVAL).await;
-    }
-    anyhow::bail!("Timed out waiting for faucet claim commit")
 }
 
 /// Shared `TreasuryCap<USD>` object id (the permissionless mint authority).
@@ -302,7 +269,7 @@ async fn mint_leg(
     )
     .context("Faucet build returned an invalid prepared call")?;
 
-    let mut unsigned = super::build_call_signed_tx(prepared.clone());
+    let mut unsigned = build_call_signed_tx(prepared.clone());
     unsigned
         .sign(&service.keypair.private_key, service.keypair.curve_type)
         .context("Failed to sign faucet mint transaction")?;
@@ -337,22 +304,11 @@ async fn execute_claim(
     request_id: u64,
     recipient: &str,
 ) -> Result<Vec<Vec<u8>>> {
-    // Serialize claims: both legs touch the same shared cap, so leg 2 must
-    // build on leg 1's committed version. Held across the commit wait
-    // (devnet only).
+    // Serialize claims because they mutate the same shared cap.
     let _guard = service.claim_lock.lock().await;
-
-    // Re-read the shared cap per leg: its version advances on every mint.
-    let mut hashes = Vec::with_capacity(CLAIM_HALVES.len());
-    for (leg, amount) in CLAIM_HALVES.iter().enumerate() {
-        let cap = shared_cap_id(state)?;
-        let hash = mint_leg(state, service, request_id, &cap, recipient, *amount).await?;
-        if leg + 1 < CLAIM_HALVES.len() {
-            wait_for_commit(state, &hash, COMMIT_TIMEOUT).await?;
-        }
-        hashes.push(hash);
-    }
-    Ok(hashes)
+    let cap = shared_cap_id(state)?;
+    let hash = mint_leg(state, service, request_id, &cap, recipient, CLAIM_AMOUNT).await?;
+    Ok(vec![hash])
 }
 
 pub async fn handle_faucet_usd_status(request: &crate::RpcRequest) -> RpcResponse {
@@ -375,8 +331,8 @@ pub async fn handle_faucet_usd_status(request: &crate::RpcRequest) -> RpcRespons
             enabled: true,
             usd_type: USD_COIN.to_string(),
             usd_decimals: UsdModule::USD_DECIMALS,
-            default_drip_usd: UsdModule::format_units_to_usd(CLAIM_HALVES.iter().sum()),
-            max_per_request_usd: UsdModule::format_units_to_usd(CLAIM_HALVES.iter().sum()),
+            default_drip_usd: UsdModule::format_units_to_usd(CLAIM_AMOUNT),
+            max_per_request_usd: UsdModule::format_units_to_usd(CLAIM_AMOUNT),
             cooldown_secs: service.config.cooldown.as_secs(),
         },
     )
@@ -451,7 +407,7 @@ pub async fn handle_request_usd_faucet(
                 record_claim(&mut log, ip.to_string(), now, service.config.ip_cooldown);
             }
             let leg_hashes: Vec<String> = hashes.iter().map(hex::encode).collect();
-            let total: u64 = CLAIM_HALVES.iter().sum();
+            let total = CLAIM_AMOUNT;
             respond_with_serialize(
                 request.id,
                 RequestUsdFaucetResponse {
@@ -479,13 +435,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claim_is_exactly_two_five_unit_legs() {
-        assert_eq!(CLAIM_HALVES, [50_000_000, 50_000_000]);
-        assert_eq!(CLAIM_HALVES.iter().sum::<u64>(), 100_000_000);
-        assert_eq!(
-            UsdModule::format_units_to_usd(CLAIM_HALVES.iter().sum()),
-            "100"
-        );
+    fn claim_is_exactly_one_hundred_usd() {
+        assert_eq!(CLAIM_AMOUNT, 100_000_000);
+        assert_eq!(UsdModule::format_units_to_usd(CLAIM_AMOUNT), "100");
     }
 
     #[test]

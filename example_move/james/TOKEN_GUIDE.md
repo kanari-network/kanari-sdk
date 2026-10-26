@@ -120,7 +120,7 @@ Burns tokens (reduces total supply) — requires TreasuryCap.
 
 ### Deny-list management (`deny_add` / `deny_remove` / `deny_pause` / `deny_unpause`)
 
-Deny-list writes require the coin's **DenyCapV2** or **DenyCap** (legacy), or the collection **NftCap** (KariKid NFT, which keeps its own entries under a separate deny-list index so they never collide with coin entries). The standard functions accept DenyCapV2. If you already have a legacy `0x2::deny_list::DenyCap<JAMES>`, use `deny_add_legacy`, `deny_remove_legacy`, `deny_pause_legacy`, or `deny_unpause_legacy`; no cap migration is needed. Reads are open: `is_denied(deny_list, addr)`, `is_paused(deny_list)`.
+Deny-list writes for coins require the coin's **DenyCapV2** or legacy **DenyCap**. KariKid NFT deny-list writes use the collection's **NftCap** through `kanari_system::krc_721`; entries are stored in the framework `DenyList` under a KRC-721 namespace and keyed by collection, so one issuer cannot affect another collection or coin entries. NFT transfers and management calls take the shared `DenyList` object as an argument. Coin reads are open: `is_denied(deny_list, addr)`, `is_paused(deny_list)`.
 
 ---
 

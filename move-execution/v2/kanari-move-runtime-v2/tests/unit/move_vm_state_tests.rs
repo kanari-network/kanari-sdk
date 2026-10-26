@@ -26,9 +26,10 @@ fn delete_resource_removes_saved_value() -> Result<()> {
 fn canonical_stored_object_is_available_to_resource_fallback_and_coin_mirror() -> Result<()> {
     let state = MoveVMState::new_in_memory()?;
     let owner = AccountAddress::from_hex_literal("0x1234")?;
-    let key = format!("object:{}", owner.to_hex_literal());
+    let owner_id = kanari_types::object::object_id_for_address(&owner);
+    let key = format!("object:{owner_id}");
     let object = StoredObject {
-        id: owner.to_hex_literal(),
+        id: owner_id,
         owner,
         owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
         type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
@@ -69,9 +70,10 @@ fn corrupted_module_bytes_are_reported_as_storage_error() -> Result<()> {
 fn overlay_object_update_and_delete_shadow_persistent_state() -> Result<()> {
     let state = MoveVMState::new_in_memory()?;
     let object_id = AccountAddress::from_hex_literal("0x1234")?;
-    let key = format!("object:{}", object_id.to_hex_literal()).into_bytes();
+    let object_id_hex = kanari_types::object::object_id_for_address(&object_id);
+    let key = format!("object:{object_id_hex}").into_bytes();
     let mut object = StoredObject {
-        id: object_id.to_hex_literal(),
+        id: object_id_hex,
         owner: object_id,
         owner_kind: ObjectOwnerKind::AddressOwner(object_id.to_hex_literal()),
         type_name: "0x2::test::Value".to_string(),

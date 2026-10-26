@@ -65,6 +65,7 @@ fn main() {
 
     // Look for NftCap and Collection created objects
     let mut found_nftcap: Option<(String, MoveAccountAddress)> = None;
+    let mut found_collection: Option<(String, MoveAccountAddress)> = None;
     for (id, obj) in publish_cs.created_objects.iter() {
         if obj.type_.contains("::NftCap") {
             println!("Found NftCap: id={} type={}", id, obj.type_);
@@ -76,6 +77,7 @@ fn main() {
                 .unwrap_or_else(|e| eprintln!("Failed to preload NftCap: {:?}", e));
         } else if obj.type_.contains("::Collection") {
             println!("Found Collection: id={} type={}", id, obj.type_);
+            found_collection = Some((id.clone(), obj.owner));
             // Preload the Collection object into the runtime's object storage
             runtime
                 .preload_object_snapshot(id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
@@ -83,20 +85,28 @@ fn main() {
         }
     }
 
-    if let Some((nft_id, nftcap_owner)) = found_nftcap {
+    let (Some((nft_id, nftcap_owner)), Some((coll_id, coll_owner))) =
+        (found_nftcap, found_collection)
+    else {
+        eprintln!("Publish did not create both NftCap and Collection objects; skipping mint demo.");
+        println!("E2E NFT example finished");
+        return;
+    };
+
+    {
         println!("Suggested CLI mint command:");
         println!(
-            "kanari move call --package {} --module nft --function mint --sender 0x... --args <NftCap_id> <name_bytes> <description_bytes> <number_bytes> <url_bytes> <level_vec> <rarity_vec> <attack_vec> <defense_vec>",
+            "kanari move call --package {} --module nft --function mint --sender 0x... --args <NftCap_id> <Collection_id> <name_bytes> <description_bytes> <url_bytes> <attribute_keys> <attribute_values>",
             module_id.address(),
         );
 
-        // Attempt an automatic mint call with default/demo values using only the NftCap.
+        // Attempt an automatic mint call with default/demo values using the
+        // NftCap and its Collection.
 
         // Demo NFT fields for the current mint signature:
-        // mint(cap, name, description, url, attribute_keys, attribute_values, number)
+        // mint(cap, coll, name, description, image_url, attribute_keys, attribute_values)
         let name_bytes = b"Kari#42".to_vec();
         let desc_bytes = b"Genesis Kari NFT".to_vec();
-        let number_bytes = b"42".to_vec();
         let url_bytes = b"https://kanari.example/nft/42.png".to_vec();
 
         let vec_u8_to_mv = |v: Vec<u8>| -> MoveValue {
@@ -114,27 +124,35 @@ fn main() {
             .expect("serialize url");
         let arg_keys = bcs::to_bytes(&Vec::<String>::new()).expect("serialize attribute keys");
         let arg_values = bcs::to_bytes(&Vec::<String>::new()).expect("serialize attribute values");
-        let arg_number = vec_u8_to_mv(number_bytes)
-            .simple_serialize()
-            .expect("serialize number");
 
-        // Object-typed parameters (NftCap) are bound through object_inputs;
-        // their arg slots stay empty placeholders. TxContext is appended by
-        // the runtime.
+        // Object-typed parameters (&mut NftCap, &Collection) are bound through
+        // object_inputs; their arg slots stay empty placeholders. TxContext is
+        // appended by the runtime.
         let mint_args = vec![
+            Vec::new(),
             Vec::new(),
             arg_name,
             arg_desc,
             arg_url,
             arg_keys,
             arg_values,
-            arg_number,
         ];
-        let mint_inputs = vec![ObjectInput {
-            object_ref: ObjectRef::new(nft_id.clone(), None, None),
-            owner: Some(ObjectOwnerKind::AddressOwner(nftcap_owner.to_hex_literal())),
-            mutable: true,
-        }];
+        let mint_inputs = vec![
+            ObjectInput {
+                object_ref: ObjectRef::new(nft_id.clone(), None, None),
+                owner: Some(ObjectOwnerKind::AddressOwner(
+                    kanari_types::object::object_id_for_address(&nftcap_owner),
+                )),
+                mutable: true,
+            },
+            ObjectInput {
+                object_ref: ObjectRef::new(coll_id.clone(), None, None),
+                owner: Some(ObjectOwnerKind::AddressOwner(
+                    kanari_types::object::object_id_for_address(&coll_owner),
+                )),
+                mutable: false,
+            },
+        ];
 
         println!("Calling Move mint entry with demo args...");
 
@@ -230,8 +248,6 @@ fn main() {
                 eprintln!("mint call failed: {:?}", e);
             }
         }
-    } else {
-        println!("Could not find NftCap in created objects.");
     }
 
     println!("E2E NFT example finished");

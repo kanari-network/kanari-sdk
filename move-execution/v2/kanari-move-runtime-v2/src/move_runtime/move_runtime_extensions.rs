@@ -7,13 +7,24 @@ use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::language_storage::ModuleId;
+use std::collections::HashSet;
 
 use crate::move_runtime::MoveRuntime;
 
 impl MoveRuntime {
     /// Verify a compiled module before publishing
     /// Checks basic invariants and dependencies
-    pub(crate) fn verify_module(&self, module: &CompiledModule) -> Result<()> {
+    ///
+    /// `package_modules` holds the ids of the modules published together with
+    /// `module` in the same package. They are not on chain yet — they are
+    /// published by the very same transaction — but a dependency on a sibling
+    /// is satisfied by the package itself. Without this, a package whose
+    /// modules depend on each other could never be published.
+    pub(crate) fn verify_module(
+        &self,
+        module: &CompiledModule,
+        package_modules: &HashSet<ModuleId>,
+    ) -> Result<()> {
         // Basic verification checks
 
         // 1. Check module has valid self-id
@@ -24,6 +35,11 @@ impl MoveRuntime {
 
         // 2. Check all dependencies are available
         for dep in module.immediate_dependencies() {
+            // A sibling published in the same package is published by this
+            // same transaction, so the dependency resolves within the package.
+            if package_modules.contains(&dep) {
+                continue;
+            }
             if !self.has_module(&dep)? {
                 // Allow dependencies on stdlib (0x1) and system (0x2)
                 let addr = dep.address();

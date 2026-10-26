@@ -60,11 +60,14 @@ impl StateManager {
         &self,
         object_id: &str,
     ) -> Result<Option<(String, StoredObject)>> {
-        for candidate_id in crate::common::ids::object_id_variants(object_id) {
-            let obj_key = object_key(&candidate_id);
-            if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
-                return Ok(Some((candidate_id, stored)));
-            }
+        // One spelling exists: the canonical full form. An id that does not
+        // canonicalize never names a stored object.
+        let Some(candidate_id) = crate::common::ids::canonical_object_id(object_id) else {
+            return Ok(None);
+        };
+        let obj_key = object_key(&candidate_id);
+        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+            return Ok(Some((candidate_id, stored)));
         }
         Ok(None)
     }
@@ -160,7 +163,7 @@ impl StateManager {
         let Some((stored_id, stored)) = self.load_stored_object_by_any_id(object_id)? else {
             return Ok(None);
         };
-        let normalized_id = canonical_object_id_or_raw(&stored_id);
+        let normalized_id = crate::common::ids::canonical_object_id_invariant(&stored_id);
         let uid = AccountAddress::from_hex_literal(&normalized_id)
             .ok()
             .map(UIDRecord::new);
@@ -168,8 +171,9 @@ impl StateManager {
             .ok()
             .map(IDRecord::new);
 
+        let owner = stored.current_address_owner().unwrap_or(stored.owner);
         Ok(Some(CreatedObject {
-            owner: stored.owner,
+            owner,
             owner_kind: stored.owner_kind,
             uid,
             id,

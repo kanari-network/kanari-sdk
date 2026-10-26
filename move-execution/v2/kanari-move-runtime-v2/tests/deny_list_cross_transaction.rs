@@ -34,15 +34,10 @@ mod move_manifest;
 const TESTER_ADDR: &str = "0x43";
 const MODULE_NAME: &str = "deny_list_e2e";
 const DENY_LIST_ID: &str = kanari_types::deny_list::DenyListModule::DENY_LIST_OBJECT_ID;
-const PER_TYPE_INDEX: u64 = 0;
 const MOVE_SOURCE: &str = include_str!("move_packages/deny_list_e2e/sources/deny_list_e2e.move");
 
 /// Persona denied then re-allowed; must be outside the reserved `@0x0..=0xF`.
 const SUBJECT: &str = "0xB0B";
-
-fn type_key() -> Vec<u8> {
-    b"0x2::coin::COIN".to_vec()
-}
 
 #[test]
 fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
@@ -69,9 +64,9 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish deny_list_e2e module")?;
 
-    // Exercise the same two-object entry signature used by regulated coin
-    // deny_add: a mutable shared DenyList, a borrowed generic DenyCap, an
-    // address, and the runtime-injected TxContext.
+    // `deny_list`'s mutators are `public(friend)` — only `kanari_system::coin`
+    // may call them — so every write below must present a `DenyCap<TEST_COIN>`
+    // and goes through the `coin` wrappers. Reads stay `public`.
     let create_cap_changes = call_entry_no_objects(&runtime, &module_id, "create_cap", vec![])
         .context("create legacy deny cap")?;
     let (cap_id, cap_object) = create_cap_changes
@@ -82,40 +77,19 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
                 && object.type_.contains("::deny_list_e2e::TEST_COIN")
         })
         .context("legacy deny cap should be created")?;
-    let cap_input = ObjectInput {
-        object_ref: cap_object.object_ref(cap_id),
-        owner: Some(ObjectOwnerKind::AddressOwner(
-            cap_object.owner.to_hex_literal(),
-        )),
-        mutable: true,
-    };
+    let cap_id = cap_id.clone();
+    let cap_ref = cap_object.object_ref(&cap_id);
+    let cap_owner = cap_object.owner.to_hex_literal();
     state.apply_changeset(&create_cap_changes)?;
-    let state_overlay = Some(Arc::new(state.overlay.clone()));
     state.commit()?;
 
-    let cap_add_changes = runtime
-        .execute_entry_function_with_object_context_and_persistence(
-            &module_id,
-            "add_with_cap",
-            vec![],
-            vec![
-                object_arg(DENY_LIST_ID)?,
-                object_arg(cap_id)?,
-                bcs::to_bytes(&AccountAddress::from_hex_literal(SUBJECT)?)?,
-            ],
-            EntryFunctionObjectContext {
-                object_inputs: vec![shared_object_input(DENY_LIST_ID, true), cap_input],
-                sender: Some(*module_id.address()),
-                gas_info: None,
-                timestamp: None,
-                tx_hash: None,
-                persist_runtime_state: true,
-                state_overlay,
-            },
-        )
-        .context("deny add with legacy cap")?;
-    state.apply_changeset(&cap_add_changes)?;
-    state.commit()?;
+    // The cap is only ever borrowed (`&DenyCap<T>`), so its version/digest stay
+    // put across every call below and this input can be reused verbatim.
+    let cap_input = || ObjectInput {
+        object_ref: cap_ref.clone(),
+        owner: Some(ObjectOwnerKind::AddressOwner(cap_owner.clone())),
+        mutable: true,
+    };
 
     let subject = AccountAddress::from_hex_literal(SUBJECT)?;
 
@@ -126,10 +100,10 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "add",
         vec![
             object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
+            object_arg(&cap_id)?,
             bcs::to_bytes(&subject)?,
         ],
+        vec![cap_input()],
     )
     .context("deny add")?;
     state.apply_changeset(&add_changes)?;
@@ -147,15 +121,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     // The runtime preloads `@0x403` for every execution, so framework code
     // borrowing the singleton must observe the same state.
     assert_eq!(
-        view_auto(
-            &rt_read,
-            "contains_auto",
-            vec![
-                bcs::to_bytes(&PER_TYPE_INDEX)?,
-                bcs::to_bytes(&type_key())?,
-                bcs::to_bytes(&subject)?,
-            ],
-        )?,
+        view_auto(&rt_read, "contains_auto", vec![bcs::to_bytes(&subject)?],)?,
         JsonValue::from(1u64),
         "singleton borrow should see the denied address without an object input"
     );
@@ -163,11 +129,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &rt_read,
         &module_id,
         "assert_not_denied",
-        vec![
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-            bcs::to_bytes(&subject)?,
-        ],
+        vec![bcs::to_bytes(&subject)?],
     )
     .err()
     .context("singleton entry guard should abort for a denied address")?;
@@ -179,10 +141,10 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "remove",
         vec![
             object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
+            object_arg(&cap_id)?,
             bcs::to_bytes(&subject)?,
         ],
+        vec![cap_input()],
     )
     .context("deny remove")?;
     state.apply_changeset(&remove_changes)?;
@@ -198,11 +160,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         view_auto(
             &rt_after_remove,
             "contains_auto",
-            vec![
-                bcs::to_bytes(&PER_TYPE_INDEX)?,
-                bcs::to_bytes(&type_key())?,
-                bcs::to_bytes(&subject)?,
-            ],
+            vec![bcs::to_bytes(&subject)?],
         )?,
         JsonValue::from(0u64),
         "singleton borrow should see the removal without an object input"
@@ -211,11 +169,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &rt_after_remove,
         &module_id,
         "assert_not_denied",
-        vec![
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-            bcs::to_bytes(&subject)?,
-        ],
+        vec![bcs::to_bytes(&subject)?],
     )
     .context("singleton entry guard should pass for a removed address")?;
     state.apply_changeset(&guard_changes)?;
@@ -226,11 +180,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &rt_after_remove,
         &module_id,
         "pause",
-        vec![
-            object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-        ],
+        vec![object_arg(DENY_LIST_ID)?, object_arg(&cap_id)?],
+        vec![cap_input()],
     )
     .context("deny pause")?;
     state.apply_changeset(&pause_changes)?;
@@ -243,11 +194,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "paused type should read back as paused after a fresh boot"
     );
     assert_eq!(
-        view_auto(
-            &rt_paused,
-            "paused_auto",
-            vec![bcs::to_bytes(&PER_TYPE_INDEX)?, bcs::to_bytes(&type_key())?,],
-        )?,
+        view_auto(&rt_paused, "paused_auto", vec![])?,
         JsonValue::from(1u64),
         "singleton borrow should see the pause without an object input"
     );
@@ -257,11 +204,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &rt_paused,
         &module_id,
         "unpause",
-        vec![
-            object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-        ],
+        vec![object_arg(DENY_LIST_ID)?, object_arg(&cap_id)?],
+        vec![cap_input()],
     )
     .context("deny unpause")?;
     state.apply_changeset(&unpause_changes)?;
@@ -274,11 +218,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "unpaused type should read back as not paused"
     );
     assert_eq!(
-        view_auto(
-            &rt_unpaused,
-            "paused_auto",
-            vec![bcs::to_bytes(&PER_TYPE_INDEX)?, bcs::to_bytes(&type_key())?,],
-        )?,
+        view_auto(&rt_unpaused, "paused_auto", vec![])?,
         JsonValue::from(0u64),
         "singleton borrow should see the unpause without an object input"
     );
@@ -286,19 +226,116 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     Ok(())
 }
 
+/// Security regression guard: `deny_list`'s mutators are `public(friend)`
+/// with `kanari_system::coin` as the sole friend, so an outside package
+/// cannot deny-list an arbitrary `(per_type_index, type_bytes)` pair without
+/// presenting a `DenyCap<T>`. The `deny_list_friend_violation` package calls
+/// `v1_add`/`v1_remove`/`v2_enable_global_pause`/`v2_disable_global_pause`
+/// directly, so it must fail to compile.
+#[test]
+fn deny_list_friend_locked_is_rejected() -> Result<()> {
+    assert_fixture_does_not_compile(
+        "deny_list_friend_violation",
+        "deny_list_friend_locked_is_rejected",
+        "outside package compiled calls to deny_list mutators; the \
+         `friend kanari_system::coin` declaration on kanari_system::deny_list \
+         was lost, so any published package can bypass the DenyCap check",
+    )
+}
+
+/// Security regression guard for the other half of the gate: every write path
+/// takes `&DenyCap<T>`, so `deny_list::new_denycap` must be `public(friend)`.
+/// If it were `public`, `deny_list_cap_forgery` could mint its own cap and
+/// freeze arbitrary addresses for arbitrary coin types (e.g. KANARI) without
+/// ever being the currency issuer.
+#[test]
+fn deny_list_denycap_minting_is_locked() -> Result<()> {
+    assert_fixture_does_not_compile(
+        "deny_list_cap_forgery",
+        "deny_list_denycap_minting_is_locked",
+        "outside package compiled a call to deny_list::new_denycap; cap \
+         minting is public again, so any package can forge a DenyCap<T> and \
+         deny-list arbitrary addresses for arbitrary coin types",
+    )
+}
+
+/// Assert a checked-in negative fixture fails to compile.
+///
+/// `move_compiler::diagnostics::report_diagnostics` reports and then calls
+/// `std::process::exit(1)`, so an in-process compile attempt would kill the
+/// whole test binary. The compile therefore runs in a child process (this same
+/// test binary re-executed with a sentinel argument) and is judged by its exit
+/// status.
+///
+/// The sentinel must not start with `--`: libtest rejects unknown leading
+/// options, which would make every child exit non-zero and let a leaked
+/// fixture pass unnoticed. `is_child` is therefore also asserted in the
+/// parent, so a broken child invocation fails loudly instead of silently
+/// reporting success.
+fn assert_fixture_does_not_compile(
+    package: &str,
+    test_name: &str,
+    failure_message: &str,
+) -> Result<()> {
+    let sentinel = format!("{package}-compile-child");
+    let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("move_packages")
+        .join(package);
+
+    if is_child(&sentinel) {
+        // Child: exit 0 only if the fixture compiles (which means it leaked).
+        let compiled = BuildConfig::default()
+            .compile_package(&package_dir, &mut Vec::new())
+            .is_ok();
+        std::process::exit(i32::from(!compiled));
+    }
+
+    let status = std::process::Command::new(std::env::current_exe()?)
+        .arg(sentinel)
+        .arg("--exact")
+        .arg(test_name)
+        .arg("--nocapture")
+        .output()?;
+
+    // Guard against a child that failed for an unrelated reason (bad args,
+    // harness rejection, panic): anything other than a clean compile-failure
+    // must not be reported as "the fixture was rejected".
+    let stderr = String::from_utf8_lossy(&status.stderr);
+    assert!(
+        stderr.contains("restricted visibility") || stderr.contains("E04001"),
+        "child for fixture {package} did not report a visibility rejection; \
+         the negative test is not exercising what it claims. stderr:\n{stderr}"
+    );
+    assert!(
+        !status.status.success(),
+        "{failure_message} (fixture: {package})"
+    );
+    Ok(())
+}
+
+fn is_child(sentinel: &str) -> bool {
+    std::env::args().any(|arg| arg == sentinel)
+}
+
+/// Call a deny-list mutator entry function. `deny_list`'s raw mutators are
+/// friend-only, so the shared list plus the `DenyCap` are both supplied.
 fn call_entry(
     runtime: &MoveRuntime,
     module_id: &ModuleId,
     function: &str,
     args: Vec<Vec<u8>>,
+    extra_inputs: Vec<ObjectInput>,
 ) -> Result<ChangeSet> {
+    let mut object_inputs = vec![shared_object_input(DENY_LIST_ID, true)];
+    object_inputs.extend(extra_inputs);
     runtime.execute_entry_function_with_object_context_and_persistence(
         module_id,
         function,
         vec![],
         args,
         EntryFunctionObjectContext {
-            object_inputs: vec![shared_object_input(DENY_LIST_ID, true)],
+            object_inputs,
             sender: Some(*module_id.address()),
             gas_info: None,
             timestamp: None,
@@ -315,12 +352,7 @@ fn read_contains(runtime: &MoveRuntime, subject: &AccountAddress) -> Result<Json
         MODULE_NAME,
         "contains",
         &[],
-        &[
-            object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-            bcs::to_bytes(subject)?,
-        ],
+        &[object_arg(DENY_LIST_ID)?, bcs::to_bytes(subject)?],
         &[shared_object_input(DENY_LIST_ID, false)],
     )
 }
@@ -331,11 +363,7 @@ fn read_paused(runtime: &MoveRuntime) -> Result<JsonValue> {
         MODULE_NAME,
         "paused",
         &[],
-        &[
-            object_arg(DENY_LIST_ID)?,
-            bcs::to_bytes(&PER_TYPE_INDEX)?,
-            bcs::to_bytes(&type_key())?,
-        ],
+        &[object_arg(DENY_LIST_ID)?],
         &[shared_object_input(DENY_LIST_ID, false)],
     )
 }

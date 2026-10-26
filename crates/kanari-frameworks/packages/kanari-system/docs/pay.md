@@ -224,9 +224,11 @@ the coin with <code>keep</code>/<code>split</code> instead. Aborts <code><a href
 ## Function `split_and_transfer_checked`
 
 Regulated send: like <code>split_and_transfer</code>, but aborts <code><a href="pay.md#0x2_pay_EDENIED">EDENIED</a></code> when
-<code>recipient</code> is on the shared deny list for the coin type. Plain
-<code>split_and_transfer</code> deliberately skips the check (permissionless
-coin path).
+either end of the transfer is on the shared deny list for the coin
+type (Sui's list restricts both sending and receiving, so a denied
+address cannot drain its balance through this path either), or when
+the type is paused. Plain <code>split_and_transfer</code> deliberately skips the
+check (permissionless coin path).
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_split_and_transfer_checked">split_and_transfer_checked</a>&lt;T&gt;(c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, amount: u64, recipient: <b>address</b>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -245,6 +247,7 @@ coin path).
     deny: &DenyList,
     ctx: &<b>mut</b> TxContext,
 ) {
+    <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, recipient), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_paused">coin::deny_list_paused</a>&lt;T&gt;(deny), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <a href="pay.md#0x2_pay_split_and_transfer">split_and_transfer</a>(c, amount, recipient, ctx)
@@ -395,9 +398,9 @@ Join a vector of <code>Coin</code> into a single object and transfer it to <code
 ## Function `join_vec_and_transfer_checked`
 
 Regulated join: like <code>join_vec_and_transfer</code>, but aborts <code><a href="pay.md#0x2_pay_EDENIED">EDENIED</a></code> when
-<code>receiver</code> is on the shared deny list for the coin type.
-<code>join_vec_and_transfer</code> deliberately skips the check (permissionless
-coin path).
+either end of the transfer is on the shared deny list for the coin
+type, or when the type is paused. <code>join_vec_and_transfer</code> deliberately
+skips the check (permissionless coin path).
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer_checked">join_vec_and_transfer_checked</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -415,6 +418,7 @@ coin path).
     deny: &DenyList,
     ctx: &TxContext,
 ) {
+    <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, receiver), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_paused">coin::deny_list_paused</a>&lt;T&gt;(deny), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>(coins, receiver, ctx)

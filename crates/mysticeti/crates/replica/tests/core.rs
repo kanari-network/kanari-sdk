@@ -3,11 +3,15 @@
 
 mod common;
 
-use common::{committee_and_cores, committee_and_cores_persisted};
+use common::{committee_and_cores, committee_and_cores_persisted, open_core};
 use dag::{
-    authority::Authority, block::Block, context::TokioCtx,
-    core::threshold_clock::threshold_clock_valid_non_genesis, data::Data,
+    authority::Authority,
+    block::{Block, transaction::Transaction},
+    context::TokioCtx,
+    core::threshold_clock::threshold_clock_valid_non_genesis,
+    data::Data,
 };
+use minibytes::Bytes;
 use rand::{Rng, SeedableRng, prelude::StdRng};
 
 #[test]
@@ -163,6 +167,47 @@ fn test_core_recovery() {
         eprintln!("{}: {}", core.authority(), block);
         assert_eq!(block.reference().round, 3);
     }
+}
+
+/// A replica that restarts with queued-but-unproposed transactions in its WAL must
+/// account for them: they are included in its next block, and it must keep accepting
+/// new transactions afterwards.
+#[test]
+fn test_core_recovery_with_unproposed_payload() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (committee, mut cores) = committee_and_cores::<TokioCtx>(4);
+    let authority = Authority::from(0usize);
+    let tx = |data: &'static [u8]| Transaction::new(Bytes::from(data));
+
+    let other_blocks: Vec<_> = cores[1..]
+        .iter_mut()
+        .map(|core| {
+            core.try_new_block()
+                .expect("Must be able to create block after genesis")
+        })
+        .collect();
+
+    // Propose round 1, then queue a payload in the WAL without proposing it.
+    let (mut core, sender) = open_core::<TokioCtx>(authority, &committee, Some(tmp.path()));
+    core.try_new_block()
+        .expect("Must be able to create block after genesis");
+    sender.try_send(vec![tx(b"tx-0"), tx(b"tx-1")]).unwrap();
+    core.add_blocks(vec![]);
+    drop(core);
+
+    // The recovered payload goes into the next proposal.
+    let (mut core, sender) = open_core::<TokioCtx>(authority, &committee, Some(tmp.path()));
+    core.add_blocks(other_blocks);
+    let block = core
+        .try_new_block()
+        .expect("Must be able to create block after full round");
+    assert_eq!(block.reference().round, 2);
+    assert_eq!(block.transactions().len(), 2);
+
+    // New transactions are still accepted.
+    sender.try_send(vec![tx(b"tx-2")]).unwrap();
+    let accepted = core.block_handler_mut().handle_blocks(true);
+    assert_eq!(accepted.len(), 1);
 }
 
 fn push_all(p: &mut [Vec<Data<Block>>], except: Authority, block: &Data<Block>) {

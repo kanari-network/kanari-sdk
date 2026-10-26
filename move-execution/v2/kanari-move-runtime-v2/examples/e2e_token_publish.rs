@@ -19,7 +19,9 @@ const MODULE_FILE: &str = "james.mv";
 fn mutable_object_input(object_id: &str, owner: &MoveAccountAddress) -> ObjectInput {
     ObjectInput {
         object_ref: ObjectRef::new(object_id.to_string(), None, None),
-        owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+        owner: Some(ObjectOwnerKind::AddressOwner(
+            kanari_types::object::object_id_for_address(owner),
+        )),
         mutable: true,
     }
 }
@@ -292,7 +294,8 @@ fn main() {
                         );
                         // Create a fake Coin object manually to test Writeback on Transfer
                         let fake_uid_addr = MoveAccountAddress::random();
-                        let fake_id_hex = fake_uid_addr.to_hex_literal();
+                        let fake_id_hex =
+                            kanari_types::object::object_id_for_address(&fake_uid_addr);
                         coin_id = fake_id_hex.clone();
 
                         // Construct Coin data: UID (32 bytes) + Balance (8 bytes)

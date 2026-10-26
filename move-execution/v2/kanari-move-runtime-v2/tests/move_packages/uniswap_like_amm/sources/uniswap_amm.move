@@ -1,6 +1,6 @@
 #[allow(unused_field)]
 module tester::uniswap_amm {
-    use kanari_system::balance::{Self, Balance};
+    use kanari_system::balance::{Self, Balance, Supply};
     use kanari_system::coin::{Self, Coin};
     use kanari_system::event;
     use kanari_system::math;
@@ -16,10 +16,12 @@ module tester::uniswap_amm {
     /// Input-side swap fee in basis points (9970 = 0.30% withheld by the pool).
     const FEE_BPS: u128 = 9970;
 
-    /// Test-only marker asset types for the two pool sides.
-    struct USD_MOCK has drop {}
+    /// Test-only marker asset types for the two pool sides. The `pad` field
+    /// keeps the witness's BCS encoding non-empty (1 byte), so it survives
+    /// the runtime's entry-argument preprocessing.
+    struct USD_MOCK has drop { pad: u8 }
 
-    struct KAN_MOCK has drop {}
+    struct KAN_MOCK has drop { pad: u8 }
 
     /// Constant-product pool: reserves are held as `Balance` values and the
     /// LP share supply tracks who may withdraw them.
@@ -55,11 +57,35 @@ module tester::uniswap_amm {
         amount_y: u64
     }
 
-    /// Test-only faucet: this package exists solely for runtime tests and is
-    /// never deployed. Mints `amount` of `T` to the transaction sender.
-    public entry fun mint_test_coin<T>(amount: u64, ctx: &mut TxContext) {
+    /// Test-only faucet holding the mint authority for side `T`.
+    /// Production-shaped: the `Supply` handle is created witness-gated by
+    /// `balance::new_supply`, so value is always backed by a supply source.
+    struct Faucet<phantom T> has key, store {
+        id: UID,
+        supply: Supply<T>,
+    }
+
+    /// Bootstrap the faucet for one coin side: requires the witness, so
+    /// only the package defining `T` can mint it.
+    public entry fun create_faucet<T: drop>(witness: T, ctx: &mut TxContext) {
+        let faucet = Faucet<T> {
+            id: object::new(ctx),
+            supply: balance::new_supply(witness),
+        };
+        object::save_object(&faucet);
+        transfer::public_transfer(faucet, tx_context::sender(ctx));
+    }
+
+    /// Test-only faucet: mint `amount` of `T` to the transaction sender.
+    public entry fun mint_test_coin<T: drop>(
+        faucet: &mut Faucet<T>,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
         assert!(amount > 0, E_ZERO_AMOUNT);
-        let coin = coin::from_balance(balance::create<T>(amount), ctx);
+        let balance = balance::increase_supply(&mut faucet.supply, amount);
+        let coin = coin::from_balance(balance, ctx);
+        object::save_object(faucet);
         transfer::public_transfer(coin, tx_context::sender(ctx));
     }
 

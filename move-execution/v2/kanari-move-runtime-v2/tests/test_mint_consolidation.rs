@@ -392,7 +392,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     cs1.add_token_balance_set(alice, token_type.to_string(), 100);
 
     // Create a Coin object for the first mint
-    let coin_1_id = "coin_1";
+    let coin_1_id = "0x0000000000000000000000000000000000000000000000000000000000c01001";
     // Coin format: 32 bytes UID + 8 bytes balance (little-endian)
     let mut coin_1_data = vec![0u8; 40]; // UID (32) + balance (8)
     let balance_1: u64 = 100;
@@ -423,7 +423,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     cs2.add_token_balance_set(alice, token_type.to_string(), 100);
 
     // Create another Coin object for the second mint
-    let coin_2_id = "coin_2";
+    let coin_2_id = "0x0000000000000000000000000000000000000000000000000000000000c01002";
     let mut coin_2_data = vec![0u8; 40]; // UID (32) + balance (8)
     let balance_2: u64 = 100;
     coin_2_data[32..40].copy_from_slice(&balance_2.to_le_bytes());
@@ -474,9 +474,10 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
         data: coin_1_v2_data,
         version: 2,
     };
-    cs_transfer
-        .created_objects
-        .push(("coin_1_v2".to_string(), coin_1_remaining));
+    cs_transfer.created_objects.push((
+        "0x0000000000000000000000000000000000000000000000000000000000c01012".to_string(),
+        coin_1_remaining,
+    ));
 
     let mut coin_1_split_data = vec![0u8; 40]; // 50 that was split
     let balance_1_split: u64 = 50;
@@ -491,9 +492,10 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
         data: coin_1_split_data,
         version: 1,
     };
-    cs_transfer
-        .created_objects
-        .push(("coin_1_split".to_string(), coin_1_split));
+    cs_transfer.created_objects.push((
+        "0x0000000000000000000000000000000000000000000000000000000000c01013".to_string(),
+        coin_1_split,
+    ));
 
     state.apply_changeset(&cs_transfer)?;
 
@@ -534,7 +536,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
     let mut coin1_data = vec![0u8; 40];
     coin1_data[32..40].copy_from_slice(&(100u64).to_le_bytes());
     cs_mint1.created_objects.push((
-        "coin_1".to_string(),
+        "0x0000000000000000000000000000000000000000000000000000000000c01001".to_string(),
         CreatedObject {
             owner: alice,
             owner_kind: address_owner(alice),
@@ -562,7 +564,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
     let mut coin2_data = vec![0u8; 40];
     coin2_data[32..40].copy_from_slice(&(100u64).to_le_bytes());
     cs_mint2.created_objects.push((
-        "coin_2".to_string(),
+        "0x0000000000000000000000000000000000000000000000000000000000c01002".to_string(),
         CreatedObject {
             owner: alice,
             owner_kind: address_owner(alice),

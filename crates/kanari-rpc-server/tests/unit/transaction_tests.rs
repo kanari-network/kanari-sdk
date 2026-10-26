@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{
-    apply_committed_effect, base_transaction_details, classify_transaction_error_data,
-    derive_transaction_state_flags, details_involve_owner, enrich_transfer_from_effect,
-    fresh_nonce, lookup_token_decimals, push_transfer_entry, select_gas_payment_with_table,
+    apply_committed_effect, base_transaction_details, canonical_object_id,
+    classify_transaction_error_data, derive_transaction_state_flags, details_involve_owner,
+    enrich_transfer_from_effect, fresh_nonce, lookup_token_decimals, push_transfer_entry,
     select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
     transaction_error_with_reason, transfers_from_effect, tx_matches_owner,
     validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
+use crate::transaction::gas_selection::select_gas_payment_with_table;
 use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::TransactionErrorReason;
 use kanari_types::coin::CoinModule;
@@ -111,7 +112,7 @@ fn structured_transaction_error_sets_reason_data() {
 #[test]
 fn structured_transaction_error_attaches_native_transfer_policy() {
     let error = transaction_error_with_reason(
-        "Transaction error: Native transfer requires two distinct Coin<0x2::kanari::KANARI> objects: one mutable transfer input and one separate gas payment object",
+        "Transaction error: Native transfer needs one Coin<0x2::kanari::KANARI> with enough balance for transfer plus gas, or two distinct coins with enough balance for each",
     );
     let details = error
         .transaction_error_details()
@@ -560,7 +561,7 @@ proptest! {
 }
 
 #[test]
-fn selects_distinct_native_transfer_and_gas_objects() {
+fn selects_distinct_native_transfer_and_gas_objects_when_one_coin_is_insufficient() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -598,7 +599,7 @@ fn selects_distinct_native_transfer_and_gas_objects() {
         &owned_objects,
         "0xa",
         60,
-        10,
+        50,
         1,
         &pending_access_keys,
         &HashSet::new(),
@@ -610,7 +611,7 @@ fn selects_distinct_native_transfer_and_gas_objects() {
 }
 
 #[test]
-fn native_transfer_preserves_small_coin_as_gas_reserve() {
+fn native_transfer_prefers_one_coin_for_transfer_and_gas() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -644,7 +645,7 @@ fn native_transfer_preserves_small_coin_as_gas_reserve() {
     .unwrap();
 
     assert_eq!(transfer.object_id, "0xlarge");
-    assert_eq!(gas.payment_objects[0].object_id, "0xsmall");
+    assert_eq!(gas.payment_objects[0].object_id, transfer.object_id);
 }
 
 #[test]
@@ -684,11 +685,11 @@ fn native_transfer_selection_skips_pending_object_refs() {
 
     assert_ne!(coin.object_id, "0x1");
     assert_ne!(gas.payment_objects[0].object_id, "0x2");
-    assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(coin.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
-fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
+fn allows_native_transfer_when_one_coin_covers_transfer_and_gas() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -707,7 +708,7 @@ fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
     }];
 
     let pending_access_keys = HashSet::new();
-    let err = select_native_transfer_and_gas_payment(
+    let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
         "0xa",
         60,
@@ -716,12 +717,13 @@ fn rejects_native_transfer_when_only_one_coin_would_overlap_gas() {
         &pending_access_keys,
         &HashSet::new(),
     )
-    .unwrap_err();
-    assert!(err.to_string().contains("two distinct Coin<"));
+    .unwrap();
+    assert_eq!(transfer.object_id, "0x1");
+    assert_eq!(gas.payment_objects[0].object_id, transfer.object_id);
 }
 
 #[test]
-fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
+fn native_transfer_uses_one_coin_when_pair_refs_are_locked() {
     use kanari_rpc_api::ObjectInfo;
     use kanari_types::transaction::ObjectOwnerKind;
 
@@ -744,7 +746,7 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
 
     let pending_access_keys =
         HashSet::from(["mut:object:0x1".to_string(), "mut:gas:0x2".to_string()]);
-    let pending_error = select_native_transfer_and_gas_payment(
+    let (pending_transfer, pending_gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
         "0xa",
         10,
@@ -753,8 +755,12 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
         &pending_access_keys,
         &HashSet::new(),
     )
-    .unwrap_err();
-    assert!(pending_error.to_string().contains("two distinct Coin<"));
+    .unwrap();
+    assert_eq!(pending_transfer.object_id, "0x3");
+    assert_eq!(
+        pending_gas.payment_objects[0].object_id,
+        pending_transfer.object_id
+    );
 
     let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
@@ -766,7 +772,7 @@ fn native_transfer_pair_becomes_available_after_pending_refs_commit() {
         &HashSet::new(),
     )
     .unwrap();
-    assert_ne!(transfer.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(transfer.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
@@ -807,7 +813,7 @@ fn native_transfer_selection_skips_client_excluded_object_refs() {
     assert_ne!(coin.object_id, "0x2");
     assert_ne!(gas.payment_objects[0].object_id, "0x1");
     assert_ne!(gas.payment_objects[0].object_id, "0x2");
-    assert_ne!(coin.object_id, gas.payment_objects[0].object_id);
+    assert_eq!(coin.object_id, gas.payment_objects[0].object_id);
 }
 
 #[test]
@@ -1426,4 +1432,86 @@ fn auto_gas_fails_when_no_coin_covers_max_cost() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("No spendable gas coin"));
+}
+
+/// Regression: a coin whose stored object id carries a shortened spelling
+/// (`0x1abc…`, missing leading zero) broke native transfers. The build
+/// handler hashed the short string, the wallet padded the id to the
+/// canonical 64-hex form before submitting, and the reconstructed
+/// transaction no longer matched the signed hash, so the engine rejected a
+/// perfectly valid signature with "Invalid transaction signature".
+#[test]
+fn canonical_object_id_pads_short_spellings() {
+    assert_eq!(
+        canonical_object_id("0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d")
+            .unwrap(),
+        "0x0139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d"
+    );
+    let canonical = "0x9460dce8d1feeb593d1593b8b28246cd4bb1a7d24c8108faeff5c51fe4f4e127";
+    assert_eq!(canonical_object_id(canonical).unwrap(), canonical);
+    // Strict: an id that is not a valid address names nothing.
+    assert!(canonical_object_id("not-hex").is_none());
+}
+
+#[test]
+fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
+    let short = "0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d";
+    let canonical = canonical_object_id(short).unwrap();
+    let make = |id: &str| {
+        Transaction::new_transfer_with_object_ref_and_gas(
+            "0x1".to_string(),
+            kanari_types::transaction::ObjectRef::new(
+                id.to_string(),
+                Some(1),
+                Some("0xaa".to_string()),
+            ),
+            "0x2".to_string(),
+            10_000_000_000,
+            1,
+            100_000,
+            1,
+        )
+    };
+    // The verbatim spelling really does change the hash (why the build side
+    // hands out canonical ids), and canonicalization is idempotent.
+    assert_ne!(make(short).hash(), make(&canonical).hash());
+    assert_eq!(
+        make(&canonical).hash(),
+        make(&canonical_object_id(&canonical).unwrap()).hash()
+    );
+}
+
+/// Regression: an NFT moved with the framework entry
+/// `0x2::transfer::transfer<T>(obj, recipient)` never appeared in the
+/// recipient's history because the owner match only understood native KANARI
+/// recipients and coin transfers. The recipient now resolves from args[1].
+#[test]
+fn framework_object_transfer_is_visible_to_the_recipient() {
+    let recipient = move_core_types::account_address::AccountAddress::from_hex_literal(
+        "0x0139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d",
+    )
+    .unwrap();
+    let tx = Transaction::ExecuteFunction {
+        sender: "0x1".to_string(),
+        module: kanari_types::transfer::TransferModule::module_path(),
+        function: kanari_types::transfer::TransferModule::ENTRY_TRANSFER.to_string(),
+        type_args: vec!["0x2::krc_721::Nft".to_string()],
+        // args[0] is the empty object slot; the recipient is the second arg.
+        args: vec![vec![], recipient.to_vec()],
+        object_inputs: vec![],
+        gas_payment: None,
+        gas_limit: 100_000,
+        gas_price: 1,
+        nonce: 1,
+    };
+    let owner_norm = hex::encode(recipient.as_ref());
+    assert!(
+        tx_matches_owner(&tx, Some(&owner_norm)),
+        "recipient must match framework object transfers"
+    );
+    let unrelated = format!("0{}", "0".repeat(62) + "2");
+    assert!(
+        !tx_matches_owner(&tx, Some(&unrelated)),
+        "unrelated owners must not match the transfer"
+    );
 }

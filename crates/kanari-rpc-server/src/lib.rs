@@ -70,10 +70,10 @@ use crate::{
     transaction::{
         faucet::{handle_faucet_usd_status, handle_request_usd_faucet},
         handle_build_call_function, handle_build_native_coin_consolidation,
-        handle_build_native_transfer, handle_build_publish_module, handle_build_publish_package,
-        handle_build_token_transfer, handle_call_function, handle_get_fungible_asset_transactions,
-        handle_get_transaction, handle_publish_module, handle_publish_package,
-        handle_submit_object_transfer, handle_view_function,
+        handle_build_native_transfer, handle_build_nft_transfer, handle_build_publish_module,
+        handle_build_publish_package, handle_build_token_transfer, handle_call_function,
+        handle_get_fungible_asset_transactions, handle_get_transaction, handle_publish_module,
+        handle_publish_package, handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -417,10 +417,11 @@ async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl I
         // Function calls
         methods::BUILD_CALL_FUNCTION => handle_build_call_function(&state, &request).await,
         methods::BUILD_TOKEN_TRANSFER => handle_build_token_transfer(&state, &request).await,
+        methods::BUILD_NFT_TRANSFER => handle_build_nft_transfer(&state, &request).await,
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
-        // Web USD faucet: fixed 100 USD claim as two 50 USD objects.
+        // Web USD faucet: fixed 100 USD claim as one coin object.
         methods::REQUEST_USD_FAUCET => {
             handle_request_usd_faucet(&state, &request, client_ip.as_deref()).await
         }

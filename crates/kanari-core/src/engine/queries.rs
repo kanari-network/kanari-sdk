@@ -388,8 +388,13 @@ impl BlockchainEngine {
         {
             return Ok(None);
         }
+        let Some(canonical_id) = kanari_types::object::canonical_object_id(&object_ref.object_id)
+        else {
+            // A non-canonicalizable id never names an object.
+            return Ok(None);
+        };
         Ok(Some(Self::object_info_from_created_object(
-            object_ref.object_id.clone(),
+            canonical_id,
             obj,
         )))
     }

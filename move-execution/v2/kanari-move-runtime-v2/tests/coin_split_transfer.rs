@@ -46,20 +46,34 @@ fn split_and_transfer_separates_objects() -> Result<()> {
 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
+    let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
     let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
 
     let _ = runtime
         .publish_module(module_bytes, sender, None, None)
         .context("publish coin_split_transfer module")?;
 
-    // Faucet a single coin of MINT_AMOUNT to the sender.
+    // Bootstrap the production-shaped faucet, then faucet a single coin of
+    // MINT_AMOUNT to the sender.
+    let faucet_create = entry(
+        &runtime,
+        &module_id,
+        "create_faucet",
+        vec![],
+        vec![],
+        vec![],
+        &mut nonce,
+    )?;
+    let faucet = find_created(&faucet_create, |t| t.contains("::Faucet"))?;
+    assert_eq!(faucet.owner, sender, "faucet must be owned by the sender");
+
     let mint = entry(
         &runtime,
         &module_id,
         "mint",
         vec![],
-        vec![bcs::to_bytes(&MINT_AMOUNT)?],
-        vec![],
+        vec![object_arg(&faucet.id)?, bcs::to_bytes(&MINT_AMOUNT)?],
+        vec![owned_input(&faucet.id, sender, true)],
         &mut nonce,
     )?;
     let minted = find_created(&mint, |t| t.contains("coin::Coin") && t.contains("MOCK"))?;
@@ -150,19 +164,31 @@ fn system_pay_split_and_transfer_separates_objects() -> Result<()> {
 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
+    let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
     let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
 
     let _ = runtime
         .publish_module(module_bytes, sender, None, None)
         .context("publish coin_split_transfer module")?;
 
+    let faucet_create = entry(
+        &runtime,
+        &module_id,
+        "create_faucet",
+        vec![],
+        vec![],
+        vec![],
+        &mut nonce,
+    )?;
+    let faucet = find_created(&faucet_create, |t| t.contains("::Faucet"))?;
+
     let mint = entry(
         &runtime,
         &module_id,
         "mint",
         vec![],
-        vec![bcs::to_bytes(&MINT_AMOUNT)?],
-        vec![],
+        vec![object_arg(&faucet.id)?, bcs::to_bytes(&MINT_AMOUNT)?],
+        vec![owned_input(&faucet.id, sender, true)],
         &mut nonce,
     )?;
     let minted = find_created(&mint, |t| t.contains("coin::Coin") && t.contains("MOCK"))?;

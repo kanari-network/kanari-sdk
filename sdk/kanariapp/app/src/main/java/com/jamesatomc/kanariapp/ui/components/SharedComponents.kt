@@ -145,6 +145,50 @@ fun extractAddressFromQr(raw: String): String {
     return regex.find(raw.trim())?.value ?: raw.trim()
 }
 
+// ---------- Payment QR ----------
+
+/// A scanned payment request: an address plus optional amount/token that the
+/// sender screen can pre-fill. `kanari:pay?address=0x…&amount=10&token=KANARI`
+/// is produced by the Receive screen when the owner sets an amount.
+data class PaymentRequest(
+    val address: String,
+    val amount: String? = null,
+    val token: String? = null,
+)
+
+/// Build the QR payload for a receive request. Without an amount this is the
+/// bare address, which keeps older app builds scanning it correctly.
+fun buildPaymentUri(address: String, amount: String?, token: String?): String {
+    val raw = amount?.trim().orEmpty()
+    if (raw.isEmpty()) return address
+    // Only strip trailing zeros after a decimal point — "10" must stay "10".
+    val normalized = if ('.' in raw) raw.trimEnd('0').trimEnd('.') else raw
+    if (normalized.isEmpty() || normalized == "0") return address
+    val tokenPart = token?.takeIf { it.isNotBlank() }
+    return "kanari:pay?address=$address&amount=$normalized" +
+            (if (tokenPart != null) "&token=$tokenPart" else "")
+}
+
+/// Parse scanned QR text into a [PaymentRequest]; plain addresses (and any
+/// text containing one) still resolve, so older QR codes keep working.
+fun parsePaymentQr(raw: String): PaymentRequest {
+    val trimmed = raw.trim()
+    if (!trimmed.startsWith("kanari:pay?", ignoreCase = true)) {
+        return PaymentRequest(address = extractAddressFromQr(trimmed))
+    }
+    val query = trimmed.substringAfter('?')
+    val params = query.split('&').mapNotNull { pair ->
+        val key = pair.substringBefore('=', "").lowercase()
+        val value = pair.substringAfter('=', "")
+        key.takeIf { it.isNotEmpty() }?.let { it to value }
+    }.toMap()
+    return PaymentRequest(
+        address = params["address"]?.let { extractAddressFromQr(it) } ?: "",
+        amount = params["amount"]?.takeIf { it.isNotBlank() },
+        token = params["token"]?.takeIf { it.isNotBlank() },
+    )
+}
+
 // ---------- Curve Info ----------
 
 data class CurveInfo(val displayName: String, val description: String, val isPostQuantum: Boolean)
@@ -916,7 +960,7 @@ fun CopyableAddressRow(
 
 @Composable
 fun QrCodeImage(
-    address: String,
+    content: String,
     modifier: Modifier = Modifier,
     size: Dp = 240.dp,
     placeholder: @Composable () -> Unit = {
@@ -926,10 +970,10 @@ fun QrCodeImage(
         ) { CircularProgressIndicator() }
     }
 ) {
-    val bitmap = remember(address) {
-        if (address.isNotEmpty()) {
+    val bitmap = remember(content) {
+        if (content.isNotEmpty()) {
             try {
-                val qrCode = QRCode(address)
+                val qrCode = QRCode(content)
                 val qrData = qrCode.render().nativeImage() as Bitmap
                 qrData
             } catch (_: Exception) {
@@ -1053,6 +1097,7 @@ fun RecipientAddressField(
     wallets: List<WalletRecord>,
     modifier: Modifier = Modifier,
     label: String = "Recipient Address",
+    onPaymentScanned: (PaymentRequest) -> Unit = {},
 ) {
     val context = LocalContext.current
     var showPicker by remember { mutableStateOf(false) }
@@ -1085,8 +1130,23 @@ fun RecipientAddressField(
                     scanner.startScan()
                         .addOnSuccessListener { barcode ->
                             barcode.rawValue?.let { raw ->
-                                onValueChange(extractAddressFromQr(raw))
-                                Toast.makeText(context, "Scan successful", Toast.LENGTH_SHORT).show()
+                                val payment = parsePaymentQr(raw)
+                                if (payment.address.isNotEmpty()) {
+                                    onValueChange(payment.address)
+                                    if (payment.amount != null || payment.token != null) {
+                                        onPaymentScanned(payment)
+                                        Toast.makeText(
+                                            context,
+                                            "Payment QR: address" +
+                                                    (payment.amount?.let { " + $it" } ?: "") +
+                                                    (payment.token?.let { " $it" } ?: "") +
+                                                    " filled",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(context, "Scan successful", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         }
                         .addOnFailureListener {

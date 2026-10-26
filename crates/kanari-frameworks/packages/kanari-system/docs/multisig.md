@@ -621,6 +621,33 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 ## Constants
 
 
+<a name="0x2_multisig_E_NOT_OWNER"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>: u64 = 1;
+</code></pre>
+
+
+
+<a name="0x2_multisig_E_INSUFFICIENT_BALANCE"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_INSUFFICIENT_BALANCE">E_INSUFFICIENT_BALANCE</a>: u64 = 10;
+</code></pre>
+
+
+
+<a name="0x2_multisig_E_ZERO_AMOUNT"></a>
+
+
+
+<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_AMOUNT">E_ZERO_AMOUNT</a>: u64 = 17;
+</code></pre>
+
+
+
 <a name="0x2_multisig_E_ALREADY_APPROVED"></a>
 
 
@@ -675,15 +702,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 
-<a name="0x2_multisig_E_INSUFFICIENT_BALANCE"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_INSUFFICIENT_BALANCE">E_INSUFFICIENT_BALANCE</a>: u64 = 10;
-</code></pre>
-
-
-
 <a name="0x2_multisig_E_INVALID_PAYLOAD"></a>
 
 
@@ -716,15 +734,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 <pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_EXPIRED">E_NOT_EXPIRED</a>: u64 = 16;
-</code></pre>
-
-
-
-<a name="0x2_multisig_E_NOT_OWNER"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_NOT_OWNER">E_NOT_OWNER</a>: u64 = 1;
 </code></pre>
 
 
@@ -779,15 +788,6 @@ Witness for the throwaway test coin. Module-private: unusable outside.
 
 
 <pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_ADDRESS">E_ZERO_ADDRESS</a>: u64 = 19;
-</code></pre>
-
-
-
-<a name="0x2_multisig_E_ZERO_AMOUNT"></a>
-
-
-
-<pre><code><b>const</b> <a href="multisig.md#0x2_multisig_E_ZERO_AMOUNT">E_ZERO_AMOUNT</a>: u64 = 17;
 </code></pre>
 
 
@@ -1443,9 +1443,11 @@ All effects are re-validated here: balance, owner set, threshold bounds.
 
 Regulated execution: like <code>execute_transaction</code>, but transfer proposals
 additionally abort <code><a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a></code> when the recipient is on the shared
-deny list for the wallet's coin type. Non-transfer proposals ignore
-the list. Use this entry point whenever the wallet custodies a
-regulated coin.
+deny list for the wallet's coin type, when the type is paused, or when
+the executing sender is himself on the list (Sui's list restricts both
+sending and receiving, so a denied wallet member cannot drain the
+wallet through this path). Non-transfer proposals ignore the list.
+Use this entry point whenever the wallet custodies a regulated coin.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_execute_transfer_checked">execute_transfer_checked</a>&lt;T&gt;(wallet: &<b>mut</b> <a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1464,6 +1466,7 @@ regulated coin.
     ctx: &<b>mut</b> TxContext,
 ) {
     <b>if</b> (proposal.tx_type == <a href="multisig.md#0x2_multisig_TX_TYPE_TRANSFER">TX_TYPE_TRANSFER</a>) {
+        <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
         <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, proposal.target_address), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
         <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_paused">coin::deny_list_paused</a>&lt;T&gt;(deny), <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>);
     };
@@ -1669,8 +1672,10 @@ stored object by value, and the flag blocks any re-execution.
 
 Regulated <code>execute_entry</code>: like <code>execute_entry</code>, but transfer
 proposals additionally abort <code><a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a></code> when the recipient is on the
-shared deny list for the wallet's coin type. Pass the deny-list
-object ID as <code>deny_id</code>. Non-transfer proposals ignore the list.
+shared deny list for the wallet's coin type, when the executing
+sender is himself on the list, or when the type is paused. Pass the
+deny-list object ID as <code>deny_id</code>. Non-transfer proposals ignore the
+list.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="multisig.md#0x2_multisig_execute_checked_entry">execute_checked_entry</a>&lt;T&gt;(wallet_id: <b>address</b>, proposal_id: <b>address</b>, deny_id: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1693,6 +1698,10 @@ object ID as <code>deny_id</code>. Non-transfer proposals ignore the list.
     <b>let</b> proposal = <a href="object.md#0x2_object_borrow_global_mut">object::borrow_global_mut</a>&lt;<a href="multisig.md#0x2_multisig_TransactionProposal">TransactionProposal</a>&gt;(proposal_id);
     <b>let</b> deny = <a href="object.md#0x2_object_borrow_global">object::borrow_global</a>&lt;DenyList&gt;(deny_id);
     <b>if</b> (proposal.tx_type == <a href="multisig.md#0x2_multisig_TX_TYPE_TRANSFER">TX_TYPE_TRANSFER</a>) {
+        <b>assert</b>!(
+            !<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)),
+            <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>
+        );
         <b>assert</b>!(
             !<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, proposal.target_address),
             <a href="multisig.md#0x2_multisig_E_DENIED">E_DENIED</a>

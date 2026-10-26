@@ -9,9 +9,9 @@ use move_core_types::account_address::AccountAddress;
 #[test]
 fn transfer_helper_builds_native_execute_function() {
     let coin_object_id = format!("0x{:064x}", 0xaaaau64);
-    let canonical_coin_object_id = AccountAddress::from_hex_literal(&coin_object_id)
-        .unwrap()
-        .to_hex_literal();
+    let canonical_coin_object_id = crate::object::object_id_for_address(
+        &AccountAddress::from_hex_literal(&coin_object_id).unwrap(),
+    );
     let tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
         ObjectRef::new(
@@ -59,9 +59,9 @@ fn transfer_helper_builds_native_execute_function() {
 #[test]
 fn transfer_helper_builds_execute_function_with_coin_input() {
     let coin_object_id = format!("0x{:064x}", 0xaaaau64);
-    let canonical_coin_object_id = AccountAddress::from_hex_literal(&coin_object_id)
-        .unwrap()
-        .to_hex_literal();
+    let canonical_coin_object_id = crate::object::object_id_for_address(
+        &AccountAddress::from_hex_literal(&coin_object_id).unwrap(),
+    );
     let tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
         ObjectRef::new(
@@ -110,9 +110,9 @@ fn transfer_helper_builds_execute_function_with_coin_input() {
 #[test]
 fn native_transfer_uses_abi_coin_id_not_object_input_order() {
     let coin_object_id = format!("0x{:064x}", 0xaaaau64);
-    let canonical_coin_object_id = AccountAddress::from_hex_literal(&coin_object_id)
-        .unwrap()
-        .to_hex_literal();
+    let canonical_coin_object_id = crate::object::object_id_for_address(
+        &AccountAddress::from_hex_literal(&coin_object_id).unwrap(),
+    );
     let mut tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
         ObjectRef::new(

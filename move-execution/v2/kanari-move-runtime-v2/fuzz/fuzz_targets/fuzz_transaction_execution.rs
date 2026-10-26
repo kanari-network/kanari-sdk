@@ -29,7 +29,8 @@ fuzz_target!(|data: &[u8]| {
     for _ in 0..input_count {
         let mut object_bytes = [0u8; 32];
         let _ = unstructured.fill_buffer(&mut object_bytes);
-        let object_id = AccountAddress::new(object_bytes).to_hex_literal();
+        let object_id =
+            kanari_types::object::object_id_for_address(&AccountAddress::new(object_bytes));
 
         let version = unstructured.int_in_range(1..=100).unwrap_or(1) as u64;
         let digest = format!(
@@ -37,7 +38,7 @@ fuzz_target!(|data: &[u8]| {
             unstructured.int_in_range(0..=u64::MAX).unwrap_or(0)
         );
         let owner_kind = match unstructured.int_in_range::<u32>(0..=3).unwrap_or(0) {
-            0 => ObjectOwnerKind::AddressOwner(sender.to_hex_literal()),
+            0 => ObjectOwnerKind::AddressOwner(kanari_types::object::object_id_for_address(&sender)),
             1 => ObjectOwnerKind::AddressOwner(object_id.clone()),
             2 => ObjectOwnerKind::Shared,
             _ => ObjectOwnerKind::Immutable,
@@ -104,12 +105,13 @@ fuzz_target!(|data: &[u8]| {
     for index in 0..tx_count {
         let mut object_bytes = [0u8; 32];
         let _ = unstructured.fill_buffer(&mut object_bytes);
-        let object_id = AccountAddress::new(object_bytes).to_hex_literal();
+        let object_id =
+            kanari_types::object::object_id_for_address(&AccountAddress::new(object_bytes));
 
         let object_inputs = if unstructured.int_in_range::<u32>(0..=1).unwrap_or(0) == 1 {
             vec![ObjectInput {
                 object_ref: ObjectRef::new(object_id, None, None),
-                owner: Some(ObjectOwnerKind::AddressOwner(sender.to_hex_literal())),
+                owner: Some(ObjectOwnerKind::AddressOwner(kanari_types::object::object_id_for_address(&sender))),
                 mutable: true,
             }]
         } else {
@@ -117,7 +119,7 @@ fuzz_target!(|data: &[u8]| {
         };
 
         txs.push(SignedTransaction::new(Transaction::ExecuteFunction {
-            sender: sender.to_hex_literal(),
+            sender: kanari_types::object::object_id_for_address(&sender),
             module: format!("0x1::module_{}", index % 4),
             function: "run".to_string(),
             type_args: Vec::new(),

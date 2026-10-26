@@ -363,7 +363,11 @@ fn block_queries_include_checkpoint_object_changes() {
             amount: None,
         }])
         .with_object_graph_edges(vec![ObjectGraphEdge {
-            source_object_ref: ObjectRef::new("0xgas", Some(1), Some("0xdef".to_string())),
+            source_object_ref: ObjectRef::new(
+                "0x00000000000000000000000000000000000000000000000000000000000000ab",
+                Some(1),
+                Some("0xdef".to_string()),
+            ),
             target_object_ref: ObjectRef::new("0x1", Some(1), Some("0xabc".to_string())),
             relation: ObjectGraphEdgeKind::GasCreate,
         }]);

@@ -510,9 +510,11 @@ module kanari_system::multisig {
 
     /// Regulated execution: like `execute_transaction`, but transfer proposals
     /// additionally abort `E_DENIED` when the recipient is on the shared
-    /// deny list for the wallet's coin type. Non-transfer proposals ignore
-    /// the list. Use this entry point whenever the wallet custodies a
-    /// regulated coin.
+    /// deny list for the wallet's coin type, when the type is paused, or when
+    /// the executing sender is himself on the list (Sui's list restricts both
+    /// sending and receiving, so a denied wallet member cannot drain the
+    /// wallet through this path). Non-transfer proposals ignore the list.
+    /// Use this entry point whenever the wallet custodies a regulated coin.
     public fun execute_transfer_checked<T>(
         wallet: &mut MultisigWallet<T>,
         proposal: TransactionProposal,
@@ -520,6 +522,7 @@ module kanari_system::multisig {
         ctx: &mut TxContext,
     ) {
         if (proposal.tx_type == TX_TYPE_TRANSFER) {
+            assert!(!coin::deny_list_contains<T>(deny, tx_context::sender(ctx)), E_DENIED);
             assert!(!coin::deny_list_contains<T>(deny, proposal.target_address), E_DENIED);
             assert!(!coin::deny_list_paused<T>(deny), E_DENIED);
         };
@@ -623,8 +626,10 @@ module kanari_system::multisig {
 
     /// Regulated `execute_entry`: like `execute_entry`, but transfer
     /// proposals additionally abort `E_DENIED` when the recipient is on the
-    /// shared deny list for the wallet's coin type. Pass the deny-list
-    /// object ID as `deny_id`. Non-transfer proposals ignore the list.
+    /// shared deny list for the wallet's coin type, when the executing
+    /// sender is himself on the list, or when the type is paused. Pass the
+    /// deny-list object ID as `deny_id`. Non-transfer proposals ignore the
+    /// list.
     public entry fun execute_checked_entry<T>(
         wallet_id: address,
         proposal_id: address,
@@ -636,6 +641,10 @@ module kanari_system::multisig {
         let proposal = object::borrow_global_mut<TransactionProposal>(proposal_id);
         let deny = object::borrow_global<DenyList>(deny_id);
         if (proposal.tx_type == TX_TYPE_TRANSFER) {
+            assert!(
+                !coin::deny_list_contains<T>(deny, tx_context::sender(ctx)),
+                E_DENIED
+            );
             assert!(
                 !coin::deny_list_contains<T>(deny, proposal.target_address),
                 E_DENIED

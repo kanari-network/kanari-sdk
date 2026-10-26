@@ -1,76 +1,35 @@
-// Kanari Labs NFT Module - Universal Standard Version
-module james::nft {
-    use std::ascii;
-    use std::string::{String, utf8};
-    use std::type_name;
-    use kanari_system::deny_list::{Self, DenyList};
-    use kanari_system::tx_context::TxContext;
-    use kanari_system::tx_context;
-    use kanari_system::transfer;
-    use kanari_system::url as url;
-    use kanari_system::object;
-    use kanari_system::object::UID;
-    use kanari_system::collection;
-    use kanari_system::event;
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
-    /// Structure for defining ownership (One-Time Witness)
+/// KariKid example using the framework KRC-721 NFT type and lifecycle.
+module james::nft {
+    use std::option;
+    use std::string::{Self, String};
+    use kanari_system::collection;
+    use kanari_system::deny_list::DenyList;
+    use kanari_system::krc_721::{Self, Nft};
+    use kanari_system::transfer;
+    use kanari_system::tx_context::TxContext;
+    use kanari_system::url;
+    #[test_only]
+    use std::vector;
+
+    /// Structure for defining ownership (One-Time Witness).
     struct NFT has drop {}
 
-    /// A universal, standard NFT structure
-    struct KariKid has key, store {
-        /// 1. Object ID (UID),
-        id: UID,
-        /// 2. NFT name,
-        name: String,
-        /// 3. Image URL,
-        image_url: url::Url,
-        /// 4. Description,
-        description: String,
-        /// 5. List of attribute keys (e.g., ["Level", "Attack"]),
-        attribute_keys: vector<String>,
-        /// 6. List of attribute values ​​(e.g., ["10", "150"]),
-        attribute_values: vector<String>,
-        // --- Additional fields beyond the standard ---,
-        number: String,
-        collection_id: address,
-        creator: address,
-    }
-
-    /// Event สำหรับการ Mint
-    struct MintLog has copy, drop {
-        object_id: address,
-        creator: address,
-        collection_id: address,
-    }
-
     const MAX_SUPPLY: u64 = 2000;
-
-    /// Deny-list bag index for the KariKid family. Coin entries live under
-    /// `deny_list::coin_index()` (0); object families use their own index so
-    /// the two never collide.
-    const NFT_DENY_INDEX: u64 = 1;
 
     /// Abort code when the recipient is denied or KariKid transfers pause.
     const EDENIED: u64 = 1;
 
-    /// Canonical deny-list key for KariKid: its `type_name` bytes, mirroring
-    /// `coin::deny_type_key` so tooling can reproduce the exact format.
-    fun nft_type_key(): vector<u8> {
-        let name = type_name::get<KariKid>();
-        *ascii::as_bytes(type_name::borrow_string(&name))
-    }
-
-    #[allow(unused_function)]
-    /// Function to create a collection; executed once by the runtime during publication
-    /// (not re-executed during upgrades). The publisher receives the Collection and NftCap objects.
+    /// Create the collection during publication. The publisher receives the
+    /// collection and its mint cap.
     public fun init(_otw: NFT, ctx: &mut TxContext) {
         let name = b"KariKid Collection";
         let description = b"The first official standardized NFT on Kanari Network.";
-        // Use a durable, directly-loadable image URL. A custom HTTPS, ipfs://,
-        // or data:image/jpeg;base64,... URI can be set after setup as well.
         let banner = b"https://avatars.githubusercontent.com/u/127471673?s=800&v=4";
         let website = b"https://james-project.com";
-        let sender = tx_context::sender(ctx);
+        let sender = kanari_system::tx_context::sender(ctx);
         let (coll, issuer) =
             collection::create_collection(
                 ctx,
@@ -84,184 +43,145 @@ module james::nft {
         transfer::public_transfer(coll, sender);
     }
 
-    /// Replaces collection artwork without recreating the collection. Only the
-    /// original collection creator is authorized by collection::update_metadata.
+    /// Replaces collection artwork without recreating the collection.
     public entry fun update_collection_metadata(
         coll: &mut collection::Collection,
         banner: vector<u8>,
         website: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         collection::update_metadata(coll, banner, website, ctx);
     }
 
-    /// Mint function according to international standards.
+    /// Mint a KRC-721 KariKid. The collection assigns the historical mint
+    /// ordinal; callers cannot choose or reuse a token number.
     public entry fun mint(
         cap: &mut collection::NftCap,
+        coll: &collection::Collection,
         name: vector<u8>,
         description: vector<u8>,
-        url_bytes: vector<u8>,
+        image_url: vector<u8>,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        number: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        collection::consume_for_mint(cap);
-        let sender = tx_context::sender(ctx);
-        let nft = KariKid {
-            id: object::new(ctx),
-            name: utf8(name),
-            image_url: url::new_unsafe_from_bytes(url_bytes),
-            description: utf8(description),
-            attribute_keys,
-            attribute_values,
-            number: utf8(number),
-            collection_id: collection::cap_collection_id(cap),
-            creator: sender
-        };
-        event::emit(
-            MintLog {
-                object_id: object::uid_address(&nft.id),
-                creator: sender,
-                collection_id: collection::cap_collection_id(cap)
-            }
-        );
-        transfer::public_transfer(nft, sender);
+        let nft =
+            krc_721::mint(
+                cap,
+                coll,
+                string::utf8(name),
+                option::some(string::utf8(description)),
+                option::some(url::new_unsafe_from_bytes(image_url)),
+                attribute_keys,
+                attribute_values,
+                ctx
+            );
+        krc_721::transfer(nft, kanari_system::tx_context::sender(ctx));
     }
 
-    /// NFT Destruction (Burn)
+    /// Burn a token through the framework so its collection and supply cap are
+    /// validated together.
     public entry fun burn(
-        cap: &mut collection::NftCap,
-        coll: &collection::Collection,
-        nft: KariKid,
-        _: &mut TxContext,
+        cap: &mut collection::NftCap, coll: &collection::Collection, nft: Nft
     ) {
-        collection::return_from_burn(cap, coll);
-        let KariKid {
-            id,
-            name: _,
-            image_url: _,
-            description: _,
-            attribute_keys: _,
-            attribute_values: _,
-            number: _,
-            collection_id: _,
-            creator: _
-        } = nft;
-        object::delete(id);
+        krc_721::burn(cap, coll, nft);
     }
 
-    /// NFT transfer (regulated): aborts `EDENIED` when `recipient` is on the
-    /// KariKid deny list or KariKid transfers are globally paused. The
-    /// shared `DenyList` singleton (`@0x403`) is borrowed by the framework,
-    /// so callers pass no deny-list argument.
+    /// Regulated transfer through the shared framework deny list.
     public entry fun transfer(
-        nft: KariKid,
-        recipient: address,
-        ctx: &mut TxContext,
+        list: &DenyList, nft: Nft, recipient: address, ctx: &mut TxContext
     ) {
-        transfer_with_list(nft, recipient, deny_list::borrow_singleton(), ctx);
+        transfer_with_list(nft, recipient, list, ctx);
     }
 
-    /// Same transfer against an explicitly passed list. Used by unit tests,
-    /// which run without a genesis singleton to borrow.
+    /// Same transfer against an explicitly passed list for unit tests.
     public fun transfer_with_list(
-        nft: KariKid,
-        recipient: address,
-        deny_list: &DenyList,
-        ctx: &mut TxContext,
+        nft: Nft, recipient: address, deny_list: &DenyList, _ctx: &mut TxContext
     ) {
-        let _ = ctx;
-        assert!(!is_denied(deny_list, recipient), EDENIED);
-        assert!(!is_paused(deny_list), EDENIED);
-        transfer::public_transfer(nft, recipient)
+        let collection_id = krc_721::collection_of(&nft);
+        assert!(
+            !krc_721::is_denied(deny_list, collection_id, recipient),
+            EDENIED
+        );
+        assert!(!krc_721::is_paused(deny_list, collection_id), EDENIED);
+        krc_721::transfer(nft, recipient);
     }
 
-    /// Update Attributes (Attributes)
+    /// Replace token attributes using the framework's validation and limits.
     public entry fun update_attributes(
-        nft: &mut KariKid,
+        nft: &mut Nft,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        _: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
-        nft.attribute_keys = attribute_keys;
-        nft.attribute_values = attribute_values;
+        krc_721::set_attributes(nft, attribute_keys, attribute_values);
     }
 
-    // ==========================================
-    // Deny-list management (regulated NFT)
-    // ==========================================
-    /// The shared `deny_list::v1_*` functions are permissionless at the
-    /// framework level, so this module gates every write with
-    /// `&collection::NftCap`: only the collection issuer can maintain
-    /// KariKid entries — the same role separation `coin::DenyCap` gives
-    /// regulated coins.
-
-    /// Add `addr` to the KariKid deny list. Only the NftCap holder.
+    /// Add an address to this collection's KRC-721 deny list.
     public entry fun deny_add(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        deny_list::v1_add(deny_list, NFT_DENY_INDEX, nft_type_key(), addr, ctx);
+        krc_721::deny_add(deny_list, cap, addr, ctx);
     }
 
-    /// Remove `addr` from the KariKid deny list. Aborts when not denied.
+    /// Remove an address from this collection's KRC-721 deny list.
     public entry fun deny_remove(
         deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        cap: &collection::NftCap,
         addr: address,
+        _ctx: &mut TxContext
     ) {
-        deny_list::v1_remove(deny_list, NFT_DENY_INDEX, nft_type_key(), addr);
+        krc_721::deny_remove(deny_list, cap, addr);
     }
 
-    /// Pause all KariKid transfers (fail-closed kill-switch).
+    /// Pause transfers for this collection.
     public entry fun deny_pause(
-        deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
-        ctx: &mut TxContext,
+        deny_list: &mut DenyList, cap: &collection::NftCap, ctx: &mut TxContext
     ) {
-        deny_list::v2_enable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key(), ctx);
+        krc_721::deny_pause(deny_list, cap, ctx);
     }
 
-    /// Lift the KariKid pause.
+    /// Resume transfers for this collection.
     public entry fun deny_unpause(
-        deny_list: &mut DenyList,
-        _cap: &collection::NftCap,
+        deny_list: &mut DenyList, cap: &collection::NftCap, _ctx: &mut TxContext
     ) {
-        deny_list::v2_disable_global_pause(deny_list, NFT_DENY_INDEX, nft_type_key());
+        krc_721::deny_unpause(deny_list, cap);
     }
 
-    /// Open read: true iff `addr` is denied for KariKid.
-    public fun is_denied(deny_list: &DenyList, addr: address): bool {
-        deny_list::v1_contains(deny_list, NFT_DENY_INDEX, nft_type_key(), addr)
+    /// Return whether an address is denied for a collection.
+    public fun is_denied(
+        deny_list: &DenyList, collection_id: address, addr: address
+    ): bool {
+        krc_721::is_denied(deny_list, collection_id, addr)
     }
 
-    /// Open read: true iff KariKid transfers are globally paused.
-    public fun is_paused(deny_list: &DenyList): bool {
-        deny_list::v2_is_global_pause_enabled(deny_list, NFT_DENY_INDEX, nft_type_key())
+    /// Return whether transfers are paused for a collection.
+    public fun is_paused(deny_list: &DenyList, collection_id: address): bool {
+        krc_721::is_paused(deny_list, collection_id)
     }
 
     #[test_only]
-    /// Mint a KariKid straight into the caller's hands for tests (the
-    /// `mint` entry transfers to the tx sender, which unit tests cannot
-    /// retrieve objects from).
+    /// Mint a KRC-721 token directly for tests that need to hold the value.
     public fun mint_for_test(
         cap: &mut collection::NftCap,
-        ctx: &mut TxContext,
-    ): KariKid {
-        collection::consume_for_mint(cap);
-        KariKid {
-            id: object::new(ctx),
-            name: utf8(b"Test Kid"),
-            image_url: url::new_unsafe_from_bytes(b"https://james-project.com/test.png"),
-            description: utf8(b"test nft"),
-            attribute_keys: vector[],
-            attribute_values: vector[],
-            number: utf8(b"0"),
-            collection_id: collection::cap_collection_id(cap),
-            creator: tx_context::sender(ctx),
-        }
+        coll: &collection::Collection,
+        ctx: &mut TxContext
+    ): Nft {
+        krc_721::mint(
+            cap,
+            coll,
+            string::utf8(b"Test Kid"),
+            option::some(string::utf8(b"test nft")),
+            option::some(
+                url::new_unsafe_from_bytes(b"https://james-project.com/test.png")
+            ),
+            vector::empty(),
+            vector::empty(),
+            ctx
+        )
     }
 }
+

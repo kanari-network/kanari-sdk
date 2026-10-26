@@ -15,6 +15,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::gas_coin::GAS_COIN;
+use kanari_types::object::object_id_for_address;
 use kanari_types::usd_coin::USD_COIN;
 
 use kanari_types::transaction::{
@@ -797,7 +798,9 @@ impl BlockchainEngine {
     fn deterministic_native_transfer_output_id(tx: &Transaction) -> String {
         let mut seed = b"kanari:native_transfer_output:v1:".to_vec();
         seed.extend_from_slice(&tx.hash());
-        format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(&seed)))
+        object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(
+            &seed,
+        )))
     }
 
     fn execute_backend_native_transfer(
@@ -821,12 +824,6 @@ impl BlockchainEngine {
             .payment_objects
             .first()
             .context("Native transfer requires one prepared gas payment object")?;
-        ensure!(
-            gas_object_ref.object_id != coin_object_id,
-            "Native transfer requires two distinct coin objects: one mutable transfer input and one separate Coin<{}> gas payment object",
-            gas_coin
-        );
-
         let transfer_object = state.get_object(coin_object_id)?.with_context(|| {
             format!(
                 "Native transfer coin object {} was not found",
@@ -898,6 +895,15 @@ impl BlockchainEngine {
             gas_coin,
             gas_balance
         );
+        if gas_object_ref.object_id == coin_object_id {
+            ensure!(
+                transfer_balance >= amount.saturating_add(gas_cost),
+                "Native transfer coin {} must cover transfer amount {} plus gas {}",
+                coin_object_id,
+                amount,
+                gas_cost
+            );
+        }
 
         let recipient_addr = KanariAddress::parse_to_account_address(recipient)?;
 
@@ -906,7 +912,9 @@ impl BlockchainEngine {
                 coin_object_id.to_string(),
                 CreatedObject {
                     owner: recipient_addr,
-                    owner_kind: ObjectOwnerKind::AddressOwner(recipient_addr.to_hex_literal()),
+                    owner_kind: ObjectOwnerKind::AddressOwner(object_id_for_address(
+                        &recipient_addr,
+                    )),
                     uid: transfer_object.uid,
                     id: transfer_object.id,
                     type_: transfer_object.type_,
@@ -946,7 +954,9 @@ impl BlockchainEngine {
                 output_id,
                 CreatedObject {
                     owner: recipient_addr,
-                    owner_kind: ObjectOwnerKind::AddressOwner(recipient_addr.to_hex_literal()),
+                    owner_kind: ObjectOwnerKind::AddressOwner(object_id_for_address(
+                        &recipient_addr,
+                    )),
                     uid: None,
                     id: None,
                     type_: transfer_object.type_,
@@ -3042,6 +3052,26 @@ impl BlockchainEngine {
             object_count,
             MAX_TRANSACTION_OBJECTS
         );
+        // Object ids must canonicalize: storage and access tracking key by
+        // the canonical full form, so a non-hex id can never resolve.
+        // Rejecting at admission keeps every downstream canonicalization
+        // infallible (no fallbacks on execution paths).
+        for input in tx.object_inputs() {
+            ensure!(
+                kanari_types::object::canonical_object_id(&input.object_ref.object_id).is_some(),
+                "Object input id {} is not a valid hex object address",
+                input.object_ref.object_id
+            );
+        }
+        if let Some(payment) = tx.gas_payment() {
+            for payment_object in &payment.payment_objects {
+                ensure!(
+                    kanari_types::object::canonical_object_id(&payment_object.object_id).is_some(),
+                    "Gas payment object id {} is not a valid hex object address",
+                    payment_object.object_id
+                );
+            }
+        }
         ensure!(
             tx.gas_limit() <= MAX_TRANSACTION_GAS_LIMIT,
             "Transaction gas limit {} exceeds protocol maximum {}",
@@ -3614,13 +3644,28 @@ impl BlockchainEngine {
             if let Some(owner) = input.owner {
                 match owner {
                     ObjectOwnerKind::AddressOwner(expected_owner) => {
-                        ensure!(
-                            matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)),
-                            "Object {} is not canonically address-owned",
-                            input.object_ref.object_id
-                        );
+                        let actual_owner = match &stored.owner_kind {
+                            ObjectOwnerKind::AddressOwner(address) => {
+                                KanariAddress::parse_to_account_address(address)?
+                            }
+                            _ => anyhow::bail!(
+                                "Object {} is not canonically address-owned",
+                                input.object_ref.object_id
+                            ),
+                        };
+                        // Mutable access is sender-only: a mutable declared
+                        // input for an object owned by anyone else would grant
+                        // the sender a `&mut` alias to foreign app state
+                        // (client-side CLI checks cannot be trusted here).
+                        if input.mutable && actual_owner != sender_addr {
+                            anyhow::bail!(
+                                "Mutable object input {} is owned by {:?}, not the sender",
+                                input.object_ref.object_id,
+                                actual_owner.to_hex()
+                            );
+                        }
                         let expected = KanariAddress::parse_to_account_address(&expected_owner)?;
-                        if stored.owner != expected {
+                        if actual_owner != expected {
                             anyhow::bail!(
                                 "Owned object {} is not owned by declared owner {}",
                                 input.object_ref.object_id,
@@ -3705,8 +3750,24 @@ impl BlockchainEngine {
                 {
                     anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
                 }
+                let is_same_native_transfer_coin = gas_coin == GAS_COIN
+                    && tx.native_call().is_some_and(|native_call| {
+                        let kanari_types::transaction::NativeCall::Transfer {
+                            coin_object_id, ..
+                        } = native_call
+                        else {
+                            return false;
+                        };
+                        matches!(
+                            (
+                                AccountAddress::from_hex_literal(&coin_object_id),
+                                AccountAddress::from_hex_literal(&payment.object_id),
+                            ),
+                            (Ok(transfer_id), Ok(gas_id)) if transfer_id == gas_id
+                        )
+                    });
                 ensure!(
-                    !mutable_input_ids.contains(&payment.object_id),
+                    !mutable_input_ids.contains(&payment.object_id) || is_same_native_transfer_coin,
                     "Gas payment object {} cannot overlap with a mutable object input",
                     payment.object_id
                 );
@@ -4137,3 +4198,7 @@ impl BlockchainEngine {
 #[cfg(test)]
 #[path = "../tests/unit/engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/engine_mutable_input_tests.rs"]
+mod mutable_input_tests;

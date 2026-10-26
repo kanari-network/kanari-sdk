@@ -58,12 +58,14 @@ All fields are optional and fall back to the defaults shown.
 | `name`                              | _(unset)_                             | Optional label shown in logs and the suite summary table. |
 | `committee_size`                    | `10`                                  | Number of replicas. Stake is uniform. |
 | `latency`                           | `uniform` over 50–100 ms              | Link latency model — see below. |
+| `jitter`                            | _(unset)_                             | Extra exponential delay on every message — see below. |
 | `topology`                          | `fullMesh`                            | Network topology — see below. |
 | `duration_secs`                     | `20`                                  | Simulated time for which to run the simulation. |
 | `rng_seed`                          | `0`                                   | Seed for the deterministic RNG. Change this to get different per-run noise while keeping everything else fixed. |
 | `replica_parameters`                | `ReplicaParameters::default()`        | Same tunables as a real replica: DAG round timeout, max block size, consensus protocol, leader count. |
 | `load_generator`                    | `LoadGeneratorConfig::new_for_test()` | Built-in transaction generator (`load` tx/s, `transaction_size`, `initial_delay`). `null` for empty blocks. |
 | `equivocating_leaders`              | `[]`                                  | Authority indices that behave as equivocating leaders — see below. |
+| `sample_interval_secs`              | _(unset)_                             | Snapshot every replica's metrics this often; written to `samples/<t>s/`. |
 
 ## Link Latency
 
@@ -106,6 +108,14 @@ constant and `start > end` is rejected.
   [`examples/geography.yaml`](../crates/simulator/examples/geography.yaml) is a 50-replica,
   six-region committee calibrated from an RTT matrix measured on the AWS testbed.
 
+The optional `jitter` field adds an exponentially distributed delay to every message, on top of
+the latency model, capped at `cap_ms`. Links stay FIFO, so a jittered message also holds back the
+messages behind it on its link.
+
+```yaml
+jitter: {mean_ms: 75, cap_ms: 400}
+```
+
 The latency model composes with `topology` and `equivocating_leaders`: crashing a region is a
 `partition` whose alive group leaves that region's indices out.
 
@@ -142,18 +152,19 @@ The twin is also delivered back to the equivocator itself (as if a peer had sent
 honest blocks referencing the twin stay causally complete for it and it keeps proposing.
 
 What to expect: a slot with two twins cannot gather a fast quorum or a certificate for either,
-so it is never fast- or slow-committed. Under a dual-path protocol (`dag-hydrangea`) each twin
+so it is never fast- or slow-committed. Under a dual-path protocol (`hydrozoan`) each twin
 still gathers a weak quorum of anchor-linked votes and the slot is committed by the weak rung of
 the graded indirect rule, with the digest tie-break choosing the twin. Under a single-path
 protocol (`mysticeti`) the slot is skipped indirectly. In neither case is a direct skip possible,
 since every voter voted for one of the twins. The scenarios in
-`crates/simulator/tests/dag_hydrangea.rs` and `crates/simulator/tests/simulation.rs` assert
+`crates/simulator/tests/hydrozoan.rs` and `crates/simulator/tests/simulation.rs` assert
 exactly this through the `commit_type` breakdown of `committed_leaders_total`;
 [`examples/twin.yaml`](../crates/simulator/examples/twin.yaml) is a ready-made run of the
-DagHydrangea case whose exported `metrics-*.prom` files show the breakdown per leader.
+Hydrozoan case whose exported `metrics-*.prom` files show the breakdown per leader.
 
 Two approximations to keep in mind. The leader slots are computed from the protocol's leader
-count and the round-robin `LeaderElector`, which is exact for the pipelined protocols; the
+count and its `LeaderElector` (round-robin or fake coin), which is exact for the pipelined
+protocols; the
 non-pipelined Cordial Miners variants equivocate in a few extra (non-leader) rounds, which is
 harmless. And equivocating in every round is not offered: the leader rounds are where
 equivocation bears on the commit rule.
@@ -193,7 +204,11 @@ leaves each file either intact or absent — never half-written.
 | `<run>/config.yaml`        | The full `SimulationConfig` that produced the run, including any defaults filled in.                                                                      |
 | `<run>/meta.yaml`          | `{ outcome, duration_secs, kind: simulation, timestamp_unix }`.                                                                                           |
 | `<run>/metrics-<replica>.prom` | One Prometheus text exposition per replica (`metrics-A.prom`, `metrics-B.prom`, …), each self-contained and parseable by `promtool` and most TSDB ingesters. |
+| `<run>/samples/<t>s/metrics-<replica>.prom` | _(with `sample_interval_secs`)_ the same snapshots, taken `t` seconds into the run. |
 | `<run>/dag.ndjson`         | _(opt-in via `--export-dag`)_ every committed sub-DAG, one JSON object per line. Can be many GB; off by default.                                          |
+
+Simulated replicas record their latency histograms with 10 ms buckets up to 1 s (then coarser
+up to 30 s), finer than a real replica's defaults, so percentiles stay precise.
 
 ## Programmatic Use
 

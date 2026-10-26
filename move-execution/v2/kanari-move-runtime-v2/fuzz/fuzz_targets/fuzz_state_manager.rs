@@ -78,8 +78,12 @@ fuzz_target!(|data: &[u8]| {
                 let object_id = AccountAddress::new(obj_bytes);
 
                 let owner_kind = match unstructured.int_in_range::<u32>(0..=3).unwrap_or(0) {
-                    0 => ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
-                    1 => ObjectOwnerKind::AddressOwner(object_id.to_hex_literal()),
+                    0 => ObjectOwnerKind::AddressOwner(
+                        kanari_types::object::object_id_for_address(&owner),
+                    ),
+                    1 => ObjectOwnerKind::AddressOwner(
+                        kanari_types::object::object_id_for_address(&object_id),
+                    ),
                     2 => ObjectOwnerKind::Shared,
                     _ => ObjectOwnerKind::Immutable,
                 };

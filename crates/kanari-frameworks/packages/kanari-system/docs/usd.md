@@ -13,7 +13,7 @@ can call <code>mint</code> with their own wallet (paying their own gas). No fixe
 supply, no dev allocation, no custodian key or password.
 
 Anyone with a funded wallet mints with one call, e.g.:
-<code><a href="kanari.md#0x2_kanari">kanari</a> <b>move</b> call --package 0x2 --<b>module</b> <a href="usd.md#0x2_usd">usd</a> --function mint \
+<code><a href="kanari.md#0x2_kanari">kanari</a> <b>move</b> call --<a href="package.md#0x2_package">package</a> 0x2 --<b>module</b> <a href="usd.md#0x2_usd">usd</a> --function mint \
 --args &lt;treasury_cap_object_id&gt; 100000000 &lt;recipient&gt;</code>
 
 

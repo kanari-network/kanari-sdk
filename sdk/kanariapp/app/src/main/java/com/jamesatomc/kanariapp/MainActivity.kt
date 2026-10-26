@@ -79,11 +79,15 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToReceive = { navController.navigate(Screen.Receive.route) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 onNavigateToSend = { /* Handled in MainScreen bottom nav */ },
-                onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) }
+                onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
+                onNavigateToNfts = { navController.navigate(Screen.Nfts.route) }
             )
         }
         composable(Screen.Receive.route) {
             ReceiveScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+        }
+        composable(Screen.Nfts.route) {
+            NftScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(Screen.Settings.route) {
             SettingsScreen(

@@ -99,9 +99,9 @@ pub struct NativeTransferPolicyContract {
     pub canonical_object_refs_required: bool,
     /// Gas payment objects must be native `Coin<0x2::kanari::KANARI>` objects.
     pub gas_payment_must_be_native_kanari: bool,
-    /// A single native coin cannot be reused for both transfer and gas.
+    /// A single native coin with enough balance may cover transfer and gas.
     pub allows_single_coin_for_transfer_and_gas: bool,
-    /// Native transfer requires distinct transfer/gas objects.
+    /// Native transfer can use distinct transfer/gas objects when one coin is insufficient.
     pub allows_distinct_transfer_and_gas_objects: bool,
 }
 
@@ -111,13 +111,13 @@ impl NativeTransferPolicyContract {
             api_selects_objects: true,
             canonical_object_refs_required: true,
             gas_payment_must_be_native_kanari: true,
-            allows_single_coin_for_transfer_and_gas: false,
+            allows_single_coin_for_transfer_and_gas: true,
             allows_distinct_transfer_and_gas_objects: true,
         }
     }
 
     pub fn summary(&self) -> &'static str {
-        "two distinct Coin<0x2::kanari::KANARI> objects: one mutable transfer input and one separate gas payment object"
+        "one Coin<0x2::kanari::KANARI> with enough balance for transfer plus gas, or two distinct coins with enough balance for each"
     }
 }
 
@@ -242,7 +242,7 @@ mod tests {
         assert!(policy.api_selects_objects);
         assert!(policy.canonical_object_refs_required);
         assert!(policy.gas_payment_must_be_native_kanari);
-        assert!(!policy.allows_single_coin_for_transfer_and_gas);
+        assert!(policy.allows_single_coin_for_transfer_and_gas);
         assert!(policy.allows_distinct_transfer_and_gas_objects);
         assert!(policy.summary().contains("Coin<0x2::kanari::KANARI>"));
     }
@@ -617,8 +617,8 @@ pub struct SubmitObjectTransferRequest {
 /// Build native transfer request.
 ///
 /// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
-/// the backend chooses canonical object refs and requires distinct native
-/// transfer/gas coin objects.
+/// the backend chooses canonical object refs and prefers distinct transfer/gas
+/// coins, while allowing one coin to cover both when its balance is sufficient.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNativeTransferRequest {
     pub sender: String,
@@ -883,6 +883,22 @@ pub struct BuildTokenTransferRequest {
     pub recipient: String,
     pub token_type: String,
     pub amount: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
+/// Build NFT transfer request (`kanari_buildNftTransfer`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildNftTransferRequest {
+    pub sender: String,
+    pub recipient: String,
+    /// Object id of the NFT (`0x`-prefixed). Must be owned by `sender`.
+    pub object_id: String,
     pub gas_limit: u64,
     pub gas_price: u64,
     /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
@@ -1333,7 +1349,7 @@ pub mod methods {
     pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
     #[open_rpc_method(
         summary = "Build native transfer transaction",
-        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. Native KANARI transfer is a Move object call and requires distinct transfer/gas coin objects.",
+        description = "Applies the shared NativeTransferPolicyContract: the backend selects canonical native coin refs, gas payment, and nonce, then returns a canonical unsigned transfer payload. One native coin may cover transfer plus gas; otherwise distinct transfer and gas coins are selected.",
         params = [("transaction", "Unsigned native transfer payload.", true, schema_object())],
         result = ("transaction", "Prepared object-transfer request.", schema_object()),
         tags = ["transaction"]
@@ -1549,6 +1565,14 @@ pub mod methods {
         tags = ["function"]
     )]
     pub const BUILD_TOKEN_TRANSFER: &str = "kanari_buildTokenTransfer";
+    #[open_rpc_method(
+        summary = "Build NFT transfer transaction",
+        description = "Resolves the owned NFT object input, gas, and nonce, and returns a canonical unsigned `0x2::transfer::public_transfer<T>` call.",
+        params = [("call", "Unsigned NFT transfer payload.", true, schema_object())],
+        result = ("call", "Prepared NFT-transfer call request.", schema_object()),
+        tags = ["nft"]
+    )]
+    pub const BUILD_NFT_TRANSFER: &str = "kanari_buildNftTransfer";
     #[open_rpc_method(
         summary = "Claim 100 USD from the web faucet",
         description = "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",

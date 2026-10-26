@@ -99,6 +99,20 @@ module kanari_system::transfer {
         transfer_with_uid(obj, recipient);
     }
 
+    /// Entry wrapper for `public_transfer`.
+    ///
+    /// Transactions may only execute `entry` functions, while the primitive
+    /// above is a plain `public fun`. Clients that build a direct asset
+    /// transfer (wallet `Send NFT`, explorers) must target this wrapper so the
+    /// call passes the entry gate. Ownership is still enforced by the runtime:
+    /// `obj` must arrive as a mutable owned input whose stored owner is the
+    /// sender. No royalty/`TransferPolicy` gate runs here — this is the
+    /// direct-transfer path, the on-chain escape hatch equivalent of Sui
+    /// `public_transfer` in a PTB.
+    public entry fun transfer<T: key + store>(obj: T, recipient: address) {
+        public_transfer(obj, recipient);
+    }
+
     /// Internal transfer that extracts UID for tracking
     native fun transfer_with_uid<T: key + store>(obj: T, recipient: address);
 

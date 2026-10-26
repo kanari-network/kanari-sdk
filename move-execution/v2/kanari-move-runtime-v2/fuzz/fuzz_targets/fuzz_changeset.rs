@@ -36,7 +36,9 @@ impl From<ArbitraryObjectOwnerKind> for ObjectOwnerKind {
     fn from(arb: ArbitraryObjectOwnerKind) -> Self {
         match arb {
             ArbitraryObjectOwnerKind::AddressOwner => {
-                ObjectOwnerKind::AddressOwner(default_owner_address().to_hex_literal())
+                ObjectOwnerKind::AddressOwner(kanari_types::object::object_id_for_address(
+                    &default_owner_address(),
+                ))
             }
             ArbitraryObjectOwnerKind::Shared => ObjectOwnerKind::Shared,
             ArbitraryObjectOwnerKind::Immutable => ObjectOwnerKind::Immutable,

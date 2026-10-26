@@ -50,7 +50,7 @@ fn speculative_transferred_objects_do_not_mutate_object_storage() {
 }
 
 #[test]
-fn transferred_object_version_and_owner_kind_are_read_from_speculative_overlay() {
+fn transferred_object_version_uses_speculative_overlay_and_transfer_updates_owner_kind() {
     let runtime = MoveRuntime::new_with_natives_in_memory(vec![]).invariant("runtime init");
     let old_owner = AccountAddress::from_hex_literal("0x1111").invariant("old owner");
     let new_owner = AccountAddress::from_hex_literal("0x2222").invariant("new owner");
@@ -94,7 +94,10 @@ fn transferred_object_version_and_owner_kind_are_read_from_speculative_overlay()
         .first()
         .invariant("created object");
     assert_eq!(created.version, 10);
-    assert_eq!(created.owner_kind, ObjectOwnerKind::Shared);
+    assert_eq!(
+        created.owner_kind,
+        ObjectOwnerKind::AddressOwner(new_owner.to_hex_literal())
+    );
     assert_eq!(created.owner, new_owner);
 }
 

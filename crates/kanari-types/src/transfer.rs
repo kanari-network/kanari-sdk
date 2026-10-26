@@ -53,6 +53,17 @@ pub struct TransferModule;
 
 impl TransferModule {
     pub const TRANSFER_MODULE: &'static str = "transfer";
+    /// Entry wrapper for `public_transfer<T>(obj, recipient)`.
+    pub const ENTRY_TRANSFER: &'static str = "transfer";
+
+    /// Fully qualified module path, e.g. `0x2::transfer`.
+    pub fn module_path() -> String {
+        format!(
+            "{}::{}",
+            Address::KANARI_SYSTEM_ADDRESS,
+            Self::TRANSFER_MODULE
+        )
+    }
 
     /// Abort codes from `transfer.move`.
     pub const ERR_INVALID_AMOUNT: u64 = 1;

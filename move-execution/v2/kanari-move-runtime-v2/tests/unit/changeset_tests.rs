@@ -109,7 +109,11 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
             },
         ],
         Some(GasPayment {
-            payment_objects: vec![ObjectRef::new("0xgas", Some(1), Some("0xddd".to_string()))],
+            payment_objects: vec![ObjectRef::new(
+                "0x00000000000000000000000000000000000000000000000000000000000000ab",
+                Some(1),
+                Some("0xddd".to_string()),
+            )],
             owner: owner.to_hex_literal(),
             budget: 100,
             price: 1,
@@ -130,8 +134,16 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
         },
         ObjectChange {
             change_type: ObjectChangeKind::Transferred,
-            object_ref: ObjectRef::new("0xt", Some(2), Some("0x2".to_string())),
-            previous_object_ref: Some(ObjectRef::new("0xt", Some(1), Some("0xold".to_string()))),
+            object_ref: ObjectRef::new(
+                "0x0000000000000000000000000000000000000000000000000000000000000074",
+                Some(2),
+                Some("0x2".to_string()),
+            ),
+            previous_object_ref: Some(ObjectRef::new(
+                "0x0000000000000000000000000000000000000000000000000000000000000074",
+                Some(1),
+                Some("0xold".to_string()),
+            )),
             type_: Some("0x2::test::Transferred".to_string()),
             owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
             previous_owner: Some(ObjectOwnerKind::Shared),

@@ -44,21 +44,26 @@ pub struct View {
     #[clap(long = "type-arg", short = 't')]
     pub type_args: Vec<String>,
 
-    /// Function arguments in hex format (BCS serialized bytes).
+    /// Function arguments in hex format (BCS serialized bytes). For an object
+    /// parameter, pass its Object ID directly: the node resolves its current
+    /// owner, version, and digest automatically from the function signature.
     /// Can be specified multiple times for multiple arguments.
     /// Example: --arg 0xDEADBEEF or -a 0x1234
     #[clap(long = "arg", short = 'a')]
     pub args: Vec<String>,
 
-    /// Explicit owned object input in the form OWNER,OBJECT_ID,VERSION,DIGEST
+    /// Explicit owned object input in the form OWNER,OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "owned-input")]
     pub owned_inputs: Vec<String>,
 
-    /// Explicit shared object input in the form OBJECT_ID,VERSION,DIGEST
+    /// Explicit shared object input in the form OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "shared-input")]
     pub shared_inputs: Vec<String>,
 
-    /// Explicit immutable object input in the form OBJECT_ID,VERSION,DIGEST
+    /// Explicit immutable object input in the form OBJECT_ID,VERSION,DIGEST.
+    /// Normally unnecessary: pass the object id using `--arg` instead.
     #[clap(long = "immutable-input")]
     pub immutable_inputs: Vec<String>,
 
@@ -117,14 +122,19 @@ impl View {
             .map(|bytes| format!("0x{}", hex::encode(bytes)))
             .collect();
 
-        let request_data = serde_json::json!({
+        let mut request_data = serde_json::json!({
             "package": self.package,
             "module": self.module,
             "function": self.function,
             "type_args": self.type_args,
             "args": args_hex,
-            "object_inputs": object_inputs
         });
+        // Omit the field entirely when nothing was declared explicitly so the
+        // node auto-resolves object params from `args` (sending `[]` used to
+        // opt into "declared" mode with zero inputs and abort the call).
+        if !object_inputs.is_empty() {
+            request_data["object_inputs"] = serde_json::json!(object_inputs);
+        }
 
         let rpc_request = RpcRequest {
             jsonrpc: "2.0".to_string(),

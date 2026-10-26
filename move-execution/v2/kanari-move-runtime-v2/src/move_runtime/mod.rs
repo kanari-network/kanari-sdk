@@ -72,6 +72,7 @@ mod constructors;
 mod entry;
 mod init;
 mod object_lifecycle;
+mod protocol;
 pub(crate) use object_lifecycle::SupplyValidation;
 mod publish;
 mod view;
@@ -192,20 +193,28 @@ impl SessionNativeOutputs {
 /// answers defined once instead of re-derived as closures at every call site.
 struct ParamProbe<'s, 'r, 'l> {
     session: &'s Session<'r, 'l, KanariMoveResolver>,
+    type_args: &'s [RuntimeType],
 }
 
 impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
-    fn new(session: &'s Session<'r, 'l, KanariMoveResolver>) -> Self {
-        Self { session }
+    fn new(session: &'s Session<'r, 'l, KanariMoveResolver>, type_args: &'s [RuntimeType]) -> Self {
+        Self { session, type_args }
+    }
+
+    /// Resolve generic parameters in a loaded function signature using the
+    /// concrete type arguments passed to the function.
+    fn concrete_type_for_param(&self, param_type: &RuntimeType) -> Option<RuntimeType> {
+        param_type.subst(self.type_args).ok()
     }
 
     /// Type tag for a parameter, unwrapping a reference layer when the reference
     /// itself carries no tag.
     fn type_tag_for_param(&self, param_type: &RuntimeType) -> Option<TypeTag> {
+        let concrete_type = self.concrete_type_for_param(param_type)?;
         self.session
-            .get_type_tag(param_type)
+            .get_type_tag(&concrete_type)
             .ok()
-            .or_else(|| match param_type {
+            .or_else(|| match &concrete_type {
                 RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
                     self.session.get_type_tag(inner).ok()
                 }
@@ -213,14 +222,15 @@ impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
             })
     }
 
-    /// True when the parameter is a struct carrying the `key` ability.
+    /// True when the parameter type carries the `key` ability.
     fn is_key_struct_param(&self, param_type: &RuntimeType) -> bool {
-        MoveRuntime::is_runtime_struct_like(param_type)
-            && self
-                .session
-                .get_type_abilities(param_type)
-                .map(|abilities| abilities.has_key())
-                .unwrap_or(false)
+        let Some(concrete_type) = self.concrete_type_for_param(param_type) else {
+            return false;
+        };
+        self.session
+            .get_type_abilities(&concrete_type)
+            .map(|abilities| abilities.has_key())
+            .unwrap_or(false)
     }
 
     /// Declared-object binding requirements for a function signature, in
@@ -358,15 +368,13 @@ impl MoveRuntime {
             {
                 Some(true)
             }
+            // A generic `T: key` parameter can represent an owned object by
+            // value (for example `transfer<T>(obj: T, ...)`). Its runtime
+            // type remains a type parameter, so preserve the key constraint
+            // when identifying declared object inputs.
+            RuntimeType::TyParam(_) if is_key_struct(param_type) => Some(true),
             _ => None,
         }
-    }
-
-    fn is_runtime_struct_like(ty: &RuntimeType) -> bool {
-        matches!(
-            ty,
-            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
-        )
     }
 
     fn object_digest(data: &[u8]) -> String {

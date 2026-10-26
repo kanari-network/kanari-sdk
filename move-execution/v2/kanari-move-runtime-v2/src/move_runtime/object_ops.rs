@@ -63,19 +63,17 @@ impl super::MoveRuntime {
                 .as_ref()
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
-            let owner_kind = existing
-                .map(|existing| existing.owner_kind)
-                .unwrap_or_else(|| {
-                    if obj.is_frozen {
-                        kanari_types::transaction::ObjectOwnerKind::Immutable
-                    } else if obj.is_shared {
-                        kanari_types::transaction::ObjectOwnerKind::Shared
-                    } else {
-                        kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                            owner.to_hex_literal(),
-                        )
-                    }
-                });
+            // The native transfer event carries the new ownership mode. Keep
+            // the current mode only for reads/updates that do not transfer an
+            // existing object; retaining it on a transfer makes the Move call
+            // succeed while the object remains indexed under its old owner.
+            let owner_kind = if obj.is_frozen {
+                kanari_types::transaction::ObjectOwnerKind::Immutable
+            } else if obj.is_shared {
+                kanari_types::transaction::ObjectOwnerKind::Shared
+            } else {
+                kanari_types::transaction::ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+            };
 
             if persist_runtime_state {
                 let stored_obj = StoredObject {

@@ -4,6 +4,9 @@
 use std::{
     io,
     path::{Path, PathBuf},
+    pin::pin,
+    sync::Arc,
+    time::Duration,
 };
 
 use consensus::committer::Committer;
@@ -21,9 +24,9 @@ use replica::{
     builder::{ReplicaBuilder, StorageKind},
     config::{LoadGeneratorConfig, PrivateReplicaConfig, PublicReplicaConfig},
     replica::ReplicaHandle,
-    result::{RunKind, RunResult},
+    result::{MetricsSample, RunKind, RunResult},
 };
-use tokio::sync::mpsc;
+use tokio::{select, sync::mpsc};
 
 use crate::{
     config::{NetworkTopology, SimulationConfig},
@@ -33,6 +36,17 @@ use crate::{
     network::SimulatedNetwork,
     tracing::SimulatorTracing,
 };
+
+/// Upper bounds (s) of the simulated replicas' latency histograms: 10 ms steps up to 1 s, so
+/// percentiles stay precise wherever the link delays put them, then coarser out to 30 s. Real
+/// replicas keep the default, coarser buckets.
+fn latency_buckets() -> Vec<f64> {
+    let fine = (1..=100).map(|step| f64::from(step) / 100.0);
+    let tail = [
+        1.25, 1.5, 1.75, 2., 2.5, 3., 4., 5., 7.5, 10., 15., 20., 30.,
+    ];
+    fine.chain(tail).collect()
+}
 
 pub struct SimulationRunner {
     config: SimulationConfig,
@@ -67,8 +81,9 @@ impl SimulationRunner {
         SimulatorExecutor::run(rng, async move {
             let state = SimulationState::setup(config).await;
             state.apply_topology().await;
-            SimulatorContext::sleep(state.config.duration()).await;
-            state.collect_result().await
+            let samples = state.run_and_sample().await;
+            let result = state.collect_result().await?;
+            Ok(result.with_samples(samples))
         })
     }
 }
@@ -77,6 +92,8 @@ struct SimulationState {
     config: SimulationConfig,
     network: SimulatedNetwork,
     replicas: Vec<ReplicaHandle<SimulatorContext>>,
+    /// Each replica's live metrics, read by the in-run sampler.
+    metrics: Vec<Arc<Metrics>>,
     /// JoinHandles for any load generators we started, so they stay alive for the duration
     /// of the simulation.
     _load_generators: Vec<JoinHandle<()>>,
@@ -100,7 +117,7 @@ impl SimulatedNetwork {
     ) -> (Self, Vec<ReplicaHandle<SimulatorContext>>) {
         let public_config = PublicReplicaConfig::new_for_tests(commit_consumers.len());
         let latency = LatencyModel::default();
-        let (network, replicas, _) =
+        let (network, replicas, _, _) =
             SimulationState::build_replicas(public_config, latency, None, commit_consumers).await;
         network.connect_all().await;
         (network, replicas)
@@ -120,6 +137,7 @@ impl SimulationState {
         SimulatedNetwork,
         Vec<ReplicaHandle<SimulatorContext>>,
         Vec<JoinHandle<()>>,
+        Vec<Arc<Metrics>>,
     ) {
         let committee = public_config.committee();
         let committee_size = committee.len();
@@ -133,6 +151,8 @@ impl SimulationState {
 
         let mut replicas = Vec::with_capacity(committee_size);
         let mut load_generators = Vec::new();
+        let mut metrics_handles = Vec::with_capacity(committee_size);
+        let latency_buckets = latency_buckets();
         for (i, ((node_network, private_config), commit_consumer)) in networks
             .into_iter()
             .zip(private_configs)
@@ -140,7 +160,9 @@ impl SimulationState {
             .enumerate()
         {
             let authority = Authority::from(i);
-            let metrics = Metrics::new_for_test(committee_size);
+            let metrics =
+                Metrics::new_for_test_with_latency_buckets(committee_size, &latency_buckets);
+            metrics_handles.push(metrics.clone());
             let mut builder = ReplicaBuilder::new(authority, public_config.clone(), private_config)
                 .with_storage(StorageKind::Ephemeral)
                 .with_simulated_crypto()
@@ -159,21 +181,19 @@ impl SimulationState {
             }
             replicas.push(handle);
         }
-        (network, replicas, load_generators)
+        (network, replicas, load_generators, metrics_handles)
     }
 
     async fn setup(config: SimulationConfig) -> Self {
         let public_config = PublicReplicaConfig::new_for_tests(config.committee_size)
             .with_parameters(config.replica_parameters.clone());
-        let leader_count = config
+        let protocol = config
             .replica_parameters
             .consensus
             .to_protocol(&public_config.committee())
-            .expect("invalid consensus protocol")
-            .leader_count
-            .get();
+            .expect("invalid consensus protocol");
         let commit_consumers = vec![None; config.committee_size];
-        let (network, replicas, load_generators) = Self::build_replicas(
+        let (network, replicas, load_generators, metrics) = Self::build_replicas(
             public_config,
             config.latency.clone(),
             config.load_generator.clone(),
@@ -181,13 +201,59 @@ impl SimulationState {
         )
         .await;
         // Connections are only wired in `apply_topology`, so the shim sees every link.
-        let network = network.with_equivocating_leaders(&config.equivocating_leaders, leader_count);
+        let network = network
+            .with_equivocating_leaders(
+                &config.equivocating_leaders,
+                protocol.leader_count.get(),
+                protocol.leader_election,
+            )
+            .with_jitter(config.jitter);
 
         Self {
             config,
             network,
             replicas,
+            metrics,
             _load_generators: load_generators,
+        }
+    }
+
+    /// Run for the configured duration, snapshotting every replica's metrics every
+    /// `sample_interval_secs` and at the end, when it is set.
+    async fn run_and_sample(&self) -> Vec<MetricsSample> {
+        // Register the end-of-run timer first in both modes, so sampling never reorders it
+        // against replica events due at the same time.
+        let mut end = pin!(SimulatorContext::sleep(self.config.duration()));
+        let Some(interval) = self.config.sample_interval_secs else {
+            end.await;
+            return Vec::new();
+        };
+        let interval = Duration::from_secs(interval.get());
+        let mut samples = Vec::new();
+        let mut elapsed = Duration::ZERO;
+        loop {
+            // Biased: at a tie with the end of the run, take the final sample only once.
+            select! {
+                biased;
+                _ = &mut end => break,
+                _ = SimulatorContext::sleep(interval) => {
+                    elapsed += interval;
+                    samples.push(self.sample(elapsed));
+                }
+            }
+        }
+        samples.push(self.sample(self.config.duration()));
+        samples
+    }
+
+    fn sample(&self, time: Duration) -> MetricsSample {
+        MetricsSample {
+            time,
+            metrics: self
+                .metrics
+                .iter()
+                .map(|metrics| metrics.collect())
+                .collect(),
         }
     }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::gas_coin::GasModule;
+use crate::object::object_id_for_address;
 use kanari_crypto::hash_data_blake3;
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
@@ -152,7 +153,7 @@ impl Transaction {
                     if arg.len() == 32
                         && let Ok(addr) = AccountAddress::from_bytes(arg)
                     {
-                        keys.push(format!("object:{}", addr.to_hex_literal()));
+                        keys.push(format!("object:{}", object_id_for_address(&addr)));
                         continue;
                     }
 
@@ -172,7 +173,7 @@ impl Transaction {
 
                         // Use from_hex_literal to handle length and convert to Lowercase
                         if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                            keys.push(format!("object:{}", addr.to_hex_literal()));
+                            keys.push(format!("object:{}", object_id_for_address(&addr)));
                         }
                     }
                 }
@@ -303,14 +304,14 @@ impl Transaction {
                 // inputs are not ordered, so using the first input can select the
                 // wrong coin when callers include additional inputs.
                 let coin_object_id = AccountAddress::from_bytes(args.first()?.as_slice())
-                    .ok()?
-                    .to_hex_literal();
+                    .ok()
+                    .map(|addr| object_id_for_address(&addr))?;
                 // Keep the native fast path fail-closed: the ABI coin must be a
                 // mutable object input. Other shapes go through full Move execution.
                 if !object_inputs.iter().any(|input| {
                     input.mutable
                         && AccountAddress::from_hex_literal(&input.object_ref.object_id)
-                            .map(|address| address.to_hex_literal() == coin_object_id)
+                            .map(|address| object_id_for_address(&address) == coin_object_id)
                             .unwrap_or(false)
                 }) {
                     return None;

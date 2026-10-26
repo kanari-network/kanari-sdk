@@ -206,7 +206,7 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
 
     let mut cs = ChangeSet::new();
     cs.created_objects.push((
-        "0xcoin".to_string(),
+        "0x0000000000000000000000000000000000000000000000000000000000000c01".to_string(),
         CreatedObject {
             owner,
             owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
@@ -323,6 +323,9 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     let alice = generate_keypair(CurveType::Ed25519).unwrap();
     let bob = generate_keypair(CurveType::Ed25519).unwrap();
     let coin_id = "0xaaaa";
+    // The owned-object index stores the canonical full 64-hex spelling.
+    let coin_id_canonical =
+        kanari_types::object::canonical_object_id(coin_id).expect("fixture id is valid hex");
     let alice_gas = "0x1001";
     let bob_gas = "0x1002";
     fund_sender_with_coin(&engine, &alice.address, coin_id, 3_000_000);
@@ -406,8 +409,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
+    assert!(owned_ids(&engine, &bob.address).contains(&coin_id_canonical));
 
     // Leg 2: Bob -> Alice (full balance, back).
     let leg2_hash = submit_full_transfer(&engine, &bob, coin_id, bob_gas, &alice.address, 1);
@@ -424,15 +427,15 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
+    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id_canonical));
 }
 
 #[test]
 fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let owner = "0x1111";
-    let object_id = "0xcoin";
+    let object_id = "0x0000000000000000000000000000000000000000000000000000000000000c01";
     let starting_balance = 1_000_000u64;
     let burn_amount = 100_000u64;
     fund_sender_with_coin(&engine, owner, object_id, starting_balance);
@@ -546,7 +549,7 @@ fn backend_native_transfer_partial_split_indexes_output_coin() {
 }
 
 #[test]
-fn backend_native_transfer_rejects_gas_overlap_before_execution() {
+fn backend_native_transfer_allows_same_canonical_coin_for_gas_and_transfer() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
@@ -562,22 +565,17 @@ fn backend_native_transfer_rejects_gas_overlap_before_execution() {
         1_000_000,
         8,
     );
-    let changeset = engine.execute_transaction_with_runtime_internal(
-        &signed_tx.transaction,
-        &engine.runtime_pool[0],
-        &engine.state,
-        false,
-        Some(124),
-        false,
-    );
-
-    let error = changeset.unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("cannot overlap with a mutable object input"),
-        "{error:#}"
-    );
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &signed_tx.transaction,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            Some(124),
+            false,
+        )
+        .expect("native transfer may use the same canonical coin for gas");
+    assert!(changeset.success, "{:?}", changeset.error_message);
 }
 
 #[test]
@@ -898,11 +896,12 @@ proptest! {
 
     #[test]
     fn native_transfer_multihop_conserves_objects_and_supply(
-        // Floor at the minimum native gas charge (100 Mist): this property
-        // asserts every hop succeeds, and the harness always pays gas from
-        // the sender's smallest coin. Amounts below 100 would strand a dust
-        // fragment that later legitimately fails gas validation â€” that
-        // rejection path is covered by gas-specific tests, not here.
+        // Floor at the minimum native gas charge (100 Mist) so every hop
+        // moves a meaningful amount. Gas is paid from the smallest coin that
+        // can still cover the fixed 100 Mist charge: earlier hops strand
+        // zero/dust fragments (a received coin equal to the gas charge is
+        // fully drained by it), and offering such a coin as the gas object is
+        // a client error that gas-specific tests cover, not this property.
         hop_amounts in prop::collection::vec(100u64..200_000u64, 1..8),
     ) {
         // Coins ping-pong between three parties. After every hop:
@@ -955,10 +954,30 @@ proptest! {
                     .collect();
                 prop_assert!(coins.len() >= 2, "sender must keep >= 2 coins");
                 coins.sort_by_key(|(_, balance)| *balance);
-                // Smallest coin pays gas; largest coin is split. Distinct by construction.
-                let gas_id = coins[0].0.clone();
-                let (transfer_id, transfer_balance) = coins.last().cloned().unwrap();
-                prop_assert!(transfer_balance > 0, "transfer coin must be funded");
+                // GasOperation::Transfer costs 100 metering units, and a price
+                // of 1 floors to 1 Mist/unit, so every hop charges 100 Mist.
+                const MIN_TRANSFER_GAS_COST: u64 = 100;
+                // Smallest coin that can still cover the gas charge pays gas;
+                // largest spendable coin that is not the gas coin is split.
+                let gas_position = coins
+                    .iter()
+                    .position(|(_, balance)| *balance >= MIN_TRANSFER_GAS_COST);
+                prop_assert!(
+                    gas_position.is_some(),
+                    "sender must own a coin able to pay the {} Mist gas charge",
+                    MIN_TRANSFER_GAS_COST
+                );
+                let gas_position = gas_position.unwrap();
+                let gas_id = coins[gas_position].0.clone();
+                let transfer_position = (0..coins.len())
+                    .rev()
+                    .find(|&index| index != gas_position && coins[index].1 > 0);
+                prop_assert!(
+                    transfer_position.is_some(),
+                    "sender must own a spendable transfer coin"
+                );
+                let (transfer_id, transfer_balance) =
+                    coins[transfer_position.unwrap()].clone();
                 let coin_ref = state
                     .get_object(&transfer_id)
                     .unwrap()
@@ -2736,7 +2755,11 @@ fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
         Transaction::new_burn_with_gas(shared_sender.tagged_address(), 1, 2, 100_000, 1);
     if let Transaction::ExecuteFunction { object_inputs, .. } = &mut shared_transaction {
         object_inputs.push(ObjectInput {
-            object_ref: ObjectRef::new("0xshared", Some(1), Some(format!("0x{}", "11".repeat(32)))),
+            object_ref: ObjectRef::new(
+                "0x000000000000000000000000000000000000000000000000000000000000005f",
+                Some(1),
+                Some(format!("0x{}", "11".repeat(32))),
+            ),
             owner: Some(ObjectOwnerKind::Shared),
             mutable: true,
         });
@@ -3230,7 +3253,13 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin_type(&engine, &sponsor.address, "0xgas", 1_000_000, USD_COIN);
+    fund_sender_with_coin_type(
+        &engine,
+        &sponsor.address,
+        "0x00000000000000000000000000000000000000000000000000000000000000ab",
+        1_000_000,
+        USD_COIN,
+    );
 
     let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
     let sponsor_tagged = sponsor.tagged_address();
@@ -3254,13 +3283,17 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
             let stored = state.get_object(&caps[0].0).unwrap().unwrap();
             let digest =
                 |data: &[u8]| format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(data)));
-            let gas_stored = state.get_object("0xgas").unwrap().unwrap();
+            let gas_stored = state
+                .get_object("0x00000000000000000000000000000000000000000000000000000000000000ab")
+                .unwrap()
+                .unwrap();
             (
                 caps[0].0.clone(),
                 stored.version,
                 digest(&stored.data),
                 ObjectRef::new(
-                    "0xgas".to_string(),
+                    "0x00000000000000000000000000000000000000000000000000000000000000ab"
+                        .to_string(),
                     Some(gas_stored.version),
                     Some(digest(&gas_stored.data)),
                 ),
@@ -3450,14 +3483,16 @@ fn native_transfer_rejects_custom_gas_coin() {
 }
 
 #[test]
-fn move_transfer_rejects_gas_payment_overlap_with_transfer_coin() {
+fn move_transfer_allows_gas_payment_overlap_with_transfer_coin() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+    // The active v3.1 model requires enough balance for the maximum declared
+    // gas budget even though the actual transfer only sends one base unit.
+    fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 100_000_000);
 
     let tx = Transaction::new_transfer_with_object_ref(
         sender.tagged_address(),
-        native_coin_object_ref("0xaaaa", 1_000_000),
+        native_coin_object_ref("0xaaaa", 100_000_000),
         generate_keypair(CurveType::Ed25519).unwrap().address,
         1,
         0,
@@ -3467,13 +3502,10 @@ fn move_transfer_rejects_gas_payment_overlap_with_transfer_coin() {
         .sign(&sender.private_key, sender.curve_type)
         .unwrap();
 
-    assert!(
-        engine
-            .execute_transaction_immediate(signed_tx)
-            .unwrap_err()
-            .to_string()
-            .contains("cannot overlap with a mutable object input")
-    );
+    let (_, changeset) = engine
+        .execute_transaction_immediate(signed_tx)
+        .expect("native transfer may use its coin as gas payment when balance is sufficient");
+    assert!(changeset.success, "{:?}", changeset.error_message);
 }
 
 #[test]

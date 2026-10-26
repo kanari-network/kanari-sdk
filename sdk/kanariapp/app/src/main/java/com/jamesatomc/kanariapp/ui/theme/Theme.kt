@@ -87,25 +87,28 @@ private val KanariDarkScheme = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF0E1513),            // DarkSurface
+    // True-black OLED base: brand lime/lavender pop, battery-friendly panels.
+    background = Color(0xFF000000),            // pure black
     onBackground = Color(0xFFF7F4EB),          // Cream
-    surface = Color(0xFF0E1513),               // DarkSurface
+    surface = Color(0xFF000000),               // pure black
     onSurface = Color(0xFFF7F4EB),             // Cream
-    surfaceVariant = Color(0xFF3C4642),        // outlineVariant
-    onSurfaceVariant = Color(0xFFB8C0BC),
-    outline = Color(0xFF858E8A),
-    outlineVariant = Color(0xFF3C4642),
+    surfaceVariant = Color(0xFF222725),        // outlineVariant (on black)
+    onSurfaceVariant = Color(0xFFBFC7C2),
+    outline = Color(0xFF8A938E),
+    outlineVariant = Color(0xFF2A302D),
     scrim = Color(0xFF000000),
     inverseSurface = Color(0xFFF7F4EB),
     inversePrimary = Color(0xFF7868DA),
     surfaceTint = Color.Transparent,
-    surfaceDim = Color(0xFF09100E),
-    surfaceBright = Color(0xFF2B3531),
-    surfaceContainerLowest = Color(0xFF070C0B),
-    surfaceContainerLow = Color(0xFF121A17),
-    surfaceContainer = Color(0xFF1E2825),      // Lighter for better definition
-    surfaceContainerHigh = Color(0xFF28322F),
-    surfaceContainerHighest = Color(0xFF323C39)
+    surfaceDim = Color(0xFF000000),
+    surfaceBright = Color(0xFF2E3431),
+    // Container ladder lifts one step at a time off black so cards, sheets
+    // and dialogs stay distinguishable without a grey wash.
+    surfaceContainerLowest = Color(0xFF000000),
+    surfaceContainerLow = Color(0xFF0B0E0D),
+    surfaceContainer = Color(0xFF141817),
+    surfaceContainerHigh = Color(0xFF1E2422),
+    surfaceContainerHighest = Color(0xFF28302D)
 )
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM }

@@ -283,7 +283,10 @@ fn object_id_from_uid_ref(uid_ref: Reference) -> PartialVMResult<String> {
         PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
             .with_message("Failed to serialize UID".to_string())
     })?;
-    Ok(format!("0x{}", hex::encode(uid_bytes)))
+    kanari_types::object::object_id_from_address_bytes(&uid_bytes).ok_or_else(|| {
+        PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message("UID did not serialize to a 32-byte address".to_string())
+    })
 }
 
 fn type_layout(context: &mut NativeContext, ty: &Type) -> PartialVMResult<MoveTypeLayout> {

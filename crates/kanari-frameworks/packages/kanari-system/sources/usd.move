@@ -90,4 +90,29 @@ module kanari_system::usd {
     public fun units_per_usd(): u64 {
         UNITS_PER_USD
     }
+
+    #[test_only]
+    /// Mint `amount` USD (6-decimal base units) for a test in another package.
+    ///
+    /// The real `USD` witness is module-private — that is what makes USD's
+    /// currency identity unforgeable — so a package outside this one cannot call
+    /// `create_currency` itself. This is the same `#[test_only]` escape hatch
+    /// `package.move` and `kanari_pet` use, and it disappears from the release
+    /// build entirely.
+    public fun mint_for_test(amount: u64, ctx: &mut TxContext): Coin<USD> {
+        let (treasury, metadata) =
+            coin::create_currency(
+                USD {},
+                6,
+                b"USD",
+                b"Kanari USD Stablecoin",
+                b"minted for tests",
+                option::none(),
+                ctx
+            );
+        let minted = coin::mint<USD>(&mut treasury, amount, ctx);
+        transfer::public_freeze_object(treasury);
+        transfer::public_freeze_object(metadata);
+        minted
+    }
 }

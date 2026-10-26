@@ -1,7 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroUsize, ops::Range, path::PathBuf};
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    ops::Range,
+    path::PathBuf,
+};
 
 use consensus::protocol::ConsensusProtocol;
 use dag::authority::Authority;
@@ -12,8 +16,8 @@ use indoc::indoc;
 use replica::config::ReplicaParameters;
 use replica::result::Outcome;
 use simulator::{
-    Geography, LatencyModel, NetworkTopology, SimulatedNetwork, SimulationConfig, SimulationMode,
-    SimulationRunner, UniformLatency,
+    ExponentialJitter, Geography, LatencyModel, NetworkTopology, SimulatedNetwork,
+    SimulationConfig, SimulationMode, SimulationRunner, UniformLatency,
 };
 
 #[test]
@@ -61,6 +65,10 @@ fn config_yaml_round_trip() {
         duration_secs: 30,
         rng_seed: 42,
         equivocating_leaders: vec![2, 5],
+        jitter: Some(ExponentialJitter {
+            mean_ms: 75,
+            cap_ms: 400,
+        }),
         ..Default::default()
     };
 
@@ -73,6 +81,88 @@ fn config_yaml_round_trip() {
     assert_eq!(restored.rng_seed, 42);
     assert!(matches!(restored.topology, NetworkTopology::Star(0)));
     assert_eq!(restored.equivocating_leaders, vec![2, 5]);
+    assert_eq!(restored.jitter, config.jitter);
+}
+
+#[test]
+fn sampling_snapshots_without_changing_the_run() {
+    let run = |sample_interval_secs| {
+        let config = SimulationConfig {
+            sample_interval_secs,
+            ..Default::default()
+        };
+        SimulationRunner::new(config).run().unwrap()
+    };
+    let unsampled = run(None);
+    assert!(unsampled.samples.is_empty());
+    let unsampled = &unsampled.storages[0];
+    assert!(unsampled.iter_commits().count() > 0);
+
+    // A 20 s run: 5 s divides it, so the last interval ties with the end of the run.
+    for interval in [1, 5, 7] {
+        let sampled = run(NonZeroU64::new(interval));
+        let times: Vec<_> = sampled
+            .samples
+            .iter()
+            .map(|sample| sample.time.as_secs())
+            .collect();
+        let mut expected: Vec<_> = (interval..20).step_by(interval as usize).collect();
+        expected.push(20);
+        assert_eq!(times, expected);
+        assert!(
+            sampled
+                .samples
+                .iter()
+                .all(|sample| sample.metrics.len() == 10)
+        );
+
+        // Same commits: equal counts, and the two streams agree on their shared prefix.
+        let sampled = &sampled.storages[0];
+        assert_eq!(
+            sampled.iter_commits().count(),
+            unsampled.iter_commits().count(),
+            "interval {interval}"
+        );
+        let streams = [sampled.iter_commits(), unsampled.iter_commits()];
+        assert_eq!(Outcome::from(streams.into_iter()), Outcome::Pass);
+    }
+}
+
+#[test]
+fn latency_histograms_have_10ms_buckets() {
+    let result = SimulationRunner::new(SimulationConfig::default())
+        .run()
+        .unwrap();
+    let text = result.metrics[0].to_prometheus_text();
+    for bound in ["0.01", "0.29", "1", "30"] {
+        assert!(
+            text.contains(&format!("latency_s_bucket{{le=\"{bound}\"}}")),
+            "missing bucket {bound}"
+        );
+    }
+}
+
+#[test]
+fn jitter_slows_commits() {
+    let committed_leaders = |jitter| {
+        let config = SimulationConfig {
+            jitter,
+            ..Default::default()
+        };
+        let result = SimulationRunner::new(config).run().unwrap();
+        assert_eq!(result.outcome, Outcome::Pass);
+        result
+            .metrics
+            .iter()
+            .map(MetricsSnapshot::total_committed_leaders)
+            .max()
+            .unwrap()
+    };
+    let jitter = ExponentialJitter {
+        mean_ms: 75,
+        cap_ms: 400,
+    };
+    assert!(committed_leaders(Some(jitter)) < committed_leaders(None));
 }
 
 #[test]

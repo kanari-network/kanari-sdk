@@ -1,11 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::balance {
-    // Minting entry points (`create`, `increase`, `new_supply`) are
-    // friend-gated to `coin` (or witness-gated for `new_supply`): an
-    // ungated public mint would let any package forge `Balance<T>` of any
-    // coin and wrap it via `coin::from_balance`, bypassing `TreasuryCap`.
-    /* friend kanari_system::coin; */
+    // Minting/destroying entry points are friend-gated to `coin` (or
+    // witness-gated for `new_supply`): an ungated public mint would let any
+    // package forge `Balance<T>` of any coin and wrap it via
+    // `coin::from_balance`, bypassing `TreasuryCap`; an ungated public
+    // destroy would let value leave the supply ledger without the paired
+    // burn bookkeeping that `coin::burn`/`balance::burn` perform.
+    friend kanari_system::coin;
 
     /// Error codes
     const ERR_INSUFFICIENT_BALANCE: u64 = 1;
@@ -33,7 +35,7 @@ module kanari_system::balance {
     /// Create a new Balance with an initial value.
     /// Friend-only: arbitrary public minting would forge value. `coin::mint`
     /// is the production path (backed by `TreasuryCap`).
-    public fun create<T>(value: u64): Balance<T> {
+    public(friend) fun create<T>(value: u64): Balance<T> {
         Balance<T> { value }
     }
 
@@ -42,9 +44,9 @@ module kanari_system::balance {
         balance.value
     }
 
-    /// Increase the balance value.
-    /// Friend-only: see `create`. Value-conserving callers use `merge`.
-    public fun increase<T>(balance: &mut Balance<T>, amount: u64) {
+    /// Friend-only for the same reason as `create`: only the `coin` module
+    /// may conjure value. Value-conserving callers use `merge`.
+    public(friend) fun increase<T>(balance: &mut Balance<T>, amount: u64) {
         assert!(amount > 0, ERR_ZERO_AMOUNT); // FIXED: Added zero check
         // Pre-check: `+` traps as an arithmetic error before the assert below runs.
         assert!(
@@ -55,8 +57,10 @@ module kanari_system::balance {
         balance.value = new_value;
     }
 
-    /// Decrease the balance value
-    public fun decrease<T>(balance: &mut Balance<T>, amount: u64) {
+    /// Friend-only: an unpaired public `decrease` would let callers shave
+    /// value out of the ledger without the paired supply bookkeeping. The
+    /// paired burn path is `burn` (below).
+    public(friend) fun decrease<T>(balance: &mut Balance<T>, amount: u64) {
         assert!(amount > 0, ERR_ZERO_AMOUNT);
         assert!(balance.value >= amount, ERR_INSUFFICIENT_BALANCE);
         balance.value = balance.value - amount;
@@ -78,9 +82,33 @@ module kanari_system::balance {
         balance.value >= amount
     }
 
-    /// Destroy the Balance and return its value
-    public fun destroy<T>(balance: Balance<T>): u64 {
+    /// Destroy the Balance and return its value.
+    /// Friend-only: a public destroy of a non-zero balance removes value
+    /// with no paired supply decrement — supply accounting drifts. The
+    /// paired production path is `burn` (below); frameworks' `coin::burn`
+    /// pairs it with its own `TreasuryCap` total. Use `destroy_zero` for
+    /// valueless balances.
+    public(friend) fun destroy<T>(balance: Balance<T>): u64 {
         let Balance { value } = balance;
+        value
+    }
+
+    /// Destroy a valueless `Balance<T>`. Public and safe: nothing leaves
+    /// the ledger.
+    public fun destroy_zero<T>(balance: Balance<T>) {
+        assert!(value<T>(&balance) == 0, ERR_INSUFFICIENT_BALANCE);
+        destroy<T>(balance);
+    }
+
+    /// The only public way to destroy a non-zero balance: the destroyed
+    /// value is paired with a supply decrement on the `Supply<T>` handle,
+    /// so the ledger stays conserved. The handle is the caller's burn
+    /// authority — only whoever owns it may burn this coin type.
+    public fun burn<T>(supply: &mut Supply<T>, balance: Balance<T>): u64 {
+        let value = destroy<T>(balance);
+        if (value > 0) {
+            decrease_supply<T>(supply, value);
+        };
         value
     }
 
@@ -119,6 +147,15 @@ module kanari_system::balance {
     #[test_only]
     public fun destroy_supply_for_testing<T>(s: Supply<T>) {
         let Supply { total: _ } = s;
+    }
+
+    #[test_only]
+    /// Test-only unpaired destroy: a friend-gated `destroy` cannot be
+    /// called from other modules' `#[test_only]` blocks even under test
+    /// compilation, so tests get a self-describing faucet for the same
+    /// escape hatch.
+    public fun destroy_for_testing<T>(balance: Balance<T>): u64 {
+        destroy<T>(balance)
     }
 
     /// Decrease supply by `amount`. Useful for burning coins.
