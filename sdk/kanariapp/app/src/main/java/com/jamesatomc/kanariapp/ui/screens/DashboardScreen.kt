@@ -188,9 +188,21 @@ fun DashboardScreen(
             }
 
             val banners = listOf(
-                Triple("⚡ Kanari Network", "Secure Web3 & ZkLogin Powered", "Manage assets, multi-curve wallets & NFTs securely."),
-                Triple("🛡️ Multi-Curve & Post-Quantum", "Advanced Cryptography", "Built-in Dilithium, Falcon & Ed25519 wallet support."),
-                Triple("💎 NFTs & Assets", "Instant Transfers & BCS Parsing", "Explore, view and transfer your collectibles effortlessly.")
+                Triple(
+                    "⚡ Kanari Network",
+                    "Secure Web3 & ZkLogin Powered",
+                    "Manage assets, multi-curve wallets & NFTs securely."
+                ),
+                Triple(
+                    "🛡️ Multi-Curve & Post-Quantum",
+                    "Advanced Cryptography",
+                    "Built-in Dilithium, Falcon & Ed25519 wallet support."
+                ),
+                Triple(
+                    "💎 NFTs & Assets",
+                    "Instant Transfers & BCS Parsing",
+                    "Explore, view and transfer your collectibles effortlessly."
+                )
             )
             val bannerImages = listOf(
                 "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=1000&auto=format&fit=crop",
@@ -291,7 +303,10 @@ fun DashboardScreen(
                     modifier = Modifier.padding(top = 8.dp),
                     trailing = {
                         TextButton(onClick = { showAllObjectsDialog = true }) {
-                            Text("All >", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            Text(
+                                "All >",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
                         }
                     }
                 )

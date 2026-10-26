@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- True-black OLED window: no grey flash on cold start, edge-to-edge. -->
+    <style name="Theme.KanariApp" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/kanari_black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

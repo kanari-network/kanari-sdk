@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
+import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.components.validateAddress
@@ -136,6 +137,12 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
+        // Re-entering Home/History should show the latest chain state — a send
+        // may settle after the post-send polling window has already closed.
+        LaunchedEffect(selectedItem) {
+            if (selectedItem == 0 || selectedItem == 1) viewModel.refreshBalance()
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -184,6 +191,9 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
+    // Armed send: (recipient, amount in mist, token type) waiting on the
+    // 10-second countdown dialog before anything touches the network.
+    var pendingSend by remember { mutableStateOf<Triple<String, ULong, String>?>(null) }
     var selectedToken by remember {
         mutableStateOf(tokenBalances.find { it.symbol == "KANARI" } ?: tokenBalances.firstOrNull())
     }
@@ -248,7 +258,17 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             value = recipient,
             onValueChange = { recipient = it; error = null },
             wallets = wallets,
-            label = "Recipient Address"
+            label = "Recipient Address",
+            // Payment QR (`kanari:pay?…`) also pre-fills amount and token so
+            // the sender just presses Send on the reviewed numbers.
+            onPaymentScanned = { payment ->
+                payment.amount?.let { amount = it }
+                payment.token?.let { symbol ->
+                    tokenBalances
+                        .find { it.symbol.equals(symbol, ignoreCase = true) }
+                        ?.let { selectedToken = it }
+                }
+            },
         )
 
         OutlinedTextField(
@@ -280,17 +300,32 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 if (adderError != null) {
                     error = adderError; return@LoadingButton
                 }
-                scope.launch {
-                    isLoading = true; error = null
-                    if (viewModel.transfer(recipient.trim(), amt, tokenType)) onBack()
-                    else error = viewModel.error.value ?: "Transaction failed"
-                    isLoading = false
-                }
+                // Validation passed — arm the countdown; the real send runs
+                // from SendCountdownDialog's onConfirmed below.
+                pendingSend = Triple(recipient.trim(), amt, tokenType)
             },
             text = "Send",
             enabled = recipient.isNotEmpty() && amount.isNotEmpty() && selectedToken != null,
             isLoading = isLoading,
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    pendingSend?.let { (to, mist, type) ->
+        SendCountdownDialog(
+            title = "Confirm send",
+            detail = "Sending $amount ${selectedToken?.symbol ?: ""} to " +
+                    "${to.take(12)}\u2026${to.takeLast(6)}",
+            onCancel = { pendingSend = null },
+            onConfirmed = {
+                pendingSend = null
+                scope.launch {
+                    isLoading = true; error = null
+                    if (viewModel.transfer(to, mist, type)) onBack()
+                    else error = viewModel.error.value ?: "Transaction failed"
+                    isLoading = false
+                }
+            },
         )
     }
 }

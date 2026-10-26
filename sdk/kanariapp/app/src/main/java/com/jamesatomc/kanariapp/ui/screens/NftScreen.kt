@@ -47,6 +47,7 @@ import coil3.compose.AsyncImage
 import com.jamesatomc.kanariapp.network.models.OwnedNft
 import com.jamesatomc.kanariapp.ui.components.ErrorBanner
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
+import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
 import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
@@ -75,6 +76,9 @@ fun NftScreen(
     var recipientInput by remember { mutableStateOf("") }
     var isSending by remember { mutableStateOf(false) }
     var sendStatus by remember { mutableStateOf<String?>(null) }
+    // Armed NFT send: (recipient, nft) waiting on the 10-second countdown
+    // dialog before anything touches the network.
+    var pendingNftSend by remember { mutableStateOf<Pair<String, OwnedNft>?>(null) }
     var walletMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -340,20 +344,9 @@ fun NftScreen(
                         if (recipient.isBlank() || !recipient.startsWith("0x")) {
                             sendStatus = "Enter a valid 0x address"
                         } else {
-                            val target: OwnedNft = nft
-                            isSending = true
-                            sendStatus = null
-                            scope.launch {
-                                if (viewModel.sendNft(recipient, target.objectId)) {
-                                    sendStatus = "Sent! The NFT is on its way."
-                                    isSending = false
-                                    sendingNft = null
-                                    recipientInput = ""
-                                } else {
-                                    sendStatus = viewModel.error.value ?: "Transfer failed"
-                                    isSending = false
-                                }
-                            }
+                            // Validation passed — arm the countdown; the real
+                            // send runs from SendCountdownDialog's onConfirmed.
+                            pendingNftSend = recipient to nft
                         }
                     },
                     text = "Send",
@@ -369,6 +362,31 @@ fun NftScreen(
             dismissButton = {
                 TextButton(onClick = { if (!isSending) sendingNft = null }) { Text("Cancel") }
             }
+        )
+    }
+
+    pendingNftSend?.let { (to, target) ->
+        SendCountdownDialog(
+            title = "Confirm NFT send",
+            detail = "Sending \"${target.displayName}\" to " +
+                    "${to.take(12)}\u2026${to.takeLast(6)}",
+            onCancel = { pendingNftSend = null },
+            onConfirmed = {
+                pendingNftSend = null
+                isSending = true
+                sendStatus = null
+                scope.launch {
+                    if (viewModel.sendNft(to, target.objectId)) {
+                        sendStatus = "Sent! The NFT is on its way."
+                        isSending = false
+                        sendingNft = null
+                        recipientInput = ""
+                    } else {
+                        sendStatus = viewModel.error.value ?: "Transfer failed"
+                        isSending = false
+                    }
+                }
+            },
         )
     }
 }

@@ -1480,3 +1480,38 @@ fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
         make(&canonical_object_id(&canonical).unwrap()).hash()
     );
 }
+
+/// Regression: an NFT moved with the framework entry
+/// `0x2::transfer::transfer<T>(obj, recipient)` never appeared in the
+/// recipient's history because the owner match only understood native KANARI
+/// recipients and coin transfers. The recipient now resolves from args[1].
+#[test]
+fn framework_object_transfer_is_visible_to_the_recipient() {
+    let recipient = move_core_types::account_address::AccountAddress::from_hex_literal(
+        "0x0139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d",
+    )
+    .unwrap();
+    let tx = Transaction::ExecuteFunction {
+        sender: "0x1".to_string(),
+        module: kanari_types::transfer::TransferModule::module_path(),
+        function: kanari_types::transfer::TransferModule::ENTRY_TRANSFER.to_string(),
+        type_args: vec!["0x2::krc_721::Nft".to_string()],
+        // args[0] is the empty object slot; the recipient is the second arg.
+        args: vec![vec![], recipient.to_vec()],
+        object_inputs: vec![],
+        gas_payment: None,
+        gas_limit: 100_000,
+        gas_price: 1,
+        nonce: 1,
+    };
+    let owner_norm = hex::encode(recipient.as_ref());
+    assert!(
+        tx_matches_owner(&tx, Some(&owner_norm)),
+        "recipient must match framework object transfers"
+    );
+    let unrelated = format!("0{}", "0".repeat(62) + "2");
+    assert!(
+        !tx_matches_owner(&tx, Some(&unrelated)),
+        "unrelated owners must not match the transfer"
+    );
+}

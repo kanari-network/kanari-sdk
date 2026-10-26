@@ -15,6 +15,7 @@ import com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,6 +163,23 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             }
             if (requestGeneration == balanceRefreshGeneration) {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Refresh after a successful send. The submit RPC returns while the
+     * transaction is still pending, so one immediate refresh reads pre-send
+     * numbers and the wallet screen looks stale until something else
+     * re-queries. Poll a few times so balances, history and NFT lists settle
+     * on-chain without the user having to switch screens.
+     */
+    fun refreshBalanceAfterSend() {
+        viewModelScope.launch {
+            refreshBalance()
+            repeat(5) {
+                delay(2_000L)
+                refreshBalance()
             }
         }
     }
@@ -373,7 +391,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             if (isSuccess) {
                 _error.value = null
-                refreshBalance()
+                refreshBalanceAfterSend()
                 true
             } else {
                 val msg = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
@@ -427,7 +445,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
                     if (!sameAccountAddress(wallet.address, record.address)) {
                         _error.value =
-                            "This wallet's saved key does not match its address. Re-import the private key or recovery phrase for ${record.address.take(14)}… before sending this NFT."
+                            "This wallet's saved key does not match its address. Re-import the private key or recovery phrase for ${
+                                record.address.take(
+                                    14
+                                )
+                            }… before sending this NFT."
                         return false
                     }
                     client.transferNft(wallet, recipient, objectId)
@@ -441,7 +463,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             if (isSuccess) {
                 _error.value = null
-                refreshBalance()
+                refreshBalanceAfterSend()
                 true
             } else {
                 val msg = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"

@@ -19,6 +19,27 @@ pub(crate) fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bo
         }
     }
 
+    // Framework object transfer (`0x2::transfer::transfer<T>(obj, recipient)`)
+    // — the path every NFT transfer takes. The recipient lives in args[1] as a
+    // raw BCS address and the object itself is an input (not an arg), so
+    // without this branch the move never appears in the recipient's history:
+    // coin enrichment skips non-coin types and the sender-only fallback below
+    // only ever matches the sender.
+    if let Transaction::ExecuteFunction {
+        module,
+        function,
+        args,
+        ..
+    } = tx
+        && module == &TransferModule::module_path()
+        && function == TransferModule::ENTRY_TRANSFER
+        && args.len() >= 2
+        && let Ok(recipient) = AccountAddress::from_bytes(&args[1])
+        && normalize_addr(&recipient.to_hex_literal()) == owner
+    {
+        return true;
+    }
+
     normalize_addr(tx.sender()) == owner
 }
 
