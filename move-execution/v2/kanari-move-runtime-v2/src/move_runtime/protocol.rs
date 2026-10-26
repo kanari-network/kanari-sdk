@@ -189,7 +189,9 @@ impl MoveRuntime {
             if arg.len() != AccountAddress::LENGTH {
                 continue;
             }
-            let object_id = format!("0x{}", hex::encode(arg));
+            let Some(object_id) = kanari_types::object::object_id_from_address_bytes(arg) else {
+                continue;
+            };
             if let Some(stored) = self.get_object_for_execution(&object_id, overlay)?
                 && let Some(collection) =
                     Self::krc721_collection_candidate(&stored.type_name, &stored.data)?
@@ -306,7 +308,9 @@ impl MoveRuntime {
             if arg.len() != AccountAddress::LENGTH {
                 continue;
             }
-            let object_id = format!("0x{}", hex::encode(arg));
+            let Some(object_id) = kanari_types::object::object_id_from_address_bytes(arg) else {
+                continue;
+            };
             if let Some(stored) = self.get_object_for_execution(&object_id, overlay)?
                 && let Some(inner) = CoinModule::inner_type(&stored.type_name)
             {

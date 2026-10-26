@@ -360,7 +360,7 @@ impl MoveRuntime {
         };
         let mut changeset = ChangeSet::new();
         changeset.created_objects.push((
-            addr.to_hex_literal(),
+            crate::common::ids::object_id_for_address(&addr),
             crate::changeset::CreatedObject {
                 owner: AccountAddress::ZERO,
                 owner_kind: kanari_types::transaction::ObjectOwnerKind::Shared,
@@ -388,7 +388,7 @@ impl MoveRuntime {
     pub fn ensure_deny_list(&self, state: &mut StateManager) -> Result<AccountAddress> {
         let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
             .context("invalid deny-list well-known object id")?;
-        let deny_id_hex = deny_addr.to_hex_literal();
+        let deny_id_hex = crate::common::ids::object_id_for_address(&deny_addr);
         if state.get_object(&deny_id_hex)?.is_some() {
             return Ok(deny_addr);
         }
@@ -435,7 +435,7 @@ impl MoveRuntime {
     pub fn ensure_deny_list_singleton(&self) -> Result<()> {
         let deny_addr = kanari_types::deny_list::DenyListModule::deny_list_object_id()
             .context("invalid deny-list well-known object id")?;
-        let deny_id_hex = deny_addr.to_hex_literal();
+        let deny_id_hex = crate::common::ids::object_id_for_address(&deny_addr);
         if self.object_storage.get_object(&deny_id_hex)?.is_some() {
             return Ok(());
         }
@@ -473,7 +473,7 @@ impl MoveRuntime {
         clock_id: AccountAddress,
         timestamp_ms: u64,
     ) -> Result<ChangeSet> {
-        let object_id = clock_id.to_hex_literal();
+        let object_id = crate::common::ids::object_id_for_address(&clock_id);
         let existing = state
             .get_object(&object_id)?
             .with_context(|| format!("System clock object {object_id} not found"))?;

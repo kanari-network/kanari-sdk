@@ -141,7 +141,7 @@ impl MoveRuntime {
         let explicit_object_ids: HashSet<String> = object_inputs
             .iter()
             .map(|input| {
-                crate::common::ids::canonical_object_id_or_raw(&input.object_ref.object_id)
+                crate::common::ids::canonical_object_id_invariant(&input.object_ref.object_id)
             })
             .collect();
         let mut used_explicit_object_bindings = HashSet::new();
@@ -162,7 +162,10 @@ impl MoveRuntime {
             final_args
                 .iter()
                 .filter(|arg| arg.len() == AccountAddress::LENGTH)
-                .map(|arg| format!("object:0x{}", hex::encode(arg)).into_bytes()),
+                .filter_map(|arg| {
+                    kanari_types::object::object_id_from_address_bytes(arg)
+                        .map(|id| format!("object:{id}").into_bytes())
+                }),
         );
         self.preload_object_ids_from_args(
             &mut session,
@@ -298,11 +301,12 @@ impl MoveRuntime {
                     else {
                         continue;
                     };
-                    let object_id = object_addr.to_hex_literal();
+                    let object_id = crate::common::ids::object_id_for_address(&object_addr);
                     if !bound_from_explicit_input
                         && !explicit_object_ids.is_empty()
-                        && !explicit_object_ids
-                            .contains(&crate::common::ids::canonical_object_id_or_raw(&object_id))
+                        && !explicit_object_ids.contains(
+                            &crate::common::ids::canonical_object_id_invariant(&object_id),
+                        )
                     {
                         continue;
                     }
@@ -334,7 +338,7 @@ impl MoveRuntime {
                         // function.
                         let declared_explicitly = bound_from_explicit_input
                             || explicit_object_ids.contains(
-                                &crate::common::ids::canonical_object_id_or_raw(&object_id),
+                                &crate::common::ids::canonical_object_id_invariant(&object_id),
                             );
                         if !declared_explicitly && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();

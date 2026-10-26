@@ -261,7 +261,7 @@ fn native_borrow_global(
 
     // Arguments: address (as AccountAddress directly from Move VM)
     let object_addr = pop_arg!(arguments, AccountAddress);
-    let object_id = format!("0x{}", hex::encode(object_addr.as_ref()));
+    let object_id = kanari_types::object::object_id_for_address(&object_addr);
 
     // Load object from storage via context's extension
     let loaded_data =
@@ -333,7 +333,7 @@ fn native_borrow_global_mut(
 
     // Arguments: address (as AccountAddress directly from Move VM)
     let object_addr = pop_arg!(arguments, AccountAddress);
-    let object_id = format!("0x{}", hex::encode(object_addr.as_ref()));
+    let object_id = kanari_types::object::object_id_for_address(&object_addr);
 
     // Load object from storage via context's extension
     let loaded_data =
@@ -423,8 +423,11 @@ fn native_delete_object(
         PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
             .with_message("Failed to serialize UID".to_string())
     })?;
-
-    let object_id = format!("0x{}", hex::encode(&uid_bytes));
+    let object_id =
+        kanari_types::object::object_id_from_address_bytes(&uid_bytes).ok_or_else(|| {
+            PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
+                .with_message("UID did not serialize to a 32-byte address".to_string())
+        })?;
 
     // Record the deleted object
     crate::native_ext::with_ext_mut_or_default::<DeletedObjectsExt, _>(context, |ext| {
@@ -468,8 +471,7 @@ fn native_save_object(
 
     // Extract ID (first 32 bytes)
     let object_id_hex = if obj_data.len() >= 32 {
-        let uid_bytes = &obj_data[0..32];
-        format!("0x{}", hex::encode(uid_bytes))
+        kanari_types::object::object_id_from_address_bytes(&obj_data[0..32]).unwrap_or_default()
     } else {
         String::new()
     };

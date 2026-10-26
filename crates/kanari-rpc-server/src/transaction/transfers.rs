@@ -31,13 +31,11 @@ pub(crate) fn token_transfer_details(
         return None;
     }
 
-    let coin_object_id = AccountAddress::from_bytes(args.first()?.as_slice())
-        .ok()?
-        .to_hex_literal();
+    let coin_object_id =
+        object_id_for_address(&AccountAddress::from_bytes(args.first()?.as_slice()).ok()?);
     let amount = bcs::from_bytes::<u64>(args.get(1)?).ok()?;
-    let recipient = AccountAddress::from_bytes(args.get(2)?.as_slice())
-        .ok()?
-        .to_hex_literal();
+    let recipient =
+        object_id_for_address(&AccountAddress::from_bytes(args.get(2)?.as_slice()).ok()?);
 
     // 1. Prefer explicit type args when present.
     if let Some(first) = type_args.first()

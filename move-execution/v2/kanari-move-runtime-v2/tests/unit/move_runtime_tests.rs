@@ -576,7 +576,7 @@ fn deny_policy_rejects_corrupt_singleton() -> Result<()> {
     let coin_type = format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN);
     let _ = coin_type; // type checked above
     runtime.object_storage.store_object(StoredObject {
-        id: deny_addr.to_hex_literal(),
+        id: kanari_types::object::object_id_for_address(&deny_addr),
         owner: AccountAddress::ZERO,
         owner_kind: ObjectOwnerKind::Shared,
         type_name: kanari_types::deny_list::DenyListModule::type_path(),
@@ -735,7 +735,7 @@ fn seed_deny_singleton(runtime: &MoveRuntime) -> Result<()> {
     data.extend_from_slice(&bag_addr_bytes);
     data.extend_from_slice(&0u64.to_le_bytes());
     runtime.object_storage.store_object(StoredObject {
-        id: deny_addr.to_hex_literal(),
+        id: kanari_types::object::object_id_for_address(&deny_addr),
         owner: AccountAddress::ZERO,
         owner_kind: ObjectOwnerKind::Shared,
         type_name: kanari_types::deny_list::DenyListModule::type_path(),

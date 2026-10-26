@@ -81,7 +81,6 @@ pub(crate) fn build_object_input(
                     sender
                 );
             }
-            
         }
         ObjectOwnerKind::Shared | ObjectOwnerKind::Immutable => (),
     }
@@ -125,7 +124,9 @@ pub(crate) fn infer_object_inputs(
         if arg.len() != 32 {
             continue;
         }
-        let object_id = format!("0x{}", hex::encode(arg));
+        let Some(object_id) = object_id_from_address_bytes(arg) else {
+            continue;
+        };
         if !seen.insert(object_id.clone()) {
             continue;
         }
@@ -175,7 +176,9 @@ pub(crate) fn infer_view_object_inputs(
                 arg.len()
             );
         }
-        let object_id = format!("0x{}", hex::encode(arg));
+        let object_id = object_id_from_address_bytes(arg).ok_or_else(|| {
+            anyhow::anyhow!("view function object parameter {index} is not a valid address")
+        })?;
         if !seen.insert(object_id.clone()) {
             anyhow::bail!(
                 "view function reuses object input {object_id}; pass it once in the function signature instead"

@@ -1443,17 +1443,20 @@ fn auto_gas_fails_when_no_coin_covers_max_cost() {
 #[test]
 fn canonical_object_id_pads_short_spellings() {
     assert_eq!(
-        canonical_object_id("0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d"),
+        canonical_object_id("0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d")
+            .unwrap(),
         "0x0139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d"
     );
     let canonical = "0x9460dce8d1feeb593d1593b8b28246cd4bb1a7d24c8108faeff5c51fe4f4e127";
-    assert_eq!(canonical_object_id(canonical), canonical);
-    assert_eq!(canonical_object_id("not-hex"), "not-hex");
+    assert_eq!(canonical_object_id(canonical).unwrap(), canonical);
+    // Strict: an id that is not a valid address names nothing.
+    assert!(canonical_object_id("not-hex").is_none());
 }
 
 #[test]
 fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
     let short = "0x139b412b277799f0fb3e20dbd435bdaefd009535f2b1f1d44ddefd2e41c8c9d";
+    let canonical = canonical_object_id(short).unwrap();
     let make = |id: &str| {
         Transaction::new_transfer_with_object_ref_and_gas(
             "0x1".to_string(),
@@ -1469,12 +1472,11 @@ fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
             1,
         )
     };
-    // The verbatim spelling really does change the hash (why both sides must
-    // normalize), while build-side and padded-wallet-side canonicalization
-    // converge on the same transaction hash.
-    assert_ne!(make(short).hash(), make(&canonical_object_id(short)).hash());
+    // The verbatim spelling really does change the hash (why the build side
+    // hands out canonical ids), and canonicalization is idempotent.
+    assert_ne!(make(short).hash(), make(&canonical).hash());
     assert_eq!(
-        make(&canonical_object_id(short)).hash(),
-        make(&canonical_object_id(&canonical_object_id(short))).hash()
+        make(&canonical).hash(),
+        make(&canonical_object_id(&canonical).unwrap()).hash()
     );
 }

@@ -83,11 +83,14 @@ pub async fn handle_build_native_transfer(
     };
     // Normalize id spellings so the hash the client signs is computed from
     // the same strings the client submits back (see `canonical_object_id`).
+    // Owned-object ids are valid hex by construction (storage index).
     let mut coin_object_ref = coin_object_ref;
-    coin_object_ref.object_id = canonical_object_id(&coin_object_ref.object_id);
+    coin_object_ref.object_id = canonical_object_id(&coin_object_ref.object_id)
+        .expect("owned object ids are valid hex object addresses");
     let mut gas_payment = gas_payment;
     for payment in &mut gas_payment.payment_objects {
-        payment.object_id = canonical_object_id(&payment.object_id);
+        payment.object_id =
+            canonical_object_id(&payment.object_id).expect("owned object ids are valid hex");
     }
     let mut canonical_tx = Transaction::new_transfer_with_object_ref_and_gas(
         build_data.sender.clone(),

@@ -30,12 +30,13 @@ impl StateManager {
         Ok(true)
     }
 
-    /// Canonical owned-object id used as the index key: the normalized hex
-    /// form when `object_id` parses, otherwise the input unchanged.
+    /// Canonical owned-object id used as the index key.
     pub(crate) fn canonical_owned_object_id(object_id: &str) -> String {
-        crate::common::ids::canonical_object_id_or_raw(object_id)
+        crate::common::ids::canonical_object_id_invariant(object_id)
     }
 
+    /// Remove one object from the owner's index using its single canonical
+    /// spelling (plus the stored record's id when it differs).
     pub(crate) fn remove_owned_object_index_variants(
         &mut self,
         owner: AccountAddress,
@@ -43,24 +44,14 @@ impl StateManager {
         stored_id: Option<&str>,
     ) -> Result<()> {
         let owner_key = owned_objects_key(&owner);
-        self.remove_from_index_list(&owner_key, object_id)?;
-
-        if let Some(stored_id) = stored_id
-            && stored_id != object_id
-        {
-            self.remove_from_index_list(&owner_key, stored_id)?;
-        }
-
         let canonical_id = Self::canonical_owned_object_id(object_id);
-        if canonical_id != object_id {
-            self.remove_from_index_list(&owner_key, &canonical_id)?;
+        self.remove_from_index_list(&owner_key, &canonical_id)?;
+        if let Some(stored_id) = stored_id {
+            let stored_canonical = Self::canonical_owned_object_id(stored_id);
+            if stored_canonical != canonical_id {
+                self.remove_from_index_list(&owner_key, &stored_canonical)?;
+            }
         }
-        if let Some(stored_id) = stored_id
-            && canonical_id != stored_id
-        {
-            self.remove_from_index_list(&owner_key, &canonical_id)?;
-        }
-
         Ok(())
     }
 

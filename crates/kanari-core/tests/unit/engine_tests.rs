@@ -206,7 +206,7 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
 
     let mut cs = ChangeSet::new();
     cs.created_objects.push((
-        "0xcoin".to_string(),
+        "0x0000000000000000000000000000000000000000000000000000000000000c01".to_string(),
         CreatedObject {
             owner,
             owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
@@ -323,6 +323,9 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     let alice = generate_keypair(CurveType::Ed25519).unwrap();
     let bob = generate_keypair(CurveType::Ed25519).unwrap();
     let coin_id = "0xaaaa";
+    // The owned-object index stores the canonical full 64-hex spelling.
+    let coin_id_canonical =
+        kanari_types::object::canonical_object_id(coin_id).expect("fixture id is valid hex");
     let alice_gas = "0x1001";
     let bob_gas = "0x1002";
     fund_sender_with_coin(&engine, &alice.address, coin_id, 3_000_000);
@@ -406,8 +409,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(!owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
+    assert!(owned_ids(&engine, &bob.address).contains(&coin_id_canonical));
 
     // Leg 2: Bob -> Alice (full balance, back).
     let leg2_hash = submit_full_transfer(&engine, &bob, coin_id, bob_gas, &alice.address, 1);
@@ -424,15 +427,15 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
         );
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
-    assert!(owned_ids(&engine, &alice.address).contains(&coin_id.to_string()));
-    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id.to_string()));
+    assert!(owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
+    assert!(!owned_ids(&engine, &bob.address).contains(&coin_id_canonical));
 }
 
 #[test]
 fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let owner = "0x1111";
-    let object_id = "0xcoin";
+    let object_id = "0x0000000000000000000000000000000000000000000000000000000000000c01";
     let starting_balance = 1_000_000u64;
     let burn_amount = 100_000u64;
     fund_sender_with_coin(&engine, owner, object_id, starting_balance);
@@ -2752,7 +2755,11 @@ fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
         Transaction::new_burn_with_gas(shared_sender.tagged_address(), 1, 2, 100_000, 1);
     if let Transaction::ExecuteFunction { object_inputs, .. } = &mut shared_transaction {
         object_inputs.push(ObjectInput {
-            object_ref: ObjectRef::new("0xshared", Some(1), Some(format!("0x{}", "11".repeat(32)))),
+            object_ref: ObjectRef::new(
+                "0x000000000000000000000000000000000000000000000000000000000000005f",
+                Some(1),
+                Some(format!("0x{}", "11".repeat(32))),
+            ),
             owner: Some(ObjectOwnerKind::Shared),
             mutable: true,
         });
@@ -3246,7 +3253,13 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin_type(&engine, &sponsor.address, "0xgas", 1_000_000, USD_COIN);
+    fund_sender_with_coin_type(
+        &engine,
+        &sponsor.address,
+        "0x00000000000000000000000000000000000000000000000000000000000000ab",
+        1_000_000,
+        USD_COIN,
+    );
 
     let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
     let sponsor_tagged = sponsor.tagged_address();
@@ -3270,13 +3283,17 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
             let stored = state.get_object(&caps[0].0).unwrap().unwrap();
             let digest =
                 |data: &[u8]| format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(data)));
-            let gas_stored = state.get_object("0xgas").unwrap().unwrap();
+            let gas_stored = state
+                .get_object("0x00000000000000000000000000000000000000000000000000000000000000ab")
+                .unwrap()
+                .unwrap();
             (
                 caps[0].0.clone(),
                 stored.version,
                 digest(&stored.data),
                 ObjectRef::new(
-                    "0xgas".to_string(),
+                    "0x00000000000000000000000000000000000000000000000000000000000000ab"
+                        .to_string(),
                     Some(gas_stored.version),
                     Some(digest(&gas_stored.data)),
                 ),

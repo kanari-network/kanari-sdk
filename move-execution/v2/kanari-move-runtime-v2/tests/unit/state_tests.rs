@@ -704,14 +704,18 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
 #[test]
 fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
-    let padded_id = format!("0x{:0>64}", "abcd");
-    let canonical_id = AccountAddress::from_hex_literal(&padded_id)?.to_hex_literal();
-    assert_ne!(padded_id, canonical_id);
+    // The canonical spelling is the full 64-hex form; the short alias must
+    // converge onto it in the owned-object index.
+    let short_id = "0xabcd".to_string();
+    let canonical_id =
+        kanari_types::object::object_id_for_address(&AccountAddress::from_hex_literal(&short_id)?);
+    assert_eq!(canonical_id, format!("0x{:0>64}", "abcd"));
+    assert_ne!(short_id, canonical_id);
 
     let mut state = StateManager::new_in_memory();
     let mut init = ChangeSet::new();
     init.created_objects.push((
-        padded_id.clone(),
+        short_id.clone(),
         address_owned_object(owner, "0x2::test::Object".to_string(), vec![1, 2, 3], 1),
     ));
     state.apply_changeset(&init)?;
@@ -727,6 +731,30 @@ fn owned_object_index_canonicalizes_object_ids_across_alias_updates() -> Result<
 
     assert_eq!(state.get_owned_objects(&owner)?, vec![canonical_id]);
 
+    Ok(())
+}
+
+/// Removal resolves the requested id to its single canonical spelling, so a
+/// removal keyed by any valid-hex input spelling still removes the canonical
+/// index entry — and unrelated entries survive.
+#[test]
+fn remove_owned_object_index_variants_clears_all_legacy_spellings() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x2222")?;
+    let short_id = "0x0abc";
+    let canonical_id =
+        kanari_types::object::canonical_object_id(short_id).invariant("0x0abc is valid hex");
+    assert_ne!(short_id, canonical_id);
+    let owner_key = crate::common::keys::owned_objects_key(&owner);
+
+    let mut state = StateManager::new_in_memory();
+    state.add_to_index_list(&owner_key, canonical_id.clone())?;
+    state.add_to_index_list(&owner_key, "0x9999".to_string())?;
+    assert_eq!(state.get_owned_objects(&owner)?.len(), 2);
+
+    // Removal is keyed by the canonical form regardless of input spelling.
+    state.remove_owned_object_index_variants(owner, short_id, Some(&canonical_id))?;
+
+    assert_eq!(state.get_owned_objects(&owner)?, vec!["0x9999".to_string()]);
     Ok(())
 }
 
@@ -1797,7 +1825,8 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
     state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     state.save_owner_state(&OwnerState::with_native_balance(stale_account, 6_614))?;
     state.save_object_locked_coin_records(&[ObjectLockedCoinRecord {
-        holder_object_id: "0xlock".to_string(),
+        holder_object_id: "0x000000000000000000000000000000000000000000000000000000000000010c"
+            .to_string(),
         holder_type: "0x2::escrow::Vault".to_string(),
         owner: holder_owner,
         token_type: GAS_COIN.to_string(),

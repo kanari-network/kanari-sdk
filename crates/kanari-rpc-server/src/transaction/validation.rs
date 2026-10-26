@@ -25,7 +25,7 @@ fn canonical_rpc_object_id(
     object_id: &str,
 ) -> Result<String, Box<RpcResponse>> {
     AccountAddress::from_hex_literal(object_id)
-        .map(|address| address.to_hex_literal())
+        .map(|address| object_id_for_address(&address))
         .map_err(|err| {
             Box::new(invalid_params_response(
                 id,

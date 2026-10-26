@@ -298,7 +298,7 @@ impl StateManager {
                 } else {
                     existing.version + 1
                 };
-                if new_obj.owner.to_hex_literal() == *obj_id {
+                if crate::common::ids::object_id_for_address(&new_obj.owner) == *obj_id {
                     new_obj.owner = existing.owner;
                 }
                 let existing_balance =

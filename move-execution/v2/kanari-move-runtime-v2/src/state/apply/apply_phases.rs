@@ -239,8 +239,11 @@ impl StateManager {
                 };
 
                 // Record in Collection member index (O(1) Access)
-                let key = metadata_key(b"collection_members:", &coll_id.to_hex_literal());
-                self.add_to_index_list(&key, nft_id.to_hex_literal())?;
+                let key = metadata_key(
+                    b"collection_members:",
+                    &crate::common::ids::object_id_for_address(&coll_id),
+                );
+                self.add_to_index_list(&key, crate::common::ids::object_id_for_address(&nft_id))?;
             }
         }
         Ok(())

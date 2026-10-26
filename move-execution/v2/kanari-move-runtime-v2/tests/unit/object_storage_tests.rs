@@ -9,8 +9,9 @@ fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
 fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let owner = AccountAddress::from_hex_literal("0x1")?;
-    let stale_id = "0xaaaa".to_string();
-    let canonical_id = "0xbbbb".to_string();
+    let stale_id = "0x000000000000000000000000000000000000000000000000000000000000aaaa".to_string();
+    let canonical_id =
+        "0x000000000000000000000000000000000000000000000000000000000000bbbb".to_string();
 
     store.save(
         format!("object:{}", stale_id).as_bytes(),
@@ -58,7 +59,7 @@ fn persistent_startup_rejects_object_index_entry_without_object() -> Result<()> 
     let store = Arc::new(PersistentStore::open_in_memory()?);
     store.save(
         ObjectStorage::OBJECT_INDEX_KEY.as_bytes(),
-        &vec!["0xmissing".to_string()],
+        &vec!["0x000000000000000000000000000000000000000000000000000000000000deed".to_string()],
     )?;
 
     let err = ObjectStorage::new_with_store(store)
@@ -74,10 +75,20 @@ fn persistent_startup_rejects_object_index_entry_without_object() -> Result<()> 
 #[test]
 fn persistent_object_load_error_is_not_reported_as_missing() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
-    store.apply_raw_changes(&[(b"object:0xcorrupt".to_vec(), vec![0x80])], &[])?;
+    store.apply_raw_changes(
+        &[(
+            b"object:0x000000000000000000000000000000000000000000000000000000000000feed".to_vec(),
+            vec![0x80],
+        )],
+        &[],
+    )?;
     let storage = ObjectStorage::new_with_store(store)?;
 
-    assert!(storage.get_object("0xcorrupt").is_err());
+    assert!(
+        storage
+            .get_object("0x000000000000000000000000000000000000000000000000000000000000feed")
+            .is_err()
+    );
     Ok(())
 }
 
@@ -85,7 +96,8 @@ fn persistent_object_load_error_is_not_reported_as_missing() -> Result<()> {
 fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let owner = AccountAddress::from_hex_literal("0x2")?;
-    let object_id = "0xcccc".to_string();
+    let object_id =
+        "0x000000000000000000000000000000000000000000000000000000000000cccc".to_string();
 
     store.save(
         format!("object:{}", object_id).as_bytes(),
@@ -110,7 +122,7 @@ fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
     assert_eq!(objects[0].id, object_id);
     assert_eq!(
         ObjectStorage::load_id_index(&store, &owned_objects_key(&owner))?,
-        vec!["0xcccc".to_string()]
+        vec!["0x000000000000000000000000000000000000000000000000000000000000cccc".to_string()]
     );
     assert!(
         store

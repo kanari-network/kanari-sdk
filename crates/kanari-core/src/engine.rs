@@ -15,6 +15,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::gas_coin::GAS_COIN;
+use kanari_types::object::object_id_for_address;
 use kanari_types::usd_coin::USD_COIN;
 
 use kanari_types::transaction::{
@@ -797,7 +798,9 @@ impl BlockchainEngine {
     fn deterministic_native_transfer_output_id(tx: &Transaction) -> String {
         let mut seed = b"kanari:native_transfer_output:v1:".to_vec();
         seed.extend_from_slice(&tx.hash());
-        format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(&seed)))
+        object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(
+            &seed,
+        )))
     }
 
     fn execute_backend_native_transfer(
@@ -909,7 +912,9 @@ impl BlockchainEngine {
                 coin_object_id.to_string(),
                 CreatedObject {
                     owner: recipient_addr,
-                    owner_kind: ObjectOwnerKind::AddressOwner(recipient_addr.to_hex_literal()),
+                    owner_kind: ObjectOwnerKind::AddressOwner(object_id_for_address(
+                        &recipient_addr,
+                    )),
                     uid: transfer_object.uid,
                     id: transfer_object.id,
                     type_: transfer_object.type_,
@@ -949,7 +954,9 @@ impl BlockchainEngine {
                 output_id,
                 CreatedObject {
                     owner: recipient_addr,
-                    owner_kind: ObjectOwnerKind::AddressOwner(recipient_addr.to_hex_literal()),
+                    owner_kind: ObjectOwnerKind::AddressOwner(object_id_for_address(
+                        &recipient_addr,
+                    )),
                     uid: None,
                     id: None,
                     type_: transfer_object.type_,
@@ -3045,6 +3052,26 @@ impl BlockchainEngine {
             object_count,
             MAX_TRANSACTION_OBJECTS
         );
+        // Object ids must canonicalize: storage and access tracking key by
+        // the canonical full form, so a non-hex id can never resolve.
+        // Rejecting at admission keeps every downstream canonicalization
+        // infallible (no fallbacks on execution paths).
+        for input in tx.object_inputs() {
+            ensure!(
+                kanari_types::object::canonical_object_id(&input.object_ref.object_id).is_some(),
+                "Object input id {} is not a valid hex object address",
+                input.object_ref.object_id
+            );
+        }
+        if let Some(payment) = tx.gas_payment() {
+            for payment_object in &payment.payment_objects {
+                ensure!(
+                    kanari_types::object::canonical_object_id(&payment_object.object_id).is_some(),
+                    "Gas payment object id {} is not a valid hex object address",
+                    payment_object.object_id
+                );
+            }
+        }
         ensure!(
             tx.gas_limit() <= MAX_TRANSACTION_GAS_LIMIT,
             "Transaction gas limit {} exceeds protocol maximum {}",

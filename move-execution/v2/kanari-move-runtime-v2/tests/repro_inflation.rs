@@ -10,9 +10,7 @@ fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
 }
 
 fn canonical_object_id(object_id: &str) -> String {
-    AccountAddress::from_hex_literal(object_id)
-        .invariant("object id should be valid hex")
-        .to_hex_literal()
+    kanari_types::object::canonical_object_id(object_id).invariant("object id should be valid hex")
 }
 
 #[test]

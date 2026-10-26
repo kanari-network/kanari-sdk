@@ -4,11 +4,11 @@
 //! Object changes, effects, and recorded writes on a changeset.
 
 use crate::changeset::{ChangeSet, CreatedObject};
-use kanari_crypto::hash_data_blake3;
+use kanari_crypto::hash_data_blake3_array;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::event::Event;
-use kanari_types::object::{IDRecord, UIDRecord};
+use kanari_types::object::{IDRecord, UIDRecord, object_id_for_address};
 use kanari_types::transaction::{
     GasPayment, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectInput,
     ObjectOwnerKind, ObjectRef, TransactionEffects,
@@ -108,15 +108,15 @@ impl ChangeSet {
         let canonical_id = if let Some(id) = &object_id {
             Self::canonicalize_object_id(id)
         } else if let Some(ref u) = uid {
-            u.address().to_hex_literal()
+            object_id_for_address(&u.address())
         } else if let Some(ref i) = id {
-            i.address().to_hex_literal()
+            object_id_for_address(&i.address())
         } else {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
             input.extend_from_slice(type_.as_bytes());
-            let hash = hash_data_blake3(&input);
-            format!("0x{}", hex::encode(&hash[0..32]))
+            let hash = hash_data_blake3_array(&input);
+            object_id_for_address(&AccountAddress::new(hash))
         };
 
         if let Some((_, existing_obj)) = self
@@ -124,7 +124,7 @@ impl ChangeSet {
             .iter_mut()
             .find(|(id, _)| id == &canonical_id)
         {
-            if owner.to_hex_literal() != canonical_id {
+            if object_id_for_address(&owner) != canonical_id {
                 existing_obj.owner = owner;
             }
             existing_obj.data = data;

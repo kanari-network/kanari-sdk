@@ -274,17 +274,23 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
     );
     assert_eq!(
         reopened.get_owned_objects(&alice)?,
-        vec!["0xaaa1".to_string()]
+        vec![kanari_types::object::canonical_object_id("0xaaa1").invariant("valid hex")]
     );
     assert_eq!(
         reopened.get_owned_objects(&bob)?,
-        vec!["0xbbb2".to_string()]
+        vec![kanari_types::object::canonical_object_id("0xbbb2").invariant("valid hex")]
     );
     let object_index = reopened
         .load_internal::<Vec<String>>(b"object_index")?
         .invariant("object_index should be rebuilt");
-    assert!(object_index.contains(&"0xaaa1".to_string()));
-    assert!(object_index.contains(&"0xbbb2".to_string()));
+    assert!(
+        object_index
+            .contains(&kanari_types::object::canonical_object_id("0xaaa1").invariant("valid hex"))
+    );
+    assert!(
+        object_index
+            .contains(&kanari_types::object::canonical_object_id("0xbbb2").invariant("valid hex"))
+    );
     assert!(
         reopened
             .load_internal::<Vec<String>>(b"account_index")?

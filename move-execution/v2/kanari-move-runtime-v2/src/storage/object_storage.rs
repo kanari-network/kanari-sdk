@@ -357,21 +357,27 @@ impl ObjectStorage {
     }
 
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
-        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(obj) = state.objects.get(id) {
-            let mut obj = obj.clone();
-            obj.normalize_owner();
-            return Ok(Some(obj));
+        // Single spelling: canonicalize once, then exact lookups. An id that
+        // does not canonicalize never names an object.
+        let Some(canonical_id) = crate::common::ids::canonical_object_id(id) else {
+            return Ok(None);
+        };
+        {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(obj) = state.objects.get(&canonical_id) {
+                let mut obj = obj.clone();
+                obj.normalize_owner();
+                return Ok(Some(obj));
+            }
         }
-        drop(state);
 
         if let Some(store) = &self.persistent
             && let Some(mut obj) =
-                store.load::<StoredObject>(&crate::common::keys::object_key(id))?
+                store.load::<StoredObject>(&crate::common::keys::object_key(&canonical_id))?
         {
             obj.normalize_owner();
             let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            write_state.objects.insert(id.to_string(), obj.clone());
+            write_state.objects.insert(canonical_id, obj.clone());
             return Ok(Some(obj));
         }
         Ok(None)

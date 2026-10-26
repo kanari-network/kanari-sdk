@@ -20,6 +20,7 @@ use kanari_rpc_api::{
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
 use kanari_types::gas_coin::{GAS_COIN, GasModule};
+use kanari_types::object::{object_id_for_address, object_id_from_address_bytes};
 use kanari_types::transaction::{
     GasPayment, NativeCall, ObjectInput, ObjectOwnerKind, ObjectRef, PublishedModule,
     SignedTransaction, Transaction,
@@ -114,23 +115,12 @@ fn normalize_addr(s: &str) -> String {
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
-/// Canonical 64-hex lowercase spelling of an object id.
-///
-/// Storage can hold shortened spellings (`0x1abc…` — Move's `to_hex_literal`
-/// strips leading zeros) while wallets pad ids to the full form before
-/// submitting, and an `ObjectRef` hashes its `object_id` string verbatim.
-/// Build handlers therefore hand out canonical ids (and hash the canonical
-/// transaction), so a client that pads or echoes the ids it received still
-/// reconstructs the exact transaction it signed — otherwise the engine
-/// rejects a perfectly valid signature as `Invalid transaction signature`.
-/// The submit path must NOT re-spell payloads: clients sign whatever ids the
-/// build handed them, so the payload is reconstructed verbatim. Unparsable
-/// ids are returned untouched for validation to reject.
-pub(crate) fn canonical_object_id(id: &str) -> String {
-    AccountAddress::from_hex_literal(id.trim())
-        .map(|address| format!("0x{}", hex::encode(address.as_ref())))
-        .unwrap_or_else(|_| id.trim().to_string())
-}
+// The canonical spelling of object ids lives in exactly one place for the
+// whole SDK — `kanari_types::object` (full 64-hex lowercase). Build handlers
+// apply it before hashing so clients that pad or echo ids reconstruct the
+// exact transaction they signed; the submit path must NOT re-spell payloads.
+// An id that does not canonicalize never names an object.
+pub(crate) use kanari_types::object::canonical_object_id;
 
 pub(super) fn parse_hex_address(
     id: u64,

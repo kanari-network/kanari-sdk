@@ -89,7 +89,13 @@ impl ResourceResolver for KanariMoveResolver {
             return Ok(Some(data));
         }
 
-        self.record_read(format!("object:{}", address.to_hex_literal()).into_bytes());
+        self.record_read(
+            format!(
+                "object:{}",
+                crate::common::ids::object_id_for_address(address)
+            )
+            .into_bytes(),
+        );
         if let Some(data) = self.state.try_get_object(address)? {
             log::debug!("[RESOLVER] Loaded Sui-style object at {}", address);
             return Ok(Some(data));

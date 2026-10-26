@@ -333,12 +333,9 @@ pub(crate) fn format_changeset_json(
                         || type_val.contains("CachedStructIndex"))
                     && let Some(id) = obj.get("id").and_then(|v| v.as_str())
                 {
-                    let id_norm = id.trim_start_matches("0x");
-                    // Try direct or normalized ID
-                    if let Ok(Some(stored)) = state_guard
-                        .get_object(id)
-                        .or_else(|_| state_guard.get_object(id_norm))
-                    {
+                    // `get_object` canonicalizes internally (single spelling),
+                    // so one lookup suffices.
+                    if let Ok(Some(stored)) = state_guard.get_object(id) {
                         obj.insert(
                             "type".to_string(),
                             serde_json::Value::String(stored.type_.clone()),

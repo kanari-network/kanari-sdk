@@ -101,7 +101,10 @@ impl MoveVMState {
     }
 
     fn object_key(object_id: &AccountAddress) -> String {
-        format!("object:{}", object_id.to_hex_literal())
+        format!(
+            "object:{}",
+            kanari_types::object::object_id_for_address(object_id)
+        )
     }
 
     fn load_string_index(&self, key: &[u8]) -> Result<Vec<String>> {

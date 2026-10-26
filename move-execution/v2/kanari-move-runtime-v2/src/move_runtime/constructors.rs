@@ -318,7 +318,9 @@ impl MoveRuntime {
                         // also an object-data write. Keep `object:{id}` in step for
                         // every type (not just `coin::Coin`) or mutated objects read
                         // stale bytes on the next call.
-                        let object_key = crate::common::keys::object_key(&addr.to_hex_literal());
+                        let object_key = crate::common::keys::object_key(
+                            &crate::common::ids::object_id_for_address(addr),
+                        );
                         let stored = store.load::<StoredObject>(&object_key)?;
                         if let Some(mut object) = stored {
                             object.data = bytes.to_vec();
