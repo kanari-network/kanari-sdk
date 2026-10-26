@@ -1562,7 +1562,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio 0.8.11",
- "parking_lot",
+ "parking_lot 0.12.5",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -1579,7 +1579,7 @@ dependencies = [
  "derive_more",
  "document-features",
  "mio 1.2.4",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rustix",
  "signal-hook",
  "signal-hook-mio",
@@ -1751,7 +1751,7 @@ dependencies = [
  "libc",
  "memmap2",
  "minibytes",
- "parking_lot",
+ "parking_lot 0.12.5",
  "prometheus",
  "rand 0.8.8",
  "serde",
@@ -1784,9 +1784,9 @@ checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
 dependencies = [
  "cfg-if",
  "hashbrown 0.14.5",
- "lock_api",
+ "lock_api 0.4.14",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -3531,7 +3531,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3572,7 +3572,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-auth"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3597,7 +3597,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "ed25519-dalek 3.0.0",
@@ -3612,7 +3612,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3621,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3657,7 +3657,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -3710,7 +3710,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3720,7 +3720,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-e2e-tests"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3754,7 +3754,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-faucet"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3767,14 +3767,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3794,7 +3794,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-indexer"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3809,7 +3809,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3820,7 +3820,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-fmt"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "pretty",
@@ -3830,7 +3830,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v2"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3894,7 +3894,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3934,7 +3934,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3943,7 +3943,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3952,7 +3952,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3961,7 +3961,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -3973,7 +3973,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3984,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
@@ -3997,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -4008,7 +4008,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -4034,7 +4034,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "ark-std",
  "base64 0.23.1",
@@ -4065,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bcs",
@@ -4166,7 +4166,7 @@ dependencies = [
  "multiaddr",
  "multihash",
  "multistream-select",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project",
  "prost",
  "rand 0.10.3",
@@ -4493,6 +4493,15 @@ name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "lock_api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65d91b22da179613dcf4d6ec8349563f52a363f6849e03b00dd0a185ec4a59af"
 dependencies = [
  "scopeguard",
 ]
@@ -5187,7 +5196,7 @@ dependencies = [
  "move-vm-profiler",
  "move-vm-types",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "sha3 0.12.0",
  "smallvec",
  "tracing",
@@ -5297,7 +5306,7 @@ checksum = "988ce9f7411c058a1d6788e60897a949dcdf5aa66202d789da045a03b4e4f406"
 dependencies = [
  "libc",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "thiserror 1.0.69",
  "windows 0.53.0",
 ]
@@ -5701,8 +5710,18 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9cf937ca4e1d0b7578784559063422fc39ae7c5a00f02471f2614d5486fd226"
+dependencies = [
+ "lock_api 0.5.0",
+ "parking_lot_core 0.10.0",
 ]
 
 [[package]]
@@ -5713,7 +5732,19 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfff060068cc18aa7815010fcaf80c68c7fb9e85fc7f5c0f9bf142c21d19826"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.5",
  "smallvec",
  "windows-link",
 ]
@@ -6080,7 +6111,7 @@ dependencies = [
  "fnv",
  "lazy_static",
  "memchr",
- "parking_lot",
+ "parking_lot 0.12.5",
  "protobuf",
  "thiserror 2.0.21",
 ]
@@ -6409,6 +6440,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_syscall"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
+dependencies = [
+ "bitflags 2.13.2",
+]
+
+[[package]]
 name = "redox_users"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6644,7 +6684,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -6687,7 +6727,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -7399,7 +7439,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -7821,7 +7861,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.2.4",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -8467,7 +8507,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "kanari-crypto",
 ]
@@ -9015,7 +9055,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project",
  "static_assertions",
  "web-time",
