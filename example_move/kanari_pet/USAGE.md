@@ -50,11 +50,13 @@ the owned objects.
 In PowerShell, assign the IDs before using the examples below:
 
 ```powershell
+$PKG = "0x..."
 $NFT_CAP = "0x..."
 $COLLECTION = "0x..."
 $POLICY = "0x..."
 $POLICY_SCOPE = "0x..."
 $STATS = "0x..."
+$RECIPIENT = "0x..."
 ```
 
 ## 1. Create a collection (optional)
