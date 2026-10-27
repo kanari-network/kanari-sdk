@@ -80,7 +80,8 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 onNavigateToSend = { /* Handled in MainScreen bottom nav */ },
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
-                onNavigateToNfts = { navController.navigate(Screen.Nfts.route) }
+                onNavigateToNfts = { navController.navigate(Screen.Nfts.route) },
+                onNavigateToObjects = { navController.navigate(Screen.Objects.route) }
             )
         }
         composable(Screen.Receive.route) {
@@ -88,6 +89,9 @@ fun MainNavigation(viewModel: WalletViewModel) {
         }
         composable(Screen.Nfts.route) {
             NftScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+        }
+        composable(Screen.Objects.route) {
+            ObjectsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(Screen.Settings.route) {
             SettingsScreen(

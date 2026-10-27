@@ -51,9 +51,9 @@ fun DashboardScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToWalletGen: () -> Unit,
     onNavigateToNfts: () -> Unit,
+    onNavigateToObjects: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
     val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
     val wallets by viewModel.wallets.collectAsStateWithLifecycle()
     val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
@@ -62,10 +62,8 @@ fun DashboardScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState(pageCount = { wallets.size + 1 })
     var showEnvDialog by remember { mutableStateOf(false) }
-    var showAllObjectsDialog by remember { mutableStateOf(false) }
     var walletToDelete by remember { mutableStateOf<WalletRecord?>(null) }
     var walletForDetails by remember { mutableStateOf<WalletRecord?>(null) }
-    val objects = accountInfo?.ownedObjects ?: emptyList()
     LaunchedEffect(activeWallet?.id, wallets) {
         val idx =
             wallets.indexOfFirst { it.id == activeWallet?.id }; if (idx >= 0 && pagerState.currentPage != idx) pagerState.animateScrollToPage(
@@ -88,7 +86,6 @@ fun DashboardScreen(
             KanariTopBar(
                 environmentName = environment.name,
                 onEnvClick = { showEnvDialog = true },
-                onReceive = onNavigateToReceive,
                 onSettings = onNavigateToSettings
             )
         },
@@ -168,119 +165,19 @@ fun DashboardScreen(
                         onClick = onNavigateToNfts
                     )
                     QuickServiceItem(
-                        icon = Icons.Default.AddCard,
-                        label = "Wallet+",
+                        icon = Icons.Default.Folder,
+                        label = "Objects",
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         contentColor = MaterialTheme.colorScheme.onSurface,
-                        onClick = onNavigateToWalletGen
+                        onClick = onNavigateToObjects
                     )
                 }
             }
 
-            // Promo Banners Pager (3 items with auto-scroll)
-            val promoPagerState = rememberPagerState(pageCount = { 3 })
-            LaunchedEffect(Unit) {
-                while (true) {
-                    kotlinx.coroutines.delay(4000L)
-                    val nextPage = (promoPagerState.currentPage + 1) % 3
-                    promoPagerState.animateScrollToPage(nextPage)
-                }
-            }
-
-            val banners = listOf(
-                Triple(
-                    "⚡ Kanari Network",
-                    "Secure Web3 & ZkLogin Powered",
-                    "Manage assets, multi-curve wallets & NFTs securely."
-                ),
-                Triple(
-                    "🛡️ Multi-Curve & Post-Quantum",
-                    "Advanced Cryptography",
-                    "Built-in Dilithium, Falcon & Ed25519 wallet support."
-                ),
-                Triple(
-                    "💎 NFTs & Assets",
-                    "Instant Transfers & BCS Parsing",
-                    "Explore, view and transfer your collectibles effortlessly."
-                )
-            )
-            val bannerImages = listOf(
-                "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=1000&auto=format&fit=crop",
-                "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop",
-                "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1000&auto=format&fit=crop"
-            )
-
-            HorizontalPager(
-                state = promoPagerState,
-                modifier = Modifier.fillMaxWidth().height(130.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp),
-                pageSpacing = 12.dp
-            ) { page ->
-                val (tag, title, subtitle) = banners[page]
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(Modifier.fillMaxSize()) {
-                        AsyncImage(
-                            model = bannerImages[page],
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color.Black.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.35f))
-                                    )
-                                )
-                                .padding(20.dp)
-                        ) {
-                            Column(
-                                Modifier.fillMaxHeight(),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Surface(
-                                    color = Color.White.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        tag,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = Color.White,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    title,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    subtitle,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color.White.copy(alpha = 0.85f)
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            DotsIndicator(
-                totalDots = 3,
-                selectedIndex = promoPagerState.currentPage,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Promo banners and the Objects & NFTs preview were removed from
+            // Home: they duplicated the NFTs quick action and the wallet detail
+            // sheet, leaned on remote images, and pushed balances below the fold.
+            // Home is now wallet -> actions -> assets.
             SectionHeader(title = "Assets")
             error?.let { ErrorBanner(error = it) }
             when {
@@ -296,29 +193,6 @@ fun DashboardScreen(
                 }
 
                 else -> tokenBalances.forEach { AssetItem(it) }
-            }
-            if (objects.isNotEmpty()) {
-                SectionHeader(
-                    title = "Objects & NFTs",
-                    modifier = Modifier.padding(top = 8.dp),
-                    trailing = {
-                        TextButton(onClick = { showAllObjectsDialog = true }) {
-                            Text(
-                                "All >",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-                )
-                objects.take(2).forEach { ObjectItem(it) }
-                if (objects.size > 2) {
-                    TextButton(
-                        onClick = { showAllObjectsDialog = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("View all ${objects.size} objects >", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -352,28 +226,6 @@ fun DashboardScreen(
                 }
             )
         }
-    }
-    if (showAllObjectsDialog) {
-        AlertDialog(
-            onDismissRequest = { showAllObjectsDialog = false },
-            title = { Text("All Objects & NFTs (${objects.size})", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(400.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    objects.forEach { ObjectItem(it) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAllObjectsDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
     }
 }
 

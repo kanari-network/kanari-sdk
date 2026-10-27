@@ -23,6 +23,7 @@ import androidx.navigation.NavController
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
 import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
+import com.jamesatomc.kanariapp.ui.components.SendSuccessOverlay
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.components.validateAddress
@@ -155,7 +156,8 @@ fun MainScreen(
                     onNavigateToSettings = { selectedItem = 2 },
                     onNavigateToSend = { showSendSheet = true },
                     onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
-                    onNavigateToNfts = { navController.navigate(Screen.Nfts.route) }
+                    onNavigateToNfts = { navController.navigate(Screen.Nfts.route) },
+                    onNavigateToObjects = { navController.navigate(Screen.Objects.route) }
                 )
 
                 1 -> HistoryScreen(viewModel = viewModel)
@@ -194,6 +196,8 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
     // Armed send: (recipient, amount in mist, token type) waiting on the
     // 10-second countdown dialog before anything touches the network.
     var pendingSend by remember { mutableStateOf<Triple<String, ULong, String>?>(null) }
+    // Non-null while the Slush-style success overlay is showing.
+    var successSummary by remember { mutableStateOf<String?>(null) }
     var selectedToken by remember {
         mutableStateOf(tokenBalances.find { it.symbol == "KANARI" } ?: tokenBalances.firstOrNull())
     }
@@ -321,10 +325,24 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                 pendingSend = null
                 scope.launch {
                     isLoading = true; error = null
-                    if (viewModel.transfer(to, mist, type)) onBack()
-                    else error = viewModel.error.value ?: "Transaction failed"
+                    if (viewModel.transfer(to, mist, type)) {
+                        successSummary = "$amount ${selectedToken?.symbol ?: ""} sent to " +
+                            "${to.take(10)}\u2026${to.takeLast(6)}"
+                    } else {
+                        error = viewModel.error.value ?: "Transaction failed"
+                    }
                     isLoading = false
                 }
+            },
+        )
+    }
+
+    successSummary?.let { message ->
+        SendSuccessOverlay(
+            summary = message,
+            onDone = {
+                successSummary = null
+                onBack()
             },
         )
     }

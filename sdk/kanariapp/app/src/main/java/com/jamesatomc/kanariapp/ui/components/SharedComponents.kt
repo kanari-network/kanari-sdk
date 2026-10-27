@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import com.jamesatomc.kanariapp.ui.Sfx
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -241,10 +242,12 @@ fun LoadingButton(
         label = "buttonScale"
     )
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     Button(
         onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Sfx.tap(context)
             onClick()
         },
         enabled = enabled && !isLoading,
@@ -833,7 +836,6 @@ fun SecretRevealCard(
 fun KanariTopBar(
     environmentName: String,
     onEnvClick: () -> Unit,
-    onReceive: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -907,7 +909,8 @@ fun KanariTopBar(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onReceive) { Icon(Icons.Default.QrCode, contentDescription = "Receive") }
+                    // Receive lives in the Home quick-action row now; the bar
+                    // keeps only the settings entry to avoid duplicate taps.
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
