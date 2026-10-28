@@ -17,7 +17,7 @@
 //! * Matching is price-time priority; taker pays a `fee_bps` fee on the quote
 //!   leg, collected into `fee_balance_quote` and withdrawable by the book
 //!   admin registered in `GlobalOrderBookRegistry`.
-//! * The registry deduplicates books per token pair via a blake2b256 hash of
+//! * The registry deduplicates books per token pair via a blake3-256 hash of
 //!   the sorted type names, so `BASE/QUOTE` and `QUOTE/BASE` cannot both exist.
 //!
 //! All price/fee/refund arithmetic routes through `kanari_system::math`

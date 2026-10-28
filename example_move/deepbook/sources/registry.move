@@ -3,7 +3,7 @@
 
 //! Global order book registry for DeepBook.
 //!
-//! Deduplicates order books per token pair via a blake2b256 hash of the sorted
+//! Deduplicates order books per token pair via a blake3-256 hash of the sorted
 //! (Base, Quote) type names, so `BASE/QUOTE` and `QUOTE/BASE` cannot both
 //! exist. The registry owner can change book admins; book admins can withdraw
 //! collected fees.
@@ -80,7 +80,7 @@ module deepbook::registry {
         len1 <= len2
     }
 
-    /// Deterministic blake2b256 hash of the sorted (Base, Quote) type names, so
+    /// Deterministic blake3-256 hash of the sorted (Base, Quote) type names, so
     /// `BASE/QUOTE` and `QUOTE/BASE` map to the same registry key.
     fun pair_hash<Base, Quote>(): vector<u8> {
         let ty_x = type_name::get_with_original_ids<Base>().into_string().into_bytes();
@@ -98,7 +98,7 @@ module deepbook::registry {
 
         let mut concat = first;
         vector::append(&mut concat, second);
-        hash::blake2b256(&concat)
+        hash::blake3_256(&concat)
     }
 
     // ---------------------------------------------------------------------------
