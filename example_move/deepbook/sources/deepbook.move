@@ -180,6 +180,16 @@ module deepbook::deepbook {
         option::destroy_some(narrowed)
     }
 
+    /// Move the taker fee from the quote pool into the fee pool. A zero fee
+    /// (fee_bps = 0, or a trade small enough that bps math floors to 0) is a
+    /// legitimate no-op: `balance::split(0)` aborts, so it must be guarded.
+    fun collect_fee<Base, Quote>(book: &mut OrderBook<Base, Quote>, fee_amount: u64) {
+        if (fee_amount > 0) {
+            let fee_collected = balance::split(&mut book.quote_balance, fee_amount);
+            balance::merge(&mut book.fee_balance_quote, fee_collected);
+        }
+    }
+
     /// Internal: create a new order book with explicit decimals
     public fun create_order_book_with_decimals<Base, Quote>(
         fee_bps: u64,
@@ -496,21 +506,24 @@ module deepbook::deepbook {
             let quote_to_maker = balance::split(&mut book.quote_balance, maker_receives);
             transfer::public_transfer(coin::from_balance(quote_to_maker, ctx), ask.maker);
 
+            let maker_order = ask.maker;
+            let maker_order_id = ask.id;
+            let fully_filled = ask.filled == ask.quantity;
+
             // Collect fee (in quote tokens)
-            let fee_collected = balance::split(&mut book.quote_balance, fee_amount);
-            balance::merge(&mut book.fee_balance_quote, fee_collected);
+            collect_fee(book, fee_amount);
 
             event::emit(OrderMatched {
                 book_id: object::uid_address(&book.id),
-                order_id: ask.id,
+                order_id: maker_order_id,
                 taker: maker,
-                maker: ask.maker,
+                maker: maker_order,
                 price: match_price,
                 quantity: matched,
             });
 
             // Remove fully filled order
-            if (ask.filled == ask.quantity) {
+            if (fully_filled) {
                 vector::remove(&mut book.asks, i);
             } else {
                 i = i + 1;
@@ -705,21 +718,24 @@ module deepbook::deepbook {
             let base_to_maker = balance::split(&mut book.base_balance, matched);
             transfer::public_transfer(coin::from_balance(base_to_maker, ctx), bid.maker);
 
+            let maker_order = bid.maker;
+            let maker_order_id = bid.id;
+            let fully_filled = bid.filled == bid.quantity;
+
             // Collect fee in quote tokens
-            let fee_collected = balance::split(&mut book.quote_balance, fee_amount);
-            balance::merge(&mut book.fee_balance_quote, fee_collected);
+            collect_fee(book, fee_amount);
 
             event::emit(OrderMatched {
                 book_id: object::uid_address(&book.id),
-                order_id: bid.id,
+                order_id: maker_order_id,
                 taker: maker,
-                maker: bid.maker,
+                maker: maker_order,
                 price: match_price,
                 quantity: matched,
             });
 
             // Remove fully filled order
-            if (bid.filled == bid.quantity) {
+            if (fully_filled) {
                 vector::remove(&mut book.bids, i);
             } else {
                 i = i + 1;

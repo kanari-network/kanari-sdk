@@ -44,6 +44,51 @@ impl MoveRuntime {
         .map(|(changeset, _)| changeset)
     }
 
+    /// Execute any public Move function (entry or not) with full object context.
+    pub fn execute_function_with_object_context_and_persistence(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        context: EntryFunctionObjectContext,
+    ) -> Result<ChangeSet> {
+        self.execute_function_with_object_context_returns(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            context,
+        )
+        .map(|(changeset, _)| changeset)
+    }
+
+    pub fn execute_function_with_object_context_returns(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        context: EntryFunctionObjectContext,
+    ) -> Result<(ChangeSet, Vec<Vec<u8>>)> {
+        self.execute_entry_function_internal(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            ExecutionOptions::new(
+                context.sender,
+                context.gas_info,
+                context.timestamp,
+                context.tx_hash,
+            )
+            .with_object_inputs(context.object_inputs)
+            .with_persistence(context.persist_runtime_state)
+            .with_state_overlay(context.state_overlay)
+            .bypass_entry_check(),
+        )
+    }
+
     /// Same as
     /// [`execute_entry_function_with_object_context_and_persistence`](Self::execute_entry_function_with_object_context_and_persistence),
     /// but additionally returns the entry function's pure return values

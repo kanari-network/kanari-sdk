@@ -3454,7 +3454,7 @@ impl BlockchainEngine {
                         .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
                         .collect::<Result<Vec<_>>>();
                     let type_tags = type_tags?;
-                    match runtime.execute_entry_function_with_object_context_and_persistence(
+                    match runtime.execute_function_with_object_context_and_persistence(
                         &module_id,
                         function,
                         type_tags,
