@@ -5,10 +5,16 @@
 module deepbook::deepbook_tests {
     use deepbook::deepbook::{
         calculate_base_amount, calculate_base_amount_with_decimals, calculate_quote_amount,
-        calculate_quote_amount_with_decimals, check_refund_overflow, compare_vectors,
+        calculate_quote_amount_with_decimals, check_refund_overflow, create_order_book_with_decimals,
         validate_quote_capacity,
     };
+    use deepbook::registry::compare_vectors;
+    use kanari_system::kanari::KANARI;
     use kanari_system::math;
+    use kanari_system::tx_context;
+    use kanari_system::usd::USD;
+
+    const PRICE_SCALE: u64 = 1_000_000_000;
 
     // ---------- compare_vectors (registry pair-hash ordering) ----------
     #[test]
@@ -26,6 +32,14 @@ module deepbook::deepbook_tests {
         let x = b"0x2::kanari::KANARI";
         let y = b"0x2::usd::USD";
         assert!(compare_vectors(&x, &y) != compare_vectors(&y, &x), 4);
+    }
+
+    #[test]
+    fun compare_vectors_empty_and_equal() {
+        assert!(compare_vectors(&b"", &b""), 5);
+        assert!(compare_vectors(&b"", &b"a"), 6);
+        assert!(!compare_vectors(&b"a", &b""), 7);
+        assert!(compare_vectors(&b"aaaa", &b"aaaa"), 8);
     }
 
     // ---------- pow10 (framework math) ----------
@@ -54,6 +68,18 @@ module deepbook::deepbook_tests {
     }
 
     #[test]
+    fun quote_math_zero_quantity() {
+        assert!(calculate_quote_amount(0, PRICE_SCALE) == 0, 26);
+        assert!(calculate_base_amount(0, PRICE_SCALE) == 0, 27);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 2, location = kanari_system::math)] // division by zero in math::mul_div_u128
+    fun quote_math_zero_price_rejects() {
+        calculate_base_amount(100, 0);
+    }
+
+    #[test]
     fun decimals_aware_math_normalizes_mismatched_decimals() {
         // base 9 decimals, quote 6 decimals, price 1.0:
         // 1_000_000_000 base units (1.0 base) -> 1_000_000 quote units (1.0 quote)
@@ -63,6 +89,28 @@ module deepbook::deepbook_tests {
         assert!(base == 1_000_000_000, 25);
     }
 
+    #[test]
+    fun decimals_aware_math_quote_more_decimals_than_base() {
+        // base 6 decimals, quote 9 decimals, price 1.0:
+        // 1_000_000 base units (1.0 base) -> 1_000_000_000 quote units (1.0 quote)
+        let quote = calculate_quote_amount_with_decimals(1_000_000, 1_000_000_000, 6, 9);
+        assert!(quote == 1_000_000_000, 30);
+        let base = calculate_base_amount_with_decimals(1_000_000_000, 1_000_000_000, 6, 9);
+        assert!(base == 1_000_000, 31);
+    }
+
+    #[test]
+    fun decimals_aware_math_high_price() {
+        // price 100.0, base 9 decimals, quote 6 decimals
+        // 1 base unit -> 100 quote units
+        let quote = calculate_quote_amount_with_decimals(1_000_000_000, 100_000_000_000, 9, 6);
+        assert!(quote == 100_000_000, 32);
+        // 100 quote units -> 1 base unit
+        let base = calculate_base_amount_with_decimals(100_000_000, 100_000_000_000, 9, 6);
+        assert!(base == 1_000_000_000, 33);
+    }
+
+    // ---------- validate_quote_capacity ----------
     #[test]
     fun validate_quote_capacity_accepts_sane_orders() {
         validate_quote_capacity(1_000_000_000, 1_000_000, 9, 9);
@@ -76,6 +124,24 @@ module deepbook::deepbook_tests {
     }
 
     #[test]
+    #[expected_failure(abort_code = 1, location = deepbook::deepbook)] // E_INSUFFICIENT_LIQUIDITY: price 0 -> required quote 0
+    fun validate_quote_capacity_rejects_zero_price() {
+        validate_quote_capacity(0, 1_000_000, 9, 9);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 1, location = deepbook::deepbook)] // E_INSUFFICIENT_LIQUIDITY: quantity 0 -> required quote 0
+    fun validate_quote_capacity_rejects_zero_quantity() {
+        validate_quote_capacity(1_000_000_000, 0, 9, 9);
+    }
+
+    #[test]
+    fun validate_quote_capacity_large_order() {
+        validate_quote_capacity(1_000_000_000, 100_000_000_000, 9, 9);
+    }
+
+    // ---------- check_refund_overflow ----------
+    #[test]
     fun check_refund_overflow_passes_for_bounded_values() {
         check_refund_overflow(1_000_000, 1_000_000_000, 9, 9);
     }
@@ -85,5 +151,48 @@ module deepbook::deepbook_tests {
     fun check_refund_overflow_rejects_u64_blowout() {
         // unmatched * price far above u64 max after scaling.
         check_refund_overflow(18446744073709551615, 18446744073709551615, 0, 0);
+    }
+
+    #[test]
+    fun check_refund_overflow_zero_unmatched() {
+        check_refund_overflow(0, 1_000_000_000, 9, 9);
+    }
+
+    #[test]
+    fun check_refund_overflow_zero_price() {
+        check_refund_overflow(1_000_000, 0, 9, 9);
+    }
+
+    // ---------- Order book creation ----------
+    #[test]
+    fun create_order_book_returns_nonzero_address() {
+        let mut ctx = tx_context::dummy();
+        let addr = create_order_book_with_decimals<KANARI, USD>(30, 1000, 9, 6, &mut ctx);
+        assert!(addr != @0x0, 40);
+    }
+
+    #[test]
+    fun create_order_book_validates_fee_bps() {
+        let mut ctx = tx_context::dummy();
+        let addr = create_order_book_with_decimals<KANARI, USD>(50, 1000, 9, 6, &mut ctx);
+        assert!(addr != @0x0, 41);
+    }
+
+    #[test]
+    fun create_order_book_validates_depth() {
+        let mut ctx = tx_context::dummy();
+        let addr = create_order_book_with_decimals<KANARI, USD>(30, 1, 9, 6, &mut ctx);
+        assert!(addr != @0x0, 42);
+    }
+
+    #[test]
+    fun create_order_book_different_decimals() {
+        let mut ctx = tx_context::dummy();
+        // base 9, quote 6
+        let addr = create_order_book_with_decimals<KANARI, USD>(30, 1000, 9, 6, &mut ctx);
+        assert!(addr != @0x0, 43);
+        // base 6, quote 9
+        let addr2 = create_order_book_with_decimals<USD, KANARI>(30, 1000, 6, 9, &mut ctx);
+        assert!(addr2 != @0x0, 44);
     }
 }
