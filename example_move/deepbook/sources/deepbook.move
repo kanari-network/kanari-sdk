@@ -925,6 +925,46 @@ module deepbook::deepbook {
         a.id
     }
 
+    // Per-level accessors: UIs (kanariapp) read the book level-by-level because
+    // view-call results are BCS-decoded field-by-field; a whole `LimitOrder`
+    // struct would come back as raw bytes.
+
+    /// Helper: price for bid at index
+    public fun get_bid_price_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): u64 {
+        let b = vector::borrow(&book.bids, index);
+        b.price
+    }
+
+    /// Helper: remaining (unfilled) quantity for bid at index
+    public fun get_bid_remaining_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): u64 {
+        let b = vector::borrow(&book.bids, index);
+        b.quantity - b.filled
+    }
+
+    /// Helper: maker (owner) address for bid at index
+    public fun get_bid_maker_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): address {
+        let b = vector::borrow(&book.bids, index);
+        b.maker
+    }
+
+    /// Helper: price for ask at index
+    public fun get_ask_price_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): u64 {
+        let a = vector::borrow(&book.asks, index);
+        a.price
+    }
+
+    /// Helper: remaining (unfilled) quantity for ask at index
+    public fun get_ask_remaining_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): u64 {
+        let a = vector::borrow(&book.asks, index);
+        a.quantity - a.filled
+    }
+
+    /// Helper: maker (owner) address for ask at index
+    public fun get_ask_maker_at<Base, Quote>(book: &OrderBook<Base, Quote>, index: u64): address {
+        let a = vector::borrow(&book.asks, index);
+        a.maker
+    }
+
     /// Withdraw base fee from the book (internal, used by registry)
     public fun withdraw_fee_base<Base, Quote>(
         book: &mut OrderBook<Base, Quote>,

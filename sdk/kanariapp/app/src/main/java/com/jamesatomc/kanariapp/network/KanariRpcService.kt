@@ -45,4 +45,8 @@ interface KanariRpcService {
 
     @POST("rpc")
     suspend fun buildNftTransfer(@Body request: RpcRequest): RpcResponse<CallFunctionData>
+
+    // Generic call function builder for modules like deepbook
+    @POST("rpc")
+    suspend fun buildCallFunction(@Body request: RpcRequest): RpcResponse<CallFunctionData>
 }

@@ -22,7 +22,7 @@ import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
-    private val walletStorage = WalletStorage(application)
+    internal val walletStorage = WalletStorage(application)
 
     private val _wallets = MutableStateFlow<List<WalletRecord>>(emptyList())
     val wallets: StateFlow<List<WalletRecord>> = _wallets.asStateFlow()
@@ -45,7 +45,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _isLoading = MutableStateFlow(value = false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
+    internal val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private val _environment = MutableStateFlow(KanariEnvironment.dev)
@@ -57,7 +57,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private var _unlockedPin: String? = null
     val unlockedPin: String? get() = _unlockedPin
 
-    private var client = KanariClient(_environment.value)
+    internal var client = KanariClient(_environment.value)
     private var balanceRefreshGeneration = 0L
 
     private val prefs = application.getSharedPreferences("kanari_prefs", Context.MODE_PRIVATE)
@@ -520,7 +520,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun mapTransferError(raw: String): String {
+    internal fun mapTransferError(raw: String): String {
         val text = raw.lowercase(java.util.Locale.US)
         return when {
             text.contains("unexpected call_error") || text.contains("call_error") ->

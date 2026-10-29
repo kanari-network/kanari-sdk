@@ -17,7 +17,7 @@ import java.nio.ByteOrder
 // Requested gas price in Mist per gas unit. The active v3.1 gas model
 // discounts any requested price fivefold (floor 1), so the protocol
 // minimum request settles at an effective 1 Mist/unit.
-private const val DEFAULT_GAS_PRICE: ULong = 1uL
+internal const val DEFAULT_GAS_PRICE: ULong = 1uL
 
 class KanariClient(private val environment: KanariEnvironment) {
     private val json = Json {
@@ -234,7 +234,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         val hash: ByteArray,
     )
 
-    private data class TokenPrepared(
+    internal data class TokenPrepared(
         val normalized: CallFunctionData,
         val hash: ByteArray,
     )
@@ -322,7 +322,7 @@ class KanariClient(private val environment: KanariEnvironment) {
      * (`ExecuteFunction`) that is not yet signed. Works for both token
      * transfers and NFT transfers (`0x2::transfer::transfer<T>`).
      */
-    private fun prepareCallTx(
+    internal fun prepareCallTx(
         prepared: CallFunctionData,
     ): TokenPrepared {
         val nonce = prepared.nonce ?: throw Exception("Prepared token transfer missing nonce")
@@ -696,7 +696,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         }
     }
 
-    private fun hexToBytes(hex: String): ByteArray {
+    internal fun hexToBytes(hex: String): ByteArray {
         val s = hex.removePrefix("0x")
         val clean = if (s.length % 2 != 0) "0$s" else s
         val data = ByteArray(clean.length / 2)
@@ -712,7 +712,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         return buffer.array()
     }
 
-    private fun normalizeAddress(address: String): String {
+    internal fun normalizeAddress(address: String): String {
         // Do not normalize tagged addresses (contain ':') - they are Curve:hex strings.
         if (address.contains(":")) return address
         val clean = address.removePrefix("0x").lowercase()

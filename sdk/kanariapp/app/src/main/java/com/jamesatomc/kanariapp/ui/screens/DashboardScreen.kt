@@ -52,6 +52,7 @@ fun DashboardScreen(
     onNavigateToWalletGen: () -> Unit,
     onNavigateToNfts: () -> Unit,
     onNavigateToObjects: () -> Unit,
+    onNavigateToDeepBook: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
@@ -170,6 +171,23 @@ fun DashboardScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         onClick = onNavigateToObjects
+                    )
+                }
+            }
+
+            // DeepBook quick action (separate row below)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeader(title = "DEX")
+                    QuickServiceItem(
+                        icon = Icons.Default.TrendingUp,
+                        label = "DeepBook",
+                        containerColor = KanariColors.Lime,
+                        contentColor = KanariColors.Ink,
+                        onClick = onNavigateToDeepBook
                     )
                 }
             }

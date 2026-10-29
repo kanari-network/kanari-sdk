@@ -71,7 +71,7 @@ impl FaucetConfig {
         let cooldown_secs: u64 = std::env::var("FAUCET_COOLDOWN_SECS")
             .ok()
             .and_then(|value| value.parse().ok())
-            .unwrap_or(86_400);
+            .unwrap_or(5);
         // Per-IP cooldown defaults to the per-address cooldown. A farmer with
         // many addresses still hits this wall from a single network address.
         let ip_cooldown_secs: u64 = std::env::var("FAUCET_IP_COOLDOWN_SECS")
