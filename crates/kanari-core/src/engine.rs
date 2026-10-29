@@ -268,9 +268,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
         for (i, ch) in s.char_indices() {
             match ch {
                 '<' => depth += 1,
-                '>' => {
-                    depth = depth.saturating_sub(1);
-                }
+                '>' => depth = depth.saturating_sub(1),
                 ',' if depth == 0 => {
                     parts.push(s[start..i].trim());
                     start = i + 1;
@@ -278,66 +276,74 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
                 _ => {}
             }
         }
-        parts.push(s[start..].trim());
+        if start < s.len() {
+            parts.push(s[start..].trim());
+        }
         parts
     }
 
     let s = s.trim();
+
+    // Primitive types
     match s {
         "bool" => return Some(TypeTag::Bool),
         "u8" => return Some(TypeTag::U8),
+        "u16" => return Some(TypeTag::U16),
+        "u32" => return Some(TypeTag::U32),
         "u64" => return Some(TypeTag::U64),
         "u128" => return Some(TypeTag::U128),
+        "u256" => return Some(TypeTag::U256),
         "address" => return Some(TypeTag::Address),
+        "signer" => return Some(TypeTag::Signer),
         _ => {}
     }
 
-    if let Some(inner) = s.strip_prefix("vector<")
-        && let Some(inner) = inner.strip_suffix('>')
-    {
-        return parse_type_tag(inner).map(|t| TypeTag::Vector(Box::new(t)));
+    // Vector<T>
+    if let Some(inner) = s.strip_prefix("vector<").and_then(|s| s.strip_suffix('>')) {
+        return parse_type_tag(inner.trim()).map(|t| TypeTag::Vector(Box::new(t)));
     }
 
-    if s.contains("::") {
-        let parts = s.split("::").collect::<Vec<_>>();
-        if parts.len() >= 3 {
-            let addr_str = parts[0].trim();
-            let module_str = parts[1].trim();
-            let name_and_generics = parts[2..].join("::").trim().to_string();
+    // Struct: 0xaddr::module::Name<generics>
+    if let Some(addr_end) = s.find("::") {
+        let addr_str = s[..addr_end].trim();
+        let rest = &s[addr_end + 2..];
 
-            let (name_str, generics_opt) = if let Some(idx) = name_and_generics.find('<') {
-                if !name_and_generics.ends_with('>') || idx + 1 >= name_and_generics.len() {
+        if let Some(module_end) = rest.find("::") {
+            let module_str = rest[..module_end].trim();
+            let name_and_generics = rest[module_end + 2..].trim();
+
+            // Separate the struct name from the generics
+            let (name_str, generics_str) = if let Some(idx) = name_and_generics.find('<') {
+                if !name_and_generics.ends_with('>') {
                     return None;
                 }
-                let name = &name_and_generics[..idx];
+                let name = name_and_generics[..idx].trim();
                 let generics = &name_and_generics[idx + 1..name_and_generics.len() - 1];
-                (name.trim(), Some(generics))
+                (name, Some(generics))
             } else {
-                (name_and_generics.as_str(), None)
+                (name_and_generics, None)
             };
 
             let addr = KanariAddress::parse_to_account_address(addr_str).ok()?;
             let module_id = Identifier::new(module_str).ok()?;
             let name_id = Identifier::new(name_str).ok()?;
 
+            // Parse generics
             let mut type_params = Vec::new();
-            if let Some(r#gen) = generics_opt {
+            if let Some(r#gen) = generics_str {
                 for g in split_top_level_commas(r#gen) {
-                    if g.is_empty() {
-                        continue;
+                    if !g.is_empty() {
+                        type_params.push(parse_type_tag(g)?);
                     }
-                    let parsed = parse_type_tag(g)?;
-                    type_params.push(parsed);
                 }
             }
 
-            let st = StructTag {
+            return Some(TypeTag::Struct(Box::new(StructTag {
                 address: addr,
                 module: module_id,
                 name: name_id,
                 type_params,
-            };
-            return Some(TypeTag::Struct(Box::new(st)));
+            })));
         }
     }
 
