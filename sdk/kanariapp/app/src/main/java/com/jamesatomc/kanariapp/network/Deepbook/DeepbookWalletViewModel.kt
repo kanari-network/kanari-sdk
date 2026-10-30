@@ -9,10 +9,13 @@ import com.jamesatomc.kanariapp.network.buildDeepbookAsk
 import com.jamesatomc.kanariapp.network.buildDeepbookBid
 import com.jamesatomc.kanariapp.network.buildDeepbookCancel
 import com.jamesatomc.kanariapp.network.callViewFunction
+import com.jamesatomc.kanariapp.network.extractSymbol
+import com.jamesatomc.kanariapp.network.isCoinOfType
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_MODULE
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_PACKAGE_ID
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_ID
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_MODULE
+import com.jamesatomc.kanariapp.network.models.DeepbookBookInfo
 import com.jamesatomc.kanariapp.network.models.DeepbookOrderLevel
 import com.jamesatomc.kanariapp.network.models.TOKEN_KANARI
 import com.jamesatomc.kanariapp.network.models.TOKEN_USD
@@ -49,8 +52,12 @@ private suspend fun WalletViewModel.unlockedWallet(record: WalletRecord): Kanari
 
 /**
  * Resolve the payment/base coin for an order from the wallet's owned
- * objects: an explicitly provided coin id wins; otherwise the first coin
- * whose type contains [typeTag]; otherwise the first owned object.
+ * objects. An explicitly provided coin id wins; otherwise the first coin
+ * whose `Coin<T>` type parameter matches [typeTag] is used.
+ *
+ * There is deliberately no "first object" fallback: handing a coin of the
+ * wrong type to `place_bid`/`place_ask` only produces a node-side type error,
+ * so a missing coin is reported as `null` and the caller explains what to do.
  *
  * Only the object id is needed — the node infers version, digest and owner
  * for every object-parameter arg at build time.
@@ -59,14 +66,12 @@ private fun WalletViewModel.resolveTradeCoin(
     explicitCoinId: String,
     typeTag: String,
 ): String? {
-    val objects = accountInfo.value?.ownedObjects ?: emptyList()
-    val matched = if (explicitCoinId.isNotBlank()) {
-        objects.firstOrNull { it.id.equals(explicitCoinId, ignoreCase = true) }
-    } else {
-        objects.firstOrNull { it.type?.contains(typeTag, ignoreCase = true) == true }
-            ?: objects.firstOrNull()
-    }
-    return matched?.id ?: explicitCoinId.ifBlank { objects.firstOrNull()?.id }
+    if (explicitCoinId.isNotBlank()) return explicitCoinId
+
+    return accountInfo.value?.ownedObjects
+        .orEmpty()
+        .firstOrNull { isCoinOfType(it.getEffectiveType(), typeTag) }
+        ?.id
 }
 
 /** Shared success/failure handling for the three order operations. */
@@ -306,6 +311,47 @@ suspend fun WalletViewModel.getBookAddress(
 }
 
 /**
+ * Candidate pairs to check on-chain. Extend this list as new pairs are deployed.
+ * Each entry: (baseType, quoteType, baseDecimals, quoteDecimals)
+ * Symbols are derived automatically from type tags.
+ */
+private val DEEPBOOK_CANDIDATE_PAIRS = listOf(
+    Triple(
+        "0x2::kanari::KANARI", "0x2::usd::USD",
+        DeepbookBookInfo(
+            baseType = "0x2::kanari::KANARI",
+            quoteType = "0x2::usd::USD",
+            baseSymbol = extractSymbol("0x2::kanari::KANARI"),
+            quoteSymbol = extractSymbol("0x2::usd::USD"),
+            baseDecimals = 9,
+            quoteDecimals = 6
+        )
+    ),
+    Triple(
+        "0x2::eth::ETH", "0x2::usd::USD",
+        DeepbookBookInfo(
+            baseType = "0x2::eth::ETH",
+            quoteType = "0x2::usd::USD",
+            baseSymbol = extractSymbol("0x2::eth::ETH"),
+            quoteSymbol = extractSymbol("0x2::usd::USD"),
+            baseDecimals = 18,
+            quoteDecimals = 6
+        )
+    )
+    // Add more candidate pairs here
+)
+
+/**
+ * Discover which trading pairs have live order books by querying the registry.
+ * Returns only pairs that exist on-chain (book address is not null).
+ */
+suspend fun WalletViewModel.discoverDeepbookBooks(): List<DeepbookBookInfo> =
+    DEEPBOOK_CANDIDATE_PAIRS.mapNotNull { (baseType, quoteType, info) ->
+        val bookId = getBookAddress(DEEPBOOK_REGISTRY_ID, baseType, quoteType)
+        if (!bookId.isNullOrBlank()) info.copy(bookId = bookId) else null
+    }
+
+/**
  * Fetch one side of the order book level-by-level. Each level needs four
  * view calls (id, price, remaining, maker) because a whole `LimitOrder`
  * struct would come back as raw BCS bytes. Rows are fetched concurrently
@@ -325,26 +371,27 @@ suspend fun WalletViewModel.getOrderBookLevels(
     else getAskCount(bookId, baseType, quoteType)) ?: return emptyList()
 
     return (0 until minOf(count, maxLevels)).mapNotNull { index ->
+        val indexHex = client.u64ToHex(index.toULong())
         try {
             val id = client.callViewFunction(
                 DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_id_at",
                 listOf(baseType, quoteType),
-                listOf(JsonPrimitive(bookId), JsonPrimitive(index.toLong()))
+                listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val price = client.callViewFunction(
                 DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_price_at",
                 listOf(baseType, quoteType),
-                listOf(JsonPrimitive(bookId), JsonPrimitive(index.toLong()))
+                listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val remaining = client.callViewFunction(
                 DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_remaining_at",
                 listOf(baseType, quoteType),
-                listOf(JsonPrimitive(bookId), JsonPrimitive(index.toLong()))
+                listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val maker = client.callViewFunction(
                 DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_maker_at",
                 listOf(baseType, quoteType),
-                listOf(JsonPrimitive(bookId), JsonPrimitive(index.toLong()))
+                listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewAddress() ?: return@mapNotNull null
             DeepbookOrderLevel(orderId = id, price = price, remaining = remaining, maker = maker)
         } catch (_: Exception) {

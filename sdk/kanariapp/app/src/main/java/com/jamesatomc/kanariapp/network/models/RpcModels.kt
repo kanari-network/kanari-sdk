@@ -25,3 +25,16 @@ data class RpcRequest(
     val jsonrpc: String = "2.0",
     val id: Long = System.currentTimeMillis()
 )
+
+@Serializable
+data class OwnedObjectsResponse(
+    val objects: List<ObjectInfo> = emptyList(),
+    val summary: OwnerObjectSummary? = null
+)
+
+@Serializable
+data class OwnerObjectSummary(
+    val owner: String,
+    val total_objects: Int,
+    val object_changes_hint: String
+)

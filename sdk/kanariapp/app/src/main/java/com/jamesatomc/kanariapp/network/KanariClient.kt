@@ -133,6 +133,23 @@ class KanariClient(private val environment: KanariEnvironment) {
     }
 
     /**
+     * Query all objects matching an exact type string (`kanari_getObjectsByType`).
+     * Use the fully-qualified type including generic parameters, e.g.
+     * `0x3ba6...::deepbook::OrderBook<0x2::kanari::KANARI, 0x2::usd::USD>`.
+     */
+    suspend fun getObjectsByType(objectType: String): List<ObjectInfo> {
+        val request = RpcRequest(
+            method = "kanari_getObjectsByType",
+            params = buildJsonObject {
+                put("object_type", objectType)
+            }
+        )
+        val response = rpcService.getObjectsByType(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result?.objects ?: emptyList()
+    }
+
+    /**
      * Build the NFT transfer: the server resolves the NFT object
      * input, gas payment, nonce, and canonical call. Object arguments are
      * resolved through `object_inputs` and must remain empty BCS slots.
@@ -710,6 +727,12 @@ class KanariClient(private val environment: KanariEnvironment) {
         val buffer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putLong(value.toLong())
         return buffer.array()
+    }
+
+    internal fun u64ToHex(value: ULong): String {
+        val buffer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.putLong(value.toLong())
+        return "0x${buffer.array().joinToString("") { "%02x".format(it) }}"
     }
 
     internal fun normalizeAddress(address: String): String {

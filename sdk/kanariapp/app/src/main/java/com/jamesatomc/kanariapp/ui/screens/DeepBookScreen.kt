@@ -25,9 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_ORDER_TYPES
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_ID
+import com.jamesatomc.kanariapp.network.models.DeepbookBookInfo
 import com.jamesatomc.kanariapp.network.models.DeepbookOrderLevel
 import com.jamesatomc.kanariapp.network.models.TOKEN_KANARI
 import com.jamesatomc.kanariapp.network.models.TOKEN_USD
+import com.jamesatomc.kanariapp.network.typeTagsEqual
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
@@ -35,12 +37,17 @@ import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import com.jamesatomc.kanariapp.wallet.cancelDeepbookOrder
+import com.jamesatomc.kanariapp.wallet.discoverDeepbookBooks
+import com.jamesatomc.kanariapp.wallet.getAskCount
+import com.jamesatomc.kanariapp.wallet.getBidCount
 import com.jamesatomc.kanariapp.wallet.getBookAddress
 import com.jamesatomc.kanariapp.wallet.getOrderBookLevels
 import com.jamesatomc.kanariapp.wallet.placeAsk
 import com.jamesatomc.kanariapp.wallet.placeBid
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.pow
 
 // PRICE_SCALE of the on-chain module: price is stored as quote * 10^9 / base.
 private const val PRICE_SCALE = 1_000_000_000.0
@@ -59,14 +66,24 @@ fun DeepBookScreen(
     val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
     val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
 
-    // --- Dynamic Trading Pair ---
-    var baseType by remember { mutableStateOf(TOKEN_KANARI) }
-    var quoteType by remember { mutableStateOf(TOKEN_USD) }
-    val baseSymbol = remember(baseType) { baseType.split("::").lastOrNull() ?: "BASE" }
-    val quoteSymbol = remember(quoteType) { quoteType.split("::").lastOrNull() ?: "QUOTE" }
+    // --- Discovered Books (dropdown, Book ID selector) ---
+    var discoveredBooks by remember { mutableStateOf<List<DeepbookBookInfo>>(emptyList()) }
+    var selectedBook by remember { mutableStateOf<DeepbookBookInfo?>(null) }
+    var bookDropdownExpanded by remember { mutableStateOf(false) }
+    var discoveringBooks by remember { mutableStateOf(false) }
+
+    // Derived from selected book (or defaults if none selected)
+    val baseType = selectedBook?.baseType ?: TOKEN_KANARI
+    val quoteType = selectedBook?.quoteType ?: TOKEN_USD
+    val baseSymbol = selectedBook?.baseSymbol ?: "KANARI"
+    val quoteSymbol = selectedBook?.quoteSymbol ?: "USD"
+    val baseDecimals = selectedBook?.baseDecimals ?: 9
+    val quoteDecimals = selectedBook?.quoteDecimals ?: 6
+
+    // bookId is driven by selected book
+    val bookId = selectedBook?.bookId ?: ""
 
     // --- Order form state ---
-    var bookId by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
     var orderTypeIndex by remember { mutableStateOf(0) }
@@ -84,35 +101,75 @@ fun DeepBookScreen(
             ?.lowercase()?.padStart(64, '0')
     }
 
+    // Loads both depth sides. Deliberately leaves `orderResult` alone so a
+    // caller's success message (e.g. "Bid submitted") is not overwritten.
     val refreshOrderBook = {
         scope.launch {
             bidLevels = viewModel.getOrderBookLevels(bookId, isBid = true, MAX_BOOK_LEVELS, baseType, quoteType)
             askLevels = viewModel.getOrderBookLevels(bookId, isBid = false, MAX_BOOK_LEVELS, baseType, quoteType)
-            orderResult = "Order book refreshed"
         }
     }
 
-    // Dynamically fetch bookId from the registry view function whenever the
-    // trading pair changes, then load the book.
-    LaunchedEffect(baseType, quoteType) {
-        val fetched = viewModel.getBookAddress(DEEPBOOK_REGISTRY_ID, baseType, quoteType)
-        if (!fetched.isNullOrBlank()) {
-            bookId = fetched
-            orderResult = "Book address discovered from registry"
-        } else {
-            orderResult = "Book address not found in registry"
+    // Discover books on chain when "Discover" is pressed
+    val discoverBooks = {
+        discoveringBooks = true
+        scope.launch {
+            val books = viewModel.discoverDeepbookBooks()
+            discoveredBooks = books
+            // Auto-select first book if available
+            if (books.isNotEmpty() && selectedBook == null) {
+                selectedBook = books[0]
+            }
+            discoveringBooks = false
         }
-        refreshOrderBook()
+    }
+
+    // Auto-discover books on initial load
+    LaunchedEffect(Unit) {
+        discoverBooks()
+    }
+
+    // Refresh depth when book selection changes
+    LaunchedEffect(selectedBook) {
+        if (selectedBook != null) {
+            refreshOrderBook()
+        }
+    }
+
+    // Keep the depth view in sync with the chain. A placed order is submitted
+    // as pending and only becomes visible after it commits, so poll the two
+    // counts (cheap view calls) and reload the levels only when the book
+    // actually changed.
+    LaunchedEffect(bookId, baseType, quoteType) {
+        if (bookId.isBlank()) return@LaunchedEffect
+        var lastBid: Int? = null
+        var lastAsk: Int? = null
+        while (true) {
+            val bidCount = viewModel.getBidCount(bookId, baseType, quoteType)
+            val askCount = viewModel.getAskCount(bookId, baseType, quoteType)
+            if (bidCount != null && askCount != null &&
+                (bidCount != lastBid || askCount != lastAsk)
+            ) {
+                lastBid = bidCount
+                lastAsk = askCount
+                bidLevels = viewModel.getOrderBookLevels(bookId, isBid = true, MAX_BOOK_LEVELS, baseType, quoteType)
+                askLevels = viewModel.getOrderBookLevels(bookId, isBid = false, MAX_BOOK_LEVELS, baseType, quoteType)
+            }
+            delay(4_000)
+        }
     }
 
     val orderType = DEEPBOOK_ORDER_TYPES[orderTypeIndex].value
 
-    // Available balance for base token
+    // Available balance for base token (decimals from selected pair)
     val baseBalance = remember(tokenBalances, baseType) {
-        tokenBalances.find { it.tokenType.equals(baseType, ignoreCase = true) }?.getEffectiveAmount() ?: 0L
+        tokenBalances.find { typeTagsEqual(it.tokenType, baseType) }?.getEffectiveAmount() ?: 0L
     }
-    val baseDecimals = remember(tokenBalances, baseType) {
-        tokenBalances.find { it.tokenType.equals(baseType, ignoreCase = true) }?.decimals ?: 9
+
+    // Quote balance — bids are paid in the quote token (USD), so a wallet
+    // without it can never place a bid.
+    val quoteBalance = remember(tokenBalances, quoteType) {
+        tokenBalances.find { typeTagsEqual(it.tokenType, quoteType) }?.getEffectiveAmount() ?: 0L
     }
 
     ScaffoldWithBackBar(title = "DeepBook", onBack = onBack) { padding ->
@@ -124,13 +181,62 @@ fun DeepBookScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Trade on the CLOB", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
+            // Active Wallet Indicator
+            activeWallet?.let { wallet ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                wallet.name ?: "Wallet",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                "${wallet.address?.take(8) ?: ""}...${wallet.address?.takeLast(8) ?: ""}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                "Base: ${formatAmountExactOrUnknown(baseBalance, baseDecimals)} $baseSymbol",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (baseBalance > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                "Quote: ${formatAmountExactOrUnknown(quoteBalance, quoteDecimals)} $quoteSymbol",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (quoteBalance > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
 
             // Registry Status Banner
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -138,19 +244,20 @@ fun DeepBookScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Text("Registry & Order Book Discovery", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                    }
-                    OutlinedButton(
-                        onClick = { refreshOrderBook() },
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Refresh", style = MaterialTheme.typography.labelSmall)
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            "Registry & Order Book Discovery",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                        )
                     }
                 }
             }
@@ -163,7 +270,6 @@ fun DeepBookScreen(
                 askLevels = askLevels,
                 myAddress = myAddress,
                 baseDecimals = baseDecimals,
-                onRefresh = { refreshOrderBook() },
                 onCancelOrder = { orderId ->
                     scope.launch {
                         val ok = viewModel.cancelDeepbookOrder(bookId, orderId, baseType, quoteType)
@@ -181,34 +287,93 @@ fun DeepBookScreen(
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-                    // Row 1: Base Type & Quote Type Inputs + Side Selector (Buy/Sell)
+                    // Row 1: Book ID Dropdown + Side Selector (Buy/Sell)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1.3f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Base Type", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                            OutlinedTextField(
-                                value = baseType,
-                                onValueChange = { baseType = it.trim() },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Order Book",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                                OutlinedButton(
+                                    onClick = { discoverBooks() },
+                                    enabled = !discoveringBooks,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    if (discoveringBooks) {
+                                        androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp))
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Discover", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            ExposedDropdownMenuBox(
+                                expanded = bookDropdownExpanded,
+                                onExpandedChange = { bookDropdownExpanded = it },
                                 modifier = Modifier.fillMaxWidth()
-                            )
-                            Text("Quote Type", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                            OutlinedTextField(
-                                value = quoteType,
-                                onValueChange = { quoteType = it.trim() },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedBook?.displayLabel ?: "Select a book…",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    singleLine = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = bookDropdownExpanded) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.menuAnchor(
+                                        type = ExposedDropdownMenuAnchorType.PrimaryEditable,
+                                        enabled = true
+                                    ).fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = bookDropdownExpanded,
+                                    onDismissRequest = { bookDropdownExpanded = false }
+                                ) {
+                                    discoveredBooks.forEach { book ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    book.displayLabel,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            },
+                                            onClick = {
+                                                selectedBook = book
+                                                bookDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                         Column(Modifier.weight(1f)) {
-                            Text("Side", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            Text(
+                                "Side",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
                             Spacer(Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(116.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(12.dp))
+                                    .height(56.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        RoundedCornerShape(12.dp)
+                                    )
                                     .padding(4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -244,33 +409,132 @@ fun DeepBookScreen(
                         }
                     }
 
-                    // Selected Pair Book ID Box
+                    // Selected Pair & Book ID Box
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(12.dp)) {
-                            Text(
-                                "Discovered Pair: $baseSymbol / $quoteSymbol",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                "Book ID: ${bookId.ifEmpty { "(discovering…)" }}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    selectedBook?.let { book ->
+                                        Text(
+                                            "Book: ${book.baseSymbol} / ${book.quoteSymbol}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            "ID: ${book.bookId}",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    } ?: run {
+                                        Text(
+                                            "No book selected",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Wallet Capability Check
+                    activeWallet?.let { wallet ->
+                        val canBid = quoteBalance > 0
+                        val canAsk = baseBalance > 0
+                        val hasGas = tokenBalances.any {
+                            typeTagsEqual(
+                                it.tokenType,
+                                TOKEN_KANARI
+                            ) && it.getEffectiveAmount() > 0
+                        }
+                        if (!canBid || !canAsk || !hasGas) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.WarningAmber,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            "Wallet Limitations",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    if (!canBid) {
+                                        Text(
+                                            "✕ Cannot Bid — need $quoteSymbol (have ${
+                                                formatAmountExactOrUnknown(
+                                                    quoteBalance,
+                                                    quoteDecimals
+                                                )
+                                            })",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                    if (!canAsk) {
+                                        Text(
+                                            "✕ Cannot Ask — need $baseSymbol (have ${
+                                                formatAmountExactOrUnknown(
+                                                    baseBalance,
+                                                    baseDecimals
+                                                )
+                                            })",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                    if (!hasGas) {
+                                        Text(
+                                            "✕ Cannot Pay Gas — need KANARI for gas",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                    Text(
+                                        "Switch wallet in Dashboard or claim devnet tokens",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
                         }
                     }
 
                     // Order Type
                     Column {
-                        Text("Order Type", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                        Text(
+                            "Order Type",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                         Spacer(Modifier.height(4.dp))
                         ExposedDropdownMenuBox(
                             expanded = dropdownExpanded,
@@ -283,7 +547,10 @@ fun DeepBookScreen(
                                 readOnly = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryEditable, enabled = true).fillMaxWidth()
+                                modifier = Modifier.menuAnchor(
+                                    type = ExposedDropdownMenuAnchorType.PrimaryEditable,
+                                    enabled = true
+                                ).fillMaxWidth()
                             )
                             ExposedDropdownMenu(
                                 expanded = dropdownExpanded,
@@ -305,7 +572,10 @@ fun DeepBookScreen(
                     // Price + Quantity Row
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
-                            Text("Price (human)", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            Text(
+                                "Price (human)",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
                             Spacer(Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = price,
@@ -317,7 +587,10 @@ fun DeepBookScreen(
                             )
                         }
                         Column(Modifier.weight(1f)) {
-                            Text("Quantity (base)", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            Text(
+                                "Quantity (base)",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
                             Spacer(Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = quantity,
@@ -375,15 +648,37 @@ fun DeepBookScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("Preview Quote", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Preview Quote",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(Modifier.height(2.dp))
                             val p = price.toDoubleOrNull() ?: 0.0
                             val q = quantity.toDoubleOrNull() ?: 0.0
                             val estimatedQuote = if (p > 0 && q > 0) p * q else 0.0
                             Text(
-                                text = if (estimatedQuote > 0) "~${String.format(Locale.US, "%.4f", estimatedQuote)} $quoteSymbol" else "-",
+                                text = if (estimatedQuote > 0) "~${
+                                    String.format(
+                                        Locale.US,
+                                        "%.4f",
+                                        estimatedQuote
+                                    )
+                                } $quoteSymbol" else "-",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Pay with: ${
+                                    formatAmountExactOrUnknown(
+                                        quoteBalance,
+                                        quoteDecimals
+                                    )
+                                } $quoteSymbol",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (quoteBalance > 0) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.error
                             )
                         }
                     }
@@ -410,6 +705,24 @@ fun DeepBookScreen(
                                 val q = parseAmountToMist(quantity, baseDecimals) ?: run {
                                     orderResult = "Invalid quantity"; return@launch
                                 }
+                                // Fail fast on a balance the VM would reject anyway:
+                                // a bid is paid in the quote token, an ask must be
+                                // backed by base tokens.
+                                if (isBidSide) {
+                                    val needed = priceDouble * (quantity.toDoubleOrNull() ?: 0.0)
+                                    val available = quoteBalance.toDouble() / 10.0.pow(quoteDecimals)
+                                    if (needed > available) {
+                                        orderResult = "Not enough $quoteSymbol for this bid — " +
+                                                "need ~${String.format(Locale.US, "%.4f", needed)} $quoteSymbol, " +
+                                                "have ${formatAmountExactOrUnknown(quoteBalance, quoteDecimals)}. " +
+                                                "Claim devnet USD from the faucet first."
+                                        return@launch
+                                    }
+                                } else if (q > baseBalance.toULong()) {
+                                    orderResult = "Not enough $baseSymbol — have " +
+                                            "${formatAmountExactOrUnknown(baseBalance, baseDecimals)} $baseSymbol"
+                                    return@launch
+                                }
                                 // Pass the order TYPE VALUE (0..3), not the list index.
                                 val ok = if (isBidSide) {
                                     viewModel.placeBid(book, p, q, "", orderType, baseType, quoteType)
@@ -417,7 +730,8 @@ fun DeepBookScreen(
                                     viewModel.placeAsk(book, p, q, "", orderType, baseType, quoteType)
                                 }
                                 orderResult = if (ok) {
-                                    if (isBidSide) "Bid placed successfully" else "Ask placed successfully"
+                                    if (isBidSide) "Bid submitted — waiting for commit"
+                                    else "Ask submitted — waiting for commit"
                                 } else {
                                     viewModel.error.value
                                 }
@@ -438,7 +752,10 @@ fun DeepBookScreen(
 
             // Result banner
             orderResult?.let { result ->
-                val isSuccess = result.contains("successfully", ignoreCase = true) || result.contains("refreshed", ignoreCase = true)
+                val isSuccess = result.contains("successfully", ignoreCase = true) || result.contains(
+                    "refreshed",
+                    ignoreCase = true
+                )
                 Surface(
                     color = if (isSuccess) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
                     shape = RoundedCornerShape(12.dp),
@@ -464,7 +781,6 @@ fun OrderBookSection(
     askLevels: List<DeepbookOrderLevel>,
     myAddress: String?,
     baseDecimals: Int,
-    onRefresh: () -> Unit,
     onCancelOrder: (ULong) -> Unit
 ) {
     Card(
@@ -480,17 +796,11 @@ fun OrderBookSection(
             ) {
                 Column {
                     Text("Order Book", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    Text("$baseSymbol / $quoteSymbol", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                OutlinedButton(
-                    onClick = onRefresh,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Refresh", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "$baseSymbol / $quoteSymbol",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -537,7 +847,11 @@ private fun OrderBookColumn(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Box(Modifier.size(8.dp).background(dot, CircleShape))
-            Text("$title - ${levels.size}", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = accent)
+            Text(
+                "$title - ${levels.size}",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = accent
+            )
         }
         if (levels.isEmpty()) {
             Surface(
@@ -546,7 +860,11 @@ private fun OrderBookColumn(
                 modifier = Modifier.fillMaxWidth().height(76.dp)
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(emptyText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        emptyText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         } else {
@@ -555,11 +873,20 @@ private fun OrderBookColumn(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Qty", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Price",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Qty",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             levels.forEach { level ->
-                val isMine = myAddress != null && level.maker.equals(myAddress, ignoreCase = true)
+                val isMine = myAddress != null && level.maker.removePrefix("0x").removePrefix("0X")
+                    .equals(myAddress, ignoreCase = true)
                 Surface(
                     color = if (isMine) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                     else MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -583,7 +910,10 @@ private fun OrderBookColumn(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text(
                                 formatAmountExactOrUnknown(level.remaining.toLong(), baseDecimals),
                                 style = MaterialTheme.typography.labelMedium
