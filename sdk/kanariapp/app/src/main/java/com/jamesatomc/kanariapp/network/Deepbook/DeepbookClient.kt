@@ -6,7 +6,7 @@ package com.jamesatomc.kanariapp.network
 import android.util.Log
 import com.jamesatomc.kanariapp.network.models.CallFunctionData
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_MODULE
-import com.jamesatomc.kanariapp.network.models.DEEPBOOK_PACKAGE_ID
+import com.jamesatomc.kanariapp.network.models.DeepbookTradeArgumentOrder
 import com.jamesatomc.kanariapp.network.models.RpcRequest
 import com.jamesatomc.kanariapp.network.models.TransactionResult
 import com.jamesatomc.kanariapp.wallet.KanariWallet
@@ -42,6 +42,15 @@ private fun bcsEncodeU64(value: Long): List<Int> {
 /** BCS-encode a u8 as a single byte. */
 private fun bcsEncodeU8(value: Int): List<Int> = listOf(value and 0xFF)
 
+private fun orderedTradeAmounts(
+    price: ULong,
+    quantity: ULong,
+    order: DeepbookTradeArgumentOrder
+): List<ULong> = when (order) {
+    DeepbookTradeArgumentOrder.PRICE_THEN_QUANTITY -> listOf(price, quantity)
+    DeepbookTradeArgumentOrder.QUANTITY_THEN_PRICE -> listOf(quantity, price)
+}
+
 /**
  * Build a `place_bid<Base, Quote>` call for the deepbook module.
  * Returns normalized [CallFunctionData] ready for signing via
@@ -53,6 +62,7 @@ private fun bcsEncodeU8(value: Int): List<Int> = listOf(value and 0xFF)
  */
 suspend fun KanariClient.buildDeepbookBid(
     sender: String,
+    packageId: String,
     bookId: String,
     price: ULong,
     quantity: ULong,
@@ -60,7 +70,8 @@ suspend fun KanariClient.buildDeepbookBid(
     orderType: Int,
     baseType: String,
     quoteType: String,
-    gasLimit: ULong = 100000uL,
+    tradeArgumentOrder: DeepbookTradeArgumentOrder,
+    gasLimit: ULong = DEFAULT_GAS_LIMIT,
     gasPrice: ULong = DEFAULT_GAS_PRICE
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
@@ -73,7 +84,7 @@ suspend fun KanariClient.buildDeepbookBid(
         method = "kanari_buildCallFunction",
         params = buildJsonObject {
             put("sender", normalizedSender)
-            put("package", DEEPBOOK_PACKAGE_ID)
+            put("package", normalizeAddress(packageId))
             put("module", DEEPBOOK_MODULE)
             put("function", "place_bid")
             put("type_args", buildJsonArray {
@@ -82,8 +93,9 @@ suspend fun KanariClient.buildDeepbookBid(
             })
             put("args", buildJsonArray {
                 add(buildJsonArray { addAll(hexToBytes(normalizedBookId).map { it.toInt() and 0xFF }) })
-                add(buildJsonArray { addAll(bcsEncodeU64(price.toLong())) })
-                add(buildJsonArray { addAll(bcsEncodeU64(quantity.toLong())) })
+                orderedTradeAmounts(price, quantity, tradeArgumentOrder).forEach { amount ->
+                    add(buildJsonArray { addAll(bcsEncodeU64(amount.toLong())) })
+                }
                 add(buildJsonArray { addAll(hexToBytes(normalizedPaymentCoin).map { it.toInt() and 0xFF }) })
                 add(buildJsonArray { addAll(bcsEncodeU8(orderType)) })
             })
@@ -102,6 +114,7 @@ suspend fun KanariClient.buildDeepbookBid(
  */
 suspend fun KanariClient.buildDeepbookAsk(
     sender: String,
+    packageId: String,
     bookId: String,
     price: ULong,
     quantity: ULong,
@@ -109,7 +122,8 @@ suspend fun KanariClient.buildDeepbookAsk(
     orderType: Int,
     baseType: String,
     quoteType: String,
-    gasLimit: ULong = 100000uL,
+    tradeArgumentOrder: DeepbookTradeArgumentOrder,
+    gasLimit: ULong = DEFAULT_GAS_LIMIT,
     gasPrice: ULong = DEFAULT_GAS_PRICE
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
@@ -122,7 +136,7 @@ suspend fun KanariClient.buildDeepbookAsk(
         method = "kanari_buildCallFunction",
         params = buildJsonObject {
             put("sender", normalizedSender)
-            put("package", DEEPBOOK_PACKAGE_ID)
+            put("package", normalizeAddress(packageId))
             put("module", DEEPBOOK_MODULE)
             put("function", "place_ask")
             put("type_args", buildJsonArray {
@@ -131,8 +145,9 @@ suspend fun KanariClient.buildDeepbookAsk(
             })
             put("args", buildJsonArray {
                 add(buildJsonArray { addAll(hexToBytes(normalizedBookId).map { it.toInt() and 0xFF }) })
-                add(buildJsonArray { addAll(bcsEncodeU64(price.toLong())) })
-                add(buildJsonArray { addAll(bcsEncodeU64(quantity.toLong())) })
+                orderedTradeAmounts(price, quantity, tradeArgumentOrder).forEach { amount ->
+                    add(buildJsonArray { addAll(bcsEncodeU64(amount.toLong())) })
+                }
                 add(buildJsonArray { addAll(hexToBytes(normalizedBaseCoin).map { it.toInt() and 0xFF }) })
                 add(buildJsonArray { addAll(bcsEncodeU8(orderType)) })
             })
@@ -151,11 +166,12 @@ suspend fun KanariClient.buildDeepbookAsk(
  */
 suspend fun KanariClient.buildDeepbookCancel(
     sender: String,
+    packageId: String,
     bookId: String,
     orderId: ULong,
     baseType: String,
     quoteType: String,
-    gasLimit: ULong = 100000uL,
+    gasLimit: ULong = DEFAULT_GAS_LIMIT,
     gasPrice: ULong = DEFAULT_GAS_PRICE
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
@@ -167,7 +183,7 @@ suspend fun KanariClient.buildDeepbookCancel(
         method = "kanari_buildCallFunction",
         params = buildJsonObject {
             put("sender", normalizedSender)
-            put("package", DEEPBOOK_PACKAGE_ID)
+            put("package", normalizeAddress(packageId))
             put("module", DEEPBOOK_MODULE)
             put("function", "cancel_order")
             put("type_args", buildJsonArray {

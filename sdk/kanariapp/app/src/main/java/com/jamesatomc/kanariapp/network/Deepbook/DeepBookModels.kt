@@ -57,8 +57,8 @@ data class DeepbookBookInfo(
     val bookId: String = "",
     @SerialName("base_type") val baseType: String,
     @SerialName("quote_type") val quoteType: String,
-    @SerialName("fee_bps") val feeBps: Int = 30,
-    @SerialName("max_depth") val maxDepth: Int = 100,
+    @SerialName("fee_bps") val feeBps: Int? = null,
+    @SerialName("max_depth") val maxDepth: Int? = null,
     @SerialName("base_decimals") val baseDecimals: Int,
     @SerialName("quote_decimals") val quoteDecimals: Int,
     val baseSymbol: String = "",
@@ -89,14 +89,9 @@ data class DeepbookOrderLevel(
     val maker: String
 )
 
-const val DEEPBOOK_PACKAGE_ID = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146"
-const val DEEPBOOK_REGISTRY_ID = "0x1a705fb22b3207db4c25873a7db45e2eb0f4b2d11eea919f33dc51bbd662837e"
 const val DEEPBOOK_MODULE = "deepbook"
 
 // Registry functions (`get_book_address`, book creation, fee admin) live in
 // the separate `registry` module since the deepbook/registry split.
 const val DEEPBOOK_REGISTRY_MODULE = "registry"
 
-// Common token types for deepbook trading pairs
-const val TOKEN_KANARI = "0x2::kanari::KANARI"
-const val TOKEN_USD = "0x2::usd::USD"

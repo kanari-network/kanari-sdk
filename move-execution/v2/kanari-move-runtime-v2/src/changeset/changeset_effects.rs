@@ -62,10 +62,19 @@ impl ChangeSet {
         self.move_writes.insert(key, value);
     }
 
-    /// Records an object deletion by its canonical ID.
+    /// Records an object deletion by canonical ID. A deletion overrides any
+    /// earlier writeback of the same object in this changeset.
     pub fn add_deleted_object(&mut self, object_id: String) {
-        self.deleted_objects
-            .push(Self::canonicalize_object_id(&object_id));
+        let canonical_id = Self::canonicalize_object_id(&object_id);
+        self.created_objects
+            .retain(|(created_id, _)| Self::canonicalize_object_id(created_id) != canonical_id);
+        if !self
+            .deleted_objects
+            .iter()
+            .any(|deleted_id| deleted_id == &canonical_id)
+        {
+            self.deleted_objects.push(canonical_id);
+        }
     }
 
     /// Records a treasury cap creation or update for a token type.

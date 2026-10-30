@@ -322,7 +322,7 @@ impl Publish {
                         && retry_count < MAX_PUBLISH_GAS_RETRIES =>
                 {
                     retry_count += 1;
-                    if retry_count == 1 || retry_count % RETRY_LOG_INTERVAL == 0 {
+                    if retry_count == 1 || retry_count.is_multiple_of(RETRY_LOG_INTERVAL) {
                         eprintln!(
                             "     Waiting for spendable gas coin to become available (retry {}/{})...",
                             retry_count, MAX_PUBLISH_GAS_RETRIES

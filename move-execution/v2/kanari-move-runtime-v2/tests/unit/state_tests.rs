@@ -1222,6 +1222,60 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
 }
 
 #[test]
+fn native_coin_incoming_transfer_updates_recipient_ledger_with_prior_coins() -> Result<()> {
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let bob = AccountAddress::from_hex_literal("0x2222")?;
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(GAS_COIN)?;
+    let alice_amount = 100_000_000_000u64;
+    let bob_amount = 1_100_000_000u64;
+    set_native_supply_for_test(&mut state, base.total_supply + alice_amount + bob_amount)?;
+
+    let coin_type = format!("0x2::coin::Coin<{}>", GAS_COIN);
+    let mut setup = ChangeSet::new();
+    setup.created_objects.push((
+        "0xaaaa".to_string(),
+        address_owned_object(
+            alice,
+            coin_type.clone(),
+            coin_object_data([0xaau8; UID_SIZE], alice_amount),
+            1,
+        ),
+    ));
+    setup.created_objects.push((
+        "0xbbbb".to_string(),
+        address_owned_object(
+            bob,
+            coin_type.clone(),
+            coin_object_data([0xbbu8; UID_SIZE], bob_amount),
+            1,
+        ),
+    ));
+    state.apply_changeset(&setup)?;
+
+    let mut transfer = ChangeSet::new();
+    transfer.add_deleted_object("0xaaaa".to_string());
+    transfer.created_objects.push((
+        "0xcccc".to_string(),
+        address_owned_object(
+            bob,
+            coin_type,
+            coin_object_data([0xccu8; UID_SIZE], alice_amount),
+            1,
+        ),
+    ));
+    state.apply_changeset(&transfer)?;
+
+    assert_eq!(
+        state.resolve_owner_native_balance(bob)?,
+        bob_amount + alice_amount
+    );
+    assert_eq!(state.resolve_owner_native_balance(alice)?, 0);
+    state.validate_supply_invariants()?;
+    Ok(())
+}
+
+#[test]
 fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
     let alice = AccountAddress::from_hex_literal("0x1111")?;
     let bob = AccountAddress::from_hex_literal("0x2222")?;
@@ -1656,6 +1710,106 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
     assert_eq!(summary.untracked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
 
+    Ok(())
+}
+
+#[test]
+fn deleting_coin_discards_its_prior_mutable_writeback() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let mut changeset = ChangeSet::new();
+    changeset.created_objects.push((
+        "0xc001".to_string(),
+        address_owned_object(
+            owner,
+            "0x2::coin::Coin<0x2::usd::USD>".to_string(),
+            coin_object_data([1u8; UID_SIZE], 10),
+            2,
+        ),
+    ));
+
+    changeset.add_deleted_object("0xc001".to_string());
+
+    assert!(changeset.created_objects.is_empty());
+    assert_eq!(changeset.deleted_objects.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn apply_changeset_rejects_non_native_token_supply_overcount_atomically() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let token_type = "0x2::usd::USD";
+    let cap_type = format!("0x2::coin::TreasuryCap<{}>", token_type);
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+    let mut state = StateManager::new_in_memory();
+
+    let mut setup = ChangeSet::new();
+    setup.created_objects.push((
+        "0xcafe".to_string(),
+        address_owned_object(owner, cap_type, coin_object_data([0u8; UID_SIZE], 100), 1),
+    ));
+    setup.created_objects.push((
+        "0xbeef".to_string(),
+        address_owned_object(
+            owner,
+            coin_type.clone(),
+            coin_object_data([1u8; UID_SIZE], 100),
+            1,
+        ),
+    ));
+    state.apply_changeset(&setup)?;
+
+    let mut over_mint = ChangeSet::new();
+    over_mint.created_objects.push((
+        "0xbad1".to_string(),
+        address_owned_object(owner, coin_type, coin_object_data([2u8; UID_SIZE], 1), 1),
+    ));
+    let error = state
+        .apply_changeset(&over_mint)
+        .expect_err("non-native supply overcount must be rejected");
+
+    assert!(
+        error
+            .to_string()
+            .contains("fungible token supply overcount")
+    );
+    assert!(state.get_object("0xbad1")?.is_none());
+    assert_eq!(state.resolve_owner_token_balance(owner, token_type)?, 100);
+    Ok(())
+}
+
+#[test]
+fn generic_supply_validation_counts_locked_token_records() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let token_type = "0x2::usdc::USDC";
+    let cap_type = format!("0x2::coin::TreasuryCap<{}>", token_type);
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+    let mut state = StateManager::new_in_memory();
+
+    let mut setup = ChangeSet::new();
+    setup.created_objects.push((
+        "0xcafe".to_string(),
+        address_owned_object(owner, cap_type, coin_object_data([0u8; UID_SIZE], 100), 1),
+    ));
+    setup.created_objects.push((
+        "0xbeef".to_string(),
+        address_owned_object(owner, coin_type, coin_object_data([1u8; UID_SIZE], 90), 1),
+    ));
+    state.apply_changeset(&setup)?;
+    state.save_object_locked_coin_records(&[ObjectLockedCoinRecord {
+        holder_object_id: "0x000000000000000000000000000000000000000000000000000000000000cafe"
+            .to_string(),
+        holder_type: "0x2::escrow::Vault".to_string(),
+        owner,
+        token_type: "0x2::usdc::USDC".to_string(),
+        amount: 10,
+    }])?;
+
+    let summary = state.token_supply_summary(token_type)?;
+    assert_eq!(summary.wallet_visible_supply, 90);
+    assert_eq!(summary.object_locked_supply, 10);
+    assert_eq!(summary.accounted_supply, 100);
+    state.validate_cached_supply_invariants()?;
+    state.validate_supply_invariants()?;
     Ok(())
 }
 

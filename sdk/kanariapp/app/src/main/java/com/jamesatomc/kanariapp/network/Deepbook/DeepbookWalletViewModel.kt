@@ -12,13 +12,9 @@ import com.jamesatomc.kanariapp.network.callViewFunction
 import com.jamesatomc.kanariapp.network.extractSymbol
 import com.jamesatomc.kanariapp.network.isCoinOfType
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_MODULE
-import com.jamesatomc.kanariapp.network.models.DEEPBOOK_PACKAGE_ID
-import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_ID
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_MODULE
 import com.jamesatomc.kanariapp.network.models.DeepbookBookInfo
 import com.jamesatomc.kanariapp.network.models.DeepbookOrderLevel
-import com.jamesatomc.kanariapp.network.models.TOKEN_KANARI
-import com.jamesatomc.kanariapp.network.models.TOKEN_USD
 import com.jamesatomc.kanariapp.network.submitDeepbookTx
 import com.jamesatomc.kanariapp.network.submitDeepbookTxZkLogin
 import com.jamesatomc.kanariapp.network.toViewAddress
@@ -104,8 +100,8 @@ suspend fun WalletViewModel.placeBid(
     quantity: ULong,
     paymentCoinId: String,
     orderType: Int,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    baseType: String,
+    quoteType: String
 ): Boolean {
     val record = activeWallet.value ?: run {
         _error.value = "No active wallet"
@@ -127,17 +123,17 @@ suspend fun WalletViewModel.placeBid(
                 return false
             }
             val prepared = client.buildDeepbookBid(
-                "ZkLogin:${session.address}",
+                "ZkLogin:${session.address}", environment.value.deepbook.packageId,
                 bookId, price, quantity, effectiveCoinId,
-                orderType, baseType, quoteType
+                orderType, baseType, quoteType, environment.value.deepbook.tradeArgumentOrder
             )
             client.submitDeepbookTxZkLogin(session, prepared)
         } else {
             val wallet = unlockedWallet(record) ?: return false
             val prepared = client.buildDeepbookBid(
-                wallet.taggedAddress,
+                wallet.taggedAddress, environment.value.deepbook.packageId,
                 bookId, price, quantity, effectiveCoinId,
-                orderType, baseType, quoteType
+                orderType, baseType, quoteType, environment.value.deepbook.tradeArgumentOrder
             )
             client.submitDeepbookTx(wallet, prepared)
         }
@@ -163,8 +159,8 @@ suspend fun WalletViewModel.placeAsk(
     quantity: ULong,
     baseCoinId: String,
     orderType: Int,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    baseType: String,
+    quoteType: String
 ): Boolean {
     val record = activeWallet.value ?: run {
         _error.value = "No active wallet"
@@ -186,17 +182,17 @@ suspend fun WalletViewModel.placeAsk(
                 return false
             }
             val prepared = client.buildDeepbookAsk(
-                "ZkLogin:${session.address}",
+                "ZkLogin:${session.address}", environment.value.deepbook.packageId,
                 bookId, price, quantity, effectiveCoinId,
-                orderType, baseType, quoteType
+                orderType, baseType, quoteType, environment.value.deepbook.tradeArgumentOrder
             )
             client.submitDeepbookTxZkLogin(session, prepared)
         } else {
             val wallet = unlockedWallet(record) ?: return false
             val prepared = client.buildDeepbookAsk(
-                wallet.taggedAddress,
+                wallet.taggedAddress, environment.value.deepbook.packageId,
                 bookId, price, quantity, effectiveCoinId,
-                orderType, baseType, quoteType
+                orderType, baseType, quoteType, environment.value.deepbook.tradeArgumentOrder
             )
             client.submitDeepbookTx(wallet, prepared)
         }
@@ -219,8 +215,8 @@ suspend fun WalletViewModel.placeAsk(
 suspend fun WalletViewModel.cancelDeepbookOrder(
     bookId: String,
     orderId: ULong,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    baseType: String,
+    quoteType: String
 ): Boolean {
     val record = activeWallet.value ?: run {
         _error.value = "No active wallet"
@@ -237,13 +233,13 @@ suspend fun WalletViewModel.cancelDeepbookOrder(
                 return false
             }
             val prepared = client.buildDeepbookCancel(
-                "ZkLogin:${session.address}", bookId, orderId, baseType, quoteType
+                "ZkLogin:${session.address}", environment.value.deepbook.packageId, bookId, orderId, baseType, quoteType
             )
             client.submitDeepbookTxZkLogin(session, prepared)
         } else {
             val wallet = unlockedWallet(record) ?: return false
             val prepared = client.buildDeepbookCancel(
-                wallet.taggedAddress, bookId, orderId, baseType, quoteType
+                wallet.taggedAddress, environment.value.deepbook.packageId, bookId, orderId, baseType, quoteType
             )
             client.submitDeepbookTx(wallet, prepared)
         }
@@ -266,14 +262,14 @@ suspend fun WalletViewModel.cancelDeepbookOrder(
 
 suspend fun WalletViewModel.getBidCount(
     bookId: String,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    baseType: String,
+    quoteType: String
 ): Int? = viewCount(bookId, baseType, quoteType, "get_bid_count")
 
 suspend fun WalletViewModel.getAskCount(
     bookId: String,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    baseType: String,
+    quoteType: String
 ): Int? = viewCount(bookId, baseType, quoteType, "get_ask_count")
 
 private suspend fun WalletViewModel.viewCount(
@@ -283,7 +279,7 @@ private suspend fun WalletViewModel.viewCount(
     function: String
 ): Int? = try {
     client.callViewFunction(
-        DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, function,
+        environment.value.deepbook.packageId, DEEPBOOK_MODULE, function,
         listOf(baseType, quoteType),
         listOf(JsonPrimitive(bookId))
     )?.toViewULong()?.toInt()
@@ -297,12 +293,12 @@ private suspend fun WalletViewModel.viewCount(
  * (since the deepbook/registry split) and returns `Option<address>`.
  */
 suspend fun WalletViewModel.getBookAddress(
-    registryId: String = DEEPBOOK_REGISTRY_ID,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    registryId: String = environment.value.deepbook.registryId,
+    baseType: String,
+    quoteType: String
 ): String? = try {
     client.callViewFunction(
-        DEEPBOOK_PACKAGE_ID, DEEPBOOK_REGISTRY_MODULE, "get_book_address",
+        environment.value.deepbook.packageId, DEEPBOOK_REGISTRY_MODULE, "get_book_address",
         listOf(baseType, quoteType),
         listOf(JsonPrimitive(registryId))
     )?.toViewAddress()
@@ -315,39 +311,21 @@ suspend fun WalletViewModel.getBookAddress(
  * Each entry: (baseType, quoteType, baseDecimals, quoteDecimals)
  * Symbols are derived automatically from type tags.
  */
-private val DEEPBOOK_CANDIDATE_PAIRS = listOf(
-    Triple(
-        "0x2::kanari::KANARI", "0x2::usd::USD",
-        DeepbookBookInfo(
-            baseType = "0x2::kanari::KANARI",
-            quoteType = "0x2::usd::USD",
-            baseSymbol = extractSymbol("0x2::kanari::KANARI"),
-            quoteSymbol = extractSymbol("0x2::usd::USD"),
-            baseDecimals = 9,
-            quoteDecimals = 6
-        )
-    ),
-    Triple(
-        "0x2::eth::ETH", "0x2::usd::USD",
-        DeepbookBookInfo(
-            baseType = "0x2::eth::ETH",
-            quoteType = "0x2::usd::USD",
-            baseSymbol = extractSymbol("0x2::eth::ETH"),
-            quoteSymbol = extractSymbol("0x2::usd::USD"),
-            baseDecimals = 18,
-            quoteDecimals = 6
-        )
-    )
-    // Add more candidate pairs here
-)
-
 /**
  * Discover which trading pairs have live order books by querying the registry.
  * Returns only pairs that exist on-chain (book address is not null).
  */
 suspend fun WalletViewModel.discoverDeepbookBooks(): List<DeepbookBookInfo> =
-    DEEPBOOK_CANDIDATE_PAIRS.mapNotNull { (baseType, quoteType, info) ->
-        val bookId = getBookAddress(DEEPBOOK_REGISTRY_ID, baseType, quoteType)
+    environment.value.deepbook.pairs.mapNotNull { pair ->
+        val bookId = getBookAddress(environment.value.deepbook.registryId, pair.baseType, pair.quoteType)
+        val info = DeepbookBookInfo(
+            baseType = pair.baseType,
+            quoteType = pair.quoteType,
+            baseSymbol = extractSymbol(pair.baseType),
+            quoteSymbol = extractSymbol(pair.quoteType),
+            baseDecimals = pair.baseDecimals,
+            quoteDecimals = pair.quoteDecimals
+        )
         if (!bookId.isNullOrBlank()) info.copy(bookId = bookId) else null
     }
 
@@ -361,9 +339,9 @@ suspend fun WalletViewModel.discoverDeepbookBooks(): List<DeepbookBookInfo> =
 suspend fun WalletViewModel.getOrderBookLevels(
     bookId: String,
     isBid: Boolean,
-    maxLevels: Int = 10,
-    baseType: String = TOKEN_KANARI,
-    quoteType: String = TOKEN_USD
+    maxLevels: Int,
+    baseType: String,
+    quoteType: String
 ): List<DeepbookOrderLevel> {
     if (bookId.isBlank()) return emptyList()
     val side = if (isBid) "bid" else "ask"
@@ -374,22 +352,22 @@ suspend fun WalletViewModel.getOrderBookLevels(
         val indexHex = client.u64ToHex(index.toULong())
         try {
             val id = client.callViewFunction(
-                DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_id_at",
+                environment.value.deepbook.packageId, DEEPBOOK_MODULE, "get_${side}_id_at",
                 listOf(baseType, quoteType),
                 listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val price = client.callViewFunction(
-                DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_price_at",
+                environment.value.deepbook.packageId, DEEPBOOK_MODULE, "get_${side}_price_at",
                 listOf(baseType, quoteType),
                 listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val remaining = client.callViewFunction(
-                DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_remaining_at",
+                environment.value.deepbook.packageId, DEEPBOOK_MODULE, "get_${side}_remaining_at",
                 listOf(baseType, quoteType),
                 listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewULong() ?: return@mapNotNull null
             val maker = client.callViewFunction(
-                DEEPBOOK_PACKAGE_ID, DEEPBOOK_MODULE, "get_${side}_maker_at",
+                environment.value.deepbook.packageId, DEEPBOOK_MODULE, "get_${side}_maker_at",
                 listOf(baseType, quoteType),
                 listOf(JsonPrimitive(bookId), JsonPrimitive(indexHex))
             )?.toViewAddress() ?: return@mapNotNull null

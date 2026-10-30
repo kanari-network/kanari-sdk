@@ -973,17 +973,7 @@ fun QrCodeImage(
         ) { CircularProgressIndicator() }
     }
 ) {
-    val bitmap = remember(content) {
-        if (content.isNotEmpty()) {
-            try {
-                val qrCode = QRCode(content)
-                val qrData = qrCode.render().nativeImage() as Bitmap
-                qrData
-            } catch (_: Exception) {
-                null
-            }
-        } else null
-    }
+    val bitmap = remember(content) { generateQrBitmap(content) }
 
     Surface(
         modifier = modifier.size(size).padding(8.dp),
@@ -997,6 +987,21 @@ fun QrCodeImage(
                 modifier = Modifier.fillMaxSize()
             )
         } else placeholder()
+    }
+}
+
+fun generateQrBitmap(content: String): Bitmap? {
+    if (content.isBlank()) return null
+    return try {
+        val qrBitmap = QRCode(content).render().nativeImage() as Bitmap
+        Bitmap.createBitmap(qrBitmap.width, qrBitmap.height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            android.graphics.Canvas(bitmap).apply {
+                drawColor(android.graphics.Color.WHITE)
+                drawBitmap(qrBitmap, 0f, 0f, null)
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 

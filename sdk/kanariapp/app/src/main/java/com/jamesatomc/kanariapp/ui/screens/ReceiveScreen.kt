@@ -3,11 +3,18 @@
 
 package com.jamesatomc.kanariapp.ui.screens
 
+import android.graphics.Bitmap
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +32,7 @@ import com.jamesatomc.kanariapp.ui.components.QrCodeImage
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
 import com.jamesatomc.kanariapp.ui.components.buildPaymentUri
 import com.jamesatomc.kanariapp.ui.components.copyToClipboard
+import com.jamesatomc.kanariapp.ui.components.generateQrBitmap
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 
 /**
@@ -53,12 +61,30 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: () -> Unit) {
         token = selectedToken?.symbol,
     )
     val requesting = amount.isNotBlank() && amount.trim() != "0"
+    val downloadQrLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/png"),
+    ) { uri ->
+        if (uri != null) {
+            val saved = runCatching {
+                val bitmap = generateQrBitmap(qrContent) ?: error("QR could not be generated")
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                } ?: false
+            }.getOrDefault(false)
+            Toast.makeText(
+                context,
+                if (saved) "QR image saved" else "Could not save QR image",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
 
     ScaffoldWithBackBar(title = "Receive", onBack = onBack) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -147,6 +173,13 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            LoadingButton(
+                onClick = { downloadQrLauncher.launch("kanari_receive_qr.png") },
+                text = "Download QR",
+                icon = Icons.Default.FileDownload,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = address.isNotEmpty(),
+            )
             LoadingButton(
                 onClick = {
                     if (address.isNotEmpty()) {

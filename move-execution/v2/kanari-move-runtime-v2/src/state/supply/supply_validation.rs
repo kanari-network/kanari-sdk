@@ -29,41 +29,87 @@ impl StateManager {
         Ok(())
     }
 
-    /// Validate that all supply invariants hold across persisted and cached state.
+    fn tracked_fungible_token_types(&self) -> Result<BTreeSet<String>> {
+        let mut token_types = self
+            .global_token_supplies
+            .keys()
+            .map(|token_type| CoinModule::normalize_token_type(token_type))
+            .collect::<BTreeSet<_>>();
+        token_types.insert(GAS_COIN.to_string());
+
+        if let Some(entries) = self.load_internal::<Vec<String>>(b"treasury_index")? {
+            for entry in entries {
+                let token_type = entry.strip_prefix("treasury:").unwrap_or(&entry);
+                token_types.insert(CoinModule::normalize_token_type(token_type));
+            }
+        }
+
+        for record in self.load_object_locked_coin_records()? {
+            token_types.insert(CoinModule::normalize_token_type(&record.token_type));
+        }
+
+        Ok(token_types)
+    }
+
+    fn validate_token_supply_bound(
+        token_type: &str,
+        total_supply: u64,
+        wallet_visible_supply: u64,
+        object_locked_supply: u64,
+    ) -> Result<()> {
+        let accounted_supply = wallet_visible_supply
+            .checked_add(object_locked_supply)
+            .require("Accounted token supply overflow")?;
+        let label = if token_type == GAS_COIN {
+            "native"
+        } else {
+            "fungible token"
+        };
+        ensure!(
+            wallet_visible_supply <= total_supply && accounted_supply <= total_supply,
+            "{} supply overcount: token_type={} total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
+            label,
+            token_type,
+            total_supply,
+            accounted_supply,
+            wallet_visible_supply,
+            object_locked_supply
+        );
+        Ok(())
+    }
+
+    /// Validate supply bounds for every known fungible token using canonical object
+    /// state.
     pub fn validate_supply_invariants(&self) -> Result<()> {
         self.validate_persisted_native_supply()?;
 
-        let native_supply = self.token_supply_summary(GAS_COIN)?;
-        // Wallet-visible balance caches only reflect top-level wallet-owned
-        // coin objects. Coins can also be held inside DeFi objects (for
-        // example escrow funds), so visible supply may be lower than issued
-        // supply without implying a burn. It must never exceed total supply.
-        if native_supply.wallet_visible_supply > native_supply.total_supply {
-            anyhow::bail!(
-                "native supply overcount: total_supply={} wallet_visible_supply={} object_locked_supply={}",
-                native_supply.total_supply,
-                native_supply.wallet_visible_supply,
-                native_supply.object_locked_supply
-            );
-        }
-        if native_supply.accounted_supply > native_supply.total_supply {
-            anyhow::bail!(
-                "native supply overcount: total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
-                native_supply.total_supply,
-                native_supply.accounted_supply,
-                native_supply.wallet_visible_supply,
-                native_supply.object_locked_supply
+        let canonical_index = self.compute_wallet_supply_index()?;
+        let mut token_types = self.tracked_fungible_token_types()?;
+        token_types.extend(
+            canonical_index
+                .keys()
+                .map(|token_type| CoinModule::normalize_token_type(token_type)),
+        );
+
+        for token_type in token_types {
+            let summary = self.token_supply_summary(&token_type)?;
+            Self::validate_token_supply_bound(
+                &token_type,
+                summary.total_supply,
+                summary.wallet_visible_supply,
+                summary.object_locked_supply,
+            )?;
+
+            let canonical_visible = canonical_index.get(&token_type).copied().unwrap_or(0);
+            ensure!(
+                canonical_visible == summary.wallet_visible_supply,
+                "wallet supply index mismatch: token_type={} indexed={} cached={}",
+                token_type,
+                canonical_visible,
+                summary.wallet_visible_supply
             );
         }
 
-        let canonical_index = self.compute_wallet_supply_index()?;
-        let canonical_visible = canonical_index.get(GAS_COIN).copied().unwrap_or(0);
-        ensure!(
-            canonical_visible == native_supply.wallet_visible_supply,
-            "native wallet supply index mismatch: indexed={} cached={}",
-            canonical_visible,
-            native_supply.wallet_visible_supply
-        );
         ensure!(
             canonical_index == self.global_token_supplies,
             "wallet supply index mismatch for one or more token types"
@@ -78,23 +124,22 @@ impl StateManager {
     pub fn validate_cached_supply_invariants(&self) -> Result<()> {
         self.validate_persisted_native_supply()?;
 
-        let wallet_visible_supply = self
-            .global_token_supplies
-            .get(GAS_COIN)
-            .copied()
-            .unwrap_or(0);
-        let object_locked_supply = self.object_locked_supply_for_token(GAS_COIN)?;
-        let accounted_supply = wallet_visible_supply
-            .checked_add(object_locked_supply)
-            .require("Accounted native supply overflow")?;
-        ensure!(
-            wallet_visible_supply <= self.total_supply && accounted_supply <= self.total_supply,
-            "native supply overcount: total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
-            self.total_supply,
-            accounted_supply,
-            wallet_visible_supply,
-            object_locked_supply
-        );
+        for token_type in self.tracked_fungible_token_types()? {
+            let total_supply = self.issued_supply_for_token(&token_type)?;
+            let wallet_visible_supply = self
+                .global_token_supplies
+                .get(&token_type)
+                .copied()
+                .unwrap_or(0);
+            let object_locked_supply = self.object_locked_supply_for_token(&token_type)?;
+            Self::validate_token_supply_bound(
+                &token_type,
+                total_supply,
+                wallet_visible_supply,
+                object_locked_supply,
+            )?;
+        }
+
         Ok(())
     }
 }

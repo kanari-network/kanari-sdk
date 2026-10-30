@@ -804,7 +804,7 @@ fn hex_decode(s: &str) -> Result<Vec<u8>> {
     if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
         bail!("invalid hex string `{}`", s);
     }
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         bail!("hex string has odd length: `{}`", s);
     }
     (0..hex.len())

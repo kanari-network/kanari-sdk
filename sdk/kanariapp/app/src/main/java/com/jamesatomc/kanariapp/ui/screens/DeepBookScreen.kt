@@ -24,11 +24,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.network.models.DEEPBOOK_ORDER_TYPES
-import com.jamesatomc.kanariapp.network.models.DEEPBOOK_REGISTRY_ID
 import com.jamesatomc.kanariapp.network.models.DeepbookBookInfo
 import com.jamesatomc.kanariapp.network.models.DeepbookOrderLevel
-import com.jamesatomc.kanariapp.network.models.TOKEN_KANARI
-import com.jamesatomc.kanariapp.network.models.TOKEN_USD
 import com.jamesatomc.kanariapp.network.typeTagsEqual
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
@@ -46,14 +43,33 @@ import com.jamesatomc.kanariapp.wallet.placeAsk
 import com.jamesatomc.kanariapp.wallet.placeBid
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.BigInteger
 import java.util.Locale
-import kotlin.math.pow
 
-// PRICE_SCALE of the on-chain module: price is stored as quote * 10^9 / base.
-private const val PRICE_SCALE = 1_000_000_000.0
+// The on-chain price representation uses nine decimal places regardless of
+// the base and quote tokens' own decimal counts.
+private const val PRICE_DECIMALS = 9
+private val PRICE_SCALE = BigInteger.TEN.pow(PRICE_DECIMALS)
 
 /** Max order book levels fetched per side — enough for a readable depth view. */
 private const val MAX_BOOK_LEVELS = 10
+
+private fun quoteAmountRaw(
+    priceRaw: ULong,
+    quantityRaw: ULong,
+    baseDecimals: Int,
+    quoteDecimals: Int
+): BigInteger {
+    val numerator = BigInteger(priceRaw.toString())
+        .multiply(BigInteger(quantityRaw.toString()))
+        .multiply(BigInteger.TEN.pow(quoteDecimals))
+    val denominator = PRICE_SCALE.multiply(BigInteger.TEN.pow(baseDecimals))
+    return numerator.divide(denominator)
+}
+
+private fun formatRawAmount(amount: BigInteger, decimals: Int): String =
+    BigDecimal(amount).movePointLeft(decimals).stripTrailingZeros().toPlainString()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +81,7 @@ fun DeepBookScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
     val activeWallet by viewModel.activeWallet.collectAsStateWithLifecycle()
+    val environment by viewModel.environment.collectAsStateWithLifecycle()
 
     // --- Discovered Books (dropdown, Book ID selector) ---
     var discoveredBooks by remember { mutableStateOf<List<DeepbookBookInfo>>(emptyList()) }
@@ -72,13 +89,15 @@ fun DeepBookScreen(
     var bookDropdownExpanded by remember { mutableStateOf(false) }
     var discoveringBooks by remember { mutableStateOf(false) }
 
-    // Derived from selected book (or defaults if none selected)
-    val baseType = selectedBook?.baseType ?: TOKEN_KANARI
-    val quoteType = selectedBook?.quoteType ?: TOKEN_USD
-    val baseSymbol = selectedBook?.baseSymbol ?: "KANARI"
-    val quoteSymbol = selectedBook?.quoteSymbol ?: "USD"
-    val baseDecimals = selectedBook?.baseDecimals ?: 9
-    val quoteDecimals = selectedBook?.quoteDecimals ?: 6
+    // Defaults come from the active network deployment, while the selected
+    // on-chain book remains authoritative for its token metadata.
+    val defaultPair = environment.deepbook.pairs.first()
+    val baseType = selectedBook?.baseType ?: defaultPair.baseType
+    val quoteType = selectedBook?.quoteType ?: defaultPair.quoteType
+    val baseSymbol = selectedBook?.baseSymbol ?: defaultPair.baseType.substringAfterLast("::")
+    val quoteSymbol = selectedBook?.quoteSymbol ?: defaultPair.quoteType.substringAfterLast("::")
+    val baseDecimals = selectedBook?.baseDecimals ?: defaultPair.baseDecimals
+    val quoteDecimals = selectedBook?.quoteDecimals ?: defaultPair.quoteDecimals
 
     // bookId is driven by selected book
     val bookId = selectedBook?.bookId ?: ""
@@ -117,15 +136,13 @@ fun DeepBookScreen(
             val books = viewModel.discoverDeepbookBooks()
             discoveredBooks = books
             // Auto-select first book if available
-            if (books.isNotEmpty() && selectedBook == null) {
-                selectedBook = books[0]
-            }
+            selectedBook = books.firstOrNull()
             discoveringBooks = false
         }
     }
 
     // Auto-discover books on initial load
-    LaunchedEffect(Unit) {
+    LaunchedEffect(environment) {
         discoverBooks()
     }
 
@@ -459,7 +476,7 @@ fun DeepBookScreen(
                         val hasGas = tokenBalances.any {
                             typeTagsEqual(
                                 it.tokenType,
-                                TOKEN_KANARI
+                                environment.deepbook.nativeTokenType
                             ) && it.getEffectiveAmount() > 0
                         }
                         if (!canBid || !canAsk || !hasGas) {
@@ -573,7 +590,7 @@ fun DeepBookScreen(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Price (human)",
+                                "Price ($quoteSymbol per $baseSymbol)",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Spacer(Modifier.height(4.dp))
@@ -585,10 +602,15 @@ fun DeepBookScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            Text(
+                                "Up to $PRICE_DECIMALS decimal places",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Quantity (base)",
+                                "Quantity ($baseSymbol)",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Spacer(Modifier.height(4.dp))
@@ -599,6 +621,11 @@ fun DeepBookScreen(
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "Up to $baseDecimals decimal places",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(2.dp))
                             Row(
@@ -649,22 +676,29 @@ fun DeepBookScreen(
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text(
-                                "Preview Quote",
+                                "Order Summary",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(2.dp))
-                            val p = price.toDoubleOrNull() ?: 0.0
-                            val q = quantity.toDoubleOrNull() ?: 0.0
-                            val estimatedQuote = if (p > 0 && q > 0) p * q else 0.0
                             Text(
-                                text = if (estimatedQuote > 0) "~${
-                                    String.format(
-                                        Locale.US,
-                                        "%.4f",
-                                        estimatedQuote
+                                text = if (price.isNotBlank() && quantity.isNotBlank()) {
+                                    "${if (isBidSide) "Buy" else "Sell"} $quantity $baseSymbol at $price $quoteSymbol/$baseSymbol"
+                                } else "Enter price and quantity",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            val priceRaw = parseAmountToMist(price, PRICE_DECIMALS)
+                            val quantityRaw = parseAmountToMist(quantity, baseDecimals)
+                            val estimatedQuote =
+                                if (priceRaw != null && quantityRaw != null && priceRaw > 0uL && quantityRaw > 0uL) {
+                                    formatRawAmount(
+                                        quoteAmountRaw(priceRaw, quantityRaw, baseDecimals, quoteDecimals),
+                                        quoteDecimals
                                     )
-                                } $quoteSymbol" else "-",
+                                } else null
+                            Text(
+                                text = estimatedQuote?.let { "~$it $quoteSymbol" } ?: "-",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -694,10 +728,9 @@ fun DeepBookScreen(
                                     orderResult = "Book address required"
                                     return@launch
                                 }
-                                val priceDouble = price.toDoubleOrNull() ?: run {
-                                    orderResult = "Invalid price"; return@launch
+                                val p = parseAmountToMist(price, PRICE_DECIMALS) ?: run {
+                                    orderResult = "Invalid price (up to $PRICE_DECIMALS decimal places)"; return@launch
                                 }
-                                val p = (priceDouble * PRICE_SCALE).toULong()
                                 if (p == 0uL) {
                                     orderResult = "Price rounds to zero"
                                     return@launch
@@ -709,11 +742,10 @@ fun DeepBookScreen(
                                 // a bid is paid in the quote token, an ask must be
                                 // backed by base tokens.
                                 if (isBidSide) {
-                                    val needed = priceDouble * (quantity.toDoubleOrNull() ?: 0.0)
-                                    val available = quoteBalance.toDouble() / 10.0.pow(quoteDecimals)
-                                    if (needed > available) {
+                                    val needed = quoteAmountRaw(p, q, baseDecimals, quoteDecimals)
+                                    if (needed > BigInteger.valueOf(quoteBalance.coerceAtLeast(0))) {
                                         orderResult = "Not enough $quoteSymbol for this bid — " +
-                                                "need ~${String.format(Locale.US, "%.4f", needed)} $quoteSymbol, " +
+                                                "need ~${formatRawAmount(needed, quoteDecimals)} $quoteSymbol, " +
                                                 "have ${formatAmountExactOrUnknown(quoteBalance, quoteDecimals)}. " +
                                                 "Claim devnet USD from the faucet first."
                                         return@launch
@@ -900,7 +932,7 @@ private fun OrderBookColumn(
                     ) {
                         Column {
                             Text(
-                                String.format(Locale.US, "%.4f", level.price.toLong() / PRICE_SCALE),
+                                formatRawAmount(BigInteger.valueOf(level.price.toLong()), PRICE_DECIMALS),
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                 color = accent
                             )

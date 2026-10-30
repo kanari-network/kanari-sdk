@@ -18,6 +18,7 @@ import java.nio.ByteOrder
 // discounts any requested price fivefold (floor 1), so the protocol
 // minimum request settles at an effective 1 Mist/unit.
 internal const val DEFAULT_GAS_PRICE: ULong = 1uL
+internal const val DEFAULT_GAS_LIMIT: ULong = 100_000uL
 
 class KanariClient(private val environment: KanariEnvironment) {
     private val json = Json {
