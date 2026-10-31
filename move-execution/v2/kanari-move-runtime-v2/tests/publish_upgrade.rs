@@ -396,6 +396,39 @@ fn module_publish_requires_sender_to_match_module_address() {
     );
 }
 
+#[test]
+fn upgrade_module_rejects_sender_module_address_mismatch() {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
+    let (module_id, module_bytes, _) = first_published_module(&runtime);
+    let wrong_sender = AccountAddress::from_hex_literal("0x42").invariant("valid account");
+    assert_ne!(&wrong_sender, module_id.address());
+    let err = runtime
+        .upgrade_module(module_bytes, wrong_sender, None, None)
+        .expect_err("upgrade with wrong sender should be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("sender") && msg.contains("Module address must match"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[test]
+fn upgrade_module_rejects_empty_bytecode() {
+    let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
+    let (module_id, _, _) = first_published_module(&runtime);
+    let err = runtime
+        .upgrade_module(vec![], *module_id.address(), None, None)
+        .expect_err("empty bytecode should be rejected");
+    assert!(
+        err.to_string().contains("BAD_MAGIC"),
+        "unexpected error: {err}"
+    );
+    let stored = runtime
+        .get_module_bytes(&module_id)
+        .invariant("module bytes present");
+    assert!(!stored.is_empty());
+}
+
 fn first_published_module(
     runtime: &MoveRuntime,
 ) -> (
