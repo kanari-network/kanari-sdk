@@ -283,7 +283,11 @@ fn execute(
             sender: Some(*module_id.address()),
             gas_info,
             timestamp: None,
-            tx_hash: None,
+            tx_hash: Some({
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static C: AtomicU64 = AtomicU64::new(1);
+                C.fetch_add(1, Ordering::Relaxed).to_le_bytes().to_vec()
+            }),
             persist_runtime_state: true,
             state_overlay: None,
         },

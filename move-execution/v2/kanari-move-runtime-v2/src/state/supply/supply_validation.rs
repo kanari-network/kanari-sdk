@@ -121,10 +121,27 @@ impl StateManager {
     /// Fast transaction-path validation after the wallet-visible cache has been
     /// reconciled. Full checkpoint/RPC validation still derives balances from
     /// canonical owner/object indexes via `validate_supply_invariants`.
-    pub fn validate_cached_supply_invariants(&self) -> Result<()> {
-        self.validate_persisted_native_supply()?;
+    pub fn validate_token_supply_bound_for_test(
+        total: u64,
+        wallet: u64,
+        locked: u64,
+    ) -> Result<()> {
+        Self::validate_token_supply_bound("test", total, wallet, locked)
+    }
 
-        for token_type in self.tracked_fungible_token_types()? {
+    /// Fast transaction-path validation after the wallet-visible cache has been
+    /// reconciled. Full checkpoint/RPC validation still derives balances from
+    /// canonical owner/object indexes via `validate_supply_invariants`.
+    pub fn validate_cached_supply_invariants(&self) -> Result<()> {
+        let canonical_index = self.compute_wallet_supply_index()?;
+        let mut token_types = self.tracked_fungible_token_types()?;
+        token_types.extend(
+            canonical_index
+                .keys()
+                .map(|token_type| CoinModule::normalize_token_type(token_type)),
+        );
+
+        for token_type in token_types {
             let total_supply = self.issued_supply_for_token(&token_type)?;
             let wallet_visible_supply = self
                 .global_token_supplies

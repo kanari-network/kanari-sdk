@@ -75,7 +75,7 @@ internment = { version = "0.8.6", features = ["arc"] }
 itertools = "0.15.0"
 leb128 = "0.2.7"
 libfuzzer-sys = "0.4.13"
-log = { version = "0.4.34", features = ["serde"] }
+log = { version = "0.4.35", features = ["serde"] }
 lsp-server = "0.10.0"
 lsp-types = "0.97.0"
 memory-stats = "1.2.0"

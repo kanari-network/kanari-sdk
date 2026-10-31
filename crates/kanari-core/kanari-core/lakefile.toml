@@ -1,0 +1,10 @@
+name = "kanari-core"
+version = "0.1.0"
+defaultTargets = ["kanari-core"]
+
+[[lean_lib]]
+name = "KanariCore"
+
+[[lean_exe]]
+name = "kanari-core"
+root = "Main"

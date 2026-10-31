@@ -1,0 +1,10 @@
+name = "kanari-crypto"
+version = "0.1.0"
+defaultTargets = ["kanari-crypto"]
+
+[[lean_lib]]
+name = "KanariCrypto"
+
+[[lean_exe]]
+name = "kanari-crypto"
+root = "Main"

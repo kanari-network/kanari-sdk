@@ -895,7 +895,7 @@ fn entry_function_returns_pure_values_to_caller() -> Result<()> {
             sender: None,
             gas_info: None,
             timestamp: None,
-            tx_hash: None,
+            tx_hash: Some(vec![0u8; 32]),
             persist_runtime_state: false,
             state_overlay: None,
         },

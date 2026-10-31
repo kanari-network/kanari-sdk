@@ -15,12 +15,25 @@ impl MoveRuntime {
         gas_info: Option<(u64, u64)>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
+        // Convenience wrapper: derive a tx hash when the caller does not supply
+        // one (dev/test path). Production callers should use
+        // `execute_entry_function_with_object_context_*` with an explicit hash.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut input = Vec::new();
+        input.extend_from_slice(b"kanari-txctx-v1");
+        if let Some(s) = sender {
+            input.extend_from_slice(s.as_ref());
+        }
+        input.extend_from_slice(&timestamp.unwrap_or(0).to_le_bytes());
+        input.extend_from_slice(&counter.to_le_bytes());
+        let tx_hash = Some(hash_data_blake3(&input).to_vec());
         self.execute_entry_function_internal(
             module_id,
             function_name,
             type_args,
             args,
-            ExecutionOptions::new(sender, gas_info, timestamp, None),
+            ExecutionOptions::new(sender, gas_info, timestamp, tx_hash),
         )
         .map(|(changeset, _)| changeset)
     }
@@ -162,6 +175,14 @@ impl MoveRuntime {
             state_overlay,
         } = options;
 
+        // When no explicit tx hash is provided, derive a unique one per execution
+        // so object ids derived via `tx_context::fresh_object_address` do not
+        // collide across transactions sharing the same sender/timestamp.
+        if tx_hash.is_none() {
+            anyhow::bail!("tx_hash is required (no default derivation)");
+        }
+
+        let tx_hash = tx_hash.unwrap();
         let vm_guard = self.read_vm();
         let (resolver, resolver_trace) = self
             .resolver
@@ -220,8 +241,7 @@ impl MoveRuntime {
         )?;
         // Well-known singletons (deny list) resolve without being declared.
         self.preload_well_known_singletons(&mut session, state_overlay.as_deref())?;
-        let tx_context_bytes =
-            self.build_tx_context_bytes(sender, timestamp, tx_hash.as_deref())?;
+        let tx_context_bytes = self.build_tx_context_bytes(sender, timestamp, Some(&tx_hash))?;
 
         let mut loaded_mutable_objects: Vec<LoadedMutableObject> = Vec::new();
 

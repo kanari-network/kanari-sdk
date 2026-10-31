@@ -15,6 +15,25 @@ impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
+        // Guard against oversized changesets that could OOM the validation clone.
+        const MAX_CHANGESET_OBJECTS: usize = 100_000;
+        if changeset.created_objects.len() + changeset.deleted_objects.len() > MAX_CHANGESET_OBJECTS
+        {
+            anyhow::bail!(
+                "changeset too large: {} objects (limit {})",
+                changeset.created_objects.len() + changeset.deleted_objects.len(),
+                MAX_CHANGESET_OBJECTS
+            );
+        }
+        // Guard overlay size to prevent clone-based DoS on large state.
+        const MAX_OVERLAY_ENTRIES: usize = 1_000_000;
+        if self.overlay.len() > MAX_OVERLAY_ENTRIES {
+            anyhow::bail!(
+                "state overlay too large: {} entries (limit {})",
+                self.overlay.len(),
+                MAX_OVERLAY_ENTRIES
+            );
+        }
         if changeset.treasuries.is_empty()
             && self
                 .global_token_supplies
