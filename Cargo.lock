@@ -998,6 +998,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -1969,6 +1970,7 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -3531,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3572,7 +3574,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-auth"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3597,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "ed25519-dalek 3.0.0",
@@ -3612,7 +3614,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3621,7 +3623,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3660,13 +3662,12 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
  "ark-bn254",
  "ark-crypto-primitives",
- "ark-ec",
  "ark-ff",
  "ark-groth16",
  "ark-r1cs-std",
@@ -3713,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3723,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-e2e-tests"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3752,12 +3753,11 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
 name = "kanari-faucet"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3770,14 +3770,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-indexer"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3812,7 +3812,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3823,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-fmt"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "pretty",
@@ -3833,7 +3833,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3865,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v2"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3937,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3946,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3955,7 +3955,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3964,7 +3964,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -3976,7 +3976,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3987,7 +3987,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
@@ -4000,7 +4000,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -4011,7 +4011,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -4026,7 +4026,6 @@ dependencies = [
  "move-binary-format",
  "move-core-types",
  "proptest",
- "rand 0.10.3",
  "serde",
  "serde_json",
  "tokio",
@@ -4037,11 +4036,10 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "ark-std",
  "base64 0.23.1",
- "bcs",
  "better_any",
  "ed25519-dalek 3.0.0",
  "ethnum",
@@ -4068,7 +4066,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "bcs",
@@ -4662,9 +4660,9 @@ dependencies = [
 
 [[package]]
 name = "ml-dsa"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "add6b9d92e496f16f4526d68ff29da1483aba4b119baeab8bed3b9e3544a6f3d"
+checksum = "6f6d49c3f3f0e10e18ca975ffda66f8da0ec36521c1d911adcbc521bf0743f5c"
 dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
@@ -4679,9 +4677,9 @@ dependencies = [
 
 [[package]]
 name = "module-lattice"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c61b87c9683ab7cb1c6871d261ad5479b6b10ceb52c4352aaca3b5d35a8febe"
+checksum = "c4a1e412c8ee83a1c678f427806219c49c96b2511b9f07497514f0e43fb26155"
 dependencies = [
  "ctutils",
  "hybrid-array",
@@ -6678,7 +6676,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -6721,7 +6719,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -7433,7 +7431,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -7504,6 +7502,9 @@ name = "sponge-cursor"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"
@@ -8510,7 +8511,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "kanari-crypto",
 ]
