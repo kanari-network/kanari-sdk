@@ -1,0 +1,12 @@
+name = "kanari-move-runtime-v2"
+version = "0.1.0"
+defaultTargets = ["KanariMoveRuntime"]
+
+[leanOptions]
+pp.unicode.fun = true
+relaxedAutoImplicit = false
+weak.linter.mathlibStandardSet = true
+weak.linter.style.header = false
+
+[[lean_lib]]
+name = "KanariMoveRuntime"

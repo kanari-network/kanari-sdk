@@ -29,7 +29,6 @@ hex = { workspace = true }
 move-binary-format = { workspace = true }
 move-core-types = { workspace = true }
 bcs = { workspace = true }
-rand = { workspace = true }
 tower = { workspace = true }
 
 [dev-dependencies]

@@ -11,4 +11,6 @@ sealed class Screen(val route: String) {
     object WalletGeneration : Screen("wallet_generation")
     object Unlock : Screen("unlock")
     object Nfts : Screen("nfts")
+    object Objects : Screen("objects")
+    object DeepBook : Screen("deepbook")
 }

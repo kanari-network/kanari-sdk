@@ -265,3 +265,21 @@ fn prop_fuzz_transaction_gas_edge_cases() {
         let _ = runtime.execute_entry_function(&module_id, "test", vec![], vec![], Some(sender), Some(valid_gas.into_tuple()), None);
     });
 }
+
+// ============================================================================
+// Supply invariant property tests
+// ============================================================================
+
+#[test]
+fn prop_supply_bound_rejects_overcount() {
+    proptest!(runtime_fuzz_config(), |(total: u64, wallet: u64, locked: u64)| {
+        prop_assume!(wallet.checked_add(locked).is_some());
+        let accounted = wallet + locked;
+        let res = kanari_move_runtime_v2::state::StateManager::validate_token_supply_bound_for_test(total, wallet, locked);
+        if wallet <= total && accounted <= total {
+            prop_assert!(res.is_ok(), "valid inputs must pass");
+        } else {
+            prop_assert!(res.is_err(), "overcount must be rejected");
+        }
+    });
+}

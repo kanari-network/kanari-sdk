@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import com.jamesatomc.kanariapp.ui.Sfx
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -241,10 +242,12 @@ fun LoadingButton(
         label = "buttonScale"
     )
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     Button(
         onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Sfx.tap(context)
             onClick()
         },
         enabled = enabled && !isLoading,
@@ -833,7 +836,6 @@ fun SecretRevealCard(
 fun KanariTopBar(
     environmentName: String,
     onEnvClick: () -> Unit,
-    onReceive: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -907,7 +909,8 @@ fun KanariTopBar(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onReceive) { Icon(Icons.Default.QrCode, contentDescription = "Receive") }
+                    // Receive lives in the Home quick-action row now; the bar
+                    // keeps only the settings entry to avoid duplicate taps.
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -970,17 +973,7 @@ fun QrCodeImage(
         ) { CircularProgressIndicator() }
     }
 ) {
-    val bitmap = remember(content) {
-        if (content.isNotEmpty()) {
-            try {
-                val qrCode = QRCode(content)
-                val qrData = qrCode.render().nativeImage() as Bitmap
-                qrData
-            } catch (_: Exception) {
-                null
-            }
-        } else null
-    }
+    val bitmap = remember(content) { generateQrBitmap(content) }
 
     Surface(
         modifier = modifier.size(size).padding(8.dp),
@@ -994,6 +987,21 @@ fun QrCodeImage(
                 modifier = Modifier.fillMaxSize()
             )
         } else placeholder()
+    }
+}
+
+fun generateQrBitmap(content: String): Bitmap? {
+    if (content.isBlank()) return null
+    return try {
+        val qrBitmap = QRCode(content).render().nativeImage() as Bitmap
+        Bitmap.createBitmap(qrBitmap.width, qrBitmap.height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            android.graphics.Canvas(bitmap).apply {
+                drawColor(android.graphics.Color.WHITE)
+                drawBitmap(qrBitmap, 0f, 0f, null)
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 

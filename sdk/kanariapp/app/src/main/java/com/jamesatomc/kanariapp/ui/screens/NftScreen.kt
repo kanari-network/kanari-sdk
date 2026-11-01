@@ -48,6 +48,7 @@ import com.jamesatomc.kanariapp.network.models.OwnedNft
 import com.jamesatomc.kanariapp.ui.components.ErrorBanner
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
+import com.jamesatomc.kanariapp.ui.components.SendSuccessOverlay
 import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
@@ -79,6 +80,8 @@ fun NftScreen(
     // Armed NFT send: (recipient, nft) waiting on the 10-second countdown
     // dialog before anything touches the network.
     var pendingNftSend by remember { mutableStateOf<Pair<String, OwnedNft>?>(null) }
+    // Non-null while the Slush-style success overlay is showing.
+    var nftSuccess by remember { mutableStateOf<String?>(null) }
     var walletMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -377,16 +380,24 @@ fun NftScreen(
                 sendStatus = null
                 scope.launch {
                     if (viewModel.sendNft(to, target.objectId)) {
-                        sendStatus = "Sent! The NFT is on its way."
                         isSending = false
                         sendingNft = null
                         recipientInput = ""
+                        nftSuccess = "\"${target.displayName}\" sent to " +
+                                "${to.take(10)}\u2026${to.takeLast(6)}"
                     } else {
                         sendStatus = viewModel.error.value ?: "Transfer failed"
                         isSending = false
                     }
                 }
             },
+        )
+    }
+
+    nftSuccess?.let { message ->
+        SendSuccessOverlay(
+            summary = message,
+            onDone = { nftSuccess = null },
         )
     }
 }

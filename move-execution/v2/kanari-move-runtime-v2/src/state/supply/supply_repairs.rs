@@ -99,9 +99,13 @@ impl StateManager {
 
     /// Load the object-locked coin records from the store.
     pub(crate) fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
-        Ok(self
+        let mut records: Vec<ObjectLockedCoinRecord> = self
             .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
-            .unwrap_or_default())
+            .unwrap_or_default();
+        for record in &mut records {
+            record.token_type = CoinModule::normalize_token_type(&record.token_type);
+        }
+        Ok(records)
     }
 
     /// Save the object-locked coin records to the store.

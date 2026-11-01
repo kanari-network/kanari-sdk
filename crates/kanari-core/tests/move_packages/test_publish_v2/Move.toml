@@ -1,0 +1,5 @@
+[package]
+name = "test_publish_v2"
+
+[addresses]
+test_module = "0x1"

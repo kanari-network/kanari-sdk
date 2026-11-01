@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import com.jamesatomc.kanariapp.ui.components.PinGateDialog
 import com.jamesatomc.kanariapp.ui.components.findFragmentActivity
 import com.jamesatomc.kanariapp.ui.components.rememberBiometricPromptLauncher
 import com.jamesatomc.kanariapp.ui.theme.ThemeMode
+import com.jamesatomc.kanariapp.ui.Sfx
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
 
@@ -113,6 +115,21 @@ fun SettingsScreen(viewModel: WalletViewModel, onLogout: () -> Unit, onBack: () 
                 }, icon = when (themeMode) {
                     ThemeMode.LIGHT -> Icons.Default.LightMode; ThemeMode.DARK -> Icons.Default.DarkMode; ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
                 }, onClick = { showThemeDialog = true })
+            Spacer(Modifier.height(8.dp))
+            // Master switch for the UI sound kit (tap blip + success chime).
+            var soundEnabled by remember { mutableStateOf(Sfx.isEnabled(context)) }
+            SettingsSwitchItem(
+                title = "Sound Effects",
+                subtitle = if (soundEnabled) "Tap sounds and success chime" else "Silent",
+                icon = Icons.Default.VolumeUp,
+                checked = soundEnabled,
+                onCheckedChange = { on ->
+                    soundEnabled = on
+                    Sfx.setEnabled(context, on)
+                    // Turning it on plays the chime once as an audible preview.
+                    if (on) Sfx.success(context)
+                },
+            )
             Spacer(Modifier.height(24.dp))
             Text(
                 "SECURITY",

@@ -9,6 +9,7 @@ use crate::engine::{
     PersistedTransactionLocation, decode_hex_exact, normalize_consensus_authority_id,
 };
 use crate::file_io::write_file_atomically;
+use anyhow::{Context, Result};
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v2::state::OwnerState;
@@ -21,9 +22,13 @@ use kanari_types::transaction::{
     GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
     TransactionEffects,
 };
+use kanari_types::usd_coin::{USD_COIN, UsdModule};
 use move_core_types::account_address::AccountAddress;
+use move_core_types::{identifier::Identifier, language_storage::ModuleId};
+use move_package::BuildConfig;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 #[test]
@@ -189,6 +194,41 @@ fn fund_sender_with_coin_type(
     ));
     if token_type == GAS_COIN {
         create_coin.mint(addr, balance);
+    } else {
+        // Track non-native supply in the treasury so supply invariants
+        // (visible <= total) hold when the funded coin is later used as gas.
+        // Updating the TreasuryCap object's data keeps the on-chain total in step
+        // with the visible balance, and persist_treasury_cap_state syncs the
+        // persisted supply record for subsequent mints to read.
+        let normalized = CoinModule::normalize_token_type(token_type);
+        let cap_type = format!("0x2::coin::TreasuryCap<{}>", normalized);
+        if let Ok(caps) = state.query_objects(None, None, Some(&cap_type), None, None) {
+            if let Some((cap_id, _)) = caps.into_iter().next() {
+                if let Ok(Some(stored)) = state.get_object(&cap_id) {
+                    let current = if stored.data.len() >= 40 {
+                        u64::from_le_bytes(stored.data[32..40].try_into().unwrap_or([0; 8]))
+                    } else {
+                        0
+                    };
+                    let next_total = current.saturating_add(balance);
+                    let mut updated = stored;
+                    updated.data[32..40].copy_from_slice(&next_total.to_le_bytes());
+                    updated.version = updated.version.saturating_add(1);
+                    create_coin.created_objects.push((
+                        cap_id,
+                        kanari_move_runtime_v2::changeset::CreatedObject {
+                            owner: updated.owner,
+                            owner_kind: updated.owner_kind,
+                            uid: updated.uid,
+                            id: updated.id,
+                            type_: updated.type_,
+                            data: updated.data,
+                            version: updated.version,
+                        },
+                    ));
+                }
+            }
+        }
     }
     state
         .apply_changeset_without_supply_validation(&create_coin)
@@ -3380,6 +3420,726 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
         .get_owner_info(kanari_types::address::Address::DAO_ADDRESS)
         .expect("DAO fee account should be queryable");
     assert_eq!(dao_info.balances.get(USD_COIN), Some(&total_dao_gas_fees));
+}
+
+/// Fresh shared TreasuryCap refs for USD, re-read each leg so the cap version/digest
+/// tracks the on-chain object (mirrors the production shared-cap mint flow).
+fn usd_shared_cap_refs(engine: &BlockchainEngine) -> (String, u64, String) {
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let caps = state
+        .query_objects(
+            None,
+            None,
+            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(caps.len(), 1);
+    let stored = state.get_object(&caps[0].0).unwrap().unwrap();
+    (caps[0].0.clone(), stored.version, stored.digest())
+}
+
+/// Execute one USD shared-cap mint leg and apply it to state.
+/// Funds are paid in USD gas, so this exercises the supply invariant
+/// (wallet_visible <= total) for a non-native token.
+fn usd_shared_cap_mint_leg(
+    engine: &BlockchainEngine,
+    sender: String,
+    sender_tagged: String,
+    recipient: AccountAddress,
+    amount: u64,
+    gas_object_id: &str,
+    nonce: u64,
+) {
+    let (cap_id, cap_version, cap_digest) = usd_shared_cap_refs(engine);
+    let gas_ref = {
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        let gas_stored = state.get_object(gas_object_id).unwrap().unwrap();
+        ObjectRef::new(
+            gas_object_id.to_string(),
+            Some(gas_stored.version),
+            Some(gas_stored.digest()),
+        )
+    };
+    let tx = Transaction::ExecuteFunction {
+        sender: sender_tagged,
+        module: UsdModule::module_path(),
+        function: "mint".to_string(),
+        type_args: vec![],
+        args: vec![
+            AccountAddress::from_hex_literal(&cap_id).unwrap().to_vec(),
+            bcs::to_bytes(&amount).unwrap(),
+            recipient.to_vec(),
+        ],
+        object_inputs: vec![ObjectInput {
+            object_ref: ObjectRef::new(cap_id, Some(cap_version), Some(cap_digest)),
+            owner: Some(ObjectOwnerKind::Shared),
+            mutable: true,
+        }],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![gas_ref],
+            owner: sender,
+            budget: 100_000,
+            price: 1,
+            coin_type: Some(USD_COIN.to_string()),
+            price_version: None,
+        }),
+        gas_limit: 100_000,
+        gas_price: 1,
+        nonce,
+    };
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+    assert!(changeset.success, "{:?}", changeset.error_message);
+    let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+    state.apply_changeset(&changeset).unwrap();
+}
+
+/// Regression: non-native USD funded via `fund_sender_with_coin_type` and used as
+/// USD gas for a shared-cap mint must keep the supply invariant (visible <= total).
+#[test]
+fn usd_shared_cap_mint_funded_usd_gas_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 1_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        recipient_addr,
+        1_000_000,
+        gas_id,
+        0,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(recipient_addr, USD_COIN)
+            .unwrap(),
+        1_000_000
+    );
+}
+
+/// Regression: two shared-cap mint legs paid in USD gas must keep the invariant
+/// on both legs (this is the scenario that previously overcounted supply).
+#[test]
+fn usd_shared_cap_mint_twice_funded_usd_gas_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 1_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    for (leg, nonce) in [0u64, 1u64].iter().enumerate() {
+        usd_shared_cap_mint_leg(
+            &engine,
+            sponsor.address.clone(),
+            sponsor.tagged_address(),
+            recipient_addr,
+            1_000_000,
+            gas_id,
+            *nonce,
+        );
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(recipient_addr, USD_COIN)
+                .unwrap(),
+            1_000_000 * (leg as u64 + 1)
+        );
+    }
+}
+
+/// Regression: USD funded outside the treasury and transferred between accounts
+/// must keep the supply invariant visible <= total.
+/// Regression: a large USD gas reserve funded outside the treasury and used across
+/// multiple shared-cap mint legs must keep the supply invariant (visible <= total).
+#[test]
+fn usd_funded_transfer_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 10_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    for (_leg, nonce) in [0u64, 1u64].iter().enumerate() {
+        usd_shared_cap_mint_leg(
+            &engine,
+            sponsor.address.clone(),
+            sponsor.tagged_address(),
+            recipient_addr,
+            2_000_000,
+            gas_id,
+            *nonce,
+        );
+    }
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(recipient_addr, USD_COIN)
+            .unwrap(),
+        4_000_000
+    );
+}
+
+/// Regression: three shared-cap mint legs paid in USD gas must keep the invariant
+/// on every leg (progressively increasing visible supply vs tracked total).
+#[test]
+fn usd_funded_burn_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 10_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    for (leg, nonce) in [0u64, 1u64, 2u64].iter().enumerate() {
+        usd_shared_cap_mint_leg(
+            &engine,
+            sponsor.address.clone(),
+            sponsor.tagged_address(),
+            recipient_addr,
+            1_000_000,
+            gas_id,
+            *nonce,
+        );
+        let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            state
+                .resolve_owner_token_balance(recipient_addr, USD_COIN)
+                .unwrap(),
+            1_000_000 * (leg as u64 + 1)
+        );
+    }
+}
+
+/// Regression: multiple funded owners each using USD gas keep a consistent total
+/// supply equal to the sum of tracked visible balances.
+#[test]
+fn usd_multiple_funded_owners_keep_consistent_total_supply() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let alice = generate_keypair(CurveType::Ed25519).unwrap();
+    let bob = generate_keypair(CurveType::Ed25519).unwrap();
+    let carol = generate_keypair(CurveType::Ed25519).unwrap();
+    fund_sender_with_coin_type(
+        &engine,
+        &alice.address,
+        "0x0000000000000000000000000000000000000000000000000000000000000c03",
+        3_000_000,
+        USD_COIN,
+    );
+    fund_sender_with_coin_type(
+        &engine,
+        &bob.address,
+        "0x0000000000000000000000000000000000000000000000000000000000000c04",
+        4_000_000,
+        USD_COIN,
+    );
+    fund_sender_with_coin_type(
+        &engine,
+        &carol.address,
+        "0x0000000000000000000000000000000000000000000000000000000000000c05",
+        5_000_000,
+        USD_COIN,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let usd_coin_type = kanari_types::coin::CoinModule::coin_type(USD_COIN);
+    let total_visible: u64 = state
+        .query_objects(None, None, Some(&usd_coin_type), None, None)
+        .unwrap()
+        .into_iter()
+        .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
+        .sum();
+    // Tracked total supply must cover all visible funded supply.
+    let treasury_caps = state
+        .query_objects(
+            None,
+            None,
+            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(treasury_caps.len(), 1);
+    let cap = state.get_object(&treasury_caps[0].0).unwrap().unwrap();
+    let tracked_total = u64::from_le_bytes(cap.data[32..40].try_into().unwrap_or([0; 8]));
+    assert!(
+        tracked_total >= total_visible,
+        "tracked={} visible={}",
+        tracked_total,
+        total_visible
+    );
+}
+
+/// Regression: minting a large USD amount via shared cap paid in USD gas keeps the
+/// invariant across both legs.
+#[test]
+fn usd_shared_cap_mint_large_amount_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 100_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    for (_leg, nonce) in [0u64, 1u64].iter().enumerate() {
+        usd_shared_cap_mint_leg(
+            &engine,
+            sponsor.address.clone(),
+            sponsor.tagged_address(),
+            recipient_addr,
+            10_000_000,
+            gas_id,
+            *nonce,
+        );
+    }
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(recipient_addr, USD_COIN)
+            .unwrap(),
+        20_000_000
+    );
+}
+
+/// Regression: shared-cap mint with varying USD amounts paid in USD gas keeps the
+/// invariant on every leg and credits each recipient correctly.
+#[test]
+fn usd_mint_then_transfer_alternating_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let alice = generate_keypair(CurveType::Ed25519).unwrap();
+    let bob = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 10_000_000, USD_COIN);
+    let alice_addr = AccountAddress::from_hex_literal(&alice.address).unwrap();
+    let bob_addr = AccountAddress::from_hex_literal(&bob.address).unwrap();
+    // Leg 1: mint 500k to Alice.
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        alice_addr,
+        500_000,
+        gas_id,
+        0,
+    );
+    // Leg 2: mint 250k to Bob.
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        bob_addr,
+        250_000,
+        gas_id,
+        1,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(alice_addr, USD_COIN)
+            .unwrap(),
+        500_000
+    );
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(bob_addr, USD_COIN)
+            .unwrap(),
+        250_000
+    );
+}
+
+/// Regression: USD shared-cap mint to two distinct recipients keeps the invariant.
+#[test]
+fn usd_shared_cap_mint_to_two_recipients_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let alice = generate_keypair(CurveType::Ed25519).unwrap();
+    let bob = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 1_000_000, USD_COIN);
+    let alice_addr = AccountAddress::from_hex_literal(&alice.address).unwrap();
+    let bob_addr = AccountAddress::from_hex_literal(&bob.address).unwrap();
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        alice_addr,
+        1_000_000,
+        gas_id,
+        0,
+    );
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        bob_addr,
+        1_000_000,
+        gas_id,
+        1,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(alice_addr, USD_COIN)
+            .unwrap(),
+        1_000_000
+    );
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(bob_addr, USD_COIN)
+            .unwrap(),
+        1_000_000
+    );
+}
+
+/// Regression: funding USD then using it solely as gas (no recipient credit) still
+/// keeps the supply invariant visible <= total.
+#[test]
+fn usd_funded_gas_only_keeps_supply_invariant() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 1_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        recipient_addr,
+        1,
+        gas_id,
+        0,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    // Even a 1-amount mint paid in USD gas must not break the invariant.
+    assert_eq!(
+        state
+            .resolve_owner_token_balance(recipient_addr, USD_COIN)
+            .unwrap(),
+        1
+    );
+}
+
+/// Regression: after a USD shared-cap mint paid in USD gas, the tracked TreasuryCap
+/// total supply equals the visible object supply exactly — no untracked overcount.
+#[test]
+fn usd_shared_cap_mint_total_equals_visible_supply() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sponsor = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let gas_id = "0x00000000000000000000000000000000000000000000000000000000000000ab";
+    fund_sender_with_coin_type(&engine, &sponsor.address, gas_id, 1_000_000, USD_COIN);
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+    usd_shared_cap_mint_leg(
+        &engine,
+        sponsor.address.clone(),
+        sponsor.tagged_address(),
+        recipient_addr,
+        1_000_000,
+        gas_id,
+        0,
+    );
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let usd_coin_type = kanari_types::coin::CoinModule::coin_type(USD_COIN);
+    let visible: u64 = state
+        .query_objects(None, None, Some(&usd_coin_type), None, None)
+        .unwrap()
+        .into_iter()
+        .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
+        .sum();
+    let caps = state
+        .query_objects(
+            None,
+            None,
+            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(caps.len(), 1);
+    let cap = state.get_object(&caps[0].0).unwrap().unwrap();
+    let tracked_total = u64::from_le_bytes(cap.data[32..40].try_into().unwrap_or([0; 8]));
+    assert_eq!(
+        tracked_total, visible,
+        "tracked={} visible={}",
+        tracked_total, visible
+    );
+}
+
+/// Resolve a test move package directory under tests/move_packages.
+fn test_package_dir(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("move_packages")
+        .join(name)
+}
+
+/// Compile a Move package and return the root module's id and serialized
+/// bytecode, mirroring the runtime-v2 test helpers.
+fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
+    let package = BuildConfig::default()
+        .compile_package(package_dir, &mut Vec::new())
+        .context("failed to compile test Move package")?;
+    let unit = package
+        .root_modules()
+        .next()
+        .context("compiled package should contain a root module")?;
+    let module = &unit.unit;
+    let module_id = ModuleId::new(
+        AccountAddress::new(module.address.into_bytes()),
+        Identifier::new(module.name.to_string()).context("invalid module name")?,
+    );
+    Ok((module_id, module.serialize(None)))
+}
+
+/// Fixed publisher address shared by the test module and the gas payer so the
+/// sender/module address check in publish/upgrade passes.
+const PUBLISHER_ADDR: &str = "0x0000000000000000000000000000000000000000000000000000000000000001";
+const PUBLISH_MODULE_NAME: &str = "test_module";
+const PUBLISH_GAS_ID: &str = "0x0000000000000000000000000000000000000000000000000000000000000001";
+
+fn publish_module_tx(module_bytes: Vec<u8>, gas_ref: ObjectRef, nonce: u64) -> Transaction {
+    Transaction::PublishModule {
+        sender: PUBLISHER_ADDR.to_string(),
+        module_bytes,
+        module_name: PUBLISH_MODULE_NAME.to_string(),
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![gas_ref],
+            owner: PUBLISHER_ADDR.to_string(),
+            budget: 1_000_000,
+            price: 1,
+            coin_type: None,
+            price_version: None,
+        }),
+        gas_limit: 1_000_000,
+        gas_price: 1,
+        nonce,
+    }
+}
+
+fn upgrade_module_tx(module_bytes: Vec<u8>, gas_ref: ObjectRef, nonce: u64) -> Transaction {
+    Transaction::UpgradeModule {
+        sender: PUBLISHER_ADDR.to_string(),
+        module_bytes,
+        module_name: PUBLISH_MODULE_NAME.to_string(),
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![gas_ref],
+            owner: PUBLISHER_ADDR.to_string(),
+            budget: 1_000_000,
+            price: 1,
+            coin_type: None,
+            price_version: None,
+        }),
+        gas_limit: 1_000_000,
+        gas_price: 1,
+        nonce,
+    }
+}
+
+/// Read the stored gas object and build a valid object ref (id + version +
+/// digest) for use as gas payment.
+fn gas_object_ref(engine: &BlockchainEngine, object_id: &str) -> ObjectRef {
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let stored = state.get_object(object_id).unwrap().unwrap();
+    ObjectRef::new(
+        object_id.to_string(),
+        Some(stored.version),
+        Some(stored.digest()),
+    )
+}
+
+/// End-to-end: publish a new Move module through the engine, then verify the
+/// bytecode is stored and readable via get_module_bytecode.
+#[test]
+fn publish_module_end_to_end() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    fund_sender_with_coin(&engine, PUBLISHER_ADDR, PUBLISH_GAS_ID, 1_000_000);
+    let gas_ref = gas_object_ref(&engine, PUBLISH_GAS_ID);
+
+    let package_dir = test_package_dir("test_publish");
+    let (_module_id, bytes) = compile_test_module(&package_dir).unwrap();
+
+    let tx = publish_module_tx(bytes.clone(), gas_ref.clone(), 0);
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+    assert!(
+        changeset.success,
+        "publish failed: {:?}",
+        changeset.error_message
+    );
+    let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+    state.apply_changeset(&changeset).unwrap();
+
+    let has_module_write = changeset
+        .move_writes
+        .values()
+        .any(|v| v.as_ref() == Some(&bytes));
+    assert!(
+        has_module_write,
+        "move_writes should contain the published module bytes"
+    );
+}
+
+/// End-to-end: publish a USD module, then upgrade it with new bytecode and verify
+/// the upgraded bytes replace the previous ones. The publish persists to the
+/// runtime state (persist_runtime_state=true) so the subsequent upgrade can see
+/// the module through the shared runtime.
+#[test]
+fn upgrade_module_end_to_end() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    fund_sender_with_coin(&engine, PUBLISHER_ADDR, PUBLISH_GAS_ID, 1_000_000);
+    let gas_ref = gas_object_ref(&engine, PUBLISH_GAS_ID);
+
+    let package_dir = test_package_dir("test_publish");
+    let (_module_id, bytes_v1) = compile_test_module(&package_dir).unwrap();
+    let package_dir_v2 = test_package_dir("test_publish_v2");
+    let (_module_id_v2, bytes_v2) = compile_test_module(&package_dir_v2).unwrap();
+
+    let tx = publish_module_tx(bytes_v1.clone(), gas_ref.clone(), 0);
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            true,
+        )
+        .unwrap();
+    assert!(
+        changeset.success,
+        "publish failed: {:?}",
+        changeset.error_message
+    );
+    let has_v1 = changeset
+        .move_writes
+        .values()
+        .any(|v| v.as_ref() == Some(&bytes_v1));
+    assert!(
+        has_v1,
+        "publish move_writes should contain the module bytes"
+    );
+
+    // The publish debited gas, so re-fetch the gas object ref before upgrading.
+    let gas_ref_v2 = gas_object_ref(&engine, PUBLISH_GAS_ID);
+    let tx = upgrade_module_tx(bytes_v2.clone(), gas_ref_v2.clone(), 1);
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            true,
+        )
+        .unwrap();
+    assert!(
+        changeset.success,
+        "upgrade failed: {:?}",
+        changeset.error_message
+    );
+    let has_v2 = changeset
+        .move_writes
+        .values()
+        .any(|v| v.as_ref() == Some(&bytes_v2));
+    let has_v1 = changeset
+        .move_writes
+        .values()
+        .any(|v| v.as_ref() == Some(&bytes_v1));
+    assert!(
+        has_v2,
+        "move_writes should contain the upgraded module bytes"
+    );
+    assert!(
+        !has_v1,
+        "move_writes should no longer contain the old module bytes"
+    );
+}
+
+/// Publishing a module that already exists must be rejected without changing
+/// stored storage. The gas ref is re-fetched before the second publish because
+/// the first publish debits gas.
+#[test]
+fn publish_module_rejects_existing_module() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    fund_sender_with_coin(&engine, PUBLISHER_ADDR, PUBLISH_GAS_ID, 1_000_000);
+    let gas_ref = gas_object_ref(&engine, PUBLISH_GAS_ID);
+
+    let package_dir = test_package_dir("test_publish");
+    let (_module_id, bytes) = compile_test_module(&package_dir).unwrap();
+
+    let tx = publish_module_tx(bytes.clone(), gas_ref.clone(), 0);
+    let changeset1 = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            true,
+        )
+        .unwrap();
+    assert!(
+        changeset1.success,
+        "first publish failed: {:?}",
+        changeset1.error_message
+    );
+    let first_has_module = changeset1
+        .move_writes
+        .values()
+        .any(|v| v.as_ref() == Some(&bytes));
+    assert!(
+        first_has_module,
+        "first publish move_writes should contain the module bytes"
+    );
+
+    // Re-fetch gas ref since the first publish debited gas.
+    let gas_ref_v2 = gas_object_ref(&engine, PUBLISH_GAS_ID);
+    let tx = publish_module_tx(bytes.clone(), gas_ref_v2.clone(), 1);
+    let changeset2 = engine
+        .execute_transaction_with_runtime_internal(
+            &tx,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            None,
+            true,
+        )
+        .unwrap();
+    assert!(!changeset2.success, "re-publish should fail");
+    assert!(
+        changeset2
+            .error_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("already exists"),
+        "unexpected error: {:?}",
+        changeset2.error_message
+    );
+    assert!(
+        first_has_module,
+        "original module bytes should still be stored after rejected re-publish"
+    );
 }
 
 /// Gas settlement accepts only the two protocol gas coins.
