@@ -86,6 +86,18 @@ module escrow::escrow {
         timestamp: u64,
     }
 
+    /// Object-level locked supply change. Emitted on-chain whenever coins are
+    /// locked into or released from an address-held object.
+    /// CoinType is a phantom type parameter so the token type is encoded in
+    /// the event type tag — no unsafe address casting needed.
+    public struct ObjectLockedSupplyChanged<phantom CoinType> has copy, drop, store {
+        object_id: address,
+        amount: u64,
+        action: u8, // 1=locked, 2=released, 3=refunded
+        actor: address,
+        timestamp: u64,
+    }
+
     // ─── Internal Helper ───────────────────────────────────────────
 
     /// Internal function to create deal from Coin reference
@@ -161,6 +173,13 @@ module escrow::escrow {
             seller,
             actor: buyer_addr,
             recipient: @0x0,
+            timestamp: now,
+        });
+        event::emit(ObjectLockedSupplyChanged<CoinType> {
+            object_id: object::uid_address(&deal.id),
+            amount,
+            action: 1,
+            actor: buyer_addr,
             timestamp: now,
         });
     }
@@ -375,6 +394,13 @@ module escrow::escrow {
             recipient: deal.seller,
             timestamp: now,
         });
+        event::emit(ObjectLockedSupplyChanged<CoinType> {
+            object_id: object::uid_address(&deal.id),
+            amount: deal.amount,
+            action: 2,
+            actor: buyer_addr,
+            timestamp: now,
+        });
 
         let entry = ProofEntry {
             state:      STATE_COMPLETED,
@@ -424,6 +450,13 @@ module escrow::escrow {
             seller: deal.seller,
             actor: caller,
             recipient: deal.buyer,
+            timestamp: now,
+        });
+        event::emit(ObjectLockedSupplyChanged<CoinType> {
+            object_id: object::uid_address(&deal.id),
+            amount: deal.amount,
+            action: 3,
+            actor: caller,
             timestamp: now,
         });
 
@@ -527,6 +560,13 @@ module escrow::escrow {
             seller: deal.seller,
             actor: buyer_addr,
             recipient: deal.seller,
+            timestamp: now,
+        });
+        event::emit(ObjectLockedSupplyChanged<CoinType> {
+            object_id: object::uid_address(&deal.id),
+            amount: deal.amount,
+            action: 2,
+            actor: buyer_addr,
             timestamp: now,
         });
 
@@ -641,6 +681,13 @@ module escrow::escrow {
             seller: deal.seller,
             actor: caller,
             recipient: deal.buyer,
+            timestamp: now,
+        });
+        event::emit(ObjectLockedSupplyChanged<CoinType> {
+            object_id: object::uid_address(&deal.id),
+            amount: deal.amount,
+            action: 3,
+            actor: caller,
             timestamp: now,
         });
 

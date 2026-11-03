@@ -406,7 +406,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     };
     runtime.object_storage.store_object(coin.clone())?;
 
-    let _ = runtime.execute_entry_function_with_object_context_and_persistence(
+    let changeset = runtime.execute_entry_function_with_object_context_and_persistence(
         &module_id,
         "create_deal",
         vec![TypeTag::Struct(Box::new(StructTag::from_str(
@@ -429,6 +429,38 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
             state_overlay: None,
         },
     )?;
+
+    let (_, updated_coin) = changeset
+        .created_objects
+        .iter()
+        .find(|(id, _)| id == &coin.id)
+        .context("create_deal must write back the buyer coin")?;
+    assert_eq!(
+        coin_balance(&updated_coin.data),
+        1_000_000_000 - 100,
+        "create_deal must reduce the buyer coin by the locked amount"
+    );
+
+    let locked_coins: Vec<_> = changeset
+        .created_objects
+        .iter()
+        .filter(|(id, object)| id != &coin.id && object.type_.contains("coin::Coin"))
+        .collect();
+    assert_eq!(
+        locked_coins.len(),
+        1,
+        "escrow must create exactly one locked coin"
+    );
+    assert_eq!(
+        coin_balance(&locked_coins[0].1.data),
+        100,
+        "the locked coin must contain exactly the requested amount"
+    );
+    assert_eq!(
+        coin_balance(&updated_coin.data) + coin_balance(&locked_coins[0].1.data),
+        coin_balance(&coin.data),
+        "escrow split must conserve the coin amount"
+    );
 
     Ok(())
 }
@@ -657,7 +689,8 @@ fn raw_address_arg_cannot_mutably_borrow_non_coin_object_from_other_owner() -> R
 }
 
 #[test]
-fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owner() -> Result<()> {
+fn explicit_object_input_cannot_mutably_borrow_address_owned_defi_object_from_other_owner()
+-> Result<()> {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()?;
     let package_dir = create_escrow_like_test_package()?;
     let (module_id, module_bytes) = compile_test_module(&package_dir)?;
@@ -683,27 +716,34 @@ fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owne
         version: 1,
     })?;
 
-    let _ = runtime.execute_entry_function_with_object_context_and_persistence(
-        &module_id,
-        "touch_marker",
-        vec![],
-        vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
-            marker_id,
-        )?)?],
-        EntryFunctionObjectContext {
-            object_inputs: vec![ObjectInput {
-                object_ref: ObjectRef::new(marker_id.to_string(), Some(1), None),
-                owner: Some(ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal())),
-                mutable: true,
-            }],
-            sender: Some(sender),
-            gas_info: Some((100_000, 1)),
-            timestamp: Some(1_785_475_231_485),
-            tx_hash: Some(vec![6; 32]),
-            persist_runtime_state: false,
-            state_overlay: None,
-        },
-    )?;
+    let err = runtime
+        .execute_entry_function_with_object_context_and_persistence(
+            &module_id,
+            "touch_marker",
+            vec![],
+            vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
+                marker_id,
+            )?)?],
+            EntryFunctionObjectContext {
+                object_inputs: vec![ObjectInput {
+                    object_ref: ObjectRef::new(marker_id.to_string(), Some(1), None),
+                    owner: Some(ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal())),
+                    mutable: true,
+                }],
+                sender: Some(sender),
+                gas_info: Some((100_000, 1)),
+                timestamp: Some(1_785_475_231_485),
+                tx_hash: Some(vec![6; 32]),
+                persist_runtime_state: false,
+                state_overlay: None,
+            },
+        )
+        .expect_err("address-owned app objects must require sender ownership or shared ownership");
+    let message = format!("{err:?}");
+    assert!(
+        message.contains("9005") || message.contains("E_OBJECT_NOT_MUTABLY_BORROWABLE"),
+        "expected sender-only mutable access failure, got: {message}"
+    );
 
     Ok(())
 }

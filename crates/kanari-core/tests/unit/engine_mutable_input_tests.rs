@@ -1,10 +1,9 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Regression tests for the sender-only rule on mutable declared object
-//! inputs: `validate_transaction_object_access` must reject a transaction
-//! whose mutable object input is owned by anyone other than the sender,
-//! even when the declared owner honestly matches the stored owner.
+//! Regression tests for mutable declared object inputs. Coins remain sender
+//! only, while explicitly declared application objects may be mutated by a
+//! different sender when the Move module performs its own authorization.
 
 use super::BlockchainEngine;
 use kanari_crypto::hash_data_blake3;
@@ -65,6 +64,33 @@ fn fund_coin_object(
     create_coin.mint(addr, balance);
     state
         .apply_changeset_without_supply_validation(&create_coin)
+        .unwrap();
+}
+
+fn fund_app_object(
+    engine: &BlockchainEngine,
+    owner_literal: &str,
+    object_id: &str,
+    type_name: &str,
+) {
+    let owner = AccountAddress::from_hex_literal(owner_literal).unwrap();
+    let data = vec![0xEC; 64];
+    let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+    let mut changes = ChangeSet::new();
+    changes.created_objects.push((
+        object_id.to_string(),
+        CreatedObject {
+            owner,
+            owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+            uid: None,
+            id: None,
+            type_: type_name.to_string(),
+            data,
+            version: 1,
+        },
+    ));
+    state
+        .apply_changeset_without_supply_validation(&changes)
         .unwrap();
 }
 
@@ -145,4 +171,54 @@ fn mutable_object_input_for_sender_owned_object_passes_sender_rule() {
             "sender-owned mutable input must not trip the sender rule: {err}"
         ),
     }
+}
+
+#[test]
+fn explicit_mutable_application_object_for_foreign_address_owner_is_rejected() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let owner = generate_keypair(CurveType::Ed25519).unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let object_id = "0xcafe";
+    let object_type = "0x42::escrow::EscrowDeal<0x2::kanari::KANARI>";
+
+    fund_app_object(&engine, &owner.address, object_id, object_type);
+    let gas_id = "0xface";
+    fund_coin_object(&engine, &sender.address, gas_id, 1_000_000);
+
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.tagged_address(),
+        module: "0x42::escrow".to_string(),
+        function: "release_funds".to_string(),
+        type_args: vec!["0x2::kanari::KANARI".to_string()],
+        args: vec![],
+        object_inputs: vec![ObjectInput {
+            object_ref: ObjectRef::new(
+                object_id,
+                Some(1),
+                Some(format!(
+                    "0x{}",
+                    hex::encode(hash_data_blake3(&vec![0xEC; 64]))
+                )),
+            ),
+            owner: Some(ObjectOwnerKind::AddressOwner(owner.address.clone())),
+            mutable: true,
+        }],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![coin_ref(gas_id, 1_000_000)],
+            owner: sender.address.clone(),
+            budget: 1_000_000,
+            price: 1,
+            coin_type: None,
+            price_version: None,
+        }),
+        gas_limit: 1_000_000,
+        gas_price: 1,
+        nonce: 0,
+    };
+
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
+    let err = BlockchainEngine::validate_transaction_object_access(&state, &tx, sender_addr)
+        .expect_err("address-owned application objects must remain sender-only");
+    assert!(err.to_string().contains("not the sender"));
 }

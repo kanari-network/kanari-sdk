@@ -381,6 +381,31 @@ impl IndexerDB {
         Ok(events)
     }
 
+    /// Get recent events by their fully-qualified Move type tag.
+    pub fn get_events_by_type_tag(&self, type_tag: &str, limit: u32) -> Result<Vec<IndexedEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
+             FROM events WHERE type_tag = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+
+        let events = stmt
+            .query_map(params![type_tag, limit], |row| {
+                Ok(IndexedEvent {
+                    id: row.get(0)?,
+                    event_key: row.get(1)?,
+                    sequence_number: row.get::<_, i64>(2)? as u64,
+                    type_tag: row.get(3)?,
+                    event_data: row.get(4)?,
+                    tx_hash: row.get(5)?,
+                    block_height: row.get::<_, i64>(6)? as u64,
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(events)
+    }
+
     // =========================================================================
     // Coin Operations
     // =========================================================================

@@ -240,33 +240,25 @@ proptest! {
             &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
             owner,
             Some(sender),
-            false,
         ));
     }
 
     #[test]
-    fn explicit_cross_owner_policy_allows_only_mutable_non_coin_owned_objects(
+    fn address_owned_cross_owner_policy_always_rejects_mutation(
         requested_mutable in any::<bool>(),
-        is_coin in any::<bool>(),
     ) {
         let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
         let sender = AccountAddress::from_hex_literal("0x2222").unwrap();
-        let object_type = if is_coin {
-            format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN)
-        } else {
-            "0x48::escrow_like::Marker".to_string()
-        };
 
         let allowed = MoveRuntime::can_mutably_borrow_preloaded_object(
             requested_mutable,
-            &object_type,
+            "0x48::escrow_like::Marker",
             &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
             owner,
             Some(sender),
-            true,
         );
 
-        prop_assert_eq!(allowed, requested_mutable && !is_coin);
+        prop_assert!(!allowed);
     }
 
     #[test]
@@ -290,7 +282,6 @@ proptest! {
             &owner_kind,
             owner,
             Some(owner),
-            false,
         );
 
         prop_assert_eq!(allowed, requested_mutable && !use_immutable);

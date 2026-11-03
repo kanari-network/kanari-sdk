@@ -135,12 +135,16 @@ impl Indexer {
                         .context(format!("Failed to insert coin from tx {}", tx_hash))?;
                 }
             }
+        }
 
-            if !block.events.is_empty() {
-                self.db
-                    .insert_events(height, &[(None, block.events.as_slice())])
-                    .context(format!("Failed to insert events for block {}", height))?;
-            }
+        // Events are block-level data and must be indexed even when a block
+        // has no transaction rows (for example, synthetic/replayed blocks).
+        // Keeping this outside the transaction branch also guarantees generic
+        // ObjectLockedSupplyChanged events are not silently dropped.
+        if !block.events.is_empty() {
+            self.db
+                .insert_events(height, &[(None, block.events.as_slice())])
+                .context(format!("Failed to insert events for block {}", height))?;
         }
 
         // Update last indexed height
