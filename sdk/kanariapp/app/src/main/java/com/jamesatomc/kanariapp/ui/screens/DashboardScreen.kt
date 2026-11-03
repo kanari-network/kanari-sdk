@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -53,6 +54,7 @@ fun DashboardScreen(
     onNavigateToNfts: () -> Unit,
     onNavigateToObjects: () -> Unit,
     onNavigateToDeepBook: () -> Unit,
+    onNavigateToEscrow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tokenBalances by viewModel.tokenBalances.collectAsStateWithLifecycle()
@@ -175,19 +177,30 @@ fun DashboardScreen(
                 }
             }
 
-            // DeepBook quick action (separate row below)
+            // DEX quick actions
+            SectionHeader(title = "DEX")
             Card(
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader(title = "DEX")
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.Absolute.Left
+                ) {
                     QuickServiceItem(
                         icon = Icons.Default.TrendingUp,
                         label = "DeepBook",
                         containerColor = KanariColors.Lime,
                         contentColor = KanariColors.Ink,
                         onClick = onNavigateToDeepBook
+                    )
+                    QuickServiceItem(
+                        icon = Icons.Default.Security,
+                        label = "Escrow",
+                        containerColor = KanariColors.Lime,
+                        contentColor = KanariColors.Ink,
+                        onClick = onNavigateToEscrow
                     )
                 }
             }

@@ -14,7 +14,7 @@ interface KanariRpcService {
     suspend fun getAccount(@Body request: RpcRequest): RpcResponse<AccountInfo>
 
     @POST("rpc")
-    suspend fun getObjects(@Body request: RpcRequest): RpcResponse<List<ObjectInfo>>
+    suspend fun getObjects(@Body request: RpcRequest): RpcResponse<OwnedObjectsResponse>
 
     @POST("rpc")
     suspend fun getTransaction(@Body request: RpcRequest): RpcResponse<TransactionDetails>
@@ -42,6 +42,12 @@ interface KanariRpcService {
 
     @POST("rpc")
     suspend fun getOwnedNfts(@Body request: RpcRequest): RpcResponse<List<OwnedNft>>
+
+    @POST("rpc")
+    suspend fun getOwnedObjects(@Body request: RpcRequest): RpcResponse<OwnedObjectsResponse>
+
+    @POST("rpc")
+    suspend fun getSingleObject(@Body request: RpcRequest): RpcResponse<ObjectInfo>
 
     @POST("rpc")
     suspend fun getObjectsByType(@Body request: RpcRequest): RpcResponse<OwnedObjectsResponse>

@@ -1,0 +1,14 @@
+[package]
+name = "escrow"
+edition = "2024"
+# license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
+# authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
+
+[dependencies]
+KanariSystem = { local = "../../crates/kanari-frameworks/packages/kanari-system" }
+MoveStdlib = { local = "../../crates/kanari-frameworks/packages/move-stdlib" }
+
+[addresses]
+escrow = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146"
+std = "0x1"
+kanari_system = "0x2"

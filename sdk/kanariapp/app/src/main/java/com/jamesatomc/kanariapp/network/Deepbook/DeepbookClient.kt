@@ -257,7 +257,8 @@ internal suspend fun KanariClient.callViewFunction(
     moduleName: String,
     functionName: String,
     typeArgs: List<String> = emptyList(),
-    args: List<JsonElement> = emptyList()
+    args: List<JsonElement> = emptyList(),
+    objectInputs: List<JsonObject> = emptyList()
 ): JsonElement? {
     val request = RpcRequest(
         method = "kanari_viewFunction",
@@ -268,6 +269,9 @@ internal suspend fun KanariClient.callViewFunction(
                 put("function", functionName)
                 put("type_args", buildJsonArray { typeArgs.forEach { add(normalizeTokenType(it)) } })
                 put("args", buildJsonArray { args.forEach { add(it) } })
+                if (objectInputs.isNotEmpty()) {
+                    put("object_inputs", buildJsonArray { objectInputs.forEach { add(it) } })
+                }
             })
         }
     )

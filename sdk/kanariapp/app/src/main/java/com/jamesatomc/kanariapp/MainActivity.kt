@@ -82,7 +82,8 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
                 onNavigateToNfts = { navController.navigate(Screen.Nfts.route) },
                 onNavigateToObjects = { navController.navigate(Screen.Objects.route) },
-                onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) }
+                onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) },
+                onNavigateToEscrow = { navController.navigate(Screen.Escrow.route) }
             )
         }
         composable(Screen.Receive.route) {
@@ -96,6 +97,12 @@ fun MainNavigation(viewModel: WalletViewModel) {
         }
         composable(Screen.DeepBook.route) {
             DeepBookScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.Escrow.route) {
+            EscrowScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )

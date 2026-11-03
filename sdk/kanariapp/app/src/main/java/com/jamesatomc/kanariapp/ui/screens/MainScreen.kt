@@ -158,7 +158,8 @@ fun MainScreen(
                     onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
                     onNavigateToNfts = { navController.navigate(Screen.Nfts.route) },
                     onNavigateToObjects = { navController.navigate(Screen.Objects.route) },
-                    onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) }
+                    onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) },
+                    onNavigateToEscrow = { navController.navigate(Screen.Escrow.route) }
                 )
 
                 1 -> HistoryScreen(viewModel = viewModel)
@@ -328,7 +329,7 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
                     isLoading = true; error = null
                     if (viewModel.transfer(to, mist, type)) {
                         successSummary = "$amount ${selectedToken?.symbol ?: ""} sent to " +
-                            "${to.take(10)}\u2026${to.takeLast(6)}"
+                                "${to.take(10)}\u2026${to.takeLast(6)}"
                     } else {
                         error = viewModel.error.value ?: "Transaction failed"
                     }

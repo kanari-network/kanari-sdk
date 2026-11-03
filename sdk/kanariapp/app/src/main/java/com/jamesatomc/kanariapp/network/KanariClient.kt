@@ -134,6 +134,22 @@ class KanariClient(private val environment: KanariEnvironment) {
     }
 
     /**
+     * Fetch a single object by id (`kanari_getObject`), including its current
+     * version and digest - required inputs for `*_ref` view functions.
+     */
+    suspend fun getObject(objectId: String): ObjectInfo {
+        val request = RpcRequest(
+            method = "kanari_getObject",
+            params = buildJsonObject {
+                put("object_id", kotlinx.serialization.json.JsonPrimitive(normalizeAddress(objectId)))
+            }
+        )
+        val response = rpcService.getSingleObject(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result ?: throw Exception("Object not found: $objectId")
+    }
+
+    /**
      * Query all objects matching an exact type string (`kanari_getObjectsByType`).
      * Use the fully-qualified type including generic parameters, e.g.
      * `0x3ba6...::deepbook::OrderBook<0x2::kanari::KANARI, 0x2::usd::USD>`.
