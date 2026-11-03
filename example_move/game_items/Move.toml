@@ -1,0 +1,12 @@
+[package]
+name = "game_items"
+edition = "2024"
+
+[dependencies]
+KanariSystem = { local = "../../crates/kanari-frameworks/packages/kanari-system" }
+MoveStdlib = { local = "../../crates/kanari-frameworks/packages/move-stdlib" }
+
+[addresses]
+game_items = "0x42"
+std = "0x1"
+kanari_system = "0x2"
