@@ -1,7 +1,5 @@
 module escrow::escrow {
     use std::string::{Self, String};
-    use std::vector;
-    use std::option::{Self, Option};
     use kanari_system::borrow;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::event;
@@ -135,6 +133,9 @@ module escrow::escrow {
             funds: option::some(funds),
         };
 
+        // Capture object id before deal is moved into share_object
+        let deal_object_id = object::uid_address(&deal.id);
+
         // Escrow state is protocol-shared: both buyer and seller must be able
         // to submit authenticated state transitions without cross-owner
         // mutable access to a buyer-owned object.
@@ -176,7 +177,7 @@ module escrow::escrow {
             timestamp: now,
         });
         event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: object::uid_address(&deal.id),
+            object_id: deal_object_id,
             amount,
             action: 1,
             actor: buyer_addr,
