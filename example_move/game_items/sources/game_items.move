@@ -30,15 +30,16 @@ module game_items::game_items {
     }
 
     /// Create a new game item type and register it in the catalog.
-    /// The token type is shared for discovery; the caller keeps `TokenCap`
-    /// to mint/burn later.
-    public fun create_item_type(
+    /// The token type is shared for discovery; the TokenCap is transferred
+    /// to the sender for mint/burn authority. ItemCatalog is also transferred
+    /// to the sender for discovery.
+    public entry fun create_item_type(
         name: vector<u8>,
         description: vector<u8>,
         image_url: vector<u8>,
         max_supply: u64,
         ctx: &mut TxContext,
-    ): (ItemCatalog, TokenCap) {
+    ) {
         let (token, cap) = krc_1155::create(
             name,
             description,
@@ -55,7 +56,10 @@ module game_items::game_items {
         };
         // Share token type so anyone can discover it (read-only).
         krc_1155::share(token);
-        (catalog, cap)
+        // Transfer ownership of catalog and cap to the sender.
+        let sender = tx_context::sender(ctx);
+        transfer::public_transfer(catalog, sender);
+        transfer::public_transfer(cap, sender);
     }
 
     /// Get or create a player's inventory object.
@@ -181,18 +185,15 @@ module game_items::game_items {
         let mut ctx = tx_context::dummy();
 
         // 1. Create an item type: 1000 Health Potions
-        let (_catalog, _cap) = create_item_type(
+        create_item_type(
             b"Health Potion",
             b"Restores 50 HP",
             b"https://cdn.example.com/potion.png",
             1000,
             &mut ctx,
         );
-        assert!(string::bytes(&_catalog.name) == b"Health Potion", 0);
-        assert!(_catalog.max_supply == 1000, 1);
-
-        transfer::public_freeze_object(_catalog);
-        transfer::public_freeze_object(_cap);
+        // Token type is shared; catalog and cap are transferred to sender.
+        // In tests, we verify the function doesn't abort.
     }
 
     #[test]

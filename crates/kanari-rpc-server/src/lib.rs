@@ -61,6 +61,7 @@ use crate::{
         handle_get_canonical_state_snapshot, handle_get_full_block, handle_get_smt_status,
         handle_get_stats,
     },
+    krc_1155::{handle_get_krc1155_token_type, handle_get_owned_krc1155_balances},
     module::{
         handle_get_module, handle_get_object, handle_get_object_by_ref, handle_get_objects,
         handle_get_objects_by_type, handle_get_owned_objects, handle_list_modules,
@@ -69,16 +70,18 @@ use crate::{
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         faucet::{handle_faucet_usd_status, handle_request_usd_faucet},
-        handle_build_call_function, handle_build_native_coin_consolidation,
-        handle_build_native_transfer, handle_build_nft_transfer, handle_build_publish_module,
-        handle_build_publish_package, handle_build_token_transfer, handle_call_function,
-        handle_get_fungible_asset_transactions, handle_get_transaction, handle_publish_module,
-        handle_publish_package, handle_submit_object_transfer, handle_view_function,
+        handle_build_call_function, handle_build_krc1155_transfer,
+        handle_build_native_coin_consolidation, handle_build_native_transfer,
+        handle_build_nft_transfer, handle_build_publish_module, handle_build_publish_package,
+        handle_build_token_transfer, handle_call_function, handle_get_fungible_asset_transactions,
+        handle_get_transaction, handle_publish_module, handle_publish_package,
+        handle_submit_object_transfer, handle_view_function,
     },
 };
 
 pub mod balance;
 pub mod block;
+pub mod krc_1155;
 pub mod module;
 pub mod nft;
 pub mod transaction;
@@ -418,6 +421,7 @@ async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl I
         methods::BUILD_CALL_FUNCTION => handle_build_call_function(&state, &request).await,
         methods::BUILD_TOKEN_TRANSFER => handle_build_token_transfer(&state, &request).await,
         methods::BUILD_NFT_TRANSFER => handle_build_nft_transfer(&state, &request).await,
+        methods::BUILD_KRC1155_TRANSFER => handle_build_krc1155_transfer(&state, &request).await,
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
@@ -436,6 +440,12 @@ async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl I
 
         // NFT queries
         methods::GET_OWNED_NFTS => handle_get_owned_nfts(&state, &request).await,
+
+        // KRC-1155 queries
+        methods::GET_OWNED_KRC1155_BALANCES => {
+            handle_get_owned_krc1155_balances(&state, &request).await
+        }
+        methods::GET_KRC1155_TOKEN_TYPE => handle_get_krc1155_token_type(&state, &request).await,
 
         // collection queries
         methods::LIST_COLLECTIONS => handle_list_collections(&state, &request).await,

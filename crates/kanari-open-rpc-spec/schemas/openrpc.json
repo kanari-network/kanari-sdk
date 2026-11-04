@@ -1261,6 +1261,34 @@
       ]
     },
     {
+      "name": "kanari_buildKrc1155Transfer",
+      "summary": "Build KRC-1155 transfer transaction",
+      "description": "Resolves the owned KRC-1155 Balance object input, gas, and nonce, and returns a canonical unsigned `kanari_system::krc_1155::transfer` call.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Unsigned KRC-1155 transfer payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call",
+        "description": "Prepared KRC-1155-transfer call request.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "krc1155"
+        }
+      ]
+    },
+    {
       "name": "kanari_requestUsdFaucet",
       "summary": "Claim 100 USD from the web faucet",
       "description": "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
@@ -1617,6 +1645,65 @@
       "tags": [
         {
           "name": "nft"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getOwnedKrc1155Balances",
+      "summary": "Get owned KRC-1155 balances",
+      "description": "Returns KRC-1155 Balance objects owned by one owner.",
+      "params": [
+        {
+          "name": "owner",
+          "description": "Target owner address.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "balances",
+        "description": "Owned KRC-1155 balance list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "krc1155"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getKrc1155TokenType",
+      "summary": "Get KRC-1155 token type",
+      "description": "Returns a KRC-1155 TokenType object by id.",
+      "params": [
+        {
+          "name": "id",
+          "description": "Token type id.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "token_type",
+        "description": "KRC-1155 token type.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "krc1155"
         }
       ]
     }

@@ -10,12 +10,12 @@ use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::{
-    BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
-    BuildNftTransferRequest, BuildPublishModuleRequest, BuildPublishPackageRequest,
-    BuildTokenTransferRequest, CallFunctionRequest, FungibleAssetTransactionsResponse,
-    GetFungibleAssetTransactionsRequest, ObjectTransferData, PublishModuleRequest,
-    PublishPackageRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
-    ViewFunctionRequest, methods,
+    BuildCallFunctionRequest, BuildKrc1155TransferRequest, BuildNativeCoinConsolidationRequest,
+    BuildNativeTransferRequest, BuildNftTransferRequest, BuildPublishModuleRequest,
+    BuildPublishPackageRequest, BuildTokenTransferRequest, CallFunctionRequest,
+    FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest, ObjectTransferData,
+    PublishModuleRequest, PublishPackageRequest, TransactionDetails, TransactionErrorData,
+    TransactionErrorReason, ViewFunctionRequest, methods,
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
@@ -54,9 +54,10 @@ mod validation;
 mod view;
 
 pub use build::{
-    handle_build_call_function, handle_build_native_coin_consolidation,
-    handle_build_native_transfer, handle_build_nft_transfer, handle_build_publish_module,
-    handle_build_publish_package, handle_build_token_transfer,
+    handle_build_call_function, handle_build_krc1155_transfer,
+    handle_build_native_coin_consolidation, handle_build_native_transfer,
+    handle_build_nft_transfer, handle_build_publish_module, handle_build_publish_package,
+    handle_build_token_transfer,
 };
 pub(crate) use bytecode::{
     extract_functions_from_bytes, function_object_param_indices, lookup_module_functions,

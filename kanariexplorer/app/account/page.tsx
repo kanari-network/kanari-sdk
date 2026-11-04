@@ -27,13 +27,14 @@ import {
   getAllBalances,
   getAllTransactions,
   getOwnedNfts,
+  getOwnedKrc1155Balances,
   getOwnedObjects,
   getTokens,
   getTransaction,
 } from "../lib/rpc";
 import { useTxPager, type TxPager } from "../lib/useTxPager";
 
-type AccountTab = "coins" | "nfts" | "objects" | "activity";
+type AccountTab = "coins" | "nfts" | "krc1155" | "objects" | "activity";
 
 /**
  * No fallback: returns decimals string only when API/registry has it,
@@ -197,6 +198,7 @@ function AccountContent() {
   const [balances, setBalances] = useState<unknown[]>([]);
   const [tokenRegistry, setTokenRegistry] = useState<unknown[]>([]);
   const [nfts, setNfts] = useState<unknown[]>([]);
+  const [krc1155Balances, setKrc1155Balances] = useState<unknown[]>([]);
   const [objects, setObjects] = useState<unknown[]>([]);
   const [activeTab, setActiveTab] = useState<AccountTab>("coins");
   const [loading, setLoading] = useState(false);
@@ -227,11 +229,12 @@ function AccountContent() {
     setActivityTick((tick) => tick + 1);
     setLoading(true);
     try {
-      const [accountData, balanceData, nftData, objectData, registryData] =
+      const [accountData, balanceData, nftData, krc1155Data, objectData, registryData] =
         await Promise.all([
           getAccount(trimmed).catch(() => null),
           getAllBalances(trimmed).catch(() => []),
           getOwnedNfts(trimmed).catch(() => []),
+          getOwnedKrc1155Balances(trimmed).catch(() => []),
           getOwnedObjects(trimmed).catch(() => []),
           getTokens().catch(() => []),
         ]);
@@ -239,6 +242,7 @@ function AccountContent() {
       setBalances(asArray(balanceData));
       setTokenRegistry(asArray(registryData));
       setNfts(asArray(nftData));
+      setKrc1155Balances(asArray(krc1155Data));
       setObjects(
         dedupeObjects([
           ...asArray(objectData),
@@ -332,6 +336,7 @@ function AccountContent() {
         {[
           ["coins", `Coins ${balances.length}`],
           ["nfts", `NFTs ${nfts.length}`],
+          ["krc1155", `KRC-1155 ${krc1155Balances.length}`],
           ["objects", `Objects ${objects.length}`],
           [
             "activity",
@@ -462,6 +467,42 @@ function AccountContent() {
                     </p>
                   </div>
                 </Link>
+              );
+            })}
+          </div>
+        )
+      ) : null}
+
+      {!loading && activeTab === "krc1155" ? (
+        krc1155Balances.length === 0 ? (
+          <EmptyState label="No KRC-1155 balances owned by this address." />
+        ) : (
+          <div className="data-list">
+            {krc1155Balances.map((balance, index) => {
+              const objectId = readString(balance, "object_id", `krc1155-${index}`);
+              return (
+                <div
+                  className="data-row data-row--account"
+                  key={objectId}
+                >
+                  <div className="token-identity primary-text">
+                    <span className="token-logo" aria-hidden="true">
+                      1155
+                    </span>
+                    <span>
+                      <strong className="mono">{readString(balance, "name", shortHash(objectId))}</strong>
+                      <span className="muted-text mono">{readString(balance, "token_type", "-")}</span>
+                    </span>
+                  </div>
+                  <div>
+                    <p className="tiny-label">Amount</p>
+                    <span className="mono">{readString(balance, "amount", "0")}</span>
+                  </div>
+                  <div>
+                    <p className="tiny-label">Max supply</p>
+                    <span className="mono">{readString(balance, "max_supply", "-")}</span>
+                  </div>
+                </div>
               );
             })}
           </div>

@@ -20,6 +20,30 @@ data class NftAttributes(
     val values: List<String> = emptyList(),
 )
 
+@Serializable
+data class Krc1155BalanceEntry(
+    @SerialName("object_id") val objectId: String,
+    val amount: Long? = null,
+)
+
+/** One owned KRC-1155 balance (aggregated by token type) as returned by `kanari_getOwnedKrc1155Balances`. */
+@Serializable
+data class OwnedKrc1155Balance(
+    @SerialName("object_id") val objectId: String? = null,
+    val type: String? = null,
+    val owner: String? = null,
+    val version: Long? = null,
+    @SerialName("token_type") val tokenType: String? = null,
+    val amount: Long? = null,
+    val name: String? = null,
+    val description: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+    @SerialName("max_supply") val maxSupply: Long? = null,
+    @SerialName("total_supply") val totalSupply: Long? = null,
+    val balances: List<Krc1155BalanceEntry>? = null,
+    val data: List<Int>? = null,
+)
+
 /** One owned NFT object as returned by `kanari_getOwnedNfts`. */
 @Serializable
 data class OwnedNft(
@@ -36,7 +60,7 @@ data class OwnedNft(
 
     val displayName: String
         get() = parsed?.name?.takeIf { it.isNotBlank() }
-            // Hex id can be long; show the middle so a card still fits.
+        // Hex id can be long; show the middle so a card still fits.
             ?: "NFT ${objectId.takeLast(6)}"
 
     val imageUrl: String? get() = parsed?.imageUrl?.takeIf { it.isNotBlank() }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.Arrangement
@@ -43,7 +44,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: WalletViewModel,
@@ -52,6 +53,7 @@ fun DashboardScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToWalletGen: () -> Unit,
     onNavigateToNfts: () -> Unit,
+    onNavigateToKrc1155: () -> Unit,
     onNavigateToObjects: () -> Unit,
     onNavigateToDeepBook: () -> Unit,
     onNavigateToEscrow: () -> Unit,
@@ -142,9 +144,14 @@ fun DashboardScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 modifier = Modifier.fillMaxWidth()
             ) {
+                val scrollState = rememberScrollState()
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .horizontalScroll(scrollState)
+                    ,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuickServiceItem(
                         icon = Icons.AutoMirrored.Filled.Send,
@@ -166,6 +173,13 @@ fun DashboardScreen(
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                         onClick = onNavigateToNfts
+                    )
+                    QuickServiceItem(
+                        icon = Icons.Default.GridView,
+                        label = "1155",
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        onClick = onNavigateToKrc1155
                     )
                     QuickServiceItem(
                         icon = Icons.Default.Folder,

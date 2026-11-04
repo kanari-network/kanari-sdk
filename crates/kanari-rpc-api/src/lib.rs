@@ -892,6 +892,23 @@ pub struct BuildTokenTransferRequest {
     pub execute_immediate: Option<bool>,
 }
 
+/// Build KRC-1155 transfer request (`kanari_buildKrc1155Transfer`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildKrc1155TransferRequest {
+    pub sender: String,
+    pub recipient: String,
+    /// Object id of the KRC-1155 Balance (`0x`-prefixed). Must be owned by `sender`.
+    pub object_id: String,
+    /// Amount to transfer (in base units).
+    pub amount: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
+}
+
 /// Build NFT transfer request (`kanari_buildNftTransfer`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildNftTransferRequest {
@@ -1574,6 +1591,14 @@ pub mod methods {
     )]
     pub const BUILD_NFT_TRANSFER: &str = "kanari_buildNftTransfer";
     #[open_rpc_method(
+        summary = "Build KRC-1155 transfer transaction",
+        description = "Resolves the owned KRC-1155 Balance object input, gas, and nonce, and returns a canonical unsigned `kanari_system::krc_1155::transfer` call.",
+        params = [("call", "Unsigned KRC-1155 transfer payload.", true, schema_object())],
+        result = ("call", "Prepared KRC-1155-transfer call request.", schema_object()),
+        tags = ["krc1155"]
+    )]
+    pub const BUILD_KRC1155_TRANSFER: &str = "kanari_buildKrc1155Transfer";
+    #[open_rpc_method(
         summary = "Claim 100 USD from the web faucet",
         description = "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
         params = [("request", "Faucet claim payload.", true, schema_object())],
@@ -1700,4 +1725,23 @@ pub mod methods {
         tags = ["nft"]
     )]
     pub const GET_NFTS_BY_COLLECTION: &str = "kanari_getNftsByCollection";
+
+    // KRC-1155 queries
+    #[open_rpc_method(
+        summary = "Get owned KRC-1155 balances",
+        description = "Returns KRC-1155 Balance objects owned by one owner.",
+        params = [("owner", "Target owner address.", true, schema_string())],
+        result = ("balances", "Owned KRC-1155 balance list.", schema_array(schema_object())),
+        tags = ["krc1155"]
+    )]
+    pub const GET_OWNED_KRC1155_BALANCES: &str = "kanari_getOwnedKrc1155Balances";
+
+    #[open_rpc_method(
+        summary = "Get KRC-1155 token type",
+        description = "Returns a KRC-1155 TokenType object by id.",
+        params = [("id", "Token type id.", true, schema_string())],
+        result = ("token_type", "KRC-1155 token type.", schema_object()),
+        tags = ["krc1155"]
+    )]
+    pub const GET_KRC1155_TOKEN_TYPE: &str = "kanari_getKrc1155TokenType";
 }
