@@ -1263,7 +1263,7 @@
     {
       "name": "kanari_buildKrc1155Transfer",
       "summary": "Build KRC-1155 transfer transaction",
-      "description": "Resolves the owned KRC-1155 Balance object input, gas, and nonce, and returns a canonical unsigned `kanari_system::krc_1155::transfer` call.",
+      "description": "Resolves the KRC-1155 Balance object inputs, gas, and nonce, and returns a canonical unsigned `kanari_system::krc_1155::transfer` call. Pass `object_id` to spend one specific Balance object, or `token_type` to have the server select up to three owned Balance objects of that type covering `amount`, using `transfer_two` or `transfer_three` when a single object is short.",
       "params": [
         {
           "name": "call",

@@ -68,9 +68,9 @@ pub(crate) use details::{
 };
 pub(crate) use error::transaction_error_with_reason;
 pub(crate) use gas_selection::{
-    build_call_native_burn_amount, select_coin_object_for_token, select_gas_payment_auto,
-    select_native_coin_consolidation_step, select_native_gas_payment,
-    select_native_transfer_and_gas_payment,
+    MAX_KRC1155_TRANSFER_OBJECTS, build_call_native_burn_amount, select_coin_object_for_token,
+    select_gas_payment_auto, select_krc1155_balances, select_native_coin_consolidation_step,
+    select_native_gas_payment, select_native_transfer_and_gas_payment,
 };
 pub(crate) use object_inputs::{
     build_object_input, coin_token_type_from_object_type, infer_object_inputs,

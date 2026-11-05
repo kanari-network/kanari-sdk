@@ -2,43 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{Result, bail};
-use kanari_open_rpc::{OPENRPC_VERSION, Project};
-use kanari_open_rpc_spec::{read_recorded_spec, write_recorded_spec};
+use kanari_open_rpc::OPENRPC_VERSION;
+use kanari_open_rpc_spec::{build_and_save_kanari_rpc_spec, read_recorded_spec};
 use kanari_rpc_api::methods;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub use kanari_open_rpc_spec::build_kanari_rpc_spec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Print,
     Test,
     Record,
-}
-
-pub fn kanari_rpc_doc(version: &'static str) -> Project {
-    Project::new(
-        version,
-        "Kanari JSON-RPC",
-        "Kanari JSON-RPC API for interaction with kanari server.",
-        "Kanari Network",
-        "https://kanarinetwork.site",
-        "opensource@kanarinetwork.site",
-        "Apache-2.0",
-        "https://raw.githubusercontent.com/kanari-network/kanari-sdk/main/LICENSE",
-    )
-}
-
-pub fn build_kanari_rpc_spec() -> Project {
-    let mut open_rpc = kanari_rpc_doc(VERSION);
-    open_rpc.add_methods(methods::open_rpc_methods());
-    open_rpc
-}
-
-pub fn build_and_save_kanari_rpc_spec() -> Result<PathBuf> {
-    let open_rpc = build_kanari_rpc_spec();
-    write_recorded_spec(&open_rpc)
 }
 
 pub fn run_action(action: Action) -> Result<()> {

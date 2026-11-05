@@ -14,4 +14,5 @@ description = "Recorded OpenRPC schema assets for Kanari"
 [dependencies]
 anyhow = { workspace = true }
 kanari-open-rpc = { workspace = true }
+kanari-rpc-api = { workspace = true }
 serde_json = { workspace = true }

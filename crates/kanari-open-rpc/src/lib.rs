@@ -57,6 +57,50 @@ impl Project {
     {
         self.methods.extend(methods);
     }
+
+    /// Sort object keys inside every method schema.
+    ///
+    /// `serde_json` serializes object keys in sorted order unless the
+    /// `preserve_order` feature is on, and Cargo resolves that feature
+    /// separately for build scripts and for normal builds. A workspace-wide
+    /// `cargo build` can therefore rewrite `openrpc.json` with a different
+    /// key order than `kanari-open-rpc-spec-builder record` produces, churning
+    /// the recorded spec on every generator run. Normalizing here keeps the
+    /// output byte-stable whichever path generated it.
+    pub fn normalize_schemas(&mut self) {
+        for method in &mut self.methods {
+            sort_json_keys(&mut method.result.schema);
+            for param in &mut method.params {
+                sort_json_keys(&mut param.schema);
+            }
+        }
+    }
+}
+
+/// Recursively sort the object keys of `value` (arrays keep their order).
+pub fn sort_json_keys(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                sort_json_keys(item);
+            }
+            let mut keys: Vec<String> = map.keys().cloned().collect();
+            keys.sort_unstable();
+            let mut sorted = serde_json::Map::new();
+            for key in keys {
+                if let Some(item) = map.remove(&key) {
+                    sorted.insert(key, item);
+                }
+            }
+            *map = sorted;
+        }
+        Value::Array(items) => {
+            for item in items {
+                sort_json_keys(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

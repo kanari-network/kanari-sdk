@@ -18,3 +18,6 @@ serde_json = { workspace = true }
 kanari-open-rpc = { workspace = true }
 kanari-open-rpc-spec = { workspace = true }
 kanari-rpc-api = { workspace = true }
+
+[build-dependencies]
+kanari-open-rpc-spec = { workspace = true }

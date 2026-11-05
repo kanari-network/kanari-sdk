@@ -914,6 +914,7 @@ impl BlockchainEngine {
         let recipient_addr = KanariAddress::parse_to_account_address(recipient)?;
 
         if transfer_balance == amount {
+            changeset.transfer(sender_addr, recipient_addr, amount);
             changeset.created_objects.push((
                 coin_object_id.to_string(),
                 CreatedObject {
