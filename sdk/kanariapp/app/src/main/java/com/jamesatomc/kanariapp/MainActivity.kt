@@ -81,8 +81,10 @@ fun MainNavigation(viewModel: WalletViewModel) {
                 onNavigateToSend = { /* Handled in MainScreen bottom nav */ },
                 onNavigateToWalletGen = { navController.navigate(Screen.WalletGeneration.route) },
                 onNavigateToNfts = { navController.navigate(Screen.Nfts.route) },
+                onNavigateToKrc1155 = { navController.navigate(Screen.Krc1155.route) },
                 onNavigateToObjects = { navController.navigate(Screen.Objects.route) },
-                onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) }
+                onNavigateToDeepBook = { navController.navigate(Screen.DeepBook.route) },
+                onNavigateToEscrow = { navController.navigate(Screen.Escrow.route) }
             )
         }
         composable(Screen.Receive.route) {
@@ -91,11 +93,20 @@ fun MainNavigation(viewModel: WalletViewModel) {
         composable(Screen.Nfts.route) {
             NftScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
+        composable(Screen.Krc1155.route) {
+            Krc1155Screen(viewModel = viewModel, onBack = { navController.popBackStack() })
+        }
         composable(Screen.Objects.route) {
             ObjectsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(Screen.DeepBook.route) {
             DeepBookScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.Escrow.route) {
+            EscrowScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )

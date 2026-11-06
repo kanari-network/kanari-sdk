@@ -141,6 +141,48 @@ module kanari_system::krc_1155 {
         recipient: address,
         ctx: &mut TxContext,
     ) {
+        transfer_split(balance, amount, recipient, ctx);
+    }
+
+    /// Transfer `amount` units drawing from two balance objects of the same
+    /// token type in a single call. `main` keeps its object id and holds the
+    /// remainder after the split; `extra` is merged into `main` and consumed,
+    /// so its object id goes away. Used by wallets whose holding is spread
+    /// over several `Balance` objects and cannot cover `amount` alone.
+    public entry fun transfer_two(
+        main: &mut Balance,
+        extra: Balance,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        join(main, extra);
+        transfer_split(main, amount, recipient, ctx);
+    }
+
+    /// [transfer_two] drawing from three balance objects: both extras are
+    /// merged into `main` before the split.
+    public entry fun transfer_three(
+        main: &mut Balance,
+        extra_a: Balance,
+        extra_b: Balance,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        join(main, extra_a);
+        join(main, extra_b);
+        transfer_split(main, amount, recipient, ctx);
+    }
+
+    /// Split `amount` off `balance`, emit the canonical transfer event and
+    /// hand the new object to `recipient`.
+    fun transfer_split(
+        balance: &mut Balance,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
         let token_type = balance.token_type;
         let sender = tx_context::sender(ctx);
         let sent = split(balance, amount, ctx);
@@ -171,14 +213,37 @@ module kanari_system::krc_1155 {
         object::delete(id);
     }
 
-    public fun token_type(token: &TokenType): address { object::uid_address(&token.id) }
-    public fun balance_token_type(balance: &Balance): address { balance.token_type }
-    public fun balance_value(balance: &Balance): u64 { balance.amount }
-    public fun total_supply(token: &TokenType): u64 { token.total_supply }
-    public fun max_supply(token: &TokenType): u64 { token.max_supply }
-    public fun name(token: &TokenType): String { token.name }
-    public fun description(token: &TokenType): String { token.description }
-    public fun image_url(token: &TokenType): Url { token.image_url }
+    public fun token_type(token: &TokenType): address {
+        object::uid_address(&token.id)
+    }
+
+    public fun balance_token_type(balance: &Balance): address {
+        balance.token_type
+    }
+
+    public fun balance_value(balance: &Balance): u64 {
+        balance.amount
+    }
+
+    public fun total_supply(token: &TokenType): u64 {
+        token.total_supply
+    }
+
+    public fun max_supply(token: &TokenType): u64 {
+        token.max_supply
+    }
+
+    public fun name(token: &TokenType): String {
+        token.name
+    }
+
+    public fun description(token: &TokenType): String {
+        token.description
+    }
+
+    public fun image_url(token: &TokenType): Url {
+        token.image_url
+    }
 
     #[test]
     fun test_mint_split_join_and_burn_conserves_supply() {
@@ -191,6 +256,31 @@ module kanari_system::krc_1155 {
         assert!(balance_value(&balance) == 40, 1);
         burn(&mut token, &cap, balance, &ctx);
         assert!(total_supply(&token) == 0, 2);
+        transfer::public_freeze_object(token);
+        transfer::public_freeze_object(cap);
+    }
+
+    #[test]
+    fun test_transfer_two_and_transfer_three_draw_from_several_balances() {
+        let ctx = tx_context::dummy();
+        let (token, cap) = create(b"Tickets", b"", b"https://image", 100, &mut ctx);
+        let main = mint(&mut token, &cap, 10, &mut ctx);
+        let extra = mint(&mut token, &cap, 20, &mut ctx);
+        assert!(total_supply(&token) == 30, 3);
+
+        // `extra` (20) joins `main` (10), then 25 splits off: main keeps 5.
+        transfer_two(&mut main, extra, 25, @0xabc, &mut ctx);
+        assert!(balance_value(&main) == 5, 4);
+
+        let extra_a = mint(&mut token, &cap, 4, &mut ctx);
+        let extra_b = mint(&mut token, &cap, 6, &mut ctx);
+        // 5 + 4 + 6 = 15, then 8 splits off: main keeps 7.
+        transfer_three(&mut main, extra_a, extra_b, 8, @0xabc, &mut ctx);
+        assert!(balance_value(&main) == 7, 5);
+
+        // 40 minted in total; 33 went to @0xabc, 7 is burned here.
+        burn(&mut token, &cap, main, &ctx);
+        assert!(total_supply(&token) == 33, 6);
         transfer::public_freeze_object(token);
         transfer::public_freeze_object(cap);
     }

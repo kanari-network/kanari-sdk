@@ -15,8 +15,8 @@ mod transfer;
 pub use call::handle_build_call_function;
 pub use publish::{handle_build_publish_module, handle_build_publish_package};
 pub use transfer::{
-    handle_build_native_coin_consolidation, handle_build_native_transfer,
-    handle_build_nft_transfer, handle_build_token_transfer,
+    handle_build_krc1155_transfer, handle_build_native_coin_consolidation,
+    handle_build_native_transfer, handle_build_nft_transfer, handle_build_token_transfer,
 };
 
 pub(crate) fn fresh_nonce(nonce: Option<u64>, min_nonce: Option<u64>) -> anyhow::Result<u64> {

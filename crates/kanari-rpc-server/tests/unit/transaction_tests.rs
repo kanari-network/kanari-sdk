@@ -5,9 +5,9 @@ use super::{
     apply_committed_effect, base_transaction_details, canonical_object_id,
     classify_transaction_error_data, derive_transaction_state_flags, details_involve_owner,
     enrich_transfer_from_effect, fresh_nonce, lookup_token_decimals, push_transfer_entry,
-    select_native_coin_consolidation_step, select_native_transfer_and_gas_payment,
-    transaction_error_with_reason, transfers_from_effect, tx_matches_owner,
-    validate_object_inputs_and_gas, validate_object_inputs_match_state,
+    select_krc1155_balances, select_native_coin_consolidation_step,
+    select_native_transfer_and_gas_payment, transaction_error_with_reason, transfers_from_effect,
+    tx_matches_owner, validate_object_inputs_and_gas, validate_object_inputs_match_state,
 };
 use crate::RpcServerState;
 use crate::transaction::gas_selection::select_gas_payment_with_table;
@@ -1346,6 +1346,131 @@ fn coin_object_info(object_id: &str, token_type: &str, balance: u64) -> kanari_r
         version: 1,
         digest: Some("digest".to_string()),
     }
+}
+
+/// Build an owned KRC-1155 `Balance` record: `Balance { id: UID, token_type,
+/// amount }` BCS (32-byte UID + 32-byte token type + u64 amount).
+fn krc1155_balance_object_info(
+    object_id: &str,
+    token_type: &str,
+    amount: u64,
+) -> kanari_rpc_api::ObjectInfo {
+    use move_core_types::account_address::AccountAddress;
+
+    let mut data = vec![0u8; 72];
+    if let Ok(object_addr) = AccountAddress::from_hex_literal(object_id) {
+        data[..32].copy_from_slice(object_addr.as_ref());
+    }
+    if let Ok(token_addr) = AccountAddress::from_hex_literal(token_type) {
+        data[32..64].copy_from_slice(token_addr.as_ref());
+    }
+    data[64..72].copy_from_slice(&amount.to_le_bytes());
+    kanari_rpc_api::ObjectInfo {
+        id: object_id.to_string(),
+        owner: "0xa".to_string(),
+        owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string()),
+        type_: "0x2::krc_1155::Balance".to_string(),
+        data,
+        version: 1,
+        digest: Some(format!("{object_id}:digest")),
+    }
+}
+
+const KRC1155_TEST_TOKEN_A: &str = "0xa11ce";
+const KRC1155_TEST_TOKEN_B: &str = "0xb0b";
+
+#[test]
+fn krc1155_selection_prefers_single_object_when_it_covers_amount() {
+    let owned = vec![
+        krc1155_balance_object_info("0x1", KRC1155_TEST_TOKEN_A, 40),
+        krc1155_balance_object_info("0x2", KRC1155_TEST_TOKEN_A, 500),
+    ];
+
+    let selected = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_A, 100).unwrap();
+
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].id, "0x2");
+}
+
+#[test]
+fn krc1155_selection_spans_multiple_objects_largest_first_and_ignores_other_tokens() {
+    let owned = vec![
+        krc1155_balance_object_info("0x1", KRC1155_TEST_TOKEN_A, 40),
+        krc1155_balance_object_info("0x2", KRC1155_TEST_TOKEN_A, 100),
+        krc1155_balance_object_info("0x3", KRC1155_TEST_TOKEN_A, 60),
+        // Another token type must never be considered.
+        krc1155_balance_object_info("0x4", KRC1155_TEST_TOKEN_B, 900),
+    ];
+
+    let selected = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_A, 150).unwrap();
+    let ids: Vec<&str> = selected.iter().map(|object| object.id.as_str()).collect();
+
+    // 100 + 60 covers 150; the 40-unit and foreign-token objects stay out.
+    assert_eq!(ids, vec!["0x2", "0x3"]);
+}
+
+#[test]
+fn krc1155_selection_selects_only_the_requested_token_type() {
+    let owned = vec![
+        krc1155_balance_object_info("0x1", KRC1155_TEST_TOKEN_A, 500),
+        krc1155_balance_object_info("0x2", KRC1155_TEST_TOKEN_B, 70),
+        krc1155_balance_object_info("0x3", KRC1155_TEST_TOKEN_B, 30),
+    ];
+
+    let selected = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_B, 60).unwrap();
+    let ids: Vec<&str> = selected.iter().map(|object| object.id.as_str()).collect();
+
+    assert_eq!(ids, vec!["0x2"]);
+}
+
+#[test]
+fn krc1155_selection_errors_when_no_balance_of_that_token_exists() {
+    let owned = vec![krc1155_balance_object_info(
+        "0x1",
+        KRC1155_TEST_TOKEN_A,
+        500,
+    )];
+
+    let error = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_B, 1).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("No KRC-1155 balance object found"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn krc1155_selection_errors_when_total_is_insufficient() {
+    let owned = vec![
+        krc1155_balance_object_info("0x1", KRC1155_TEST_TOKEN_A, 60),
+        krc1155_balance_object_info("0x2", KRC1155_TEST_TOKEN_A, 40),
+    ];
+
+    let error = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_A, 101).unwrap_err();
+
+    assert!(
+        error.to_string().contains("Insufficient KRC-1155 balance"),
+        "unexpected error: {error}"
+    );
+    assert!(error.to_string().contains("available 100"));
+    assert!(error.to_string().contains("required 101"));
+}
+
+#[test]
+fn krc1155_selection_errors_when_more_than_three_objects_would_be_needed() {
+    let owned = [0x1, 0x2, 0x3, 0x4]
+        .iter()
+        .map(|id| krc1155_balance_object_info(&format!("0x{id}"), KRC1155_TEST_TOKEN_A, 10))
+        .collect::<Vec<_>>();
+
+    let error = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_A, 35).unwrap_err();
+
+    assert!(
+        error.to_string().contains("at most 3 can be spent"),
+        "unexpected error: {error}"
+    );
 }
 
 fn usd_price_table() -> kanari_types::gas_market::GasPriceTable {

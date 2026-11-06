@@ -56,6 +56,8 @@ export const RPC_METHODS = {
   GET_OBJECT_BY_REF: "kanari_getObjectByRef",
   GET_OWNED_OBJECTS: "kanari_getOwnedObjects",
   GET_OWNED_NFTS: "kanari_getOwnedNfts",
+  GET_OWNED_KRC1155_BALANCES: "kanari_getOwnedKrc1155Balances",
+  GET_KRC1155_TOKEN_TYPE: "kanari_getKrc1155TokenType",
   LIST_COLLECTIONS: "kanari_listCollections",
   GET_NFTS_BY_COLLECTION: "kanari_getNftsByCollection",
   REQUEST_USD_FAUCET: "kanari_requestUsdFaucet",
@@ -688,6 +690,14 @@ export async function getOwnedObjects(owner: string, options: GetOwnedObjectsOpt
 
 export async function getOwnedNfts(address: string) {
   return callRpc(RPC_METHODS.GET_OWNED_NFTS, address);
+}
+
+export async function getOwnedKrc1155Balances(address: string) {
+  return callRpc(RPC_METHODS.GET_OWNED_KRC1155_BALANCES, address);
+}
+
+export async function getKrc1155TokenType(id: string) {
+  return callRpc(RPC_METHODS.GET_KRC1155_TOKEN_TYPE, id);
 }
 
 export async function getCollections() {

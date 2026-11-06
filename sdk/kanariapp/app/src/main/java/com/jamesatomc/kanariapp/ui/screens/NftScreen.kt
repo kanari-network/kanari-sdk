@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.jamesatomc.kanariapp.network.models.OwnedNft
 import com.jamesatomc.kanariapp.ui.components.ErrorBanner
+import com.jamesatomc.kanariapp.ui.components.RecipientAddressField
 import com.jamesatomc.kanariapp.ui.components.LoadingButton
 import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
 import com.jamesatomc.kanariapp.ui.components.SendSuccessOverlay
@@ -329,13 +330,20 @@ fun NftScreen(
                             else MaterialTheme.colorScheme.error
                         )
                     }
-                    OutlinedTextField(
+                    if (wallets.isNotEmpty()) {
+                        Text("Select wallet or type address:", style = MaterialTheme.typography.labelSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            wallets.forEach { w ->
+                                OutlinedButton(onClick = { recipientInput = w.address }) {
+                                    Text(w.name ?: w.address.takeLast(6))
+                                }
+                            }
+                        }
+                    }
+                    RecipientAddressField(
                         value = recipientInput,
                         onValueChange = { recipientInput = it.trimStart() },
-                        label = { Text("Recipient address") },
-                        placeholder = { Text("0x…") },
-                        singleLine = true,
-                        enabled = !isSending,
+                        wallets = wallets,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

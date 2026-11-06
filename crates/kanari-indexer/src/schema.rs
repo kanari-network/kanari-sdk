@@ -253,6 +253,74 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
         CREATE INDEX IF NOT EXISTS idx_owner_balances_address ON owner_balances(address);
         CREATE INDEX IF NOT EXISTS idx_owner_balances_coin_type ON owner_balances(coin_type);
 
+        -- Create object locked supply change events table (structured escrow events)
+        CREATE TABLE IF NOT EXISTS object_locked_supply_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tx_hash TEXT,
+            block_height INTEGER NOT NULL,
+            object_id TEXT NOT NULL,
+            token_type TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 0,
+            action INTEGER NOT NULL DEFAULT 0,
+            action_label TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (tx_hash) REFERENCES transactions(tx_hash) ON DELETE CASCADE,
+            FOREIGN KEY (block_height) REFERENCES blocks(height) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_tx ON object_locked_supply_events(tx_hash);
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_block ON object_locked_supply_events(block_height);
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_object ON object_locked_supply_events(object_id);
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_type ON object_locked_supply_events(token_type);
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_action ON object_locked_supply_events(action);
+        CREATE INDEX IF NOT EXISTS idx_object_locked_supply_actor ON object_locked_supply_events(actor);
+
+        -- Create KRC-1155 semi-fungible token events table
+        CREATE TABLE IF NOT EXISTS krc_1155_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tx_hash TEXT,
+            block_height INTEGER NOT NULL,
+            token_type TEXT NOT NULL,
+            action TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 0,
+            sender TEXT,
+            recipient TEXT,
+            owner TEXT,
+            timestamp INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (tx_hash) REFERENCES transactions(tx_hash) ON DELETE CASCADE,
+            FOREIGN KEY (block_height) REFERENCES blocks(height) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_tx ON krc_1155_events(tx_hash);
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_block ON krc_1155_events(block_height);
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_token ON krc_1155_events(token_type);
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_action ON krc_1155_events(action);
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_sender ON krc_1155_events(sender);
+        CREATE INDEX IF NOT EXISTS idx_krc_1155_recipient ON krc_1155_events(recipient);
+
+        -- Create KRC-721 NFT events table
+        CREATE TABLE IF NOT EXISTS krc_721_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tx_hash TEXT,
+            block_height INTEGER NOT NULL,
+            object_id TEXT NOT NULL,
+            creator TEXT NOT NULL,
+            collection_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (tx_hash) REFERENCES transactions(tx_hash) ON DELETE CASCADE,
+            FOREIGN KEY (block_height) REFERENCES blocks(height) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_krc_721_tx ON krc_721_events(tx_hash);
+        CREATE INDEX IF NOT EXISTS idx_krc_721_block ON krc_721_events(block_height);
+        CREATE INDEX IF NOT EXISTS idx_krc_721_object ON krc_721_events(object_id);
+        CREATE INDEX IF NOT EXISTS idx_krc_721_creator ON krc_721_events(creator);
+        CREATE INDEX IF NOT EXISTS idx_krc_721_collection ON krc_721_events(collection_id);
+
         -- Create indexer metadata table
         CREATE TABLE IF NOT EXISTS indexer_metadata (
             key TEXT PRIMARY KEY,

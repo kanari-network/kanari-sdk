@@ -914,6 +914,7 @@ impl BlockchainEngine {
         let recipient_addr = KanariAddress::parse_to_account_address(recipient)?;
 
         if transfer_balance == amount {
+            changeset.transfer(sender_addr, recipient_addr, amount);
             changeset.created_objects.push((
                 coin_object_id.to_string(),
                 CreatedObject {
@@ -2185,21 +2186,20 @@ impl BlockchainEngine {
 
     fn apply_changeset_batch_without_supply_validation(
         state: &mut StateManager,
-        changesets: &[ChangeSet],
+        changesets: &mut [ChangeSet],
         indices: &[usize],
     ) -> Result<()> {
         let profile = Self::env_flag_enabled("KANARI_DEPENDENCY_APPLY_PROFILE");
         let started_at = std::time::Instant::now();
         match indices {
             [] => Ok(()),
-            [index] => state.apply_changeset_without_supply_validation(&changesets[*index]),
+            [index] => state.apply_changeset_with_audit(&mut changesets[*index]),
             _ => {
-                let mut merged = ChangeSet::new();
                 for index in indices {
-                    merged.merge_from(&changesets[*index]);
+                    state.apply_changeset_with_audit(&mut changesets[*index])?;
                 }
                 let merged_at = std::time::Instant::now();
-                let result = state.apply_changeset_without_supply_validation(&merged);
+                let result = Ok(());
                 let applied_at = std::time::Instant::now();
                 if profile {
                     eprintln!(
@@ -2217,7 +2217,7 @@ impl BlockchainEngine {
 
     fn apply_dependency_aware_changesets_without_supply_validation(
         state: &mut StateManager,
-        changesets: &[ChangeSet],
+        changesets: &mut [ChangeSet],
     ) -> Result<(usize, usize)> {
         let profile = Self::env_flag_enabled("KANARI_DEPENDENCY_APPLY_PROFILE");
         let started_at = std::time::Instant::now();
@@ -2243,7 +2243,7 @@ impl BlockchainEngine {
 
     fn apply_single_changeset_batch_without_supply_validation(
         state: &mut StateManager,
-        changesets: &[ChangeSet],
+        changesets: &mut [ChangeSet],
     ) -> Result<(usize, usize)> {
         let indices = (0..changesets.len()).collect::<Vec<_>>();
         Self::apply_changeset_batch_without_supply_validation(state, changesets, &indices)?;
@@ -2299,7 +2299,7 @@ impl BlockchainEngine {
             );
         }
 
-        let changesets = results
+        let mut changesets = results
             .into_iter()
             .collect::<Result<Vec<_>>>()
             .context("Failed to collect conflict-free execution results")?;
@@ -2353,14 +2353,14 @@ impl BlockchainEngine {
                 Ok(true) => Ok((usize::from(!changesets.is_empty()), changesets.len())),
                 Ok(false) => Self::apply_single_changeset_batch_without_supply_validation(
                     &mut candidate,
-                    &changesets,
+                    &mut changesets,
                 ),
                 Err(error) => Err(error),
             }
         } else {
             Self::apply_dependency_aware_changesets_without_supply_validation(
                 &mut candidate,
-                &changesets,
+                &mut changesets,
             )
         };
         let merged_applied_at = std::time::Instant::now();
@@ -2646,6 +2646,7 @@ impl BlockchainEngine {
             }
             let conflicts_at = std::time::Instant::now();
             conflict_secs += conflicts_at.duration_since(results_at).as_secs_f64();
+            let mut committed_wave_changesets: Option<Vec<ChangeSet>> = None;
 
             if !retry_serial {
                 let mut state_write = match state_arc.write() {
@@ -2679,7 +2680,7 @@ impl BlockchainEngine {
                         && let Err(error) =
                             Self::apply_dependency_aware_changesets_without_supply_validation(
                                 &mut candidate,
-                                &wave_changesets,
+                                &mut wave_changesets,
                             )
                             .map(|_| ())
                     {
@@ -2699,6 +2700,10 @@ impl BlockchainEngine {
                             retry_serial = true;
                         } else {
                             *state_write = candidate;
+                            // State application may append runtime audit events
+                            // to the changesets. Preserve the enriched copies
+                            // for the effects emitted below.
+                            committed_wave_changesets = Some(wave_changesets);
                         }
                     }
                 }
@@ -2709,13 +2714,17 @@ impl BlockchainEngine {
             if !retry_serial {
                 speculative_committed_waves += 1;
                 speculative_committed_txs += wave.len();
-                for (signed_tx, result) in wave.iter().zip(&results) {
-                    let cs = result.as_ref().map_err(|error| {
+                let committed = committed_wave_changesets
+                    .as_ref()
+                    .expect("committed speculative wave must retain changesets");
+                for (index, (signed_tx, result)) in wave.iter().zip(&results).enumerate() {
+                    result.as_ref().map_err(|error| {
                         anyhow::anyhow!(
                             "Speculative wave committed with an unexpected failed result: {error}"
                         )
                     })?;
-                    transaction_effects.push(cs.effects(signed_tx.transaction.gas_payment()));
+                    let enriched = &committed[index];
+                    transaction_effects.push(enriched.effects(signed_tx.transaction.gas_payment()));
                     executed_count += 1;
                 }
                 effects_secs += std::time::Instant::now()
@@ -3659,10 +3668,10 @@ impl BlockchainEngine {
                                 input.object_ref.object_id
                             ),
                         };
-                        // Mutable access is sender-only: a mutable declared
-                        // input for an object owned by anyone else would grant
-                        // the sender a `&mut` alias to foreign app state
-                        // (client-side CLI checks cannot be trusted here).
+                        // Address-owned mutable objects are sender-only. A
+                        // protocol that needs cross-party mutation must use a
+                        // shared object (or an explicit capability flow), as
+                        // in the Sui object model.
                         if input.mutable && actual_owner != sender_addr {
                             anyhow::bail!(
                                 "Mutable object input {} is owned by {:?}, not the sender",

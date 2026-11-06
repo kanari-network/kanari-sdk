@@ -44,6 +44,14 @@ impl StateManager {
         {
             self.validate_supply_invariants()?;
         }
+        let mut changeset = changeset.clone();
+        self.apply_changeset_with_options(&mut changeset, true)
+    }
+
+    /// Apply a changeset and retain runtime-generated audit events in the
+    /// caller's changeset so transaction effects and block indexing can see
+    /// them.
+    pub fn apply_changeset_with_audit(&mut self, changeset: &mut ChangeSet) -> Result<()> {
         self.apply_changeset_with_options(changeset, true)
     }
 
@@ -52,12 +60,13 @@ impl StateManager {
         &mut self,
         changeset: &ChangeSet,
     ) -> Result<()> {
-        self.apply_changeset_with_options(changeset, false)
+        let mut changeset = changeset.clone();
+        self.apply_changeset_with_options(&mut changeset, false)
     }
 
     fn apply_changeset_with_options(
         &mut self,
-        changeset: &ChangeSet,
+        changeset: &mut ChangeSet,
         validate_supply: bool,
     ) -> Result<()> {
         let profile_apply = matches!(
@@ -68,13 +77,15 @@ impl StateManager {
         if validate_supply {
             // Validate on a cloned snapshot so rejected transactions cannot poison live state.
             let mut candidate = self.clone();
-            candidate.apply_changeset_with_options(changeset, false)?;
+            let mut candidate_changeset = changeset.clone();
+            candidate.apply_changeset_with_options(&mut candidate_changeset, false)?;
             candidate.repair_legacy_native_wallet_overcount()?;
             if let Err(error) = candidate.validate_cached_supply_invariants() {
                 Self::report_supply_invariant_violation("after apply_changeset", &error)?;
                 return Err(error);
             }
             *self = candidate;
+            *changeset = candidate_changeset;
             return Ok(());
         }
 

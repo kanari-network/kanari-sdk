@@ -40,7 +40,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     val transactions: StateFlow<List<TransactionDetails>> = _transactions.asStateFlow()
 
     private val _ownedNfts = MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>>(emptyList())
+    private val _ownedKrc1155Balances =
+        MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>>(emptyList())
     val ownedNfts: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>> = _ownedNfts.asStateFlow()
+    val ownedKrc1155Balances: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>> =
+        _ownedKrc1155Balances.asStateFlow()
 
     private val _isLoading = MutableStateFlow(value = false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -137,6 +141,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val balances = client.getAllBalances(selectedWallet.address)
                 val txs = client.getAllTransactions(selectedWallet.address)
                 val nfts = client.getOwnedNfts(selectedWallet.address)
+                val krc1155Balances = client.getOwnedKrc1155Balances(selectedWallet.address)
 
                 if (requestGeneration == balanceRefreshGeneration &&
                     _activeWallet.value?.id == selectedWallet.id
@@ -145,6 +150,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     _tokenBalances.value = balances
                     _transactions.value = txs
                     _ownedNfts.value = nfts
+                    _ownedKrc1155Balances.value = krc1155Balances
                 }
             } catch (e: Exception) {
                 if (requestGeneration == balanceRefreshGeneration &&
@@ -156,6 +162,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         _tokenBalances.value = emptyList()
                         _transactions.value = emptyList()
                         _ownedNfts.value = emptyList()
+                        _ownedKrc1155Balances.value = emptyList()
                     } else {
                         _error.value = "Failed to refresh balance: ${e.message}"
                     }
@@ -192,7 +199,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _tokenBalances.value = emptyList()
         _transactions.value = emptyList()
         _ownedNfts.value = emptyList()
-        _error.value = null
+        _ownedKrc1155Balances.value = emptyList()
         refreshBalance()
     }
 
@@ -482,6 +489,73 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    suspend fun sendKrc1155(recipient: String, tokenType: String, amount: Long): Boolean {
+        val record = _activeWallet.value ?: run {
+            _error.value = "No active wallet"
+            return false
+        }
+
+        return try {
+            val result: com.jamesatomc.kanariapp.network.models.TransactionResult? =
+                if (record.curveType == "ZkLogin") {
+                    val session = try {
+                        ZkLoginAuth.loadSession(getApplication(), record.address)
+                    } catch (_: Exception) {
+                        _error.value =
+                            "No Google session for this wallet — sign in with Google from the Login screen first."
+                        return false
+                    }
+                    client.transferKrc1155ZkLogin(session, recipient, tokenType, amount)
+                } else {
+                    val pin = unlockedPin ?: run {
+                        _error.value = "Wallet is locked. Please unlock again."
+                        return false
+                    }
+                    val privateKeyEncrypted = record.privateKeyEncrypted ?: run {
+                        _error.value = "Wallet missing private key"
+                        return false
+                    }
+                    val privateKey = walletStorage.decrypt(privateKeyEncrypted, pin)
+                    val wallet = KanariWallet.fromPrivateKey(privateKey, record.curveType)
+                    if (!sameAccountAddress(wallet.address, record.address)) {
+                        _error.value =
+                            "This wallet's saved key does not match its address. Re-import the private key or recovery phrase for ${
+                                record.address.take(
+                                    14
+                                )
+                            }… before sending this KRC-1155 balance."
+                        return false
+                    }
+                    client.transferKrc1155(wallet, recipient, tokenType, amount)
+                }
+
+            val status = result?.status?.lowercase(java.util.Locale.US)
+            val isSuccess = result?.success == true ||
+                    status == "success" || status == "executed" ||
+                    status == "committed" || status == "pending" ||
+                    status == "simulated_pending"
+
+            if (isSuccess) {
+                _error.value = null
+                refreshBalanceAfterSend()
+                true
+            } else {
+                val msg = result?.errorMessage ?: "Transaction failed (Status: ${result?.status})"
+                _error.value = mapTransferError(msg)
+                false
+            }
+        } catch (_: ZkLoginTxSigner.SessionExpiredException) {
+            _error.value = "Google session expired — open Login and sign in with Google again, then retry the transfer."
+            false
+        } catch (_: ZkLoginTxSigner.SessionIncompleteException) {
+            _error.value = "Google session file is from an old app version — sign in with Google again."
+            false
+        } catch (e: Exception) {
+            _error.value = mapTransferError(e.message ?: "Unknown error")
+            false
+        }
+    }
+
     /**
      * Registers the Google zkLogin wallet (no private key stored; signing
      * runs from the on-device session file) and switches to it.
@@ -538,6 +612,19 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             text.contains("no spendable native gas coin") ->
                 "Insufficient gas coin. Need a separate Coin<KANARI> with enough Mist to pay gas (gas_limit * gas_price)."
+
+            text.contains("krc_1155") && (text.contains("sub_status: some(2)") ||
+                    text.contains("e_insufficient_balance")) ->
+                "Transfer failed: the KRC-1155 balance object holds less than the amount requested. Refresh balances and send a smaller amount."
+
+            text.contains("insufficient krc-1155 balance") ->
+                "Transfer failed: this wallet's KRC-1155 balance is below the requested amount. Send a smaller amount."
+
+            text.contains("no krc-1155 balance object found") ->
+                "Transfer failed: this wallet holds no KRC-1155 balance for that token."
+
+            text.contains("can be spent in one transaction") ->
+                "Transfer failed: the amount is spread over too many balance objects. Send a smaller amount or consolidate first."
 
             text.contains("missing a valid nonce") || text.contains("nonce must be non-zero") ->
                 "Transfer failed: Transaction nonce error. Please try again."

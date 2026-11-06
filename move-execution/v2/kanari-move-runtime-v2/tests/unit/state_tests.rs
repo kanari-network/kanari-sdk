@@ -670,7 +670,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xbbbb".to_string(),
         address_owned_object(owner, deal_type.clone(), vec![1, 2, 3], 1),
     ));
-    state.apply_changeset(&lock)?;
+    state.apply_changeset_with_audit(&mut lock)?;
 
     let summary = state.token_supply_summary(token_type)?;
     assert_eq!(summary.total_supply, 1_000);
@@ -691,7 +691,7 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
         "0xcccc".to_string(),
         address_owned_object(owner, coin_type, released_coin_data, 1),
     ));
-    state.apply_changeset(&release)?;
+    state.apply_changeset_with_audit(&mut release)?;
 
     let summary = state.token_supply_summary(token_type)?;
     assert_eq!(summary.wallet_visible_supply, 1_000);

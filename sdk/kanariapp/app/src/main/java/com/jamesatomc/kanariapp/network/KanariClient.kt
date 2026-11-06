@@ -120,7 +120,18 @@ class KanariClient(private val environment: KanariEnvironment) {
         return rpcService.getAllTransactions(request).orEmptyOnNotFound(emptyList())
     }
 
-    /** NFT-like objects owned by `address` (`kanari_getOwnedNfts`). */
+    /** KRC-1155 balances owned by `address` (`kanari_getOwnedKrc1155Balances`). */
+    suspend fun getOwnedKrc1155Balances(address: String): List<OwnedKrc1155Balance> {
+        val request = RpcRequest(
+            method = "kanari_getOwnedKrc1155Balances",
+            params = buildJsonObject {
+                put("owner", normalizeAddress(address))
+            }
+        )
+        return rpcService.getOwnedKrc1155Balances(request)
+            .orEmptyOnNotFound(emptyList())
+    }
+
     suspend fun getOwnedNfts(address: String): List<OwnedNft> {
         val request = RpcRequest(
             method = "kanari_getOwnedNfts",
@@ -131,6 +142,22 @@ class KanariClient(private val environment: KanariEnvironment) {
         return rpcService.getOwnedNfts(request)
             .orEmptyOnNotFound(emptyList())
             .map { it.withLocalParse() }
+    }
+
+    /**
+     * Fetch a single object by id (`kanari_getObject`), including its current
+     * version and digest - required inputs for `*_ref` view functions.
+     */
+    suspend fun getObject(objectId: String): ObjectInfo {
+        val request = RpcRequest(
+            method = "kanari_getObject",
+            params = buildJsonObject {
+                put("object_id", kotlinx.serialization.json.JsonPrimitive(normalizeAddress(objectId)))
+            }
+        )
+        val response = rpcService.getSingleObject(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result ?: throw Exception("Object not found: $objectId")
     }
 
     /**
@@ -174,6 +201,31 @@ class KanariClient(private val environment: KanariEnvironment) {
             }
         )
         val response = rpcService.buildNftTransfer(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return response.result
+    }
+
+    suspend fun buildKrc1155Transfer(
+        sender: String,
+        recipient: String,
+        tokenType: String,
+        amount: Long,
+        gasLimit: ULong = 100000uL,
+        gasPrice: ULong = DEFAULT_GAS_PRICE
+    ): CallFunctionData? {
+        val request = RpcRequest(
+            method = "kanari_buildKrc1155Transfer",
+            params = buildJsonObject {
+                put("sender", sender)
+                put("recipient", normalizeAddress(recipient))
+                put("token_type", normalizeAddress(tokenType))
+                put("amount", amount)
+                put("gas_limit", gasLimit.toLong())
+                put("gas_price", gasPrice.toLong())
+                put("execute_immediate", true)
+            }
+        )
+        val response = rpcService.buildKrc1155Transfer(request)
         if (response.error != null) throw Exception(response.error.message)
         return response.result
     }
@@ -517,6 +569,46 @@ class KanariClient(private val environment: KanariEnvironment) {
             p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
         )
     }
+
+    suspend fun transferKrc1155(
+        wallet: KanariWallet,
+        recipient: String,
+        tokenType: String,
+        amount: Long,
+    ): TransactionResult? {
+        val prepared = buildKrc1155Transfer(wallet.address, recipient, tokenType, amount)
+            ?: throw Exception("Failed to build KRC-1155 transfer: RPC returned no data")
+        val p = prepareCallTx(prepared.copy(sender = wallet.taggedAddress))
+
+        val signature = wallet.sign(p.hash)
+
+        try {
+            KanariCrypto.verifySignature(wallet.taggedAddress, p.hash, signature, wallet.curveType)
+        } catch (e: Exception) {
+            Log.w("KanariClient", "KRC-1155 local verify ignored: ${e.message}")
+        }
+
+        return submitCallFunction(p.normalized.copy(signature = signature.map { it.toInt() and 0xFF }))
+    }
+
+    /** zkLogin flavor of [transferKrc1155]. */
+    suspend fun transferKrc1155ZkLogin(
+        session: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.Session,
+        recipient: String,
+        tokenType: String,
+        amount: Long,
+    ): TransactionResult? {
+        val p = prepareCallTx(
+            buildKrc1155Transfer("ZkLogin:${session.address}", recipient, tokenType, amount)
+                ?: throw Exception("Failed to build KRC-1155 transfer: RPC returned no data")
+        )
+        val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
+            .sign(session, p.hash, System.currentTimeMillis() / 1000)
+        return submitCallFunction(
+            p.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
+        )
+    }
+
 
     // ==================== BCS Manual Encoding (matches Rust bcs::to_bytes) ====================
 

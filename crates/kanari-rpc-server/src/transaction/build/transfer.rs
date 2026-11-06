@@ -506,3 +506,191 @@ pub async fn handle_build_nft_transfer(
         },
     )
 }
+
+pub async fn handle_build_krc1155_transfer(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    let build_data: BuildKrc1155TransferRequest =
+        match parse_labeled_params(request.id, &request.params, "build KRC-1155 transfer data") {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
+
+    if let Err(response) = parse_hex_address(request.id, &build_data.sender, "sender address") {
+        return *response;
+    }
+    let recipient = match parse_hex_address(request.id, &build_data.recipient, "recipient") {
+        Ok(address) => address,
+        Err(response) => return *response,
+    };
+    if build_data.amount == 0 {
+        return invalid_params_response(request.id, "amount must be non-zero");
+    }
+    if let Some(response) =
+        invalid_build_gas_response(request.id, build_data.gas_limit, build_data.gas_price)
+    {
+        return response;
+    }
+
+    // Two selection modes: a caller-supplied `object_id` (legacy) or a
+    // `token_type` from which the server picks the Balance objects.
+    let requested_token_type = build_data
+        .token_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|token_type| !token_type.is_empty());
+    if let Some(token_type) = requested_token_type
+        && let Err(response) = parse_hex_address(request.id, token_type, "token type")
+    {
+        return *response;
+    }
+    let requested_object_id = build_data.object_id.trim();
+    if requested_token_type.is_none() && requested_object_id.is_empty() {
+        return invalid_params_response(
+            request.id,
+            "either object_id or token_type must be provided",
+        );
+    }
+
+    let Some(owner_info) = state.engine.get_owner_info(&build_data.sender) else {
+        return internal_error_response(request.id, "Owner not found");
+    };
+    let Some(owned_objects) = owner_info.owned_objects else {
+        return internal_error_response(request.id, "Owner has no owned object list");
+    };
+
+    let selected = match requested_token_type {
+        Some(token_type) => {
+            match select_krc1155_balances(&owned_objects, token_type, build_data.amount) {
+                Ok(selected) => selected.into_iter().cloned().collect(),
+                Err(error) => {
+                    return RpcResponse {
+                        jsonrpc: "2.0".into(),
+                        result: None,
+                        error: Some(transaction_error_with_reason(error.to_string())),
+                        id: request.id,
+                    };
+                }
+            }
+        }
+        None => {
+            let owned_balance = owned_objects
+                .iter()
+                .find(|object| normalize_addr(&object.id) == normalize_addr(requested_object_id))
+                .cloned();
+            match owned_balance {
+                Some(owned_balance) => vec![owned_balance],
+                None => {
+                    return invalid_params_response(
+                        request.id,
+                        format!(
+                            "KRC-1155 balance object {requested_object_id} not found in sender's owned object list"
+                        ),
+                    );
+                }
+            }
+        }
+    };
+
+    let mut object_inputs = Vec::with_capacity(selected.len());
+    let mut excluded_ids = Vec::with_capacity(selected.len());
+    for object in &selected {
+        if normalize_addr(&object.id) == normalize_addr(&build_data.recipient) {
+            return invalid_params_response(
+                request.id,
+                "recipient must differ from the balance object id",
+            );
+        }
+        match build_object_input(object, &build_data.sender) {
+            Ok(input) => object_inputs.push(input),
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".into(),
+                    result: None,
+                    error: Some(transaction_error_with_reason(e.to_string())),
+                    id: request.id,
+                };
+            }
+        }
+        excluded_ids.push(object.id.clone());
+    }
+
+    let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
+        &owned_objects,
+        &build_data.sender,
+        build_data.gas_limit,
+        build_data.gas_price,
+        &excluded_ids,
+        &state.engine.pending_access_keys_snapshot(),
+        &std::collections::BTreeMap::new(),
+    ) {
+        Ok(payment) => payment,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(transaction_error_with_reason(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    let nonce = match fresh_nonce(build_data.nonce, owner_info.nonce) {
+        Ok(nonce) => nonce,
+        Err(e) => return internal_error_response(request.id, e.to_string()),
+    };
+    let mut args = Vec::with_capacity(selected.len() + 2);
+    for object in &selected {
+        let balance_object_id = match parse_hex_address(request.id, &object.id, "balance object id")
+        {
+            Ok(address) => address.to_vec(),
+            Err(response) => return *response,
+        };
+        args.push(balance_object_id);
+    }
+    let amount = match serialize_move_arg(request.id, &build_data.amount, "transfer amount") {
+        Ok(amount) => amount,
+        Err(response) => return *response,
+    };
+    let recipient_arg = match serialize_move_arg(
+        request.id,
+        &recipient.to_account_address(),
+        "recipient address",
+    ) {
+        Ok(recipient) => recipient,
+        Err(response) => return *response,
+    };
+    args.push(amount);
+    args.push(recipient_arg);
+
+    let package = Address::KANARI_SYSTEM_ADDRESS.to_string();
+    let module = kanari_types::krc_1155::Krc1155Module::MODULE.to_string();
+    let functions = kanari_types::krc_1155::Krc1155Module::function_names();
+    let function = match selected.len() {
+        1 => functions.transfer,
+        2 => functions.transfer_two,
+        3 => functions.transfer_three,
+        _ => unreachable!("at most {MAX_KRC1155_TRANSFER_OBJECTS} balance objects can be selected"),
+    }
+    .to_string();
+
+    respond_with_serialize(
+        request.id,
+        CallFunctionRequest {
+            sender: build_data.sender,
+            package,
+            module,
+            function,
+            type_args: vec![],
+            args,
+            object_inputs: Some(object_inputs),
+            gas_limit: build_data.gas_limit,
+            gas_price: effective_gas_price_value,
+            nonce: Some(nonce),
+            gas_payment: Some(gas_payment),
+            signature: None,
+            execute_immediate: build_data.execute_immediate,
+        },
+    )
+}

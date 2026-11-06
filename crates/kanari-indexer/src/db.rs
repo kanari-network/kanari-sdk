@@ -381,6 +381,313 @@ impl IndexerDB {
         Ok(events)
     }
 
+    /// Get recent events by their fully-qualified Move type tag.
+    pub fn get_events_by_type_tag(&self, type_tag: &str, limit: u32) -> Result<Vec<IndexedEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, event_key, sequence_number, type_tag, event_data, tx_hash, block_height, created_at
+             FROM events WHERE type_tag = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+
+        let events = stmt
+            .query_map(params![type_tag, limit], |row| {
+                Ok(IndexedEvent {
+                    id: row.get(0)?,
+                    event_key: row.get(1)?,
+                    sequence_number: row.get::<_, i64>(2)? as u64,
+                    type_tag: row.get(3)?,
+                    event_data: row.get(4)?,
+                    tx_hash: row.get(5)?,
+                    block_height: row.get::<_, i64>(6)? as u64,
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(events)
+    }
+
+    // =========================================================================
+    // Object Locked Supply Change Event Operations
+    // =========================================================================
+
+    /// Insert or update an object locked supply change event
+    pub fn upsert_object_locked_supply_event(
+        &self,
+        event: &IndexedObjectLockedSupplyEvent,
+    ) -> Result<()> {
+        let mut stmt = self.conn.prepare_cached(
+            "INSERT INTO object_locked_supply_events
+             (tx_hash, block_height, object_id, token_type, amount, action, action_label, actor, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )?;
+        stmt.execute(params![
+            event.tx_hash,
+            event.block_height as i64,
+            event.object_id,
+            event.token_type,
+            event.amount as i64,
+            event.action as i64,
+            event.action_label,
+            event.actor,
+            event.timestamp as i64,
+        ])
+        .context("Failed to insert object locked supply event")?;
+        Ok(())
+    }
+
+    /// Get object locked supply change events by transaction hash
+    pub fn get_object_locked_supply_events_by_tx(
+        &self,
+        tx_hash: &str,
+    ) -> Result<Vec<IndexedObjectLockedSupplyEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, object_id, token_type, amount, action, action_label, actor, timestamp, created_at
+             FROM object_locked_supply_events WHERE tx_hash = ?1 ORDER BY id",
+        )?;
+        let events = stmt
+            .query_map(params![tx_hash], |row| {
+                Ok(IndexedObjectLockedSupplyEvent {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    object_id: row.get(3)?,
+                    token_type: row.get(4)?,
+                    amount: row.get::<_, i64>(5)? as u64,
+                    action: row.get::<_, i64>(6)? as u8,
+                    action_label: row.get(7)?,
+                    actor: row.get(8)?,
+                    timestamp: row.get::<_, i64>(9)? as u64,
+                    created_at: row.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
+    /// Get object locked supply change events by object id
+    pub fn get_object_locked_supply_events_by_object(
+        &self,
+        object_id: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedObjectLockedSupplyEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, object_id, token_type, amount, action, action_label, actor, timestamp, created_at
+             FROM object_locked_supply_events WHERE object_id = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let events = stmt
+            .query_map(params![object_id, limit], |row| {
+                Ok(IndexedObjectLockedSupplyEvent {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    object_id: row.get(3)?,
+                    token_type: row.get(4)?,
+                    amount: row.get::<_, i64>(5)? as u64,
+                    action: row.get::<_, i64>(6)? as u8,
+                    action_label: row.get(7)?,
+                    actor: row.get(8)?,
+                    timestamp: row.get::<_, i64>(9)? as u64,
+                    created_at: row.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
+    /// Get aggregated locked amount per token type
+    pub fn get_locked_supply_summary(&self) -> Result<Vec<(String, u64, u64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT token_type,
+                    SUM(CASE WHEN action = 1 THEN amount ELSE 0 END) as locked_amount,
+                    SUM(CASE WHEN action = 2 OR action = 3 THEN amount ELSE 0 END) as released_amount
+             FROM object_locked_supply_events
+             GROUP BY token_type",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as u64,
+                    row.get::<_, i64>(2)? as u64,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    // =========================================================================
+    // KRC-1155 Event Operations
+    // =========================================================================
+
+    /// Insert a KRC-1155 event (Minted / Burned / Transferred)
+    pub fn upsert_krc_1155_event(&self, event: &IndexedKrc1155Event) -> Result<()> {
+        let mut stmt = self.conn.prepare_cached(
+            "INSERT INTO krc_1155_events
+             (tx_hash, block_height, token_type, action, amount, sender, recipient, owner, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )?;
+        stmt.execute(params![
+            event.tx_hash,
+            event.block_height as i64,
+            event.token_type,
+            event.action.as_str(),
+            event.amount as i64,
+            event.sender,
+            event.recipient,
+            event.owner,
+            event.timestamp as i64,
+        ])
+        .context("Failed to insert KRC-1155 event")?;
+        Ok(())
+    }
+
+    /// Get KRC-1155 events by token type
+    pub fn get_krc_1155_events_by_token(
+        &self,
+        token_type: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedKrc1155Event>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, token_type, action, amount, sender, recipient, owner, timestamp, created_at
+             FROM krc_1155_events WHERE token_type = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let events = stmt
+            .query_map(params![token_type, limit], |row| {
+                Ok(IndexedKrc1155Event {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    token_type: row.get(3)?,
+                    action: match row.get::<_, String>(4)?.as_str() {
+                        "minted" => Krc1155Action::Minted,
+                        "burned" => Krc1155Action::Burned,
+                        "transferred" => Krc1155Action::Transferred,
+                        _ => Krc1155Action::Unknown,
+                    },
+                    amount: row.get::<_, i64>(5)? as u64,
+                    sender: row.get(6)?,
+                    recipient: row.get(7)?,
+                    owner: row.get(8)?,
+                    timestamp: row.get::<_, i64>(9)? as u64,
+                    created_at: row.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
+    /// Get KRC-1155 events involving an address (as sender, recipient, or owner)
+    pub fn get_krc_1155_events_by_address(
+        &self,
+        address: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedKrc1155Event>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, token_type, action, amount, sender, recipient, owner, timestamp, created_at
+             FROM krc_1155_events WHERE sender = ?1 OR recipient = ?1 OR owner = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let events = stmt
+            .query_map(params![address, limit], |row| {
+                Ok(IndexedKrc1155Event {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    token_type: row.get(3)?,
+                    action: match row.get::<_, String>(4)?.as_str() {
+                        "minted" => Krc1155Action::Minted,
+                        "burned" => Krc1155Action::Burned,
+                        "transferred" => Krc1155Action::Transferred,
+                        _ => Krc1155Action::Unknown,
+                    },
+                    amount: row.get::<_, i64>(5)? as u64,
+                    sender: row.get(6)?,
+                    recipient: row.get(7)?,
+                    owner: row.get(8)?,
+                    timestamp: row.get::<_, i64>(9)? as u64,
+                    created_at: row.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
+    // =========================================================================
+    // KRC-721 Event Operations
+    // =========================================================================
+
+    /// Insert a KRC-721 event (MintLog)
+    pub fn upsert_krc_721_event(&self, event: &IndexedKrc721Event) -> Result<()> {
+        let mut stmt = self.conn.prepare_cached(
+            "INSERT INTO krc_721_events
+             (tx_hash, block_height, object_id, creator, collection_id, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
+        stmt.execute(params![
+            event.tx_hash,
+            event.block_height as i64,
+            event.object_id,
+            event.creator,
+            event.collection_id,
+            event.timestamp as i64,
+        ])
+        .context("Failed to insert KRC-721 event")?;
+        Ok(())
+    }
+
+    /// Get KRC-721 events by collection id
+    pub fn get_krc_721_events_by_collection(
+        &self,
+        collection_id: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedKrc721Event>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, object_id, creator, collection_id, timestamp, created_at
+             FROM krc_721_events WHERE collection_id = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let events = stmt
+            .query_map(params![collection_id, limit], |row| {
+                Ok(IndexedKrc721Event {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    object_id: row.get(3)?,
+                    creator: row.get(4)?,
+                    collection_id: row.get(5)?,
+                    timestamp: row.get::<_, i64>(6)? as u64,
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
+    /// Get KRC-721 events by creator address
+    pub fn get_krc_721_events_by_creator(
+        &self,
+        creator: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedKrc721Event>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_hash, block_height, object_id, creator, collection_id, timestamp, created_at
+             FROM krc_721_events WHERE creator = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let events = stmt
+            .query_map(params![creator, limit], |row| {
+                Ok(IndexedKrc721Event {
+                    id: row.get(0)?,
+                    tx_hash: row.get(1)?,
+                    block_height: row.get::<_, i64>(2)? as u64,
+                    object_id: row.get(3)?,
+                    creator: row.get(4)?,
+                    collection_id: row.get(5)?,
+                    timestamp: row.get::<_, i64>(6)? as u64,
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(events)
+    }
+
     // =========================================================================
     // Coin Operations
     // =========================================================================
@@ -603,6 +910,9 @@ impl IndexerDB {
             .execute_batch(
                 "
                 DELETE FROM transaction_args;
+                DELETE FROM object_locked_supply_events;
+                DELETE FROM krc_1155_events;
+                DELETE FROM krc_721_events;
                 DELETE FROM events;
                 DELETE FROM transactions;
                 DELETE FROM blocks;
@@ -730,5 +1040,137 @@ mod tests {
             .unwrap();
         assert_eq!(owner_balance.total_balance, 25);
         assert_eq!(owner_balance.coin_count, 1);
+    }
+
+    #[test]
+    fn test_object_locked_supply_event_insert_and_query() {
+        let db = IndexerDB::new_in_memory().unwrap();
+
+        // Insert a block row to satisfy FK constraints
+        db.conn.execute(
+            "INSERT INTO blocks (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![10i64, "blockhash10", "prevhash", "stateroot", "merkleroot", 1000i64, 0i64],
+        ).unwrap();
+
+        let event = IndexedObjectLockedSupplyEvent {
+            id: 0,
+            tx_hash: None,
+            block_height: 10,
+            object_id: "0xbbbb".to_string(),
+            token_type: "0x2::kanari::KANARI".to_string(),
+            amount: 100,
+            action: 1, // locked
+            action_label: "locked".to_string(),
+            actor: "0x1111".to_string(),
+            timestamp: 1000,
+            created_at: Utc::now(),
+        };
+
+        db.upsert_object_locked_supply_event(&event).unwrap();
+
+        // Query by tx hash (None won't match)
+        let by_tx = db.get_object_locked_supply_events_by_tx("0xtx1").unwrap();
+        assert_eq!(by_tx.len(), 0);
+
+        // Query by object id
+        let by_obj = db
+            .get_object_locked_supply_events_by_object("0xbbbb", 10)
+            .unwrap();
+        assert_eq!(by_obj.len(), 1);
+        assert_eq!(by_obj[0].tx_hash, None);
+        assert_eq!(by_obj[0].amount, 100);
+    }
+
+    #[test]
+    fn test_object_locked_supply_event_release_and_refund() {
+        let db = IndexerDB::new_in_memory().unwrap();
+
+        // Insert block rows to satisfy FK constraints
+        db.conn.execute(
+            "INSERT INTO blocks (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![10i64, "blockhash10", "prevhash", "stateroot", "merkleroot", 1000i64, 0i64],
+        ).unwrap();
+        db.conn.execute(
+            "INSERT INTO blocks (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![20i64, "blockhash20", "prevhash", "stateroot", "merkleroot", 2000i64, 0i64],
+        ).unwrap();
+        db.conn.execute(
+            "INSERT INTO blocks (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![30i64, "blockhash30", "prevhash", "stateroot", "merkleroot", 3000i64, 0i64],
+        ).unwrap();
+
+        // Insert a lock event
+        let lock_event = IndexedObjectLockedSupplyEvent {
+            id: 0,
+            tx_hash: None,
+            block_height: 10,
+            object_id: "0xbbbb".to_string(),
+            token_type: "0x2::kanari::KANARI".to_string(),
+            amount: 100,
+            action: 1,
+            action_label: "locked".to_string(),
+            actor: "0x1111".to_string(),
+            timestamp: 1000,
+            created_at: Utc::now(),
+        };
+        db.upsert_object_locked_supply_event(&lock_event).unwrap();
+
+        // Insert a release event
+        let release_event = IndexedObjectLockedSupplyEvent {
+            id: 0,
+            tx_hash: None,
+            block_height: 20,
+            object_id: "0xbbbb".to_string(),
+            token_type: "0x2::kanari::KANARI".to_string(),
+            amount: 100,
+            action: 2,
+            action_label: "released".to_string(),
+            actor: "0x2222".to_string(),
+            timestamp: 2000,
+            created_at: Utc::now(),
+        };
+        db.upsert_object_locked_supply_event(&release_event)
+            .unwrap();
+
+        // Insert a refund event
+        let refund_event = IndexedObjectLockedSupplyEvent {
+            id: 0,
+            tx_hash: None,
+            block_height: 30,
+            object_id: "0xcccc".to_string(),
+            token_type: "0x2::kanari::KANARI".to_string(),
+            amount: 50,
+            action: 3,
+            action_label: "refunded".to_string(),
+            actor: "0x1111".to_string(),
+            timestamp: 3000,
+            created_at: Utc::now(),
+        };
+        db.upsert_object_locked_supply_event(&refund_event).unwrap();
+
+        // Check summary
+        let summary = db.get_locked_supply_summary().unwrap();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].0, "0x2::kanari::KANARI");
+        assert_eq!(summary[0].1, 100); // locked
+        assert_eq!(summary[0].2, 150); // released + refunded
+
+        // Check events by object
+        let bbbb_events = db
+            .get_object_locked_supply_events_by_object("0xbbbb", 10)
+            .unwrap();
+        assert_eq!(bbbb_events.len(), 2);
+        assert_eq!(bbbb_events[0].action, 2); // most recent first (release)
+        assert_eq!(bbbb_events[1].action, 1); // lock
+
+        let cccc_events = db
+            .get_object_locked_supply_events_by_object("0xcccc", 10)
+            .unwrap();
+        assert_eq!(cccc_events.len(), 1);
+        assert_eq!(cccc_events[0].action, 3); // refunded
     }
 }

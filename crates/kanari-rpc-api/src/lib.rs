@@ -4,1170 +4,26 @@
 //! Kanari RPC API Definitions
 //!
 //! Defines request/response types and RPC methods for Kanari blockchain
-use kanari_types::event::Event;
-use kanari_types::transaction::{
-    GasPayment, ObjectChange, ObjectGraphEdge, ObjectInput, ObjectOwnerKind, ObjectRef,
-    SignedTransaction, TransactionEffects,
-};
-use serde::{Deserialize, Serialize};
-use std::fmt;
 
-/// RPC request wrapper
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcRequest {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: serde_json::Value,
-    pub id: u64,
-}
-
-/// RPC response wrapper
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcResponse {
-    pub jsonrpc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<RpcError>,
-    pub id: u64,
-}
-
-/// RPC error
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcError {
-    pub code: i32,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
-}
-
-/// Structured transaction error reasons that clients can rely on instead of parsing text.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TransactionErrorReason {
-    InvalidGasPaymentType,
-    GasPaymentObjectOverlap,
-    GasPaymentObjectNotFound,
-    GasPaymentOwnerMismatch,
-    GasPaymentVersionMismatch,
-    GasPaymentDigestMismatch,
-    InsufficientNativeCoinObjects,
-    NativeCoinConsolidationBlocked,
-    InsufficientTransferCoinBalance,
-    InsufficientGasCoinBalance,
-    NativeTransferPolicyNotSatisfied,
-}
-
-impl TransactionErrorReason {
-    pub fn uses_native_transfer_policy(self) -> bool {
-        matches!(
-            self,
-            Self::InsufficientNativeCoinObjects
-                | Self::NativeCoinConsolidationBlocked
-                | Self::InsufficientTransferCoinBalance
-                | Self::InsufficientGasCoinBalance
-                | Self::NativeTransferPolicyNotSatisfied
-        )
-    }
-}
-
-impl fmt::Display for TransactionErrorReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::InvalidGasPaymentType => "invalid_gas_payment_type",
-            Self::GasPaymentObjectOverlap => "gas_payment_object_overlap",
-            Self::GasPaymentObjectNotFound => "gas_payment_object_not_found",
-            Self::GasPaymentOwnerMismatch => "gas_payment_owner_mismatch",
-            Self::GasPaymentVersionMismatch => "gas_payment_version_mismatch",
-            Self::GasPaymentDigestMismatch => "gas_payment_digest_mismatch",
-            Self::InsufficientNativeCoinObjects => "insufficient_native_coin_objects",
-            Self::NativeCoinConsolidationBlocked => "native_coin_consolidation_blocked",
-            Self::InsufficientTransferCoinBalance => "insufficient_transfer_coin_balance",
-            Self::InsufficientGasCoinBalance => "insufficient_gas_coin_balance",
-            Self::NativeTransferPolicyNotSatisfied => "native_transfer_policy_not_satisfied",
-        };
-        f.write_str(label)
-    }
-}
-
-/// Canonical native-transfer policy shared across RPC server, CLI, and faucet tooling.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NativeTransferPolicyContract {
-    /// The backend selects canonical object refs and gas payment objects for clients.
-    pub api_selects_objects: bool,
-    /// Prepared objects must include canonical version and digest metadata.
-    pub canonical_object_refs_required: bool,
-    /// Gas payment objects must be native `Coin<0x2::kanari::KANARI>` objects.
-    pub gas_payment_must_be_native_kanari: bool,
-    /// A single native coin with enough balance may cover transfer and gas.
-    pub allows_single_coin_for_transfer_and_gas: bool,
-    /// Native transfer can use distinct transfer/gas objects when one coin is insufficient.
-    pub allows_distinct_transfer_and_gas_objects: bool,
-}
-
-impl NativeTransferPolicyContract {
-    pub fn kanari_native() -> Self {
-        Self {
-            api_selects_objects: true,
-            canonical_object_refs_required: true,
-            gas_payment_must_be_native_kanari: true,
-            allows_single_coin_for_transfer_and_gas: true,
-            allows_distinct_transfer_and_gas_objects: true,
-        }
-    }
-
-    pub fn summary(&self) -> &'static str {
-        "one Coin<0x2::kanari::KANARI> with enough balance for transfer plus gas, or two distinct coins with enough balance for each"
-    }
-}
-
-/// Structured transaction error payload carried in `RpcError.data`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TransactionErrorData {
-    pub reason: TransactionErrorReason,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub native_transfer_policy: Option<NativeTransferPolicyContract>,
-}
-
-impl TransactionErrorData {
-    pub fn new(reason: TransactionErrorReason) -> Self {
-        Self {
-            reason,
-            native_transfer_policy: None,
-        }
-    }
-
-    pub fn with_native_transfer_policy(reason: TransactionErrorReason) -> Self {
-        Self {
-            reason,
-            native_transfer_policy: Some(NativeTransferPolicyContract::kanari_native()),
-        }
-    }
-}
-
-impl RpcError {
-    pub fn internal_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32603,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    pub fn invalid_params(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32602,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    pub fn method_not_found(method: impl Into<String>) -> Self {
-        Self {
-            code: -32601,
-            message: format!("Method not found: {}", method.into()),
-            data: None,
-        }
-    }
-
-    pub fn parse_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32700,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    pub fn invalid_request(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32600,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    pub fn module_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32001,
-            message: format!("Module error: {}", msg.into()),
-            data: None,
-        }
-    }
-
-    pub fn transaction_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32002,
-            message: format!("Transaction error: {}", msg.into()),
-            data: None,
-        }
-    }
-
-    pub fn transaction_error_with_data(msg: impl Into<String>, data: serde_json::Value) -> Self {
-        Self {
-            code: -32002,
-            message: format!("Transaction error: {}", msg.into()),
-            data: Some(data),
-        }
-    }
-
-    pub fn transaction_error_structured(
-        msg: impl Into<String>,
-        data: TransactionErrorData,
-    ) -> Self {
-        Self::transaction_error_with_data(
-            msg,
-            serde_json::to_value(data).unwrap_or_else(|_| serde_json::json!({})),
-        )
-    }
-
-    pub fn transaction_error_details(&self) -> Option<TransactionErrorData> {
-        self.data
-            .clone()
-            .and_then(|data| serde_json::from_value(data).ok())
-    }
-
-    pub fn transaction_error_reason(&self) -> Option<TransactionErrorReason> {
-        self.transaction_error_details().map(|data| data.reason)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_transfer_policy_contract_is_backend_canonical() {
-        let policy = NativeTransferPolicyContract::kanari_native();
-
-        assert!(policy.api_selects_objects);
-        assert!(policy.canonical_object_refs_required);
-        assert!(policy.gas_payment_must_be_native_kanari);
-        assert!(policy.allows_single_coin_for_transfer_and_gas);
-        assert!(policy.allows_distinct_transfer_and_gas_objects);
-        assert!(policy.summary().contains("Coin<0x2::kanari::KANARI>"));
-    }
-
-    #[test]
-    fn structured_transaction_errors_mark_policy_reasons_only() {
-        assert!(
-            TransactionErrorReason::InsufficientNativeCoinObjects.uses_native_transfer_policy()
-        );
-        assert!(
-            TransactionErrorReason::NativeCoinConsolidationBlocked.uses_native_transfer_policy()
-        );
-        assert!(
-            TransactionErrorReason::InsufficientTransferCoinBalance.uses_native_transfer_policy()
-        );
-        assert!(TransactionErrorReason::InsufficientGasCoinBalance.uses_native_transfer_policy());
-        assert!(
-            TransactionErrorReason::NativeTransferPolicyNotSatisfied.uses_native_transfer_policy()
-        );
-
-        assert!(!TransactionErrorReason::GasPaymentObjectOverlap.uses_native_transfer_policy());
-        assert!(!TransactionErrorReason::GasPaymentDigestMismatch.uses_native_transfer_policy());
-    }
-
-    #[test]
-    fn rpc_error_round_trips_structured_transaction_reason() {
-        let error = RpcError::transaction_error_structured(
-            "native transfer policy not satisfied",
-            TransactionErrorData::with_native_transfer_policy(
-                TransactionErrorReason::NativeTransferPolicyNotSatisfied,
-            ),
-        );
-
-        assert_eq!(
-            error.transaction_error_reason(),
-            Some(TransactionErrorReason::NativeTransferPolicyNotSatisfied)
-        );
-        assert!(
-            error
-                .transaction_error_details()
-                .and_then(|details| details.native_transfer_policy)
-                .is_some()
-        );
-    }
-}
-
-/// Owner info response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OwnerInfo {
-    pub owner: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub nonce: Option<u64>,
-    pub modules: Vec<String>,
-    pub balances: std::collections::BTreeMap<String, u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owned_object_count: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owned_objects: Option<Vec<ObjectInfo>>,
-}
-
-/// Token balance info.
-/// `decimals` is optional: `None` means on-chain metadata unknown —
-/// callers must show unknown, never invent 9/6/0.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenBalance {
-    pub token_type: String,
-    pub amount: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decimals: Option<u8>,
-    pub symbol: String,
-}
-
-/// Checkpoint-backed block view response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockInfo {
-    pub height: u64,
-    pub timestamp: u64,
-    pub hash: String,
-    pub prev_hash: String,
-    pub tx_count: usize,
-    pub state_root: String,
-    pub events: Vec<RpcEvent>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockchainStats {
-    pub height: u64,
-    pub total_blocks: usize,
-    pub total_transactions: usize,
-    pub pending_transactions: usize,
-    pub total_owners: usize,
-    pub total_supply: u64,
-    pub state_root: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GetSmtStatusRequest {
-    /// Run a full persisted-leaf and canonical-root audit. This can be
-    /// expensive on a large database and defaults to false.
-    #[serde(default)]
-    pub audit: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SmtStatusResponse {
-    pub height: u64,
-    pub checkpoint_state_root: String,
-    pub enabled: bool,
-    pub persisted_root: Option<String>,
-    pub effective_root: String,
-    pub overlay_entries: usize,
-    pub overlay_updates: usize,
-    pub overlay_deletes: usize,
-    pub canonical_membership_changed: bool,
-    pub runtime_schema_version: Option<u32>,
-    pub expected_runtime_schema_version: u32,
-    pub wallet_supply_index_version: Option<u32>,
-    pub expected_wallet_supply_index_version: u32,
-    pub audit_requested: bool,
-    pub audit_performed: bool,
-    pub persisted_leaf_count: Option<usize>,
-    pub consistent: Option<bool>,
-    pub consistency_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CanonicalStateEntry {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GetCanonicalStateSnapshotRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prefix: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CanonicalStateSnapshotResponse {
-    pub height: u64,
-    pub state_root: String,
-    pub entry_count: usize,
-    pub entries: Vec<CanonicalStateEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CompareCanonicalStateSnapshotRequest {
-    pub entries: Vec<CanonicalStateEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CanonicalStateDiffResponse {
-    pub height: u64,
-    pub state_root: String,
-    pub local_entry_count: usize,
-    pub remote_entry_count: usize,
-    pub first_divergence: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectInfo {
-    pub id: String,
-    pub owner: String,
-    pub owner_kind: ObjectOwnerKind,
-    pub type_: String,
-    pub data: Vec<u8>,
-    pub version: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub digest: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RpcObjectOwnerKindFilter {
-    Address,
-    Shared,
-    Immutable,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockData {
-    pub height: u64,
-    pub timestamp: u64,
-    pub hash: String,
-    pub prev_hash: String,
-    pub state_root: String,
-    pub tx_count: usize,
-    pub events: Vec<Event>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub transaction_effects: Vec<TransactionEffects>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub object_changes: Vec<ObjectChange>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub object_graph_edges: Vec<ObjectGraphEdge>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FullBlockData {
-    pub height: u64,
-    pub timestamp: u64,
-    pub hash: String,
-    pub prev_hash: String,
-    pub state_root: String,
-    pub tx_count: usize,
-    pub events: Vec<Event>,
-    pub transactions: Vec<SignedTransaction>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub transaction_effects: Vec<TransactionEffects>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub object_changes: Vec<ObjectChange>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub object_graph_edges: Vec<ObjectGraphEdge>,
-    pub vertices: Vec<String>,
-}
-
-/// Request for state root (optional height). If `height` is None, latest root is returned.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetStateRootRequest {
-    pub height: Option<u64>,
-}
-
-/// Owner state proof returned to light clients
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OwnerProof {
-    pub state_root: String,
-    pub is_member: bool,
-    pub leaf_hash: Vec<u8>,
-    pub siblings: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetOwnerProofRequest {
-    pub address: String,
-    pub height: Option<u64>,
-}
-
-/// Event emitted by Move runtime (RPC representation)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcEvent {
-    pub key: Vec<u8>,
-    pub sequence_number: u64,
-    pub type_tag: String,
-    pub event_data: Vec<u8>,
-}
-
-/// Transaction status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionStatus {
-    pub hash: String,
-    pub status: String,
-    pub block_height: Option<u64>,
-    pub gas_used: Option<u64>,
-    #[serde(default)]
-    pub success: bool,
-    #[serde(default)]
-    pub previewed: bool,
-    #[serde(default)]
-    pub submitted: bool,
-    #[serde(default)]
-    pub committed: bool,
-}
-
-/// Single recognized coin movement within a transaction.
-///
-/// A transaction can move multiple coins (batch transfers, splits, merges).
-/// `transfers` lists every movement the RPC layer could identify from
-/// transaction args plus execution effects.
-///
-/// `transfer_decimals` is the on-chain `CoinMetadata` decimals for
-/// `transfer_token_type` (e.g. 6 for THB, 9 for KANARI). Explorer must use
-/// it to scale `transfer_amount` (raw units) into display units:
-/// `display = raw / 10^decimals`. It is `None` only when metadata is
-/// not yet indexed for that token.
-///
-/// `transfer_amount` is `Some` when parsed from transaction args or when the
-/// effect records the post-move coin balance (what the new owner holds, for
-/// `Created` / ownership-changing `Transferred` entries). It is `None` for
-/// history written before amounts were recorded — clients must render those
-/// as amount unknown, never as zero.
-///
-/// `previous_owner` is the pre-execution owner when the effect records one;
-/// it lets clients distinguish a real ownership change from sender
-/// change-back noise.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recipient: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_amount: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_token_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_decimals: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coin_object_id: Option<String>,
-}
-
-/// Detailed transaction information returned by `getTransaction` and `getAllTransactions`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionDetails {
-    pub hash: String,
-    pub status: String,
-    pub block_height: Option<u64>,
-    pub gas_used: Option<u64>,
-    #[serde(default)]
-    pub success: bool,
-    #[serde(default)]
-    pub previewed: bool,
-    #[serde(default)]
-    pub submitted: bool,
-    #[serde(default)]
-    pub committed: bool,
-    pub tx_type: String,
-    pub sender: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Actual fee charged after execution: `gas_used * effective_gas_price`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_fee: Option<u64>,
-    /// Every recognized coin movement. `None` when nothing identifiable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfers: Option<Vec<TransferEntry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_inputs: Option<Vec<ObjectInput>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_payment: Option<GasPayment>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effects: Option<TransactionEffects>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module_functions: Option<Vec<String>>,
-}
-
-/// Transaction result with created objects
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionResult {
-    pub hash: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_used: Option<u64>,
-    #[serde(default)]
-    pub success: bool,
-    #[serde(default)]
-    pub previewed: bool,
-    #[serde(default)]
-    pub submitted: bool,
-    #[serde(default)]
-    pub committed: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effects: Option<TransactionEffects>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-}
-
-/// Submit object transfer request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitObjectTransferRequest {
-    pub transaction: ObjectTransferData,
-}
-
-/// Build native transfer request.
-///
-/// Native KANARI transfer follows the shared `NativeTransferPolicyContract`:
-/// the backend chooses canonical object refs and prefers distinct transfer/gas
-/// coins, while allowing one coin to cover both when its balance is sufficient.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildNativeTransferRequest {
-    pub sender: String,
-    pub recipient: String,
-    pub amount: u64,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Object ids the caller already has in-flight locally and does not want
-    /// the backend selector to reuse for this build. This is advisory and is
-    /// combined with the node's pending access-key snapshot.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub excluded_object_ids: Vec<String>,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Build one native coin consolidation step that joins another native coin into a primary coin.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildNativeCoinConsolidationRequest {
-    pub sender: String,
-    pub required_amount: u64,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Object transfer submission data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectTransferData {
-    pub sender: String,
-    pub coin_object_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coin_object_ref: Option<ObjectRef>,
-    pub recipient: String,
-    pub amount: u64,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Canonical replay nonce.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_payment: Option<GasPayment>,
-    pub signature: Option<Vec<u8>>,
-    /// Canonical BCS transaction hash returned by the build endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transaction_hash: Option<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Publish module request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishModuleRequest {
-    pub sender: String,
-    pub module_bytes: Vec<u8>,
-    pub module_name: String,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Canonical replay nonce.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_payment: Option<GasPayment>,
-    pub signature: Option<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishPackageModule {
-    pub module_name: String,
-    pub module_bytes: Vec<u8>,
-}
-
-/// Publish package request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishPackageRequest {
-    pub sender: String,
-    pub modules: Vec<PublishPackageModule>,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Canonical replay nonce.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_payment: Option<GasPayment>,
-    pub signature: Option<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Build publish module request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildPublishModuleRequest {
-    pub sender: String,
-    pub module_bytes: Vec<u8>,
-    pub module_name: String,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Build publish package request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildPublishPackageRequest {
-    pub sender: String,
-    pub modules: Vec<PublishPackageModule>,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Call function request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallFunctionRequest {
-    pub sender: String,
-    pub package: String,
-    pub module: String,
-    pub function: String,
-    pub type_args: Vec<String>,
-    pub args: Vec<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_inputs: Option<Vec<ObjectInput>>,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Canonical replay nonce.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_payment: Option<GasPayment>,
-    pub signature: Option<Vec<u8>>,
-    pub execute_immediate: Option<bool>,
-}
-
-fn canonical_request_nonce(nonce: Option<u64>) -> Result<u64, String> {
-    if let Some(nonce) = nonce {
-        if nonce == 0 {
-            return Err("Prepared request nonce must be non-zero".to_string());
-        }
-        return Ok(nonce);
-    }
-
-    Err("Prepared request is missing canonical nonce".to_string())
-}
-
-impl ObjectTransferData {
-    pub fn canonical_nonce(&self) -> Result<u64, String> {
-        canonical_request_nonce(self.nonce)
-    }
-
-    pub fn require_nonce(&mut self) -> Result<u64, String> {
-        let nonce = self.canonical_nonce()?;
-        self.nonce = Some(nonce);
-        Ok(nonce)
-    }
-}
-
-impl PublishModuleRequest {
-    pub fn canonical_nonce(&self) -> Result<u64, String> {
-        canonical_request_nonce(self.nonce)
-    }
-
-    pub fn require_nonce(&mut self) -> Result<u64, String> {
-        let nonce = self.canonical_nonce()?;
-        self.nonce = Some(nonce);
-        Ok(nonce)
-    }
-}
-
-impl PublishPackageRequest {
-    pub fn canonical_nonce(&self) -> Result<u64, String> {
-        canonical_request_nonce(self.nonce)
-    }
-
-    pub fn require_nonce(&mut self) -> Result<u64, String> {
-        let nonce = self.canonical_nonce()?;
-        self.nonce = Some(nonce);
-        Ok(nonce)
-    }
-}
-
-impl CallFunctionRequest {
-    pub fn canonical_nonce(&self) -> Result<u64, String> {
-        canonical_request_nonce(self.nonce)
-    }
-
-    pub fn require_nonce(&mut self) -> Result<u64, String> {
-        let nonce = self.canonical_nonce()?;
-        self.nonce = Some(nonce);
-        Ok(nonce)
-    }
-}
-
-/// Build call function request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildCallFunctionRequest {
-    pub sender: String,
-    pub package: String,
-    pub module: String,
-    pub function: String,
-    pub type_args: Vec<String>,
-    pub args: Vec<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_inputs: Option<Vec<ObjectInput>>,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Claim 100 USD from the web faucet (`kanari_requestUsdFaucet`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestUsdFaucetRequest {
-    /// Recipient address (`0x`-prefixed 64 hex characters).
-    pub address: String,
-}
-
-/// Result of a USD faucet claim (`kanari_requestUsdFaucet`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestUsdFaucetResponse {
-    pub hash: String,
-    pub status: String,
-    pub leg_hashes: Vec<String>,
-    pub amount_usd: String,
-    pub amount_units: u64,
-    pub usd_type: String,
-    pub recipient: String,
-}
-
-/// USD faucet configuration (`kanari_getUsdFaucetStatus`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UsdFaucetStatusResponse {
-    pub enabled: bool,
-    pub usd_type: String,
-    pub usd_decimals: u32,
-    pub default_drip_usd: String,
-    pub max_per_request_usd: String,
-    pub cooldown_secs: u64,
-}
-
-/// Build token transfer request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildTokenTransferRequest {
-    pub sender: String,
-    pub recipient: String,
-    pub token_type: String,
-    pub amount: u64,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-/// Build NFT transfer request (`kanari_buildNftTransfer`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildNftTransferRequest {
-    pub sender: String,
-    pub recipient: String,
-    /// Object id of the NFT (`0x`-prefixed). Must be owned by `sender`.
-    pub object_id: String,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    /// Preferred replay nonce field. If omitted, RPC generates one from OS randomness.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execute_immediate: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OwnedObjectsResponse {
-    pub objects: Vec<ObjectInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<OwnerObjectSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OwnerObjectSummary {
-    pub owner: String,
-    pub total_objects: usize,
-    pub object_changes_hint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectChangeSet {
-    pub changes: Vec<ObjectChange>,
-}
-
-/// View function request (read-only, no transaction submission)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ViewFunctionRequest {
-    pub package: String,
-    pub module: String,
-    pub function: String,
-    pub type_args: Vec<String>,
-    #[serde(deserialize_with = "deserialize_args")]
-    pub args: Vec<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_inputs: Option<Vec<ObjectInput>>,
-}
-
-/// Custom deserializer for args that supports both hex strings and byte arrays
-fn deserialize_args<'de, D>(deserializer: D) -> Result<Vec<Vec<u8>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::{self, SeqAccess, Visitor};
-    use std::fmt;
-
-    struct ArgsVisitor;
-
-    impl<'de> Visitor<'de> for ArgsVisitor {
-        type Value = Vec<Vec<u8>>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("array of hex strings or byte arrays")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut args = Vec::new();
-            while let Some(value) = seq.next_element::<serde_json::Value>()? {
-                // Try to parse as hex string first
-                if let Some(hex_str) = value.as_str() {
-                    let hex_str = hex_str.trim_start_matches("0x");
-                    let bytes = hex::decode(hex_str).map_err(de::Error::custom)?;
-                    args.push(bytes);
-                } else if let Some(arr) = value.as_array() {
-                    // Parse as array of numbers
-                    let bytes: Result<Vec<u8>, _> = arr
-                        .iter()
-                        .map(|v| {
-                            v.as_u64()
-                                .ok_or_else(|| de::Error::custom("Expected number"))
-                        })
-                        .map(|r| r.map(|n| n as u8))
-                        .collect();
-                    args.push(bytes?);
-                } else {
-                    return Err(de::Error::custom("Expected string or array"));
-                }
-            }
-            Ok(args)
-        }
-    }
-
-    deserializer.deserialize_seq(ArgsVisitor)
-}
-
-/// Module query response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleInfo {
-    pub address: String,
-    pub name: String,
-    pub bytecode_hash: String,
-    pub size: usize,
-    pub dependencies: Vec<String>,
-    #[serde(default)]
-    pub functions: Vec<String>,
-    pub function_count: usize,
-}
-
-/// Health check response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthStatus {
-    pub status: String,
-    pub version: String,
-    pub uptime_seconds: u64,
-    pub sync_status: String,
-    pub network: String,
-    pub supply_invariants_ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supply_invariant_error: Option<String>,
-    pub fail_fast_enabled: bool,
-    pub strict_persistence_required: bool,
-    pub strict_checkpoint_roots: bool,
-    pub persistent_storage_available: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkAuthorityStatus {
-    pub authority_id: String,
-    pub local: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkStatus {
-    pub local_authority_id: String,
-    pub authority_count: usize,
-    pub authorities: Vec<NetworkAuthorityStatus>,
-}
-
-/// Get object request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetObjectRequest {
-    pub object_id: String,
-}
-
-/// Get owned objects request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetOwnedObjectsRequest {
-    pub owner: String,
-    pub object_type: Option<String>,
-}
-
-/// Get objects by type request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetObjectsByTypeRequest {
-    pub object_type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetObjectsRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner_kind: Option<RpcObjectOwnerKindFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_version: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_version: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetObjectByRefRequest {
-    pub object_ref: ObjectRef,
-}
-
-/// Get token balance request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetTokenBalanceRequest {
-    pub owner: String,
-    pub token_type: String,
-}
-
-/// Get all balances for an owner request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetOwnerBalancesRequest {
-    pub owner: String,
-}
-
-/// Get fungible asset summary request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetFungibleAssetRequest {
-    pub token_type: String,
-}
-
-/// Cursor for paginating the holder list, which is ordered by
-/// `(balance DESC, owner ASC)`.
-///
-/// A page returns holders strictly after this position, so advancing with
-/// the returned `next_cursor` never repeats or skips entries even when
-/// balances change between calls (entries that moved are repositioned, but
-/// no entry is silently dropped from the iteration contract below).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FungibleAssetHolderCursor {
-    pub balance: u64,
-    pub owner: String,
-}
-
-/// Get fungible asset holder list request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetFungibleAssetHoldersRequest {
-    pub token_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<usize>,
-    /// Resume after this position. `None` starts from the top holder.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<FungibleAssetHolderCursor>,
-}
-
-/// Get transactions that involve a fungible asset.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetFungibleAssetTransactionsRequest {
-    pub token_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FungibleAssetInfo {
-    pub token_type: String,
-    pub name: String,
-    pub symbol: String,
-    /// No fallback: `None` means on-chain metadata unknown.
-    /// Clients must show unknown, never assume 9/6/0.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decimals: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
-    pub total_supply: u64,
-    pub wallet_visible_supply: u64,
-    pub circulating_supply: u64,
-    pub object_locked_supply: u64,
-    pub accounted_supply: u64,
-    pub untracked_supply: u64,
-    pub holders_count: usize,
-    pub verified: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FungibleAssetHolder {
-    pub owner: String,
-    pub balance: u64,
-    pub coin_object_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FungibleAssetHoldersResponse {
-    pub token_type: String,
-    pub holders: Vec<FungibleAssetHolder>,
-    /// Cursor for the next page. `None` means this was the last page.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_cursor: Option<FungibleAssetHolderCursor>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FungibleAssetTransactionsResponse {
-    pub token_type: String,
-    pub transactions: Vec<TransactionDetails>,
-}
+pub mod args;
+pub mod error;
+pub mod fungible;
+pub mod network;
+pub mod requests;
+pub mod responses;
+pub mod state;
+pub mod transaction;
+pub mod types;
+
+pub use args::deserialize_args;
+pub use error::*;
+pub use fungible::*;
+pub use network::*;
+pub use requests::*;
+pub use responses::*;
+pub use state::*;
+pub use transaction::*;
+pub use types::*;
 
 /// RPC Methods
 #[kanari_open_rpc::open_rpc]
@@ -1421,7 +277,6 @@ pub mod methods {
         tags = ["system"]
     )]
     pub const HEALTH: &str = "kanari_health";
-
     #[open_rpc_method(
         summary = "Get active gas model",
         description = "Returns the active gas policy and both requested and effective default gas prices.",
@@ -1430,7 +285,6 @@ pub mod methods {
         tags = ["system"]
     )]
     pub const GET_GAS_INFO: &str = "kanari_getGasInfo";
-
     #[open_rpc_method(
         summary = "Get network authority status",
         description = "Returns the configured validator authority set for this node.",
@@ -1574,6 +428,14 @@ pub mod methods {
     )]
     pub const BUILD_NFT_TRANSFER: &str = "kanari_buildNftTransfer";
     #[open_rpc_method(
+        summary = "Build KRC-1155 transfer transaction",
+        description = "Resolves the KRC-1155 Balance object inputs, gas, and nonce, and returns a canonical unsigned `kanari_system::krc_1155::transfer` call. Pass `object_id` to spend one specific Balance object, or `token_type` to have the server select up to three owned Balance objects of that type covering `amount`, using `transfer_two` or `transfer_three` when a single object is short.",
+        params = [("call", "Unsigned KRC-1155 transfer payload.", true, schema_object())],
+        result = ("call", "Prepared KRC-1155-transfer call request.", schema_object()),
+        tags = ["krc1155"]
+    )]
+    pub const BUILD_KRC1155_TRANSFER: &str = "kanari_buildKrc1155Transfer";
+    #[open_rpc_method(
         summary = "Claim 100 USD from the web faucet",
         description = "Mints exactly 100 USD as two 50 USD coin objects to an address, with per-address cooldown. The node sponsor pays gas.",
         params = [("request", "Faucet claim payload.", true, schema_object())],
@@ -1700,4 +562,80 @@ pub mod methods {
         tags = ["nft"]
     )]
     pub const GET_NFTS_BY_COLLECTION: &str = "kanari_getNftsByCollection";
+
+    // KRC-1155 queries
+    #[open_rpc_method(
+        summary = "Get owned KRC-1155 balances",
+        description = "Returns KRC-1155 Balance objects owned by one owner.",
+        params = [("owner", "Target owner address.", true, schema_string())],
+        result = ("balances", "Owned KRC-1155 balance list.", schema_array(schema_object())),
+        tags = ["krc1155"]
+    )]
+    pub const GET_OWNED_KRC1155_BALANCES: &str = "kanari_getOwnedKrc1155Balances";
+    #[open_rpc_method(
+        summary = "Get KRC-1155 token type",
+        description = "Returns a KRC-1155 TokenType object by id.",
+        params = [("id", "Token type id.", true, schema_string())],
+        result = ("token_type", "KRC-1155 token type.", schema_object()),
+        tags = ["krc1155"]
+    )]
+    pub const GET_KRC1155_TOKEN_TYPE: &str = "kanari_getKrc1155TokenType";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_transfer_policy_contract_is_backend_canonical() {
+        let policy = NativeTransferPolicyContract::kanari_native();
+
+        assert!(policy.api_selects_objects);
+        assert!(policy.canonical_object_refs_required);
+        assert!(policy.gas_payment_must_be_native_kanari);
+        assert!(policy.allows_single_coin_for_transfer_and_gas);
+        assert!(policy.allows_distinct_transfer_and_gas_objects);
+        assert!(policy.summary().contains("Coin<0x2::kanari::KANARI>"));
+    }
+
+    #[test]
+    fn structured_transaction_errors_mark_policy_reasons_only() {
+        assert!(
+            TransactionErrorReason::InsufficientNativeCoinObjects.uses_native_transfer_policy()
+        );
+        assert!(
+            TransactionErrorReason::NativeCoinConsolidationBlocked.uses_native_transfer_policy()
+        );
+        assert!(
+            TransactionErrorReason::InsufficientTransferCoinBalance.uses_native_transfer_policy()
+        );
+        assert!(TransactionErrorReason::InsufficientGasCoinBalance.uses_native_transfer_policy());
+        assert!(
+            TransactionErrorReason::NativeTransferPolicyNotSatisfied.uses_native_transfer_policy()
+        );
+
+        assert!(!TransactionErrorReason::GasPaymentObjectOverlap.uses_native_transfer_policy());
+        assert!(!TransactionErrorReason::GasPaymentDigestMismatch.uses_native_transfer_policy());
+    }
+
+    #[test]
+    fn rpc_error_round_trips_structured_transaction_reason() {
+        let error = RpcError::transaction_error_structured(
+            "native transfer policy not satisfied",
+            TransactionErrorData::with_native_transfer_policy(
+                TransactionErrorReason::NativeTransferPolicyNotSatisfied,
+            ),
+        );
+
+        assert_eq!(
+            error.transaction_error_reason(),
+            Some(TransactionErrorReason::NativeTransferPolicyNotSatisfied)
+        );
+        assert!(
+            error
+                .transaction_error_details()
+                .and_then(|details| details.native_transfer_policy)
+                .is_some()
+        );
+    }
 }

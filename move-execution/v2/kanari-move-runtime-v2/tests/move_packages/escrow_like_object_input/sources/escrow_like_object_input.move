@@ -3,6 +3,7 @@ module tester::escrow_like_object_input {
     use std::string::String;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::object::{Self, UID};
+    use kanari_system::transfer;
     use kanari_system::tx_context::{Self, TxContext};
 
     const E_NOT_ENOUGH_BALANCE: u64 = 7;
@@ -19,13 +20,15 @@ module tester::escrow_like_object_input {
         buyer_coin_id: address,
         ctx: &mut TxContext
     ) {
-        let _buyer = tx_context::sender(ctx);
+        let buyer = tx_context::sender(ctx);
         let _deal_id = deal_id;
         let _seller = seller;
         let _description = description;
         let buyer_coin: &mut Coin<CoinType> =
             object::borrow_global_mut<Coin<CoinType>>(buyer_coin_id);
         assert!(coin::value(buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);
+        let locked = coin::split(buyer_coin, amount, ctx);
+        transfer::public_transfer(locked, buyer);
     }
 
     public entry fun touch_marker(marker_id: address, ctx: &mut TxContext) {

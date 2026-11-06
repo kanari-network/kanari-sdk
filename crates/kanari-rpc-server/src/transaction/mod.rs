@@ -10,12 +10,12 @@ use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::engine::{PendingTransactionMetadata, PendingTransactionRecord};
 use kanari_move_runtime_v2::changeset::ChangeSet;
 use kanari_rpc_api::{
-    BuildCallFunctionRequest, BuildNativeCoinConsolidationRequest, BuildNativeTransferRequest,
-    BuildNftTransferRequest, BuildPublishModuleRequest, BuildPublishPackageRequest,
-    BuildTokenTransferRequest, CallFunctionRequest, FungibleAssetTransactionsResponse,
-    GetFungibleAssetTransactionsRequest, ObjectTransferData, PublishModuleRequest,
-    PublishPackageRequest, TransactionDetails, TransactionErrorData, TransactionErrorReason,
-    ViewFunctionRequest, methods,
+    BuildCallFunctionRequest, BuildKrc1155TransferRequest, BuildNativeCoinConsolidationRequest,
+    BuildNativeTransferRequest, BuildNftTransferRequest, BuildPublishModuleRequest,
+    BuildPublishPackageRequest, BuildTokenTransferRequest, CallFunctionRequest,
+    FungibleAssetTransactionsResponse, GetFungibleAssetTransactionsRequest, ObjectTransferData,
+    PublishModuleRequest, PublishPackageRequest, TransactionDetails, TransactionErrorData,
+    TransactionErrorReason, ViewFunctionRequest, methods,
 };
 use kanari_types::address::Address;
 use kanari_types::coin::CoinModule;
@@ -54,9 +54,10 @@ mod validation;
 mod view;
 
 pub use build::{
-    handle_build_call_function, handle_build_native_coin_consolidation,
-    handle_build_native_transfer, handle_build_nft_transfer, handle_build_publish_module,
-    handle_build_publish_package, handle_build_token_transfer,
+    handle_build_call_function, handle_build_krc1155_transfer,
+    handle_build_native_coin_consolidation, handle_build_native_transfer,
+    handle_build_nft_transfer, handle_build_publish_module, handle_build_publish_package,
+    handle_build_token_transfer,
 };
 pub(crate) use bytecode::{
     extract_functions_from_bytes, function_object_param_indices, lookup_module_functions,
@@ -67,9 +68,9 @@ pub(crate) use details::{
 };
 pub(crate) use error::transaction_error_with_reason;
 pub(crate) use gas_selection::{
-    build_call_native_burn_amount, select_coin_object_for_token, select_gas_payment_auto,
-    select_native_coin_consolidation_step, select_native_gas_payment,
-    select_native_transfer_and_gas_payment,
+    MAX_KRC1155_TRANSFER_OBJECTS, build_call_native_burn_amount, select_coin_object_for_token,
+    select_gas_payment_auto, select_krc1155_balances, select_native_coin_consolidation_step,
+    select_native_gas_payment, select_native_transfer_and_gas_payment,
 };
 pub(crate) use object_inputs::{
     build_object_input, coin_token_type_from_object_type, infer_object_inputs,

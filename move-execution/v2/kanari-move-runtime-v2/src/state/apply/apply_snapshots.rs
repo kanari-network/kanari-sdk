@@ -126,7 +126,7 @@ impl StateManager {
 
     pub(crate) fn reconcile_object_locked_coin_records(
         &mut self,
-        changeset: &ChangeSet,
+        changeset: &mut ChangeSet,
         issued_before: &BTreeMap<String, u64>,
         visible_before: &BTreeMap<String, u64>,
     ) -> Result<()> {
@@ -176,7 +176,11 @@ impl StateManager {
                         locked_delta as u64,
                     )?;
                 }
-            } else if locked_delta < 0 {
+            } else if locked_delta < 0
+                && let Some(_record) = records
+                    .iter()
+                    .find(|record| record.token_type == token_type)
+            {
                 Self::release_locked_coin_records(
                     &mut records,
                     &holder_ids,

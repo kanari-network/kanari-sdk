@@ -257,7 +257,6 @@ impl super::MoveRuntime {
         object_id: &str,
         requested_mutable: bool,
         sender: Option<AccountAddress>,
-        allow_cross_owner_non_coin: bool,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
         origin: &str,
     ) -> anyhow::Result<()> {
@@ -270,7 +269,6 @@ impl super::MoveRuntime {
             &stored_obj.owner_kind,
             stored_obj.owner,
             sender,
-            allow_cross_owner_non_coin,
         );
         loaded.insert(
             object_id.to_string(),
@@ -306,7 +304,6 @@ impl super::MoveRuntime {
                 &input.object_ref.object_id,
                 input.mutable,
                 sender,
-                true,
                 overlay,
                 "explicit object input",
             )?;
@@ -358,7 +355,6 @@ impl super::MoveRuntime {
                 &object_id,
                 true,
                 sender,
-                false,
                 overlay,
                 "address-based object argument",
             )?;
@@ -373,7 +369,6 @@ impl super::MoveRuntime {
         owner_kind: &ObjectOwnerKind,
         owner: AccountAddress,
         sender: Option<AccountAddress>,
-        allow_cross_owner_non_coin: bool,
     ) -> bool {
         if !requested_mutable || matches!(owner_kind, ObjectOwnerKind::Immutable) {
             return false;
@@ -385,11 +380,8 @@ impl super::MoveRuntime {
             return true;
         }
 
-        // Cross-owner mutable access to app objects must be declared as an
-        // explicit object input so the transaction exposes its dependency to
-        // validation/scheduling. Raw address arguments are intentionally scoped
-        // to the sender's own owned objects.
-        allow_cross_owner_non_coin && !CoinModule::is_coin_object_type(object_type)
+        let _ = object_type;
+        false
     }
 
     /// Canonical full-hex object id of the deny-list singleton, matching
@@ -427,7 +419,6 @@ impl super::MoveRuntime {
             &object_id,
             false,
             None,
-            false,
             overlay,
             "well-known singleton",
         )

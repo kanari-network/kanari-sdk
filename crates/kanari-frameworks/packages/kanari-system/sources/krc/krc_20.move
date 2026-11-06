@@ -29,7 +29,7 @@ module kanari_system::krc_20 {
         name: vector<u8>,
         description: vector<u8>,
         icon_url: Option<Url>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): (TreasuryCap<T>, CoinMetadata<T>) {
         coin::create_currency(
             witness,
@@ -52,7 +52,7 @@ module kanari_system::krc_20 {
         description: vector<u8>,
         icon_url: Option<Url>,
         allow_global_pause: bool,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): (TreasuryCap<T>, DenyCapV2<T>, CoinMetadata<T>) {
         coin::create_regulated_currency_v2(
             witness,
@@ -68,7 +68,9 @@ module kanari_system::krc_20 {
 
     /// Mint a coin object. Only a holder of the token's treasury cap can mint.
     public fun mint<T>(
-        cap: &mut TreasuryCap<T>, amount: u64, ctx: &mut TxContext
+        cap: &mut TreasuryCap<T>,
+        amount: u64,
+        ctx: &mut TxContext,
     ): Coin<T> {
         coin::mint(cap, amount, ctx)
     }
@@ -78,7 +80,7 @@ module kanari_system::krc_20 {
         cap: &mut TreasuryCap<T>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         coin::mint_and_transfer(cap, amount, recipient, ctx)
     }
@@ -94,7 +96,10 @@ module kanari_system::krc_20 {
     /// ordinary tokens the lookup is empty and has no effect; regulated tokens
     /// reject a denied sender, a denied recipient, or a global pause.
     public entry fun transfer<T>(
-        token: &mut Coin<T>, amount: u64, recipient: address, ctx: &mut TxContext
+        token: &mut Coin<T>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         assert!(!coin::is_denied<T>(sender), E_DENIED_OR_PAUSED);
@@ -110,7 +115,7 @@ module kanari_system::krc_20 {
         amount: u64,
         recipient: address,
         deny: &DenyList,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         pay::split_and_transfer_checked(token, amount, recipient, deny, ctx)
     }
@@ -155,4 +160,3 @@ module kanari_system::krc_20 {
         kanari_system::transfer::public_freeze_object(metadata);
     }
 }
-

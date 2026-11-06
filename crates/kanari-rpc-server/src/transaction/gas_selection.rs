@@ -477,3 +477,79 @@ pub(crate) fn select_coin_object_for_token(
     }
     Ok(selected)
 }
+
+/// How many `Balance` objects a single KRC-1155 transfer may draw from. The
+/// contract exposes exactly `transfer`, `transfer_two` and `transfer_three`,
+/// so a transaction can join at most three objects.
+pub(crate) const MAX_KRC1155_TRANSFER_OBJECTS: usize = 3;
+
+/// Select the owned KRC-1155 `Balance` objects of `token_type` that cover
+/// `required_amount`, largest first so the common case stays a single-object
+/// `transfer`.
+///
+/// Mirrors [`select_coin_object_for_token`]: the caller only knows the token
+/// type and the amount, the server resolves how the holding is split across
+/// objects. Errors when the sender owns no balance of that type, when the
+/// total is short, or when covering the amount would need more than
+/// [`MAX_KRC1155_TRANSFER_OBJECTS`] objects.
+pub(crate) fn select_krc1155_balances<'a>(
+    owned_objects: &'a [kanari_rpc_api::ObjectInfo],
+    token_type: &str,
+    required_amount: u64,
+) -> anyhow::Result<Vec<&'a kanari_rpc_api::ObjectInfo>> {
+    use kanari_types::krc_1155::Krc1155Module;
+
+    let wanted = normalize_addr(token_type);
+    let mut candidates: Vec<(&kanari_rpc_api::ObjectInfo, u64)> = Vec::new();
+    for object in owned_objects {
+        if !Krc1155Module::is_krc1155_object_type(&object.type_) {
+            continue;
+        }
+        let Some(object_token) = Krc1155Module::token_type_from_balance_bcs(&object.data) else {
+            continue;
+        };
+        if normalize_addr(&format!("{:#x}", object_token)) != wanted {
+            continue;
+        }
+        let Some(amount) = Krc1155Module::amount_from_balance_bcs(&object.data) else {
+            continue;
+        };
+        candidates.push((object, amount));
+    }
+
+    if candidates.is_empty() {
+        anyhow::bail!("No KRC-1155 balance object found for token type {token_type}");
+    }
+    // Largest balance first minimises the object count; the object id breaks
+    // ties so the selection is deterministic for equal amounts.
+    candidates.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| normalize_addr(&left.0.id).cmp(&normalize_addr(&right.0.id)))
+    });
+
+    let total = candidates.iter().map(|(_, amount)| *amount).sum::<u64>();
+    if total < required_amount {
+        anyhow::bail!(
+            "Insufficient KRC-1155 balance for token type {token_type}: available {total}, required {required_amount}"
+        );
+    }
+
+    let mut selected = Vec::new();
+    let mut covered = 0u64;
+    for (object, amount) in &candidates {
+        if covered >= required_amount {
+            break;
+        }
+        selected.push(*object);
+        covered += amount;
+    }
+    if selected.len() > MAX_KRC1155_TRANSFER_OBJECTS {
+        anyhow::bail!(
+            "Transfer of {required_amount} units of token type {token_type} needs {} balance objects, but at most {MAX_KRC1155_TRANSFER_OBJECTS} can be spent in one transaction",
+            selected.len()
+        );
+    }
+    Ok(selected)
+}

@@ -4,15 +4,22 @@
 //! Main indexer implementation
 
 use crate::db::IndexerDB;
-use crate::models::IndexedCoin;
+use crate::models::{IndexedCoin, IndexedKrc721Event, IndexedKrc1155Event, Krc1155Action};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::event::Event;
 use kanari_types::gas_coin::GasModule;
 use kanari_types::transaction::Transaction;
 use kanari_types::{block::Block, gas_coin::GAS_COIN};
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
+
+/// Type tag suffix for KRC-1155 events
+const KRC_1155_MODULE: &str = "::kanari_system::krc_1155::";
+
+/// Type tag suffix for KRC-721 events
+const KRC_721_MODULE: &str = "::kanari_system::krc_721::";
 
 /// Configuration for the indexer
 #[derive(Debug, Clone)]
@@ -65,6 +72,202 @@ impl Indexer {
             .ok()?
             .to_hex_literal();
         Some((recipient, amount))
+    }
+
+    /// Parse an `ObjectLockedSupplyChanged<CoinType>` Move event from raw BCS bytes.
+    ///
+    /// Move struct layout:
+    ///   object_id: address   (32 bytes)
+    ///   amount:    u64       (8 bytes LE)
+    ///   action:    u8        (1 byte)   1=locked, 2=released, 3=refunded
+    /// Parse a KRC-1155 event from raw BCS bytes.
+    ///
+    /// Move struct layout for Minted/Burned/Transferred:
+    ///   token_type: address (32 bytes)
+    ///   amount:    u64       (8 bytes LE)
+    ///   action:    u8        (1 byte)   1=minted, 2=burned, 3=transferred
+    ///   sender:    address   (32 bytes)  // only for Transferred
+    ///   recipient: address   (32 bytes)  // for Minted/Transferred
+    ///   owner:     address   (32 bytes)  // for Burned
+    ///   timestamp: u64       (8 bytes LE)
+    /// Total: varies by action (81-145 bytes)
+    fn parse_krc_1155_event(
+        event_data: &[u8],
+        tx_hash: Option<&str>,
+        block_height: u64,
+    ) -> Option<IndexedKrc1155Event> {
+        if event_data.len() < 81 {
+            return None;
+        }
+
+        let token_type = KanariAddress::try_from(&event_data[0..32])
+            .ok()?
+            .to_hex_literal();
+        let amount = u64::from_le_bytes(event_data[32..40].try_into().ok()?);
+        let action_byte = event_data[40];
+
+        let action = match action_byte {
+            1 => Krc1155Action::Minted,
+            2 => Krc1155Action::Burned,
+            3 => Krc1155Action::Transferred,
+            _ => Krc1155Action::Unknown,
+        };
+
+        // Parse based on action type
+        let (sender, recipient, owner) = match action_byte {
+            1 => {
+                // Minted: recipient only (no sender, owner)
+                let recipient = KanariAddress::try_from(&event_data[41..73])
+                    .ok()?
+                    .to_hex_literal();
+                (None, Some(recipient), None)
+            }
+            2 => {
+                // Burned: owner only
+                let owner = KanariAddress::try_from(&event_data[41..73])
+                    .ok()?
+                    .to_hex_literal();
+                (None, None, Some(owner))
+            }
+            3 => {
+                // Transferred: sender + recipient
+                let sender = KanariAddress::try_from(&event_data[41..73])
+                    .ok()?
+                    .to_hex_literal();
+                let recipient = KanariAddress::try_from(&event_data[73..105])
+                    .ok()?
+                    .to_hex_literal();
+                (Some(sender), Some(recipient), None)
+            }
+            _ => (None, None, None),
+        };
+
+        // Timestamp is at different offsets based on action
+        let (timestamp_offset, has_timestamp) = match action_byte {
+            1 => (73, true), // Minted: token_id(32) + amount(8) + action(1) + recipient(32) = 73
+            2 => (73, true), // Burned: token_id(32) + amount(8) + action(1) + owner(32) = 73
+            3 => (105, true), // Transferred: token_id(32) + amount(8) + action(1) + sender(32) + recipient(32) = 105
+            _ => (41, false), // Unknown: only token_type(32) + amount(8) + action(1) = 41 bytes known
+        };
+
+        if event_data.len() < timestamp_offset {
+            return None;
+        }
+
+        let timestamp = if has_timestamp {
+            if event_data.len() < timestamp_offset + 8 {
+                return None;
+            }
+            u64::from_le_bytes(
+                event_data[timestamp_offset..timestamp_offset + 8]
+                    .try_into()
+                    .ok()?,
+            )
+        } else {
+            0
+        };
+
+        Some(IndexedKrc1155Event {
+            id: 0,
+            tx_hash: tx_hash.map(|s| s.to_string()),
+            block_height,
+            token_type,
+            action: action.clone(),
+            amount,
+            sender,
+            recipient,
+            owner,
+            timestamp,
+            created_at: Utc::now(),
+        })
+    }
+
+    /// Parse a KRC-721 MintLog event from raw BCS bytes.
+    ///
+    /// Move struct layout for MintLog:
+    ///   object_id: address   (32 bytes)
+    ///   creator:   address   (32 bytes)
+    ///   collection_id: address (32 bytes)
+    /// Total: 96 bytes
+    fn parse_krc_721_mint_event(
+        event_data: &[u8],
+        tx_hash: Option<&str>,
+        block_height: u64,
+    ) -> Option<IndexedKrc721Event> {
+        if event_data.len() < 96 {
+            return None;
+        }
+
+        let object_id = KanariAddress::try_from(&event_data[0..32])
+            .ok()?
+            .to_hex_literal();
+        let creator = KanariAddress::try_from(&event_data[32..64])
+            .ok()?
+            .to_hex_literal();
+        let collection_id = KanariAddress::try_from(&event_data[64..96])
+            .ok()?
+            .to_hex_literal();
+
+        Some(IndexedKrc721Event {
+            id: 0,
+            tx_hash: tx_hash.map(|s| s.to_string()),
+            block_height,
+            object_id,
+            creator,
+            collection_id,
+            timestamp: 0, // KRC-721 MintLog doesn't have timestamp in event data
+            created_at: Utc::now(),
+        })
+    }
+
+    /// Detect and index KRC-1155 events from a block's event list.
+    fn index_krc_1155_events(
+        &self,
+        block_height: u64,
+        tx_hash: Option<&str>,
+        events: &[Event],
+    ) -> Result<usize> {
+        let mut count = 0u64;
+        for event in events {
+            if !event.type_tag.contains(KRC_1155_MODULE) {
+                continue;
+            }
+            if let Some(parsed) =
+                Self::parse_krc_1155_event(&event.event_data, tx_hash, block_height)
+            {
+                self.db.upsert_krc_1155_event(&parsed).context(format!(
+                    "Failed to insert KRC-1155 event for tx {:?}",
+                    tx_hash
+                ))?;
+                count += 1;
+            }
+        }
+        Ok(count as usize)
+    }
+
+    /// Detect and index KRC-721 events from a block's event list.
+    fn index_krc_721_events(
+        &self,
+        block_height: u64,
+        tx_hash: Option<&str>,
+        events: &[Event],
+    ) -> Result<usize> {
+        let mut count = 0u64;
+        for event in events {
+            if !event.type_tag.contains(KRC_721_MODULE) {
+                continue;
+            }
+            if let Some(parsed) =
+                Self::parse_krc_721_mint_event(&event.event_data, tx_hash, block_height)
+            {
+                self.db.upsert_krc_721_event(&parsed).context(format!(
+                    "Failed to insert KRC-721 event for tx {:?}",
+                    tx_hash
+                ))?;
+                count += 1;
+            }
+        }
+        Ok(count as usize)
     }
 
     /// Create a new indexer with the given configuration
@@ -135,12 +338,21 @@ impl Indexer {
                         .context(format!("Failed to insert coin from tx {}", tx_hash))?;
                 }
             }
+        }
 
-            if !block.events.is_empty() {
-                self.db
-                    .insert_events(height, &[(None, block.events.as_slice())])
-                    .context(format!("Failed to insert events for block {}", height))?;
-            }
+        // Events are block-level data and must be indexed even when a block
+        // has no transaction rows (for example, synthetic/replayed blocks).
+        // Keeping this outside the transaction branch also guarantees KRC events
+        // are not silently dropped.
+        if !block.events.is_empty() {
+            self.db
+                .insert_events(height, &[(None, block.events.as_slice())])
+                .context(format!("Failed to insert events for block {}", height))?;
+
+            // Also index structured KRC events
+            let tx_hash = None;
+            self.index_krc_1155_events(height, tx_hash, &block.events)?;
+            self.index_krc_721_events(height, tx_hash, &block.events)?;
         }
 
         // Update last indexed height
@@ -290,5 +502,86 @@ mod tests {
         assert_eq!(stats.transaction_count, 0);
         assert_eq!(stats.event_count, 0);
         assert_eq!(stats.last_indexed_height, 0);
+    }
+
+    #[test]
+    fn test_parse_krc_1155_event() {
+        // Test Minted (action=1): token_type(32) + amount(8) + action(1) + recipient(32) + timestamp(8) = 81 bytes
+        let mut minted_data = Vec::new();
+        minted_data.extend(std::iter::repeat(0x11u8).take(32)); // token_type
+        minted_data.extend_from_slice(&100u64.to_le_bytes()); // amount
+        minted_data.push(1u8); // action = Minted
+        minted_data.extend(std::iter::repeat(0x22u8).take(32)); // recipient
+        minted_data.extend_from_slice(&1000u64.to_le_bytes()); // timestamp
+        assert_eq!(minted_data.len(), 81);
+
+        let parsed = Indexer::parse_krc_1155_event(&minted_data, Some("0xtx1"), 42).unwrap();
+        assert_eq!(
+            parsed.token_type,
+            "0x1111111111111111111111111111111111111111111111111111111111111111"
+        );
+        assert_eq!(parsed.amount, 100);
+        assert_eq!(parsed.action, Krc1155Action::Minted);
+        assert_eq!(
+            parsed.recipient,
+            Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string())
+        );
+        assert_eq!(parsed.timestamp, 1000);
+        assert_eq!(parsed.block_height, 42);
+        assert_eq!(parsed.tx_hash, Some("0xtx1".to_string()));
+
+        // Test action = 2 (Burned): token_type(32) + amount(8) + action(1) + owner(32) + timestamp(8) = 81 bytes
+        let mut burned_data = Vec::new();
+        burned_data.extend(std::iter::repeat(0x11u8).take(32)); // token_type
+        burned_data.extend_from_slice(&50u64.to_le_bytes()); // amount
+        burned_data.push(2u8); // action = Burned
+        burned_data.extend(std::iter::repeat(0x33u8).take(32)); // owner
+        burned_data.extend_from_slice(&2000u64.to_le_bytes()); // timestamp
+        assert_eq!(burned_data.len(), 81);
+
+        let parsed2 = Indexer::parse_krc_1155_event(&burned_data, None, 0).unwrap();
+        assert_eq!(parsed2.action, Krc1155Action::Burned);
+        assert_eq!(parsed2.amount, 50);
+        assert_eq!(
+            parsed2.owner,
+            Some("0x3333333333333333333333333333333333333333333333333333333333333333".to_string())
+        );
+        assert_eq!(parsed2.timestamp, 2000);
+
+        // Test action = 3 (Transferred): token_type(32) + amount(8) + action(1) + sender(32) + recipient(32) + timestamp(8) = 113 bytes
+        let mut transferred_data = Vec::new();
+        transferred_data.extend(std::iter::repeat(0x11u8).take(32)); // token_type
+        transferred_data.extend_from_slice(&25u64.to_le_bytes()); // amount
+        transferred_data.push(3u8); // action = Transferred
+        transferred_data.extend(std::iter::repeat(0x22u8).take(32)); // sender
+        transferred_data.extend(std::iter::repeat(0x44u8).take(32)); // recipient
+        transferred_data.extend_from_slice(&3000u64.to_le_bytes()); // timestamp
+        assert_eq!(transferred_data.len(), 113);
+
+        let parsed3 = Indexer::parse_krc_1155_event(&transferred_data, None, 0).unwrap();
+        assert_eq!(parsed3.action, Krc1155Action::Transferred);
+        assert_eq!(parsed3.amount, 25);
+        assert_eq!(
+            parsed3.sender,
+            Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string())
+        );
+        assert_eq!(
+            parsed3.recipient,
+            Some("0x4444444444444444444444444444444444444444444444444444444444444444".to_string())
+        );
+        assert_eq!(parsed3.timestamp, 3000);
+
+        // Test unknown action
+        let mut unknown_data = minted_data.clone();
+        unknown_data[40] = 99;
+        let parsed4 = Indexer::parse_krc_1155_event(&unknown_data, None, 0).unwrap();
+        assert_eq!(parsed4.action, Krc1155Action::Unknown);
+
+        // Test too-short data (less than 81 bytes)
+        let short_data = &minted_data[0..80];
+        assert!(Indexer::parse_krc_1155_event(short_data, None, 0).is_none());
+
+        // Test empty data
+        assert!(Indexer::parse_krc_1155_event(&[], None, 0).is_none());
     }
 }
