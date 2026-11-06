@@ -40,9 +40,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     val transactions: StateFlow<List<TransactionDetails>> = _transactions.asStateFlow()
 
     private val _ownedNfts = MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>>(emptyList())
-    private val _ownedKrc1155Balances = MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>>(emptyList())
+    private val _ownedKrc1155Balances =
+        MutableStateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>>(emptyList())
     val ownedNfts: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedNft>> = _ownedNfts.asStateFlow()
-    val ownedKrc1155Balances: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>> = _ownedKrc1155Balances.asStateFlow()
+    val ownedKrc1155Balances: StateFlow<List<com.jamesatomc.kanariapp.network.models.OwnedKrc1155Balance>> =
+        _ownedKrc1155Balances.asStateFlow()
 
     private val _isLoading = MutableStateFlow(value = false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -487,7 +489,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    suspend fun sendKrc1155(recipient: String, objectId: String, amount: Long): Boolean {
+    suspend fun sendKrc1155(recipient: String, tokenType: String, amount: Long): Boolean {
         val record = _activeWallet.value ?: run {
             _error.value = "No active wallet"
             return false
@@ -503,7 +505,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                             "No Google session for this wallet — sign in with Google from the Login screen first."
                         return false
                     }
-                    client.transferKrc1155ZkLogin(session, recipient, objectId, amount)
+                    client.transferKrc1155ZkLogin(session, recipient, tokenType, amount)
                 } else {
                     val pin = unlockedPin ?: run {
                         _error.value = "Wallet is locked. Please unlock again."
@@ -524,7 +526,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                             }… before sending this KRC-1155 balance."
                         return false
                     }
-                    client.transferKrc1155(wallet, recipient, objectId, amount)
+                    client.transferKrc1155(wallet, recipient, tokenType, amount)
                 }
 
             val status = result?.status?.lowercase(java.util.Locale.US)
@@ -614,6 +616,15 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             text.contains("krc_1155") && (text.contains("sub_status: some(2)") ||
                     text.contains("e_insufficient_balance")) ->
                 "Transfer failed: the KRC-1155 balance object holds less than the amount requested. Refresh balances and send a smaller amount."
+
+            text.contains("insufficient krc-1155 balance") ->
+                "Transfer failed: this wallet's KRC-1155 balance is below the requested amount. Send a smaller amount."
+
+            text.contains("no krc-1155 balance object found") ->
+                "Transfer failed: this wallet holds no KRC-1155 balance for that token."
+
+            text.contains("can be spent in one transaction") ->
+                "Transfer failed: the amount is spread over too many balance objects. Send a smaller amount or consolidate first."
 
             text.contains("missing a valid nonce") || text.contains("nonce must be non-zero") ->
                 "Transfer failed: Transaction nonce error. Please try again."

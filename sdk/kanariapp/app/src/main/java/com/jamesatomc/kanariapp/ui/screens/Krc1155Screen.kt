@@ -26,7 +26,6 @@ import com.jamesatomc.kanariapp.ui.components.SendCountdownDialog
 import com.jamesatomc.kanariapp.ui.components.SendSuccessOverlay
 import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class Krc1155Group(
@@ -37,23 +36,6 @@ data class Krc1155Group(
     val balances: List<OwnedKrc1155Balance>,
 ) {
     val totalAmount: Long get() = balances.sumOf { it.amount ?: 0L }
-}
-
-/**
- * `refreshBalance()` only launches its query, so a fixed delay can still read
- * the previous snapshot. Wait for the refresh cycle to settle before deciding
- * how much each balance object can cover.
- */
-private suspend fun awaitBalanceRefresh(viewModel: WalletViewModel) {
-    viewModel.refreshBalance()
-    val startedAt = System.currentTimeMillis()
-    while (!viewModel.isLoading.value && System.currentTimeMillis() - startedAt < 1_000L) {
-        delay(50)
-    }
-    val deadline = System.currentTimeMillis() + 6_000L
-    while (viewModel.isLoading.value && System.currentTimeMillis() < deadline) {
-        delay(100)
-    }
 }
 
 @Composable
@@ -199,60 +181,25 @@ fun Krc1155Screen(
                 isSending = true
                 sendStatus = null
                 scope.launch {
-                    awaitBalanceRefresh(viewModel)
-                    val fresh = viewModel.ownedKrc1155Balances.value
-                    val grp = fresh.groupBy { it.tokenType ?: it.objectId ?: "" }
-                        .map { (k, l) ->
-                            Krc1155Group(
-                                k,
-                                l.firstOrNull()?.name,
-                                l.firstOrNull()?.imageUrl,
-                                l.firstOrNull()?.maxSupply,
-                                l
-                            )
-                        }
-                        .firstOrNull { it.tokenType == balance.tokenType } ?: balance
-                    // The RPC groups KRC-1155 balances by token type: `amount` is
-                    // the total over every Balance object while `balances` lists
-                    // each object with its own amount. Send object by object - one
-                    // object rarely holds the whole total, and krc_1155::split
-                    // aborts with E_INSUFFICIENT_BALANCE for anything larger.
-                    val sources = grp.balances
-                        .flatMap { entry ->
-                            val parts = entry.balances.orEmpty()
-                                .map { part -> part.objectId to (part.amount ?: 0L) }
-                                .filter { it.second > 0 }
-                            if (parts.isNotEmpty()) parts
-                            else listOfNotNull(entry.objectId?.let { it to (entry.amount ?: 0L) })
-                        }
-                        .distinctBy { it.first }
-                        .sortedByDescending { it.second }
-                    var remaining = amount
-                    var ok = true
-                    for ((oid, available) in sources) {
-                        if (remaining <= 0) break
-                        val chunk = minOf(available, remaining)
-                        if (chunk <= 0) continue
-                        val success = viewModel.sendKrc1155(to, oid, chunk)
-                        if (!success) {
-                            ok = false; break
-                        }
-                        remaining -= chunk
-                    }
-                    if (ok && remaining <= 0) {
+                    val tokenType = balance.tokenType
+                    if (tokenType.isNullOrBlank()) {
+                        sendStatus = "This balance has no token type"
                         isSending = false
-                        sendingGroup = null
-                        recipientInput = ""
-                        amountInput = ""
-                        success = "${amount} sent to ${to.take(10)}…${to.takeLast(6)}"
                     } else {
-                        val sent = amount - remaining
-                        sendStatus = when {
-                            !ok -> viewModel.error.value ?: "Transfer failed"
-                            sent <= 0 -> "Insufficient balance: ${amount} is more than this wallet's KRC-1155 balances hold. Send a smaller amount."
-                            else -> "Sent ${sent} of ${amount}. Refresh and send the remaining ${remaining}."
+                        // One call: the RPC selects the Balance objects that
+                        // cover `amount` and joins up to three of them in a
+                        // single transaction, like sending a coin.
+                        val ok = viewModel.sendKrc1155(to, tokenType, amount)
+                        if (ok) {
+                            isSending = false
+                            sendingGroup = null
+                            recipientInput = ""
+                            amountInput = ""
+                            success = "${amount} sent to ${to.take(10)}…${to.takeLast(6)}"
+                        } else {
+                            sendStatus = viewModel.error.value ?: "Transfer failed"
+                            isSending = false
                         }
-                        isSending = false
                     }
                 }
             },

@@ -208,7 +208,7 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun buildKrc1155Transfer(
         sender: String,
         recipient: String,
-        objectId: String,
+        tokenType: String,
         amount: Long,
         gasLimit: ULong = 100000uL,
         gasPrice: ULong = DEFAULT_GAS_PRICE
@@ -218,7 +218,7 @@ class KanariClient(private val environment: KanariEnvironment) {
             params = buildJsonObject {
                 put("sender", sender)
                 put("recipient", normalizeAddress(recipient))
-                put("object_id", normalizeAddress(objectId))
+                put("token_type", normalizeAddress(tokenType))
                 put("amount", amount)
                 put("gas_limit", gasLimit.toLong())
                 put("gas_price", gasPrice.toLong())
@@ -573,10 +573,10 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun transferKrc1155(
         wallet: KanariWallet,
         recipient: String,
-        objectId: String,
+        tokenType: String,
         amount: Long,
     ): TransactionResult? {
-        val prepared = buildKrc1155Transfer(wallet.address, recipient, objectId, amount)
+        val prepared = buildKrc1155Transfer(wallet.address, recipient, tokenType, amount)
             ?: throw Exception("Failed to build KRC-1155 transfer: RPC returned no data")
         val p = prepareCallTx(prepared.copy(sender = wallet.taggedAddress))
 
@@ -595,11 +595,11 @@ class KanariClient(private val environment: KanariEnvironment) {
     suspend fun transferKrc1155ZkLogin(
         session: com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginAuth.Session,
         recipient: String,
-        objectId: String,
+        tokenType: String,
         amount: Long,
     ): TransactionResult? {
         val p = prepareCallTx(
-            buildKrc1155Transfer("ZkLogin:${session.address}", recipient, objectId, amount)
+            buildKrc1155Transfer("ZkLogin:${session.address}", recipient, tokenType, amount)
                 ?: throw Exception("Failed to build KRC-1155 transfer: RPC returned no data")
         )
         val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner

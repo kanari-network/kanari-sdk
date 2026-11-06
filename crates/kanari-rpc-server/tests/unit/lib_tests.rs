@@ -118,6 +118,145 @@ fn build_anti_spam_test_router() -> Router {
     create_router_with_anti_spam(RpcServerState::new(build_test_engine()))
 }
 
+fn krc1155_balance_data(token_type: &str, amount: u64) -> Vec<u8> {
+    let token = AccountAddress::from_hex_literal(token_type).invariant("valid token type address");
+    let mut data = vec![0u8; 72];
+    data[32..64].copy_from_slice(token.as_ref());
+    data[64..72].copy_from_slice(&amount.to_le_bytes());
+    data
+}
+
+fn address_bytes(value: &str) -> serde_json::Value {
+    serde_json::json!(
+        AccountAddress::from_hex_literal(value)
+            .invariant("valid address")
+            .as_ref()
+            .iter()
+            .map(|byte| serde_json::json!(*byte))
+            .collect::<Vec<_>>()
+    )
+}
+
+#[tokio::test]
+async fn build_krc1155_transfer_selects_balances_by_token_type() {
+    let _guard = test_guard().await;
+    let engine = build_test_engine();
+    {
+        let mut state = engine.state_write();
+        let owner = AccountAddress::from_hex_literal("0x1111").invariant("valid owner address");
+        let mut cs = ChangeSet::new();
+        // Gas selection quotes `gas_limit * price` from the gas-price table, so
+        // the seeded 500-MIST coins cannot cover gas_limit 100 (50,000 MIST).
+        cs.add_treasury(owner, GAS_COIN.to_string(), state.total_supply + 100_000);
+        cs.created_objects.push((
+            "0xaaaf".to_string(),
+            CreatedObject {
+                owner,
+                owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    owner.to_hex_literal(),
+                ),
+                uid: None,
+                id: None,
+                type_: format!("0x2::coin::Coin<{GAS_COIN}>"),
+                data: coin_data(100_000),
+                version: 3,
+            },
+        ));
+        for (id, version, amount) in [("0xbbb1", 1u64, 40u64), ("0xbbb2", 2u64, 60u64)] {
+            cs.created_objects.push((
+                id.to_string(),
+                CreatedObject {
+                    owner,
+                    owner_kind: kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                        owner.to_hex_literal(),
+                    ),
+                    uid: None,
+                    id: None,
+                    type_: "0x2::krc_1155::Balance".to_string(),
+                    data: krc1155_balance_data("0xa11ce", amount),
+                    version,
+                },
+            ));
+        }
+        state
+            .apply_changeset(&cs)
+            .invariant("seed krc-1155 balances");
+    }
+    let app = create_router(RpcServerState::new(engine));
+
+    // 40 + 60 covers exactly 100, so the RPC must spend both objects and
+    // build the two-object `transfer_two` entry point.
+    let built = rpc_call(
+        app.clone(),
+        methods::BUILD_KRC1155_TRANSFER,
+        serde_json::json!({
+            "sender": "0x1111",
+            "recipient": "0x2222",
+            "token_type": "0xa11ce",
+            "amount": 100,
+            "gas_limit": 100,
+            "gas_price": 1,
+            "execute_immediate": true
+        }),
+        71,
+    )
+    .await;
+
+    assert_eq!(built["module"], "krc_1155");
+    assert_eq!(built["function"], "transfer_two");
+
+    let args = built["args"].as_array().expect("call args");
+    assert_eq!(args.len(), 4);
+    // Object ids come first in signature order (main, extra), then the
+    // amount and the recipient as BCS bytes.
+    assert_eq!(
+        args[0],
+        address_bytes("0xbbb2"),
+        "main must be the largest balance"
+    );
+    assert_eq!(args[1], address_bytes("0xbbb1"));
+    assert_eq!(args[2], serde_json::json!([100u8, 0, 0, 0, 0, 0, 0, 0]));
+    assert_eq!(args[3], address_bytes("0x2222"));
+
+    let inputs = built["object_inputs"].as_array().expect("object inputs");
+    let input_ids: Vec<&str> = inputs
+        .iter()
+        .map(|input| {
+            input["object_ref"]["object_id"]
+                .as_str()
+                .expect("object id")
+        })
+        .collect();
+    // Object ids come back canonicalized to the full 64-hex spelling.
+    assert!(hex_ends_with(&serde_json::json!(input_ids[0]), "bbb2"));
+    assert!(hex_ends_with(&serde_json::json!(input_ids[1]), "bbb1"));
+    assert!(inputs.iter().all(|input| input["mutable"] == true));
+
+    // An unknown token type surfaces the selector's message instead of a
+    // generic internal error.
+    let failed = rpc_call_response(
+        app,
+        methods::BUILD_KRC1155_TRANSFER,
+        serde_json::json!({
+            "sender": "0x1111",
+            "recipient": "0x2222",
+            "token_type": "0xdead",
+            "amount": 1,
+            "gas_limit": 100,
+            "gas_price": 1
+        }),
+        72,
+    )
+    .await;
+    assert!(
+        failed["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("No KRC-1155 balance object found"),
+        "unexpected error: {failed}"
+    );
+}
+
 async fn rpc_call(
     app: Router,
     method: &str,

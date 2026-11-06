@@ -259,4 +259,29 @@ module kanari_system::krc_1155 {
         transfer::public_freeze_object(token);
         transfer::public_freeze_object(cap);
     }
+
+    #[test]
+    fun test_transfer_two_and_transfer_three_draw_from_several_balances() {
+        let ctx = tx_context::dummy();
+        let (token, cap) = create(b"Tickets", b"", b"https://image", 100, &mut ctx);
+        let main = mint(&mut token, &cap, 10, &mut ctx);
+        let extra = mint(&mut token, &cap, 20, &mut ctx);
+        assert!(total_supply(&token) == 30, 3);
+
+        // `extra` (20) joins `main` (10), then 25 splits off: main keeps 5.
+        transfer_two(&mut main, extra, 25, @0xabc, &mut ctx);
+        assert!(balance_value(&main) == 5, 4);
+
+        let extra_a = mint(&mut token, &cap, 4, &mut ctx);
+        let extra_b = mint(&mut token, &cap, 6, &mut ctx);
+        // 5 + 4 + 6 = 15, then 8 splits off: main keeps 7.
+        transfer_three(&mut main, extra_a, extra_b, 8, @0xabc, &mut ctx);
+        assert!(balance_value(&main) == 7, 5);
+
+        // 40 minted in total; 33 went to @0xabc, 7 is burned here.
+        burn(&mut token, &cap, main, &ctx);
+        assert!(total_supply(&token) == 33, 6);
+        transfer::public_freeze_object(token);
+        transfer::public_freeze_object(cap);
+    }
 }
