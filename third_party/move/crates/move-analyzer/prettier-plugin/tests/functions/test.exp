@@ -1,4 +1,5 @@
 module test::functions {
+
     fun empty() {}
 
     public fun pub() {}

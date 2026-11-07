@@ -3,7 +3,8 @@
 
 import * as path from 'path';
 
-import { Language, Node as SyntaxNode, Parser } from 'web-tree-sitter';
+import Parser = require("web-tree-sitter");
+import { SyntaxNode } from 'web-tree-sitter'
 
 import { print } from './printer'
 
@@ -21,15 +22,11 @@ export const parsers = {
             return (async (): Promise<SyntaxNode> => {
                 await Parser.init();
                 const parser = new Parser();
-                const Lang = await Language.load(
+                const Lang = await Parser.Language.load(
                     path.join(__dirname, '..', 'tree-sitter-move.wasm')
                 );
                 parser.setLanguage(Lang);
-                const tree = parser.parse(text);
-                if (tree === null) {
-                    throw new Error('failed to parse Move source');
-                }
-                return tree.rootNode;
+                return parser.parse(text).rootNode;
             })();
         },
 

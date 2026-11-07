@@ -1060,10 +1060,7 @@ pub fn get_symbols(
     let build_config = move_package::BuildConfig {
         test_mode: true,
         install_dir: Some(tempdir().unwrap().path().to_path_buf()),
-        // Kanari packages follow the core Move object model, not Sui's: keep the
-        // default (core) flavor so Sui-specific checks (entry parameters,
-        // `init` shape, `sui::object::UID` first field) do not fire on them.
-        default_flavor: Some(Flavor::Core),
+        default_flavor: Some(Flavor::Sui),
         lint_flag: lint.into(),
         ..Default::default()
     };
