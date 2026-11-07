@@ -3,9 +3,12 @@
 
 //! Printer: converts a tree-sitter Move syntax tree into a pretty document.
 //!
-//! This is a direct port of `prettier-plugin-move`'s `printer.ts`, keeping
-//! compatible output. Rule changes must be mirrored in both implementations
-//! (or, preferably, made here first and then back-ported).
+//! The Rust formatter is the source of truth for Move formatting rules; the
+//! TypeScript `prettier-plugin-move` under `third_party` is no longer the
+//! reference. The one policy that shapes most of this file: blank lines are
+//! preserved exactly as authored — between two items the author's line
+//! breaks are reproduced verbatim, and the formatter never adds, removes or
+//! collapses blank lines.
 
 use pretty::RcDoc;
 use tree_sitter::Node;
@@ -55,10 +58,6 @@ fn content_named_child<'t>(node: &Node<'t>, index: usize) -> Option<Node<'t>> {
     named_children(node).into_iter().nth(index)
 }
 
-fn content_child_count(node: &Node) -> usize {
-    content_children(node).len()
-}
-
 fn content_named_count(node: &Node) -> usize {
     named_children(node).len()
 }
@@ -95,67 +94,27 @@ fn indent<'s>(doc: Doc<'s>, opts: &FormatOptions) -> Doc<'s> {
     doc.nest(opts.tab_width as isize)
 }
 
-fn is_tight_member(kind: &str) -> bool {
-    kind == "use_declaration" || kind == "line_comment"
-}
-
 fn needs_comma(kind: &str) -> bool {
     kind != "line_comment" && kind != "annotation"
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Sep {
-    Single,
-    Double,
+/// Number of line breaks that reproduce the gap between the row an item ends
+/// on and the row the next item starts on: the author's blank lines are kept
+/// verbatim (never collapsed into one), and two items are never joined onto
+/// a single line, hence the minimum of one break.
+fn breaks(from_end_row: usize, to_start_row: usize) -> usize {
+    to_start_row.saturating_sub(from_end_row).max(1)
 }
 
-fn member_separator(prev: Option<&Node<'_>>, curr: &Node, next: Option<&Node<'_>>) -> Sep {
-    if let Some(p) = prev {
-        let pk = p.kind();
-        if pk == "annotation" {
-            return Sep::Single;
-        }
-        if pk == "line_comment" {
-            if curr.kind() == "line_comment" {
-                // Preserve the author's blank lines between comments (at most one).
-                return if curr.start_position().row > 0
-                    && p.end_position().row + 1 < curr.start_position().row
-                {
-                    Sep::Double
-                } else {
-                    Sep::Single
-                };
-            }
-            return Sep::Single;
-        }
-    }
-    if curr.kind() == "line_comment" && next.map(|n| n.kind()) != Some("use_declaration") {
-        return Sep::Double;
-    }
-    match (prev, curr.kind()) {
-        (Some(p), c) if p.kind() == c && (c == "use_declaration" || c == "constant") => Sep::Single,
-        (Some(p), c) if is_tight_member(p.kind()) && is_tight_member(c) => Sep::Single,
-        _ => Sep::Double,
-    }
-}
-
-fn statement_separator(prev: Option<&Node<'_>>, curr: &Node, _next: Option<&Node<'_>>) -> Sep {
-    match prev {
-        Some(p)
-            if curr.start_position().row > 0
-                && p.end_position().row + 1 < curr.start_position().row =>
-        {
-            Sep::Double
-        }
-        _ => Sep::Single,
-    }
+/// `count` hardline breaks (used to replay the author's blank lines).
+fn hardlines<'s>(count: usize) -> Vec<Doc<'s>> {
+    (0..count).map(|_| RcDoc::hardline()).collect()
 }
 
 fn print_members<'s, 't>(
     node: &Node<'t>,
     source: &'s str,
     opts: &FormatOptions,
-    separator: fn(Option<&Node<'_>>, &Node, Option<&Node<'_>>) -> Sep,
     inline_trailing_comments: bool,
 ) -> Vec<Doc<'s>> {
     let members = named_children(node);
@@ -166,10 +125,12 @@ fn print_members<'s, 't>(
         let member = &members[i];
         let next = members.get(i + 1);
         if let Some(p) = &prev {
-            parts.push(match separator(Some(p), member, next) {
-                Sep::Single => RcDoc::hardline(),
-                Sep::Double => concat(vec![RcDoc::hardline(), RcDoc::hardline()]),
-            });
+            // Replay the blank lines (if any) the author left between the two
+            // members exactly as written.
+            parts.extend(hardlines(breaks(
+                p.end_position().row,
+                member.start_position().row,
+            )));
         }
         parts.push(print_named(node, source, opts, i));
         prev = Some(*member);
@@ -248,28 +209,37 @@ fn block<'s, 't>(
     opts: &FormatOptions,
     line_ending: &'static str,
 ) -> Doc<'s> {
-    if named_children(node).is_empty() {
+    let members = named_children(node);
+    if members.is_empty() {
         return text(" {}");
     }
+    // Blank lines right after `{` and right before `}` are part of the
+    // author's layout and are reproduced verbatim.
+    let leading = breaks(node.start_position().row, members[0].start_position().row);
+    let trailing = breaks(members[members.len() - 1].end_position().row, node.end_position().row);
     if line_ending.is_empty() {
         return concat(vec![
             text(" {"),
             indent(
                 concat(vec![
-                    RcDoc::hardline(),
-                    concat(print_members(node, source, opts, statement_separator, true)),
+                    concat(hardlines(leading)),
+                    concat(print_members(node, source, opts, true)),
                 ]),
                 opts,
             ),
-            RcDoc::hardline(),
+            concat(hardlines(trailing)),
             text("}"),
         ]);
     }
-    let members = named_children(node);
+    // Comma-separated block (e.g. struct fields): the author's blank lines
+    // between fields are preserved the same way.
     let mut parts: Vec<Doc<'s>> = Vec::new();
     for (index, member) in members.iter().enumerate() {
         if index > 0 {
-            parts.push(RcDoc::hardline());
+            parts.extend(hardlines(breaks(
+                members[index - 1].end_position().row,
+                member.start_position().row,
+            )));
         }
         parts.push(print_named(node, source, opts, index));
         if needs_comma(member.kind()) {
@@ -278,15 +248,18 @@ fn block<'s, 't>(
     }
     concat(vec![
         text(" {"),
-        indent(concat(vec![RcDoc::hardline(), concat(parts)]), opts),
-        RcDoc::hardline(),
+        indent(
+            concat(vec![concat(hardlines(leading)), concat(parts)]),
+            opts,
+        ),
+        concat(hardlines(trailing)),
         text("}"),
     ])
 }
 
 pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions) -> Doc<'s> {
     match node.kind() {
-        "source_file" => concat(print_members(node, source, opts, statement_separator, true)),
+        "source_file" => concat(print_members(node, source, opts, true)),
         "module_definition" => {
             let children = named_children(node);
             let mut parts: Vec<Doc<'s>> = Vec::new();
@@ -311,7 +284,9 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 parts.push(print_named(node, source, opts, index));
                 index += 1;
             }
-            parts.push(RcDoc::hardline());
+            // No trailing hardline here: the line breaks between top-level
+            // items come from the source gap alone (adding one here would
+            // make every re-format grow a blank line).
             concat(parts)
         }
         "module_identity" => concat(vec![
@@ -320,19 +295,26 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
             print_named(node, source, opts, 1),
         ]),
         "module_body" => {
-            if content_child_count(node) == 2 {
+            let members = named_children(node);
+            if members.is_empty() {
+                // empty module (the only content children are the curlies)
                 text("{}")
             } else {
+                // Blank lines right after `{` and right before `}` belong to
+                // the author's layout and are reproduced verbatim.
+                let leading = breaks(node.start_position().row, members[0].start_position().row);
+                let trailing =
+                    breaks(members[members.len() - 1].end_position().row, node.end_position().row);
                 concat(vec![
                     text("{"),
                     indent(
                         concat(vec![
-                            RcDoc::hardline(),
-                            concat(print_members(node, source, opts, member_separator, true)),
+                            concat(hardlines(leading)),
+                            concat(print_members(node, source, opts, true)),
                         ]),
                         opts,
                     ),
-                    RcDoc::hardline(),
+                    concat(hardlines(trailing)),
                     text("}"),
                 ])
             }

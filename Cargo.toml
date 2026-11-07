@@ -115,7 +115,7 @@ axum-client-ip = "1.3.1"                                                        
 serde = { version = "1.0.229", default-features = true, features = ["rc"] }
 serde_json = { version = "1.0.154", default-features = true }
 serde_yaml = { version = "0.9.34", default-features = true }
-toml = { version = "1.2.0", default-features = true }
+toml = { version = "1.2.1", default-features = true }
 
 ## Blockchain-specific serialization
 bcs = { version = "0.2.1" }
@@ -198,11 +198,11 @@ dotenvy = "0.15.7"
 # ============================================================================
 clap = { version = "4.6.7", features = ["derive"] }                                 # CLI argument parsing
 dirs = "7.0.0"                                                                      # Platform-specific directories
-tree-sitter = "0.27.1"                                                              # Incremental parsing (Move formatter)
+tree-sitter = "0.27.2"                                                              # Incremental parsing (Move formatter)
 pretty = "0.12.5"                                                                   # Wadler-style pretty printing (Move formatter)
 num_cpus = "1.17.0"                                                                 # CPU core detection
 regex = "1.13.1"                                                                    # Regular expressions for validation
-smallvec = "1.16.4"                                                                 # Stack-allocated vectors
+smallvec = "1.16.5"                                                                 # Stack-allocated vectors
 lazy_static = { version = "1.5.1", default-features = true }
 once_cell = "1.21.4"
 
@@ -238,7 +238,7 @@ ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.29.0", features = ["v4", "serde"] }
+uuid = { version = "1.29.1", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
