@@ -1,368 +1,246 @@
-// Copyright (c) The Diem Core Contributors
-// Copyright (c) The Move Contributors
-// SPDX-License-Identifier: Apache-2.0
-
-import { Configuration } from './configuration';
-import { Context } from './context';
-import { Extension } from './extension';
-import { MoveFormatter } from './formatter';
-import { MoveImportCodeActionProvider } from './imports';
-import { MoveTestCodeLensProvider, runMoveTest } from './codelens';
-import { StatusBarController } from './status_bar';
-import { log } from './log';
+﻿// Thin launcher for kanari-move-analyzer (Rust wrapper around move-analyzer).
+// The Rust server owns symbolication, code actions, formatting, code lens,
+// dependency repair and diagnostics. This file only spawns it, installs its
+// binary, and wires VS Code commands/status.
 
 import * as childProcess from 'child_process';
+import { sync as commandExistsSync } from 'command-exists';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import * as commands from './commands';
+import * as lc from 'vscode-languageclient/node';
 
-/**
- * An extension command that displays the version of the server that this extension
- * interfaces with.
- */
-async function serverVersion(context: Readonly<Context>): Promise<void> {
-  const version = childProcess.spawnSync(
-    context.configuration.serverPath,
-    ['--version'],
-    {
-      encoding: 'utf8',
-    },
-  );
-  if (version.stdout) {
-    await vscode.window.showInformationMessage(version.stdout);
-  } else if (version.error) {
-    await vscode.window.showErrorMessage(
-      `Could not execute move-analyzer: ${version.error.message}.`,
-    );
-  } else {
-    await vscode.window.showErrorMessage(
-      `A problem occurred when executing '${context.configuration.serverPath}'.`,
-    );
+const VERSION_KEY = 'move-version';
+const binaryName = process.platform === 'win32' ? 'kanari-move-analyzer.exe' : 'kanari-move-analyzer';
+const defaultServerDir = vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), '.kanari', 'bin');
+const output = vscode.window.createOutputChannel('Move on Kanari');
+const trace = vscode.window.createOutputChannel('Move Language Server Trace', { log: true });
+
+function log(msg: string): void {
+  output.appendLine(`INFO [${new Date().toLocaleString()}]: ${msg}`);
+}
+
+function resolveUserPath(v: string): string {
+  return v.startsWith('~/') ? os.homedir() + v.slice(1) : path.resolve(v);
+}
+function findPkgRoot(file: string): string | undefined {
+  let dir = path.dirname(file);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, 'Move.toml'))) return dir;
+    const p = path.dirname(dir);
+    if (p === dir) return undefined;
+    dir = p;
   }
 }
 
-async function findPkgRoot(): Promise<string | undefined> {
-  const activeEditor = vscode.window.activeTextEditor;
-  if (!activeEditor) {
-    await vscode.window.showErrorMessage(
-      'Cannot find package manifest (no active editor window)',
-    );
-    return undefined;
-  }
+let client: lc.LanguageClient | undefined;
+let queue: Promise<void> = Promise.resolve();
+let statusItem: vscode.StatusBarItem | undefined;
+let serverPath = '';
+let kanariPath = 'kanari';
+let lintLevel = 'default';
 
-  const containsManifest = (dir: string): boolean => {
-    const filesInDir = fs.readdirSync(dir);
-    return filesInDir.includes('Move.toml');
+function setStatus(state: 'stopped' | 'starting' | 'running' | 'error', msg?: string): void {
+  if (statusItem === undefined) return;
+  const tip = new vscode.MarkdownString('', true);
+  tip.isTrusted = true;
+  if (msg !== undefined) tip.appendMarkdown(`${msg}\n\n---\n\n`);
+  tip.appendMarkdown('[Open Logs](command:move-kanari.openLogs)\n\n[Stop](command:move-kanari.stopServer)\n\n[Restart](command:move-kanari.restartServer)');
+  statusItem.tooltip = tip;
+  if (state === 'running') { statusItem.text = '$(check) Move on Kanari'; statusItem.color = undefined; statusItem.backgroundColor = undefined; }
+  else if (state === 'starting') { statusItem.text = '$(loading~spin) Move on Kanari'; }
+  else if (state === 'stopped') { statusItem.text = '$(stop-circle) Move on Kanari'; statusItem.color = new vscode.ThemeColor('statusBarItem.warningForeground'); statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground'); }
+  else { statusItem.text = '$(error) Move on Kanari'; statusItem.color = new vscode.ThemeColor('statusBarItem.errorForeground'); statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground'); }
+}
+
+function enqueue<T>(op: () => Promise<T>): Promise<T> {
+  const run = queue.then(op, op);
+  queue = run.then(() => undefined, () => undefined);
+  return run;
+}
+async function startInternal(): Promise<void> {
+  if (client !== undefined) return;
+  setStatus('starting');
+  if (!commandExistsSync(serverPath)) throw new Error(`language server executable '${serverPath}' could not be found`);
+  trace.clear();
+  const exe: lc.Executable = { command: serverPath };
+  const c = new lc.LanguageClient('move', 'Move', { run: exe, debug: exe }, {
+    documentSelector: [{ scheme: 'file', language: 'move' }],
+    traceOutputChannel: trace,
+    initializationOptions: { lintLevel },
+  });
+  log('Starting move-analyzer...');
+  await c.start();
+  client = c;
+  setStatus('running');
+  log('move-analyzer running');
+}
+async function stopInternal(): Promise<void> {
+  log('Stopping move-analyzer...');
+  if (client !== undefined) { const c = client; client = undefined; await c.stop(); }
+  setStatus('stopped');
+}
+const start = (): Promise<void> => enqueue(startInternal);
+const stop = (): Promise<void> => enqueue(stopInternal);
+const restart = (): Promise<void> => enqueue(async () => { await stopInternal(); await startInternal(); });
+
+async function uriExists(uri: vscode.Uri): Promise<boolean> {
+  try { await vscode.workspace.fs.stat(uri); return true; } catch { return false; }
+}
+async function ensureBinary(ctx: vscode.ExtensionContext): Promise<boolean> {
+  const bundled = vscode.Uri.joinPath(ctx.extensionUri, 'language-server', binaryName);
+  const bundledExists = await uriExists(bundled);
+  const target = vscode.Uri.file(serverPath);
+  const targetExists = await uriExists(target);
+  const defaultPath = vscode.Uri.joinPath(defaultServerDir, binaryName);
+  if (serverPath !== defaultPath.fsPath) {
+    if (!targetExists) { void vscode.window.showErrorMessage(`move-analyzer not found at '${serverPath}'.`); return false; }
+    return true;
+  }
+  if (targetExists) {
+    if (bundledExists) await vscode.workspace.fs.delete(target);
+    else return true;
+  }
+  if (!bundledExists) {
+    void vscode.window.showErrorMessage('Pre-built kanari-move-analyzer not found. Run tools/vscode-move-kanari/scripts/package.ps1, or set move.server.path.');
+    return false;
+  }
+  if (!(await uriExists(defaultServerDir))) await vscode.workspace.fs.createDirectory(defaultServerDir);
+  await vscode.workspace.fs.copy(bundled, target);
+  log(`Installed kanari-move-analyzer to ${serverPath}`);
+  return true;
+}
+
+async function kanariMove(subcommand: string): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined) { void vscode.window.showErrorMessage('Cannot find package manifest (no active editor)'); return; }
+  const pkgRoot = findPkgRoot(editor.document.uri.fsPath);
+  if (pkgRoot === undefined) { void vscode.window.showErrorMessage(`Cannot find package manifest for file in '${path.dirname(editor.document.uri.fsPath)}'`); return; }
+  const name = 'kanari move';
+  let t = vscode.window.terminals.find((x) => x.name === name);
+  t ??= vscode.window.createTerminal({ name, cwd: pkgRoot });
+  t.show(true);
+  t.sendText(`${kanariPath} move ${subcommand}`, true);
+}
+async function runMoveTest(fileUri: vscode.Uri, filter?: string): Promise<void> {
+  const pkgRoot = findPkgRoot(fileUri.fsPath);
+  if (pkgRoot === undefined) { void vscode.window.showErrorMessage('Cannot run Move test: no Move.toml found above this file.'); return; }
+  const name = 'kanari move';
+  let t = vscode.window.terminals.find((x) => x.name === name);
+  t ??= vscode.window.createTerminal({ name, cwd: pkgRoot });
+  t.show(true);
+  t.sendText(filter === undefined ? `${kanariPath} move test` : `${kanariPath} move test ${filter}`, true);
+}
+
+export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
+  const ext = vscode.extensions.getExtension('kanari-network.move-kanari');
+  const version = typeof ext?.packageJSON?.['version'] === 'string' ? String(ext.packageJSON['version']) : 'unknown';
+  log(`Move on Kanari ${version} activating`);
+
+  const ws = vscode.workspace.getConfiguration('move');
+  serverPath = resolveUserPath(ws.get<string | null>('server.path') ?? vscode.Uri.joinPath(defaultServerDir, binaryName).fsPath);
+  const kp = ws.get<string | null>('kanari.path') ?? 'kanari';
+  kanariPath = kp.includes(path.sep) || kp.startsWith('~') ? resolveUserPath(kp) : kp;
+  lintLevel = ws.get<string>('lint') ?? 'default';
+  log(`server=${serverPath} kanari=${kanariPath} lint=${lintLevel}`);
+
+  statusItem = vscode.window.createStatusBarItem('move-kanari.status', vscode.StatusBarAlignment.Left, 100);
+  statusItem.name = 'Move on Kanari';
+  statusItem.command = 'move-kanari.openLogs';
+  statusItem.show();
+  setStatus('stopped');
+  ctx.subscriptions.push(statusItem);
+
+  ctx.subscriptions.push(vscode.languages.setLanguageConfiguration('move', {
+    onEnterRules: [
+      { beforeText: /^\s*\/{3}.*$/, action: { indentAction: vscode.IndentAction.None, appendText: '/// ' } },
+      { beforeText: /^\s*\/{2}!.*$/, action: { indentAction: vscode.IndentAction.None, appendText: '//! ' } },
+    ],
+  }));
+
+  // Diagnostics dump (file/range/code/message) â€” keeps red squiggles debuggable.
+  ctx.subscriptions.push(vscode.languages.onDidChangeDiagnostics((event) => {
+    for (const uri of event.uris) {
+      const diags = vscode.languages.getDiagnostics(uri);
+      const lines = diags.map((d) => `  ${d.range.start.line + 1}:${d.range.start.character} [${d.severity === vscode.DiagnosticSeverity.Error ? 'E' : 'W'}] ${String(d.code ?? '')} ${d.source ?? ''}: ${d.message.replace(/\n/g, ' ')}`);
+      log(`Diagnostics in ${uri.fsPath} (${diags.length}):\n${lines.join('\n') || '  (none)'}`);
+    }
+  }));
+
+  const reg = (id: string, cb: (...a: Array<any>) => Promise<any>): void => {
+    ctx.subscriptions.push(vscode.commands.registerCommand(id, (...a: Array<any>) => cb(...a)));
   };
+  reg('move-kanari.serverVersion', async () => {
+    const r = childProcess.spawnSync(serverPath, ['--version'], { encoding: 'utf8' });
+    if (r.stdout) void vscode.window.showInformationMessage(r.stdout);
+    else if (r.error) void vscode.window.showErrorMessage(`Could not execute move-analyzer: ${r.error.message}.`);
+    else void vscode.window.showErrorMessage(`A problem occurred when executing '${serverPath}'.`);
+  });
+  reg('move-kanari.build', async () => kanariMove('build'));
+  reg('move-kanari.test', async () => kanariMove('test'));
+  reg('move-kanari.restartServer', async () => { await restart(); void vscode.window.showInformationMessage('Move language server restarted.'); });
+  reg('move-kanari.stopServer', async () => { await stop(); void vscode.window.showInformationMessage('Move language server stopped.'); });
+  reg('move-kanari.openLogs', async () => output.show());
+  reg('move-kanari.runTest', async (uri: vscode.Uri, filter: string) => runMoveTest(uri, filter));
+  reg('move-kanari.runTestFile', async (uri: vscode.Uri) => runMoveTest(uri));
 
-  const activeFileDir = path.dirname(activeEditor.document.uri.fsPath);
-  let currentDir = activeFileDir;
-  while (currentDir !== path.parse(currentDir).root) {
-    if (containsManifest(currentDir)) {
-      return currentDir;
+  // Restart on new/deleted .move or Move.toml (ignoring build output),
+  // plus on save (so stale diagnostics clear without manual restart).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = (reason: string): void => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      log(`Restarting language server (${reason})`);
+      restart().then(() => log(`Language server restarted (${reason})`), (e) => { log(`Language server restart failed: ${String(e)}`); setStatus('error', String(e)); });
+    }, 750);
+  };
+  const ignore = (u: vscode.Uri): boolean => u.fsPath.split(/[\\/]/).some((p) => ['build', 'target', 'node_modules', '.git', 'bin', 'obj'].includes(p));
+  const w1 = vscode.workspace.createFileSystemWatcher('**/*.move');
+  w1.onDidCreate((u) => { if (!ignore(u)) schedule(`created ${u.fsPath}`); });
+  w1.onDidDelete((u) => { if (!ignore(u)) schedule(`deleted ${u.fsPath}`); });
+  ctx.subscriptions.push(w1);
+  const w2 = vscode.workspace.createFileSystemWatcher('**/Move.toml');
+  w2.onDidCreate((u) => { if (!ignore(u)) schedule(`created ${u.fsPath}`); });
+  w2.onDidChange((u) => { if (!ignore(u)) schedule(`changed ${u.fsPath}`); });
+  w2.onDidDelete((u) => { if (!ignore(u)) schedule(`deleted ${u.fsPath}`); });
+  ctx.subscriptions.push(w2);
+  const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
+    if (doc.languageId === 'move' && !ignore(doc.uri)) {
+      schedule(`saved ${doc.uri.fsPath}`);
     }
-    currentDir = path.resolve(currentDir, '..');
-  }
+  });
+  ctx.subscriptions.push(saveListener);
 
-  if (containsManifest(currentDir)) {
-    return currentDir;
-  }
-
-  await vscode.window.showErrorMessage(
-    `Cannot find package manifest for file in '${activeFileDir}' directory`,
-  );
-  return undefined;
-}
-
-async function kanariMoveCmd(
-  context: Readonly<Context>,
-  cmd: string,
-): Promise<void> {
-  const version = childProcess.spawnSync(
-    context.configuration.kanariPath,
-    ['--version'],
-    {
-      encoding: 'utf8',
-    },
-  );
-  if (version.stdout) {
-    const pkgRoot = await findPkgRoot();
-    if (pkgRoot !== undefined) {
-      const terminalName = 'kanari move';
-      let terminal = vscode.window.terminals.find(
-        (t) => t.name === terminalName,
-      );
-      if (!terminal) {
-        terminal = vscode.window.createTerminal(terminalName);
-      }
-      terminal.show(true);
-      terminal.sendText('cd ' + pkgRoot, true);
-      terminal.sendText(`kanari move ${cmd}`, true);
-    }
-  } else {
-    await vscode.window.showErrorMessage(
-      `A problem occurred when executing the Kanari command: '${context.configuration.kanariPath}'`,
-    );
-  }
-}
-
-/**
- * An extension command that that builds the current Move project.
- */
-async function buildProject(context: Readonly<Context>): Promise<void> {
-  return kanariMoveCmd(context, 'build');
-}
-
-/**
- * An extension command that that builds the current Move project.
- */
-async function testProject(context: Readonly<Context>): Promise<void> {
-  return kanariMoveCmd(context, 'test');
-}
-
-/**
- * An extension command that restarts the Move language server (fresh package re-scan).
- */
-async function restartServer(context: Readonly<Context>): Promise<void> {
-  await context.restartClient();
-  void vscode.window.showInformationMessage('Move language server restarted.');
-}
-
-/**
- * An extension command that stops the Move language server.
- */
-async function stopServer(context: Readonly<Context>): Promise<void> {
-  await context.stopClient();
-  void vscode.window.showInformationMessage('Move language server stopped.');
-}
-
-/**
- * An extension command that reveals the extension output channel.
- */
-async function openLogs(): Promise<void> {
-  log.show();
-}
-
-/**
- * The entry point to this VS Code extension.
- *
- * As per [the VS Code documentation on activation
- * events](https://code.visualstudio.com/api/references/activation-events), "an extension must
- * export an `activate()` function from its main module and it will be invoked only once by
- * VS Code when any of the specified activation events [are] emitted."
- *
- * Activation events for this extension are listed in its `package.json` file, under the key
- * `"activationEvents"`.
- *
- * In order to achieve synchronous activation, mark the function as an asynchronous function,
- * so that you can wait for the activation to complete by await
- */
-export async function activate(
-  extensionContext: Readonly<vscode.ExtensionContext>,
-): Promise<void> {
-  const extension = new Extension();
-  log.info(`${extension.identifier} version ${extension.version}`);
-
-  const configuration = new Configuration();
-  log.info(`configuration: ${configuration.toString()}`);
-
-  // Register the Move document formatter (prettier-plugin-move, bundled in vendor/) first,
-  // so that formatting works even if the language server fails to start.
+  // Install/verify binary on version change.
+  let updateVersion = false;
   try {
-    const formatter = new MoveFormatter(extensionContext);
-    extensionContext.subscriptions.push(
-      vscode.languages.registerDocumentFormattingEditProvider(
-        'move',
-        formatter,
-      ),
-    );
-    log.info('Move document formatter registered');
-  } catch (err) {
-    log.info(`Could not register Move formatter: ${String(err)}`);
-    void vscode.window.showErrorMessage(
-      `Move on Kanari: formatter failed to load: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const last = ctx.globalState.get<string | null>(VERSION_KEY);
+    let doInstall = last === null || last !== version;
+    if (last === version) doInstall = !(await uriExists(vscode.Uri.file(serverPath)));
+    updateVersion = doInstall;
+    if (doInstall && !(await ensureBinary(ctx))) { setStatus('error', 'move-analyzer binary install failed'); return; }
+  } catch (e) { log(`install check failed: ${String(e)}`); }
+
+  try { await start(); }
+  catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    log(`Move on Kanari activation failed: ${m}`);
+    setStatus('error', m);
+    void vscode.window.showWarningMessage(`Move language server failed to start: ${m}`);
   }
 
-  // Register the "Add import" / "Remove redundant import" quick fixes. These run
-  // client-side from the workspace itself (Move.toml + sources on disk), so they keep
-  // working regardless of which language server reported the diagnostic.
-  try {
-    extensionContext.subscriptions.push(
-      vscode.languages.registerCodeActionsProvider(
-        'move',
-        new MoveImportCodeActionProvider(),
-        { providedCodeActionKinds: MoveImportCodeActionProvider.providedKinds },
-      ),
-    );
-    log.info('Move import quick fixes registered');
-  } catch (err) {
-    log.info(`Could not register Move import fixes: ${String(err)}`);
-  }
+  vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!event.affectsConfiguration('move.lint')) return;
+    lintLevel = vscode.workspace.getConfiguration('move').get<string>('lint') ?? 'default';
+    restart().catch((e) => log(`Restart on lint change failed: ${String(e)}`));
+  });
 
-  // "Run Test" CodeLens above `#[test]` functions. Also client-side: it only needs the file
-  // text and the `kanari` CLI, so test running works even when the server is unhappy.
-  try {
-    extensionContext.subscriptions.push(
-      vscode.languages.registerCodeLensProvider(
-        'move',
-        new MoveTestCodeLensProvider(),
-      ),
-    );
-    extensionContext.subscriptions.push(
-      vscode.commands.registerCommand(
-        'move-kanari.runTest',
-        (fileUri: vscode.Uri, filter: string) =>
-          runMoveTest(configuration.kanariPath, fileUri, filter),
-      ),
-      vscode.commands.registerCommand('move-kanari.runTestFile', (fileUri: vscode.Uri) =>
-        runMoveTest(configuration.kanariPath, fileUri),
-      ),
-    );
-    log.info('Move test CodeLens registered');
-  } catch (err) {
-    log.info(`Could not register Move test lens: ${String(err)}`);
-  }
-
-  // Status bar pill FIRST (before anything that can fail): if activation runs
-  // at all, the pill is visible; any later failure flips it to the error state.
-  // Its tooltip is a trusted Markdown menu (Open Logs / Stop server /
-  // Restart server) anchored to the pill itself, like Move on Aptos.
-  let statusBar: StatusBarController | undefined;
-  try {
-    statusBar = new StatusBarController(extension.version);
-    extensionContext.subscriptions.push(statusBar);
-  } catch (err) {
-    log.info(`Could not create Move status bar: ${String(err)}`);
-  }
-
-  try {
-    await activateLanguageServer(
-      extensionContext,
-      extension,
-      configuration,
-      statusBar,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.info(`Move on Kanari activation failed: ${message}`);
-    statusBar?.setState('error', message);
-    void vscode.window.showErrorMessage(
-      `Move on Kanari activation failed: ${message}`,
-    );
-  }
+  if (updateVersion) await ctx.globalState.update(VERSION_KEY, version);
+  log('Move on Kanari activated');
 }
 
-/**
- * The remainder of activation (binary install, LSP client, watchers). Separated so
- * that any failure lands in the status bar + an error toast instead of silence.
- */
-async function activateLanguageServer(
-  extensionContext: Readonly<vscode.ExtensionContext>,
-  extension: Extension,
-  configuration: Configuration,
-  statusBar: StatusBarController | undefined,
-): Promise<void> {
-  const globalMoveVersionKey = 'move-version';
-  // Only (re)install the move-analyzer binary when the extension itself was
-  // installed/upgraded, or when the binary is missing from its default location.
+export async function deactivate(): Promise<void> { /* disposed via subscriptions */ }
 
-  const lastMoveVersion =
-    extensionContext.globalState.get(globalMoveVersionKey);
-  let doInstallBinary: boolean;
-  let updateGlobalExtVersion: boolean;
-  if (lastMoveVersion === null) {
-    // Installation (no global variable set).
-    doInstallBinary = true;
-    updateGlobalExtVersion = true;
-  } else if (lastMoveVersion === extension.version) {
-    // Not an installation or an update (same version as seen before).
-    const serverPathExists = await vscode.workspace.fs
-      .stat(vscode.Uri.file(configuration.serverPath))
-      .then(
-        () => true,
-        () => false,
-      );
-    doInstallBinary = !serverPathExists;
-    updateGlobalExtVersion = false;
-  } else {
-    // Update (different versions).
-    doInstallBinary = true;
-    updateGlobalExtVersion = true;
-  }
 
-  if (doInstallBinary) {
-    const success = await configuration.installServerBinary(extensionContext);
-    if (!success) {
-      statusBar?.setState('error', 'move-analyzer binary install failed');
-      return;
-    }
-  }
-
-  log.info('Creating extension context');
-  const context = Context.create(extensionContext, configuration);
-  // An error here -- for example, if the path to the `move-analyzer` binary that the user
-  // specified in their settings is not valid -- prevents the extension from providing any
-  // more utility, so return early.
-  if (context instanceof Error) {
-    statusBar?.setState('error', context.message);
-    void vscode.window.showErrorMessage(
-      `Could not activate Move: ${context.message}.`,
-    );
-    return;
-  }
-  context.statusBar = statusBar;
-
-  // Register handlers for VS Code commands that the user explicitly issues.
-  context.registerCommand('serverVersion', serverVersion);
-  context.registerCommand('build', buildProject);
-  context.registerCommand('test', testProject);
-  context.registerCommand('restartServer', restartServer);
-  context.registerCommand('stopServer', stopServer);
-  extensionContext.subscriptions.push(
-    vscode.commands.registerCommand('move-kanari.openLogs', openLogs),
-  );
-
-  // Configure other language features.
-  context.configureLanguage();
-
-  // Restart the language server automatically when the package layout changes
-  // (new/deleted .move files, Move.toml edits) — like rust-analyzer's auto-reload.
-  context.registerFileSystemWatchers();
-
-  // All other utilities provided by this extension occur via the language server.
-  // A failure here (e.g. the move-analyzer binary cannot analyze this package) should
-  // not prevent the rest of the extension (formatter, commands) from working.
-  try {
-    await context.startClient();
-    context.registerCommand(
-      'textDocumentDocumentSymbol',
-      commands.textDocumentDocumentSymbol,
-    );
-    context.registerCommand('textDocumentHover', commands.textDocumentHover);
-    context.registerCommand(
-      'textDocumentCompletion',
-      commands.textDocumentCompletion,
-    );
-  } catch (err) {
-    log.info(`Language server failed to start: ${String(err)}`);
-    statusBar?.setState(
-      'error',
-      err instanceof Error ? err.message : String(err),
-    );
-    void vscode.window.showWarningMessage(
-      'Move language server failed to start (formatting still works): ' +
-        `${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  context.registerOnDidChangeConfiguration();
-
-  if (updateGlobalExtVersion) {
-    await extensionContext.globalState.update(
-      globalMoveVersionKey,
-      extension.version,
-    );
-  }
-}

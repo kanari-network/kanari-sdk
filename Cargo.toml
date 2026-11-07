@@ -56,7 +56,8 @@ members = [
       "crates/kanari-e2e-tests",
 
 
-      "crates/kanari-move-fmt",
+      "crates/kanari-move-fmt", 
+      "crates/kanari-move-analyzer",
 ]
 
 

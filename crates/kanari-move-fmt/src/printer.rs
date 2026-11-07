@@ -216,7 +216,10 @@ fn block<'s, 't>(
     // Blank lines right after `{` and right before `}` are part of the
     // author's layout and are reproduced verbatim.
     let leading = breaks(node.start_position().row, members[0].start_position().row);
-    let trailing = breaks(members[members.len() - 1].end_position().row, node.end_position().row);
+    let trailing = breaks(
+        members[members.len() - 1].end_position().row,
+        node.end_position().row,
+    );
     if line_ending.is_empty() {
         return concat(vec![
             text(" {"),
@@ -303,8 +306,10 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 // Blank lines right after `{` and right before `}` belong to
                 // the author's layout and are reproduced verbatim.
                 let leading = breaks(node.start_position().row, members[0].start_position().row);
-                let trailing =
-                    breaks(members[members.len() - 1].end_position().row, node.end_position().row);
+                let trailing = breaks(
+                    members[members.len() - 1].end_position().row,
+                    node.end_position().row,
+                );
                 concat(vec![
                     text("{"),
                     indent(
