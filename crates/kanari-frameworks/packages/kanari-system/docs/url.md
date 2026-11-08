@@ -62,7 +62,9 @@ Create a <code><a href="url.md#0x2_url_Url">Url</a></code>, with no validation
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="url.md#0x2_url_new_unsafe">new_unsafe</a>(<a href="url.md#0x2_url">url</a>: String): <a href="url.md#0x2_url_Url">Url</a> {
-    <a href="url.md#0x2_url_Url">Url</a> { <a href="url.md#0x2_url">url</a> }
+    <a href="url.md#0x2_url_Url">Url</a> {
+        <a href="url.md#0x2_url">url</a>
+    }
 }
 </code></pre>
 
@@ -89,7 +91,9 @@ Note: this will abort if <code>bytes</code> is not valid ASCII
 
 <pre><code><b>public</b> <b>fun</b> <a href="url.md#0x2_url_new_unsafe_from_bytes">new_unsafe_from_bytes</a>(bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="url.md#0x2_url_Url">Url</a> {
     <b>let</b> <a href="url.md#0x2_url">url</a> = <a href="dependencies/move-stdlib/ascii.md#0x1_ascii_string">ascii::string</a>(bytes);
-    <a href="url.md#0x2_url_Url">Url</a> { <a href="url.md#0x2_url">url</a> }
+    <a href="url.md#0x2_url_Url">Url</a> {
+        <a href="url.md#0x2_url">url</a>
+    }
 }
 </code></pre>
 

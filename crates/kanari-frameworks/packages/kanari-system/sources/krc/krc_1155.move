@@ -8,6 +8,7 @@
 /// burned without a global address-to-balance map. This preserves the object
 /// ownership model while supporting many indistinguishable copies per type.
 module kanari_system::krc_1155 {
+
     use std::string::{Self, String};
     use kanari_system::event;
     use kanari_system::object::{Self, UID};
@@ -29,39 +30,39 @@ module kanari_system::krc_1155 {
         description: String,
         image_url: Url,
         max_supply: u64,
-        total_supply: u64,
+        total_supply: u64
     }
 
     /// Mint and burn authority for exactly one `TokenType`.
     struct TokenCap has key, store {
         id: UID,
-        token_type: address,
+        token_type: address
     }
 
     /// A holder-owned quantity of one KRC-1155 token type.
     struct Balance has key, store {
         id: UID,
         token_type: address,
-        amount: u64,
+        amount: u64
     }
 
     struct Minted has copy, drop {
         token_type: address,
         recipient: address,
-        amount: u64,
+        amount: u64
     }
 
     struct Burned has copy, drop {
         token_type: address,
         owner: address,
-        amount: u64,
+        amount: u64
     }
 
     struct Transferred has copy, drop {
         token_type: address,
         sender: address,
         recipient: address,
-        amount: u64,
+        amount: u64
     }
 
     /// Create a token type and its issuer capability. The caller may share the
@@ -71,7 +72,7 @@ module kanari_system::krc_1155 {
         description: vector<u8>,
         image_url: vector<u8>,
         max_supply: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TokenType, TokenCap) {
         let id = object::new(ctx);
         let token_type = object::uid_address(&id);
@@ -81,9 +82,12 @@ module kanari_system::krc_1155 {
             description: string::utf8(description),
             image_url: url::new_unsafe_from_bytes(image_url),
             max_supply,
-            total_supply: 0,
+            total_supply: 0
         };
-        let cap = TokenCap { id: object::new(ctx), token_type };
+        let cap = TokenCap {
+            id: object::new(ctx),
+            token_type
+        };
         (token, cap)
     }
 
@@ -98,7 +102,7 @@ module kanari_system::krc_1155 {
         token: &mut TokenType,
         cap: &TokenCap,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Balance {
         assert!(amount > 0, E_ZERO_AMOUNT);
         let token_type = object::uid_address(&token.id);
@@ -108,7 +112,11 @@ module kanari_system::krc_1155 {
         assert!(next_supply <= token.max_supply, E_SUPPLY_CAP_EXCEEDED);
         token.total_supply = next_supply;
         object::save_object(token);
-        Balance { id: object::new(ctx), token_type, amount }
+        Balance {
+            id: object::new(ctx),
+            token_type,
+            amount
+        }
     }
 
     /// Mint and transfer directly to `recipient`, with an indexer event.
@@ -117,10 +125,16 @@ module kanari_system::krc_1155 {
         cap: &TokenCap,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let balance = mint(token, cap, amount, ctx);
-        event::emit(Minted { token_type: balance.token_type, recipient, amount });
+        event::emit(
+            Minted {
+                token_type: balance.token_type,
+                recipient,
+                amount
+            }
+        );
         transfer::public_transfer(balance, recipient);
     }
 
@@ -131,7 +145,11 @@ module kanari_system::krc_1155 {
         assert!(balance.amount >= amount, E_INSUFFICIENT_BALANCE);
         balance.amount = balance.amount - amount;
         object::save_object(balance);
-        Balance { id: object::new(ctx), token_type: balance.token_type, amount }
+        Balance {
+            id: object::new(ctx),
+            token_type: balance.token_type,
+            amount
+        }
     }
 
     /// Transfer part of a holder balance and emit the canonical KRC-1155 event.
@@ -139,7 +157,7 @@ module kanari_system::krc_1155 {
         balance: &mut Balance,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         transfer_split(balance, amount, recipient, ctx);
     }
@@ -154,7 +172,7 @@ module kanari_system::krc_1155 {
         extra: Balance,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         join(main, extra);
         transfer_split(main, amount, recipient, ctx);
@@ -168,7 +186,7 @@ module kanari_system::krc_1155 {
         extra_b: Balance,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         join(main, extra_a);
         join(main, extra_b);
@@ -181,12 +199,19 @@ module kanari_system::krc_1155 {
         balance: &mut Balance,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let token_type = balance.token_type;
         let sender = tx_context::sender(ctx);
         let sent = split(balance, amount, ctx);
-        event::emit(Transferred { token_type, sender, recipient, amount });
+        event::emit(
+            Transferred {
+                token_type,
+                sender,
+                recipient,
+                amount
+            }
+        );
         transfer::public_transfer(sent, recipient);
     }
 
@@ -209,7 +234,13 @@ module kanari_system::krc_1155 {
         assert!(token.total_supply >= amount, E_SUPPLY_OVERFLOW);
         token.total_supply = token.total_supply - amount;
         object::save_object(token);
-        event::emit(Burned { token_type, owner: tx_context::sender(ctx), amount });
+        event::emit(
+            Burned {
+                token_type,
+                owner: tx_context::sender(ctx),
+                amount
+            }
+        );
         object::delete(id);
     }
 
@@ -284,4 +315,5 @@ module kanari_system::krc_1155 {
         transfer::public_freeze_object(token);
         transfer::public_freeze_object(cap);
     }
+
 }

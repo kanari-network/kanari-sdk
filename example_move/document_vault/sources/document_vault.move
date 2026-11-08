@@ -1,4 +1,5 @@
 module document_vault::document_vault {
+
     use std::bcs;
     use std::hash;
     use std::signer;
@@ -36,12 +37,12 @@ module document_vault::document_vault {
         public_read: bool,
         created_at_ms: u64,
         updated_at_ms: u64,
-        grants: vector<AccessGrant>,
+        grants: vector<AccessGrant>
     }
 
     struct AccessGrant has copy, drop, store {
         reader: address,
-        granted_at_ms: u64,
+        granted_at_ms: u64
     }
 
     struct DocumentCreated has copy, drop, store {
@@ -50,7 +51,7 @@ module document_vault::document_vault {
         content_hash: vector<u8>,
         version: u64,
         public_read: bool,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     struct DocumentUpdated has copy, drop, store {
@@ -59,7 +60,7 @@ module document_vault::document_vault {
         old_version: u64,
         new_version: u64,
         content_hash: vector<u8>,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     struct DocumentAccessChanged has copy, drop, store {
@@ -67,7 +68,7 @@ module document_vault::document_vault {
         owner: address,
         reader: address,
         granted: bool,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     public entry fun create_document(
@@ -77,7 +78,7 @@ module document_vault::document_vault {
         mime_type: String,
         size_bytes: u64,
         public_read: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert_valid_document_input(&content_hash, size_bytes);
 
@@ -98,19 +99,21 @@ module document_vault::document_vault {
             public_read,
             created_at_ms: now,
             updated_at_ms: now,
-            grants: vector::empty<AccessGrant>(),
+            grants: vector::empty<AccessGrant>()
         };
 
         transfer::public_transfer(doc, owner);
 
-        event::emit(DocumentCreated {
-            document_id,
-            owner,
-            content_hash,
-            version: 1,
-            public_read,
-            timestamp_ms: now,
-        });
+        event::emit(
+            DocumentCreated {
+                document_id,
+                owner,
+                content_hash,
+                version: 1,
+                public_read,
+                timestamp_ms: now
+            }
+        );
     }
 
     /// API-first update path. The runtime authenticates the mutable object input.
@@ -122,7 +125,7 @@ module document_vault::document_vault {
         mime_type: String,
         size_bytes: u64,
         public_read: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert_owner(doc, ctx);
         assert_valid_document_input(&content_hash, size_bytes);
@@ -143,14 +146,16 @@ module document_vault::document_vault {
 
         object::save_object(doc);
 
-        event::emit(DocumentUpdated {
-            document_id,
-            owner: doc.owner,
-            old_version,
-            new_version,
-            content_hash,
-            timestamp_ms: now,
-        });
+        event::emit(
+            DocumentUpdated {
+                document_id,
+                owner: doc.owner,
+                old_version,
+                new_version,
+                content_hash,
+                timestamp_ms: now
+            }
+        );
     }
 
     /// CLI-compatible update path for clients that pass an object id.
@@ -162,7 +167,7 @@ module document_vault::document_vault {
         mime_type: String,
         size_bytes: u64,
         public_read: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let doc: &mut Document = object::borrow_global_mut<Document>(document_id);
         update_document_ref(doc, title, uri, content_hash, mime_type, size_bytes, public_read, ctx);
@@ -171,28 +176,36 @@ module document_vault::document_vault {
     public entry fun grant_access_ref(
         doc: &mut Document,
         reader: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert_owner(doc, ctx);
         assert!(!has_grant(doc, reader), E_ALREADY_GRANTED);
 
         let now = tx_context::epoch_timestamp_ms(ctx);
-        vector::push_back(&mut doc.grants, AccessGrant { reader, granted_at_ms: now });
+        vector::push_back(
+            &mut doc.grants,
+            AccessGrant {
+                reader,
+                granted_at_ms: now
+            }
+        );
         object::save_object(doc);
 
-        event::emit(DocumentAccessChanged {
-            document_id: object::uid_address(&doc.id),
-            owner: doc.owner,
-            reader,
-            granted: true,
-            timestamp_ms: now,
-        });
+        event::emit(
+            DocumentAccessChanged {
+                document_id: object::uid_address(&doc.id),
+                owner: doc.owner,
+                reader,
+                granted: true,
+                timestamp_ms: now
+            }
+        );
     }
 
     public entry fun grant_access(
         document_id: address,
         reader: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let doc: &mut Document = object::borrow_global_mut<Document>(document_id);
         grant_access_ref(doc, reader, ctx);
@@ -201,7 +214,7 @@ module document_vault::document_vault {
     public entry fun revoke_access_ref(
         doc: &mut Document,
         reader: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert_owner(doc, ctx);
 
@@ -212,19 +225,21 @@ module document_vault::document_vault {
         let now = tx_context::epoch_timestamp_ms(ctx);
         object::save_object(doc);
 
-        event::emit(DocumentAccessChanged {
-            document_id: object::uid_address(&doc.id),
-            owner: doc.owner,
-            reader,
-            granted: false,
-            timestamp_ms: now,
-        });
+        event::emit(
+            DocumentAccessChanged {
+                document_id: object::uid_address(&doc.id),
+                owner: doc.owner,
+                reader,
+                granted: false,
+                timestamp_ms: now
+            }
+        );
     }
 
     public entry fun revoke_access(
         document_id: address,
         reader: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let doc: &mut Document = object::borrow_global_mut<Document>(document_id);
         revoke_access_ref(doc, reader, ctx);
@@ -259,7 +274,7 @@ module document_vault::document_vault {
     public fun signing_message(
         document_id: address,
         version: u64,
-        content_hash: vector<u8>,
+        content_hash: vector<u8>
     ): vector<u8> {
         assert!(vector::length(&content_hash) == HASH_LEN_BLAKE3_256, E_BAD_HASH_LENGTH);
 
@@ -278,7 +293,7 @@ module document_vault::document_vault {
     public fun verify_ed25519_document_signature(
         doc: &Document,
         public_key: vector<u8>,
-        signature: vector<u8>,
+        signature: vector<u8>
     ): bool {
         assert!(vector::length(&public_key) == ed25519::public_key_length(), E_BAD_PUBLIC_KEY_LENGTH);
         assert!(vector::length(&signature) == ed25519::signature_length(), E_BAD_SIGNATURE_LENGTH);
@@ -286,7 +301,7 @@ module document_vault::document_vault {
         let msg = signing_message(
             object::uid_address(&doc.id),
             doc.version,
-            *&doc.content_hash,
+            *&doc.content_hash
         );
         ed25519::verify(&signature, &public_key, &msg)
     }
@@ -349,7 +364,7 @@ module document_vault::document_vault {
         mime_type: String,
         size_bytes: u64,
         public_read: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Document {
         assert_valid_document_input(&content_hash, size_bytes);
 
@@ -366,7 +381,7 @@ module document_vault::document_vault {
             public_read,
             created_at_ms: now,
             updated_at_ms: now,
-            grants: vector::empty<AccessGrant>(),
+            grants: vector::empty<AccessGrant>()
         }
     }
 
@@ -388,4 +403,5 @@ module document_vault::document_vault {
         } = doc;
         object::delete(id);
     }
+
 }

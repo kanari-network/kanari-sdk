@@ -23,6 +23,7 @@
 /// associated HTTP error code which can be used in REST apis. The mapping from error code to http code is not 1:1;
 /// error codes here are a bit richer than HTTP codes.
 module std::error {
+
     /// Caller specified an invalid argument (http: 400)
     const INVALID_ARGUMENT: u64 = 0x1;
 
@@ -116,4 +117,5 @@ module std::error {
     public fun unavailable(r: u64): u64 {
         canonical(UNAVAILABLE, r)
     }
+
 }

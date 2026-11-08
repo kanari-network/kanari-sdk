@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::tx_context {
+
     #[test_only]
     use std::vector;
 
@@ -30,7 +31,7 @@ module kanari_system::tx_context {
         epoch_timestamp_ms: u64,
         /// Counter recording the number of fresh id's created while executing
         /// this transaction. Always 0 at the start of a transaction
-        ids_created: u64,
+        ids_created: u64
     }
 
     /// Return the address of the user that signed the current
@@ -84,7 +85,7 @@ module kanari_system::tx_context {
         tx_hash: vector<u8>,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64,
+        ids_created: u64
     ): TxContext {
         assert!(vector::length(&tx_hash) == TX_HASH_LENGTH, EBadTxHashLength);
         TxContext {
@@ -103,7 +104,7 @@ module kanari_system::tx_context {
         hint: u64,
         epoch: u64,
         epoch_timestamp_ms: u64,
-        ids_created: u64,
+        ids_created: u64
     ): TxContext {
         new(
             addr,
@@ -127,7 +128,8 @@ module kanari_system::tx_context {
     fun dummy_tx_hash_with_hint(hint: u64): vector<u8> {
         let tx_hash = std::bcs::to_bytes(&hint);
         while (vector::length(&tx_hash) < TX_HASH_LENGTH) vector::push_back(
-            &mut tx_hash, 0
+            &mut tx_hash,
+            0
         );
         tx_hash
     }
@@ -153,8 +155,9 @@ module kanari_system::tx_context {
     #[test_only]
     public fun increment_epoch_timestamp(
         self: &mut TxContext,
-        delta_ms: u64,
+        delta_ms: u64
     ) {
         self.epoch_timestamp_ms = self.epoch_timestamp_ms + delta_ms
     }
+
 }

@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::object {
+
     use kanari_system::tx_context;
     use kanari_system::tx_context::TxContext;
     use std::signer;
@@ -9,13 +10,13 @@ module kanari_system::object {
     /// The UID contains an object-style address generated from the
     /// transaction context, ensuring it is unique per creation.
     struct UID has store, drop {
-        addr: address,
+        addr: address
     }
 
     /// ID is a copyable, storable identifier for an object.
     /// It is used to reference objects without requiring ownership of the UID.
     struct ID has copy, drop, store {
-        bytes: address,
+        bytes: address
     }
 
     // --- Public Creator ---
@@ -25,19 +26,25 @@ module kanari_system::object {
     /// current transaction input (e.g., transaction hash, counter).
     /// Used by resources that need a guaranteed unique ID when they are created.
     public fun new(ctx: &mut TxContext): UID {
-        UID { addr: tx_context::fresh_object_address(ctx) }
+        UID {
+            addr: tx_context::fresh_object_address(ctx)
+        }
     }
 
     // --- ID Getters & Converters ---
 
     /// Extract an `ID` from a `UID`.
     public fun uid_to_inner(uid: &UID): ID {
-        ID { bytes: uid.addr }
+        ID {
+            bytes: uid.addr
+        }
     }
 
     /// Create an `ID` directly from an address.
     public fun id_from_address(bytes: address): ID {
-        ID { bytes }
+        ID {
+            bytes
+        }
     }
 
     /// Get the underlying address of an `ID`.
@@ -105,7 +112,9 @@ module kanari_system::object {
         let test_addr = @0x1234;
         let test_u64 = signer::address_to_u64(test_addr);
 
-        let uid = UID { addr: test_addr };
+        let uid = UID {
+            addr: test_addr
+        };
 
         // 1. Check UID address
         assert!(uid_address(&uid) == test_addr, 0);
@@ -121,4 +130,5 @@ module kanari_system::object {
         let created_id = id_from_address(test_addr);
         assert!(id_to_address(&created_id) == test_addr, 3);
     }
+
 }

@@ -98,7 +98,7 @@ rule; authority lives in the friend gate, not in the value.
 
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk_rule.md#0x2_kiosk_rule_add_rule">add_rule</a>&lt;T: key + store&gt;(
     policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
-    cap: &TransferPolicyCap&lt;T&gt;,
+    cap: &TransferPolicyCap&lt;T&gt;
 ) {
     <a href="transfer_policy.md#0x2_transfer_policy_add_rule">transfer_policy::add_rule</a>&lt;<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a>, T&gt;(<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a> {}, policy, cap, b"");
 }
@@ -125,7 +125,7 @@ rule; authority lives in the friend gate, not in the value.
 
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk_rule.md#0x2_kiosk_rule_remove_rule">remove_rule</a>&lt;T: key + store&gt;(
     policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
-    cap: &TransferPolicyCap&lt;T&gt;,
+    cap: &TransferPolicyCap&lt;T&gt;
 ) {
     <a href="transfer_policy.md#0x2_transfer_policy_remove_rule">transfer_policy::remove_rule</a>&lt;<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a>, T&gt;(<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a> {}, policy, cap);
 }
@@ -182,7 +182,7 @@ live kiosk object.
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="kiosk_rule.md#0x2_kiosk_rule_kiosk_receipt">kiosk_receipt</a>&lt;T: key + store&gt;(
     policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
-    request: &<b>mut</b> TransferRequest&lt;T&gt;,
+    request: &<b>mut</b> TransferRequest&lt;T&gt;
 ) {
     <a href="transfer_policy.md#0x2_transfer_policy_add_receipt">transfer_policy::add_receipt</a>&lt;<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a>, T&gt;(<a href="kiosk_rule.md#0x2_kiosk_rule_Rule">Rule</a> {}, policy, request);
 }

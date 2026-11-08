@@ -3,6 +3,7 @@
 
 /// FIPS 206 FN-DSA-1024 / Falcon-1024 verification.
 module kanari_system::falcon1024 {
+
     const PUBLIC_KEY_LENGTH: u64 = 1793;
     const MAX_SIGNATURE_LENGTH: u64 = 2048;
 
@@ -17,7 +18,7 @@ module kanari_system::falcon1024 {
     public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -76,4 +77,5 @@ module kanari_system::falcon1024 {
             1
         );
     }
+
 }

@@ -4,6 +4,7 @@
 /// Production-Ready Transfer Module
 /// Uses proper address types with validation
 module kanari_system::transfer {
+
     use std::vector;
     use kanari_system::math;
     use kanari_system::object::UID;
@@ -17,7 +18,7 @@ module kanari_system::transfer {
     struct Transfer has copy, drop {
         from: address,
         to: address,
-        amount: u64,
+        amount: u64
     }
 
     // ObjectStore: Global registry for transferred objects
@@ -26,7 +27,7 @@ module kanari_system::transfer {
     struct ObjectStore<T: key + store> has key {
         id: UID,
         inner: T,
-        owner: address,
+        owner: address
     }
 
     /// Create a transfer record with full validation
@@ -34,7 +35,11 @@ module kanari_system::transfer {
     public fun create_transfer(from: address, to: address, amount: u64): Transfer {
         assert!(amount > 0, ERR_INVALID_AMOUNT);
         assert!(from != to, ERR_SAME_ADDRESS);
-        Transfer { from, to, amount }
+        Transfer {
+            from,
+            to,
+            amount
+        }
     }
 
     /// Get transfer details
@@ -164,4 +169,5 @@ module kanari_system::transfer {
     fun test_create_transfer_same_address() {
         create_transfer(@0x1, @0x1, 100);
     }
+
 }

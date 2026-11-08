@@ -3,6 +3,7 @@
 
 /// NIST ML-DSA / Dilithium5 verification.
 module kanari_system::dilithium5 {
+
     const PUBLIC_KEY_LENGTH: u64 = 2592;
     const SIGNATURE_LENGTH: u64 = 4595;
 
@@ -17,7 +18,7 @@ module kanari_system::dilithium5 {
     public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -43,4 +44,5 @@ module kanari_system::dilithium5 {
             0
         );
     }
+
 }

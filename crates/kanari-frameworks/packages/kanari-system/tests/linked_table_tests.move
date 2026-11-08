@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::linked_table_tests {
+
     use std::option;
     use kanari_system::linked_table;
     use kanari_system::tx_context;
@@ -78,4 +79,5 @@ module kanari_system::linked_table_tests {
         linked_table::push_back(&mut t, 1, 100);
         linked_table::drop(t);
     }
+
 }

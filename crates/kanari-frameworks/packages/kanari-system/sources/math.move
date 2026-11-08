@@ -15,6 +15,7 @@
 /// - Non-aborting variants (`try_*`) return `(success, value)` so contracts can
 ///   handle bad input gracefully (Move has no try/catch).
 module kanari_system::math {
+
     use std::option::{Self, Option};
 
     // =================================================================
@@ -118,7 +119,7 @@ module kanari_system::math {
         x: u128,
         y: u128,
         z: u128,
-        round_up: bool,
+        round_up: bool
     ): u128;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
@@ -136,7 +137,7 @@ module kanari_system::math {
         x: u256,
         y: u256,
         z: u256,
-        round_up: bool,
+        round_up: bool
     ): u256;
 
     /// Non-aborting (x * y) / z (floor). (false, 0) on div-by-zero or overflow.
@@ -193,18 +194,27 @@ module kanari_system::math {
     // u8 helpers (pure Move over u64/u128 natives)
     // =================================================================
     public fun min_u8(x: u8, y: u8): u8 {
-        if (x < y) { x }
-        else { y }
+        if (x < y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun max_u8(x: u8, y: u8): u8 {
-        if (x > y) { x }
-        else { y }
+        if (x > y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun diff_u8(x: u8, y: u8): u8 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     /// Overflow-safe average, floor. Result always fits u8.
@@ -214,9 +224,13 @@ module kanari_system::math {
 
     public fun clamp_u8(x: u8, lo: u8, hi: u8): u8 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo }
-        else if (x > hi) { hi }
-        else { x }
+        if (x < lo) {
+            lo
+        } else if (x > hi) {
+            hi
+        } else {
+            x
+        }
     }
 
     public fun bound_u8(x: u8, lo: u8, hi: u8): u8 {
@@ -256,8 +270,9 @@ module kanari_system::math {
 
     public fun ceil_div_u8(x: u8, y: u8): u8 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 }
-        else {
+        if (x == 0) {
+            0
+        } else {
             ((x - 1) / y) + 1
         }
     }
@@ -324,18 +339,27 @@ module kanari_system::math {
     // u16 helpers (pure Move over u64/u128 natives)
     // =================================================================
     public fun min_u16(x: u16, y: u16): u16 {
-        if (x < y) { x }
-        else { y }
+        if (x < y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun max_u16(x: u16, y: u16): u16 {
-        if (x > y) { x }
-        else { y }
+        if (x > y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun diff_u16(x: u16, y: u16): u16 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     public fun average_u16(a: u16, b: u16): u16 {
@@ -344,9 +368,13 @@ module kanari_system::math {
 
     public fun clamp_u16(x: u16, lo: u16, hi: u16): u16 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo }
-        else if (x > hi) { hi }
-        else { x }
+        if (x < lo) {
+            lo
+        } else if (x > hi) {
+            hi
+        } else {
+            x
+        }
     }
 
     public fun bound_u16(x: u16, lo: u16, hi: u16): u16 {
@@ -386,8 +414,9 @@ module kanari_system::math {
 
     public fun ceil_div_u16(x: u16, y: u16): u16 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 }
-        else {
+        if (x == 0) {
+            0
+        } else {
             ((x - 1) / y) + 1
         }
     }
@@ -451,18 +480,27 @@ module kanari_system::math {
     // u32 helpers (pure Move over u64/u128 natives)
     // =================================================================
     public fun min_u32(x: u32, y: u32): u32 {
-        if (x < y) { x }
-        else { y }
+        if (x < y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun max_u32(x: u32, y: u32): u32 {
-        if (x > y) { x }
-        else { y }
+        if (x > y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun diff_u32(x: u32, y: u32): u32 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     public fun average_u32(a: u32, b: u32): u32 {
@@ -471,9 +509,13 @@ module kanari_system::math {
 
     public fun clamp_u32(x: u32, lo: u32, hi: u32): u32 {
         assert!(lo <= hi, E_INVALID_ARG);
-        if (x < lo) { lo }
-        else if (x > hi) { hi }
-        else { x }
+        if (x < lo) {
+            lo
+        } else if (x > hi) {
+            hi
+        } else {
+            x
+        }
     }
 
     public fun bound_u32(x: u32, lo: u32, hi: u32): u32 {
@@ -513,8 +555,9 @@ module kanari_system::math {
 
     public fun ceil_div_u32(x: u32, y: u32): u32 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
-        if (x == 0) { 0 }
-        else {
+        if (x == 0) {
+            0
+        } else {
             ((x - 1) / y) + 1
         }
     }
@@ -578,29 +621,44 @@ module kanari_system::math {
     // u64 / u128 basics
     // =================================================================
     public fun min_u64(x: u64, y: u64): u64 {
-        if (x < y) { x }
-        else { y }
+        if (x < y) {
+            x
+        } else {
+            y
+        }
     }
 
     public fun max_u64(x: u64, y: u64): u64 {
-        if (x > y) { x }
-        else { y }
+        if (x > y) {
+            x
+        } else {
+            y
+        }
     }
 
     /// Absolute difference. Useful for slippage / tolerance checks.
     public fun diff_u64(x: u64, y: u64): u64 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     public fun diff_u128(x: u128, y: u128): u128 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     public fun diff_u256(x: u256, y: u256): u256 {
-        if (x > y) { x - y }
-        else { y - x }
+        if (x > y) {
+            x - y
+        } else {
+            y - x
+        }
     }
 
     /// Clamp with a readable abort code for inverted bounds (same as native).
@@ -866,7 +924,7 @@ module kanari_system::math {
     public fun quote_amount_out(
         amount_in: u128,
         reserve_in: u128,
-        reserve_out: u128,
+        reserve_out: u128
     ): u128 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u128(amount_in, reserve_out, reserve_in + amount_in)
@@ -876,7 +934,7 @@ module kanari_system::math {
     public fun quote_amount_out_u256(
         amount_in: u256,
         reserve_in: u256,
-        reserve_out: u256,
+        reserve_out: u256
     ): u256 {
         assert!(reserve_in > 0 && reserve_out > 0, E_INVALID_ARG);
         mul_div_u256(amount_in, reserve_out, reserve_in + amount_in)
@@ -891,7 +949,7 @@ module kanari_system::math {
     public fun apply_price_u256(
         amount: u256,
         price_num: u256,
-        price_den: u256,
+        price_den: u256
     ): u256 {
         mul_div_u256(amount, price_num, price_den)
     }
@@ -1194,147 +1252,220 @@ module kanari_system::math {
 
     // --- u8 ---
     public fun saturating_add_u8(x: u8, y: u8): u8 {
-        if (x > MAX_U8 - y) { MAX_U8 }
-        else { x + y }
+        if (x > MAX_U8 - y) {
+            MAX_U8
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u8(x: u8, y: u8): u8 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u8(x: u8, y: u8): u8 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U8 / y) { MAX_U8 }
-        else { x * y }
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U8 / y) {
+            MAX_U8
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u8(base: u8, exponent: u8): u8 {
         let (ok, v) = try_pow_u8(base, exponent);
-        if (ok) { v }
-        else { MAX_U8 }
+        if (ok) {
+            v
+        } else {
+            MAX_U8
+        }
     }
 
     public fun saturating_mul_div_u8(x: u8, y: u8, z: u8): u8 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u8(x, y, z);
-        if (ok) { v }
-        else { MAX_U8 }
+        if (ok) {
+            v
+        } else {
+            MAX_U8
+        }
     }
 
     // --- u16 ---
     public fun saturating_add_u16(x: u16, y: u16): u16 {
-        if (x > MAX_U16 - y) { MAX_U16 }
-        else { x + y }
+        if (x > MAX_U16 - y) {
+            MAX_U16
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u16(x: u16, y: u16): u16 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u16(x: u16, y: u16): u16 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U16 / y) { MAX_U16 }
-        else { x * y }
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U16 / y) {
+            MAX_U16
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u16(base: u16, exponent: u8): u16 {
         let (ok, v) = try_pow_u16(base, exponent);
-        if (ok) { v }
-        else { MAX_U16 }
+        if (ok) {
+            v
+        } else {
+            MAX_U16
+        }
     }
 
     public fun saturating_mul_div_u16(x: u16, y: u16, z: u16): u16 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u16(x, y, z);
-        if (ok) { v }
-        else { MAX_U16 }
+        if (ok) {
+            v
+        } else {
+            MAX_U16
+        }
     }
 
     // --- u32 ---
     public fun saturating_add_u32(x: u32, y: u32): u32 {
-        if (x > MAX_U32 - y) { MAX_U32 }
-        else { x + y }
+        if (x > MAX_U32 - y) {
+            MAX_U32
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u32(x: u32, y: u32): u32 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u32(x: u32, y: u32): u32 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U32 / y) { MAX_U32 }
-        else { x * y }
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U32 / y) {
+            MAX_U32
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u32(base: u32, exponent: u8): u32 {
         let (ok, v) = try_pow_u32(base, exponent);
-        if (ok) { v }
-        else { MAX_U32 }
+        if (ok) {
+            v
+        } else {
+            MAX_U32
+        }
     }
 
     public fun saturating_mul_div_u32(x: u32, y: u32, z: u32): u32 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u32(x, y, z);
-        if (ok) { v }
-        else { MAX_U32 }
+        if (ok) {
+            v
+        } else {
+            MAX_U32
+        }
     }
 
     // --- u64 ---
     public fun saturating_add_u64(x: u64, y: u64): u64 {
-        if (x > MAX_U64 - y) { MAX_U64 }
-        else { x + y }
+        if (x > MAX_U64 - y) {
+            MAX_U64
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u64(x: u64, y: u64): u64 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u64(x: u64, y: u64): u64 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U64 / y) { MAX_U64 }
-        else { x * y }
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U64 / y) {
+            MAX_U64
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u64(base: u64, exponent: u8): u64 {
         let (ok, v) = try_pow_u64(base, exponent);
-        if (ok) { v }
-        else { MAX_U64 }
+        if (ok) {
+            v
+        } else {
+            MAX_U64
+        }
     }
 
     public fun saturating_mul_div_u64(x: u64, y: u64, z: u64): u64 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u64(x, y, z);
-        if (ok) { v }
-        else { MAX_U64 }
+        if (ok) {
+            v
+        } else {
+            MAX_U64
+        }
     }
 
     // --- u128 ---
     public fun saturating_add_u128(x: u128, y: u128): u128 {
         if (x > MAX_U128 - y) {
             MAX_U128
-        } else { x + y }
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u128(x: u128, y: u128): u128 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u128(x: u128, y: u128): u128 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U128 / y) {
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U128 / y) {
             MAX_U128
-        } else { x * y }
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u128(base: u128, exponent: u32): u128 {
         let (ok, v) = try_pow_u128(base, exponent);
-        if (ok) { v }
-        else {
+        if (ok) {
+            v
+        } else {
             MAX_U128
         }
     }
@@ -1342,8 +1473,9 @@ module kanari_system::math {
     public fun saturating_mul_div_u128(x: u128, y: u128, z: u128): u128 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u128(x, y, z);
-        if (ok) { v }
-        else {
+        if (ok) {
+            v
+        } else {
             MAX_U128
         }
     }
@@ -1352,25 +1484,34 @@ module kanari_system::math {
     public fun saturating_add_u256(x: u256, y: u256): u256 {
         if (x > MAX_U256 - y) {
             MAX_U256
-        } else { x + y }
+        } else {
+            x + y
+        }
     }
 
     public fun saturating_sub_u256(x: u256, y: u256): u256 {
-        if (y > x) { 0 }
-        else { x - y }
+        if (y > x) {
+            0
+        } else {
+            x - y
+        }
     }
 
     public fun saturating_mul_u256(x: u256, y: u256): u256 {
-        if (x == 0 || y == 0) { 0 }
-        else if (x > MAX_U256 / y) {
+        if (x == 0 || y == 0) {
+            0
+        } else if (x > MAX_U256 / y) {
             MAX_U256
-        } else { x * y }
+        } else {
+            x * y
+        }
     }
 
     public fun saturating_pow_u256(base: u256, exponent: u32): u256 {
         let (ok, v) = try_pow_u256(base, exponent);
-        if (ok) { v }
-        else {
+        if (ok) {
+            v
+        } else {
             MAX_U256
         }
     }
@@ -1378,8 +1519,9 @@ module kanari_system::math {
     public fun saturating_mul_div_u256(x: u256, y: u256, z: u256): u256 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u256(x, y, z);
-        if (ok) { v }
-        else {
+        if (ok) {
+            v
+        } else {
             MAX_U256
         }
     }
@@ -1828,4 +1970,5 @@ module kanari_system::math {
             option::some((x as u128))
         }
     }
+
 }

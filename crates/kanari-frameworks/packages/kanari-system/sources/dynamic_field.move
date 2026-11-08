@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::dynamic_field {
+
     use kanari_system::object::UID;
 
     #[allow(unused_const)]
@@ -15,34 +16,34 @@ module kanari_system::dynamic_field {
     public native fun add<Name: copy + drop + store, Value: store>(
         object: &mut UID,
         name: Name,
-        value: Value,
+        value: Value
     );
 
     /// Mutably borrows the dynamic field associated with `name` on `object`.
     /// Aborts with `EFieldDoesNotExist` if the field does not exist.
     public native fun borrow_mut<Name: copy + drop + store, Value: store>(
         object: &mut UID,
-        name: Name,
+        name: Name
     ): &mut Value;
 
     /// Immutably borrows the dynamic field associated with `name` on `object`.
     /// Aborts with `EFieldDoesNotExist` if the field does not exist.
     public native fun borrow<Name: copy + drop + store, Value: store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): &Value;
 
     /// Removes the dynamic field associated with `name` on `object` and returns the value.
     /// Aborts with `EFieldDoesNotExist` if the field does not exist.
     public native fun remove<Name: copy + drop + store, Value: store>(
         object: &mut UID,
-        name: Name,
+        name: Name
     ): Value;
 
     /// Returns true if `object` has a dynamic field with key `name`.
     public native fun exists_<Name: copy + drop + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): bool;
 
     /// Returns true if `object` has a dynamic field with key `name` whose
@@ -50,6 +51,7 @@ module kanari_system::dynamic_field {
     /// both return false; this never aborts.
     public native fun exists_with_type<Name: copy + drop + store, Value: store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): bool;
+
 }

@@ -5,6 +5,7 @@
 /// A variable-sized container that can hold any type. Indexing is 0-based, and
 /// vectors are growable. This module has many native functions.
 module std::vector {
+
     /// The index into the vector is out of bounds
     const EINDEX_OUT_OF_BOUNDS: u64 = 0x20000;
 
@@ -111,7 +112,14 @@ module std::vector {
         if (i >= len) abort EINDEX_OUT_OF_BOUNDS;
 
         len = len - 1;
-        while (i < len) swap(v, i, { i = i + 1; i });
+        while (i < len) swap(
+            v,
+            i,
+            {
+                i = i + 1;
+                i
+            }
+        );
         pop_back(v)
     }
 
@@ -141,4 +149,5 @@ module std::vector {
         swap(v, i, last_idx);
         pop_back(v)
     }
+
 }

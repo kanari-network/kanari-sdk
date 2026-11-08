@@ -3,6 +3,7 @@
 
 /// KariKid example using the framework KRC-721 NFT type and lifecycle.
 module james::nft {
+
     use std::option;
     use std::string::{Self, String};
     use kanari_system::collection;
@@ -30,15 +31,14 @@ module james::nft {
         let banner = b"https://avatars.githubusercontent.com/u/127471673?s=800&v=4";
         let website = b"https://james-project.com";
         let sender = kanari_system::tx_context::sender(ctx);
-        let (coll, issuer) =
-            collection::create_collection(
-                ctx,
-                name,
-                description,
-                banner,
-                website,
-                MAX_SUPPLY
-            );
+        let (coll, issuer) = collection::create_collection(
+            ctx,
+            name,
+            description,
+            banner,
+            website,
+            MAX_SUPPLY
+        );
         transfer::public_transfer(issuer, sender);
         transfer::public_transfer(coll, sender);
     }
@@ -65,38 +65,45 @@ module james::nft {
         attribute_values: vector<String>,
         ctx: &mut TxContext
     ) {
-        let nft =
-            krc_721::mint(
-                cap,
-                coll,
-                string::utf8(name),
-                option::some(string::utf8(description)),
-                option::some(url::new_unsafe_from_bytes(image_url)),
-                attribute_keys,
-                attribute_values,
-                ctx
-            );
+        let nft = krc_721::mint(
+            cap,
+            coll,
+            string::utf8(name),
+            option::some(string::utf8(description)),
+            option::some(url::new_unsafe_from_bytes(image_url)),
+            attribute_keys,
+            attribute_values,
+            ctx
+        );
         krc_721::transfer(nft, kanari_system::tx_context::sender(ctx));
     }
 
     /// Burn a token through the framework so its collection and supply cap are
     /// validated together.
     public entry fun burn(
-        cap: &mut collection::NftCap, coll: &collection::Collection, nft: Nft
+        cap: &mut collection::NftCap,
+        coll: &collection::Collection,
+        nft: Nft
     ) {
         krc_721::burn(cap, coll, nft);
     }
 
     /// Regulated transfer through the shared framework deny list.
     public entry fun transfer(
-        list: &DenyList, nft: Nft, recipient: address, ctx: &mut TxContext
+        list: &DenyList,
+        nft: Nft,
+        recipient: address,
+        ctx: &mut TxContext
     ) {
         transfer_with_list(nft, recipient, list, ctx);
     }
 
     /// Same transfer against an explicitly passed list for unit tests.
     public fun transfer_with_list(
-        nft: Nft, recipient: address, deny_list: &DenyList, _ctx: &mut TxContext
+        nft: Nft,
+        recipient: address,
+        deny_list: &DenyList,
+        _ctx: &mut TxContext
     ) {
         let collection_id = krc_721::collection_of(&nft);
         assert!(
@@ -139,21 +146,27 @@ module james::nft {
 
     /// Pause transfers for this collection.
     public entry fun deny_pause(
-        deny_list: &mut DenyList, cap: &collection::NftCap, ctx: &mut TxContext
+        deny_list: &mut DenyList,
+        cap: &collection::NftCap,
+        ctx: &mut TxContext
     ) {
         krc_721::deny_pause(deny_list, cap, ctx);
     }
 
     /// Resume transfers for this collection.
     public entry fun deny_unpause(
-        deny_list: &mut DenyList, cap: &collection::NftCap, _ctx: &mut TxContext
+        deny_list: &mut DenyList,
+        cap: &collection::NftCap,
+        _ctx: &mut TxContext
     ) {
         krc_721::deny_unpause(deny_list, cap);
     }
 
     /// Return whether an address is denied for a collection.
     public fun is_denied(
-        deny_list: &DenyList, collection_id: address, addr: address
+        deny_list: &DenyList,
+        collection_id: address,
+        addr: address
     ): bool {
         krc_721::is_denied(deny_list, collection_id, addr)
     }
@@ -183,5 +196,5 @@ module james::nft {
             ctx
         )
     }
-}
 
+}

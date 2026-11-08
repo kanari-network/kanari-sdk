@@ -18,6 +18,7 @@
 /// Pet progression is stored in issuer-controlled state, separate from
 /// holder-editable KRC-721 metadata.
 module kanari_pet::pet {
+
     use std::option::{Self, Option};
     use std::string::{Self, String};
     use std::vector;
@@ -92,7 +93,7 @@ module kanari_pet::pet {
         /// Hard ceiling. At this level `upgrade` refuses rather than wrapping.
         max_level: u64,
         /// Authoritative level state. NFT attributes are display metadata only.
-        levels: Table<address, u64>,
+        levels: Table<address, u64>
     }
 
     /// One-time module witness required by package initialization.
@@ -105,14 +106,14 @@ module kanari_pet::pet {
     /// replaying every transfer.
     struct Burned has copy, drop {
         pet_id: address,
-        owner: address,
+        owner: address
     }
 
     /// Emitted when a pet's attributes change. Off-chain state that mirrors
     /// attributes has to hear about this; there is no other signal, because the
     /// object id does not change when a field does.
     struct AttributesChanged has copy, drop {
-        pet_id: address,
+        pet_id: address
     }
 
     /// Emitted when a pet is upgraded. Carries the USD actually charged so an
@@ -123,7 +124,7 @@ module kanari_pet::pet {
         level_before: u64,
         level_after: u64,
         power_after: u64,
-        usd_paid: u64,
+        usd_paid: u64
     }
 
     /// Publication-time setup, run once by the runtime.
@@ -182,10 +183,9 @@ module kanari_pet::pet {
         mint_cap: &NftCap,
         collection: &Collection,
         beneficiary: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        let (policy, scope, cap) =
-            krc_721::new_collection_policy(mint_cap, collection, ctx);
+        let (policy, scope, cap) = krc_721::new_collection_policy(mint_cap, collection, ctx);
         let policy = install_royalty(policy, &cap, beneficiary);
         krc_721::share_collection_policy(policy);
         krc_721::share_collection_policy_scope(scope);
@@ -200,7 +200,7 @@ module kanari_pet::pet {
     fun install_royalty(
         policy: TransferPolicy<Nft>,
         cap: &CollectionPolicyCap,
-        beneficiary: address,
+        beneficiary: address
     ): TransferPolicy<Nft> {
         royalty_rule::add_for_krc_721_collection(&mut policy, cap, 500, 0, beneficiary);
         policy
@@ -216,7 +216,7 @@ module kanari_pet::pet {
         collection: &Collection,
         recipient: address,
         stats: &mut Stats,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
@@ -243,7 +243,7 @@ module kanari_pet::pet {
         image_url: vector<u8>,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
@@ -274,7 +274,7 @@ module kanari_pet::pet {
         stats: &mut Stats,
         attribute_keys: vector<vector<u8>>,
         attribute_values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         mint_pet(
             pet_cap,
@@ -300,24 +300,23 @@ module kanari_pet::pet {
         image_url: kanari_system::url::Url,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let i = 0;
         while (i < vector::length(&attribute_keys)) {
             assert!(!is_reserved(vector::borrow(&attribute_keys, i)), E_RESERVED_ATTRIBUTE);
             i = i + 1;
         };
-        let pet =
-            krc_721::mint(
-                pet_cap,
-                collection,
-                name,
-                option::some(description),
-                option::some(image_url),
-                attribute_keys,
-                attribute_values,
-                ctx
-            );
+        let pet = krc_721::mint(
+            pet_cap,
+            collection,
+            name,
+            option::some(description),
+            option::some(image_url),
+            attribute_keys,
+            attribute_values,
+            ctx
+        );
         table::add(&mut stats.levels, krc_721::nft_address(&pet), 0);
         krc_721::transfer(pet, recipient);
     }
@@ -339,11 +338,16 @@ module kanari_pet::pet {
         collection: &Collection,
         stats: &mut Stats,
         pet: Nft,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         let pet_address = krc_721::nft_address(&pet);
         let owner = tx_context::sender(ctx);
-        event::emit(Burned { pet_id: pet_address, owner });
+        event::emit(
+            Burned {
+                pet_id: pet_address,
+                owner
+            }
+        );
         if (table::contains(&stats.levels, pet_address)) {
             let _ = table::remove(&mut stats.levels, pet_address);
         };
@@ -375,7 +379,7 @@ module kanari_pet::pet {
     public entry fun set_attribute(
         pet: &mut Nft,
         key: vector<u8>,
-        value: vector<u8>,
+        value: vector<u8>
     ) {
         set_string_attribute(pet, string::utf8(key), string::utf8(value));
     }
@@ -384,12 +388,16 @@ module kanari_pet::pet {
     public fun set_string_attribute(
         pet: &mut Nft,
         key: String,
-        value: String,
+        value: String
     ) {
         assert!(!is_reserved(&key), E_RESERVED_ATTRIBUTE);
         let pet_address = krc_721::nft_address(pet);
         krc_721::set_attribute(pet, key, value);
-        event::emit(AttributesChanged { pet_id: pet_address });
+        event::emit(
+            AttributesChanged {
+                pet_id: pet_address
+            }
+        );
     }
 
     /// Remove one attribute and return its value. Aborts if absent.
@@ -400,7 +408,11 @@ module kanari_pet::pet {
         assert!(!is_reserved(key), E_RESERVED_ATTRIBUTE);
         let pet_address = krc_721::nft_address(pet);
         let value = krc_721::remove_attribute(pet, key);
-        event::emit(AttributesChanged { pet_id: pet_address });
+        event::emit(
+            AttributesChanged {
+                pet_id: pet_address
+            }
+        );
         value
     }
 
@@ -411,7 +423,7 @@ module kanari_pet::pet {
     public entry fun set_attributes(
         pet: &mut Nft,
         attribute_keys: vector<vector<u8>>,
-        attribute_values: vector<vector<u8>>,
+        attribute_values: vector<vector<u8>>
     ) {
         set_string_attributes(pet, utf8_all(attribute_keys), utf8_all(attribute_values));
     }
@@ -423,7 +435,7 @@ module kanari_pet::pet {
     public fun set_string_attributes(
         pet: &mut Nft,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
+        attribute_values: vector<String>
     ) {
         let i = 0;
         while (i < vector::length(&attribute_keys)) {
@@ -445,7 +457,11 @@ module kanari_pet::pet {
             i = i + 1;
         };
         krc_721::set_attributes(pet, attribute_keys, attribute_values);
-        event::emit(AttributesChanged { pet_id: pet_address });
+        event::emit(
+            AttributesChanged {
+                pet_id: pet_address
+            }
+        );
     }
 
     /// The value stored under `key`, or `none`.
@@ -538,7 +554,7 @@ module kanari_pet::pet {
         pet: &mut Nft,
         stats: &mut Stats,
         payment: &mut Coin<USD>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let pet_address = krc_721::nft_address(pet);
         let owner = tx_context::sender(ctx);
@@ -585,31 +601,29 @@ module kanari_pet::pet {
         recipient: address,
         stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
         // Attributes are validated and progression stamped before the supply
         // unit is consumed, so a rejected level cannot cost a mint slot.
         let attribute_keys = vector::empty<String>();
         let attribute_values = vector::empty<String>();
-        let (attribute_keys, attribute_values) =
-            seed_progression(
-                stats,
-                initial_level,
-                attribute_keys,
-                attribute_values
-            );
-        let pet =
-            krc_721::mint(
-                pet_cap,
-                collection,
-                string::utf8(b"Kanari Pet"),
-                option::some(string::utf8(b"An NFT built on the Kanari Sui-parity stack")),
-                option::some(url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL)),
-                attribute_keys,
-                attribute_values,
-                ctx
-            );
+        let (attribute_keys, attribute_values) = seed_progression(
+            stats,
+            initial_level,
+            attribute_keys,
+            attribute_values
+        );
+        let pet = krc_721::mint(
+            pet_cap,
+            collection,
+            string::utf8(b"Kanari Pet"),
+            option::some(string::utf8(b"An NFT built on the Kanari Sui-parity stack")),
+            option::some(url::new_unsafe_from_bytes(DEFAULT_IMAGE_URL)),
+            attribute_keys,
+            attribute_values,
+            ctx
+        );
         table::add(&mut stats.levels, krc_721::nft_address(&pet), initial_level);
         krc_721::transfer(pet, recipient);
     }
@@ -665,7 +679,7 @@ module kanari_pet::pet {
         base_cost_usd: u64,
         power_per_level: u64,
         max_level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Stats {
         Stats {
             id: object::new(ctx),
@@ -747,16 +761,16 @@ module kanari_pet::pet {
         pet: Nft,
         payment: &mut Coin<FEE>,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let from = object::id_from_address(tx_context::sender(ctx));
         let paid = coin::value(payment);
-        let request =
-            krc_721::new_collection_request(policy, policy_scope, &pet, paid, from);
+        let request = krc_721::new_collection_request(policy, policy_scope, &pet, paid, from);
         let request = pay_royalty(policy, request, payment, ctx);
 
         let (_item, _paid, _from) = transfer_policy::confirm_request<Nft>(
-            policy, request
+            policy,
+            request
         );
         krc_721::transfer(pet, recipient);
     }
@@ -769,7 +783,7 @@ module kanari_pet::pet {
         policy: &mut TransferPolicy<Nft>,
         request: transfer_policy::TransferRequest<Nft>,
         payment: &mut Coin<FEE>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): transfer_policy::TransferRequest<Nft> {
         let mut_ref = &mut request;
         royalty_rule::pay<Nft, FEE>(policy, mut_ref, payment, ctx);
@@ -785,7 +799,7 @@ module kanari_pet::pet {
     /// Read a field off the collection-scoped KRC-721 display.
     public fun display_field(
         d: &CollectionDisplay,
-        key: vector<u8>,
+        key: vector<u8>
     ): option::Option<String> {
         krc_721::collection_display_field(d, key)
     }
@@ -808,7 +822,7 @@ module kanari_pet::pet {
     public fun mint_for_test(
         pet_cap: &mut NftCap,
         collection: &Collection,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         mint_with_attributes_for_test(
             pet_cap,
@@ -827,7 +841,7 @@ module kanari_pet::pet {
         collection: &Collection,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         krc_721::mint(
             pet_cap,
@@ -849,20 +863,19 @@ module kanari_pet::pet {
         collection: &Collection,
         stats: &mut Stats,
         initial_level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         // Same ceiling check as `mint_with_level`, so the test variant cannot
         // construct a pet the public entry point would refuse.
         assert!(initial_level <= stats.max_level, E_LEVEL_OUT_OF_RANGE);
         let attribute_keys = vector::empty<String>();
         let attribute_values = vector::empty<String>();
-        let (attribute_keys, attribute_values) =
-            seed_progression(
-                stats,
-                initial_level,
-                attribute_keys,
-                attribute_values
-            );
+        let (attribute_keys, attribute_values) = seed_progression(
+            stats,
+            initial_level,
+            attribute_keys,
+            attribute_values
+        );
         let pet = krc_721::mint(
             pet_cap,
             collection,
@@ -882,7 +895,7 @@ module kanari_pet::pet {
         stats: &Stats,
         initial_level: u64,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
+        attribute_values: vector<String>
     ): (vector<String>, vector<String>) {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
@@ -895,4 +908,5 @@ module kanari_pet::pet {
         vector::push_back(&mut attribute_values, rarity_for_level(initial_level));
         (attribute_keys, attribute_values)
     }
+
 }

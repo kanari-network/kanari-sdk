@@ -3,11 +3,12 @@
 
 /// Hybrid K256 + Dilithium3 verification. Both components must verify.
 module kanari_system::k256_dilithium3 {
+
     public native fun verify(
         signature: &vector<u8>,
         k256_public_key: &vector<u8>,
         dilithium3_public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -31,4 +32,5 @@ module kanari_system::k256_dilithium3 {
     fun test_rejects_empty_input() {
         assert!(!verify(&x"", &x"", &x"", &x""), 0);
     }
+
 }

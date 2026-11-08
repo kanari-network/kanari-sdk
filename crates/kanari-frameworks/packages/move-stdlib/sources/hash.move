@@ -9,6 +9,7 @@
 /// Unit tests live in `tests/hash_tests.move`, not here: this module has no
 /// `use` imports on purpose so non-test builds stay warning-free.
 module std::hash {
+
     public native fun sha2_256(data: vector<u8>): vector<u8>;
 
     public native fun sha3_256(data: vector<u8>): vector<u8>;
@@ -28,4 +29,5 @@ module std::hash {
     /// @param data: Arbitrary binary data to hash
     /// Hash the input bytes using ripemd160 and returns 20 bytes.
     public native fun ripemd160(data: &vector<u8>): vector<u8>;
+
 }

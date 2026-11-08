@@ -26,6 +26,7 @@
 /// a foreign package cannot mint `Display<T>` or `TransferPolicy<T>` for your
 /// `T`.
 module kanari_system::package {
+
     use std::vector;
     use kanari_system::object::{Self, UID};
     use kanari_system::transfer;
@@ -46,7 +47,7 @@ module kanari_system::package {
         id: UID,
         /// Witness type name, retained for off-chain discovery of which types
         /// have a publisher published.
-        type_name: vector<u8>,
+        type_name: vector<u8>
     }
 
     /// Claim authority over `T`. `witness` must be the one-time witness `T`
@@ -55,7 +56,7 @@ module kanari_system::package {
         assert!(types::is_one_time_witness<T>(&witness), E_NOT_ONE_TIME_WITNESS);
         Publisher<T> {
             id: object::new(ctx),
-            type_name: type_name_bytes<T>(),
+            type_name: type_name_bytes<T>()
         }
     }
 
@@ -139,7 +140,11 @@ module kanari_system::package {
             };
             i = i + 1;
         };
-        if (i + 1 < n) { i } else { n }
+        if (i + 1 < n) {
+            i
+        } else {
+            n
+        }
     }
 
     #[test_only]
@@ -158,9 +163,12 @@ module kanari_system::package {
     /// cannot be fooled; tests need a fake to simulate the foreign case.
     public fun forged_publisher_for_test<T>(
         name: vector<u8>,
-        ctx: &mut tx_context::TxContext,
+        ctx: &mut tx_context::TxContext
     ): Publisher<T> {
-        Publisher<T> { id: object::new(ctx), type_name: name }
+        Publisher<T> {
+            id: object::new(ctx),
+            type_name: name
+        }
     }
 
     #[test]
@@ -210,11 +218,13 @@ module kanari_system::package {
     fun test_publisher_does_not_govern_foreign_package_types() {
         let ctx = tx_context::dummy();
         let fake = forged_publisher_for_test<PACKAGE>(
-            b"0x44::other::OTHER", &mut ctx,
+            b"0x44::other::OTHER",
+            &mut ctx
         );
         assert_governs_type<PACKAGE, PACKAGE>(&fake);
         // Unreachable when the abort above fires, but the compiler requires
         // every path to consume the value.
         revoke_forever(fake);
     }
+
 }

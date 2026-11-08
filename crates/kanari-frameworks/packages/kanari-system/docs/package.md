@@ -138,7 +138,7 @@ itself; only the defining module can construct it.
     <b>assert</b>!(<a href="types.md#0x2_types_is_one_time_witness">types::is_one_time_witness</a>&lt;T&gt;(&witness), <a href="package.md#0x2_package_E_NOT_ONE_TIME_WITNESS">E_NOT_ONE_TIME_WITNESS</a>);
     <a href="package.md#0x2_package_Publisher">Publisher</a>&lt;T&gt; {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
-        <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: <a href="package.md#0x2_package_type_name_bytes">type_name_bytes</a>&lt;T&gt;(),
+        <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: <a href="package.md#0x2_package_type_name_bytes">type_name_bytes</a>&lt;T&gt;()
     }
 }
 </code></pre>
@@ -422,7 +422,11 @@ Length of the address section of a type name: <code>3</code> for <code>0x43</cod
         };
         i = i + 1;
     };
-    <b>if</b> (i + 1 &lt; n) { i } <b>else</b> { n }
+    <b>if</b> (i + 1 &lt; n) {
+        i
+    } <b>else</b> {
+        n
+    }
 }
 </code></pre>
 

@@ -31,6 +31,7 @@
 //! `public fun` because Move entry functions may not return values.
 
 module deepbook::deepbook {
+
     use kanari_system::balance::{Self, Balance};
     use kanari_system::coin::{Self, Coin};
     use kanari_system::event;
@@ -89,7 +90,7 @@ module deepbook::deepbook {
         // fee in basis points (e.g. 30 = 0.3%)
         max_depth: u64,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     }
 
     // Events
@@ -99,7 +100,7 @@ module deepbook::deepbook {
         maker: address,
         is_bid: bool,
         price: u64,
-        quantity: u64,
+        quantity: u64
     }
 
     public struct OrderMatched has copy, drop {
@@ -108,16 +109,16 @@ module deepbook::deepbook {
         taker: address,
         maker: address,
         price: u64,
-        quantity: u64,
+        quantity: u64
     }
 
     public struct OrderCancelled has copy, drop {
         book_id: address,
-        order_id: u64,
+        order_id: u64
     }
 
     public struct OrderBookCreated has copy, drop {
-        book_id: address,
+        book_id: address
     }
 
     // ---------------------------------------------------------------------------
@@ -131,15 +132,15 @@ module deepbook::deepbook {
         price: u128,
         quantity: u128,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     ): u128 {
         let numerator = math::mul_div_u128(quantity, price, 1);
         let denominator = PRICE_SCALE * math::pow_u128(10, (base_decimals as u32));
         math::mul_div_u128(
-        numerator,
-        math::pow_u128(10, (quote_decimals as u32)),
-        denominator,
-    )
+            numerator,
+            math::pow_u128(10, (quote_decimals as u32)),
+            denominator
+        )
     }
 
     /// Narrow a u128 amount to u64, aborting E_OVERFLOW instead of truncating.
@@ -169,7 +170,7 @@ module deepbook::deepbook {
         max_depth: u64,
         base_decimals: u8,
         quote_decimals: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): OrderBook<Base, Quote> {
         assert!(fee_bps <= 1000, E_INVALID_FEE); // max 10%
         // validate depth (1 .. MAX_DEPTH)
@@ -177,19 +178,19 @@ module deepbook::deepbook {
         assert!(max_depth <= MAX_DEPTH, E_INVALID_DEPTH);
 
         OrderBook<Base, Quote> {
-        id: object::new(ctx),
-        next_order_id: 1,
-        bids: vector::empty(),
-        asks: vector::empty(),
-        base_balance: balance::zero(),
-        quote_balance: balance::zero(),
-        fee_balance_base: balance::zero(),
-        fee_balance_quote: balance::zero(),
-        fee_bps,
-        max_depth,
-        base_decimals,
-        quote_decimals,
-    }
+            id: object::new(ctx),
+            next_order_id: 1,
+            bids: vector::empty(),
+            asks: vector::empty(),
+            base_balance: balance::zero(),
+            quote_balance: balance::zero(),
+            fee_balance_base: balance::zero(),
+            fee_balance_quote: balance::zero(),
+            fee_bps,
+            max_depth,
+            base_decimals,
+            quote_decimals
+        }
     }
 
     /// Create a new order book with explicit decimals, share it, and emit
@@ -199,19 +200,29 @@ module deepbook::deepbook {
         max_depth: u64,
         base_decimals: u8,
         quote_decimals: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): address {
         // Prevent creating order book with same base and quote token
         let base_type = type_name::get_with_original_ids<Base>().into_string().into_bytes();
         let quote_type = type_name::get_with_original_ids<Quote>().into_string().into_bytes();
         assert!(base_type != quote_type, E_SAME_TOKEN_PAIR);
 
-        let book = new_order_book<Base, Quote>(fee_bps, max_depth, base_decimals, quote_decimals, ctx);
+        let book = new_order_book<Base, Quote>(
+            fee_bps,
+            max_depth,
+            base_decimals,
+            quote_decimals,
+            ctx
+        );
 
         let book_id = object::uid_address(&book.id);
 
         // Emit an event with the created book id so UIs can discover the object address
-        event::emit(OrderBookCreated { book_id });
+        event::emit(
+            OrderBookCreated {
+                book_id
+            }
+        );
         transfer::share_object(book);
         book_id
     }
@@ -236,7 +247,7 @@ module deepbook::deepbook {
         quantity: u64,
         mut payment: Coin<Quote>,
         order_type: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(price > 0, E_INVALID_PRICE);
         assert!(quantity > 0, E_INVALID_QUANTITY);
@@ -246,35 +257,35 @@ module deepbook::deepbook {
         // Pre-checks for special order types
         // FOK: ensure there is sufficient available ask quantity at <= price before consuming funds
         if (order_type == 2u8) {
-        let mut total_available = 0u64;
-        let mut k = 0u64;
-        while (k < vector::length(&book.asks)) {
-            let a = vector::borrow(&book.asks, k);
-            if (a.price <= price) {
-                total_available = total_available + (a.quantity - a.filled);
-                k = k + 1;
-            } else {
-                break
+            let mut total_available = 0u64;
+            let mut k = 0u64;
+            while (k < vector::length(&book.asks)) {
+                let a = vector::borrow(&book.asks, k);
+                if (a.price <= price) {
+                    total_available = total_available + (a.quantity - a.filled);
+                    k = k + 1;
+                } else {
+                    break
+                };
             };
+            assert!(total_available >= quantity, E_INSUFFICIENT_LIQUIDITY);
         };
-        assert!(total_available >= quantity, E_INSUFFICIENT_LIQUIDITY);
-    };
 
         // PostOnly: if the order would match immediately, abort
         if (order_type == 3u8) {
-        if (vector::length(&book.asks) > 0) {
-            let best = vector::borrow(&book.asks, 0);
-            assert!(best.price > price, E_POST_ONLY_VIOLATION);
+            if (vector::length(&book.asks) > 0) {
+                let best = vector::borrow(&book.asks, 0);
+                assert!(best.price > price, E_POST_ONLY_VIOLATION);
+            };
         };
-    };
 
         // Required quote with decimals; reject dust that rounds to zero.
         let required_quote_u128 = trade_quote_u128(
-        (price as u128),
-        (quantity as u128),
-        book.base_decimals,
-        book.quote_decimals,
-    );
+            (price as u128),
+            (quantity as u128),
+            book.base_decimals,
+            book.quote_decimals
+        );
         assert!(required_quote_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
         let required_quote = checked_u64(required_quote_u128);
         let payment_value = coin::value(&payment);
@@ -282,12 +293,12 @@ module deepbook::deepbook {
 
         // Split exact amount needed, return excess
         let locked_payment = if (payment_value > required_quote) {
-        let excess = coin::split(&mut payment, payment_value - required_quote, ctx);
-        transfer::public_transfer(excess, maker);
-        payment
-    } else {
-        payment
-    };
+            let excess = coin::split(&mut payment, payment_value - required_quote, ctx);
+            transfer::public_transfer(excess, maker);
+            payment
+        } else {
+            payment
+        };
 
         // Add payment to book balance
         let payment_balance = coin::into_balance(locked_payment);
@@ -302,138 +313,150 @@ module deepbook::deepbook {
         // Try to match with existing asks
         let mut i = 0;
         while (i < vector::length(&book.asks) && remaining > 0) {
-        let ask = vector::borrow_mut(&mut book.asks, i);
+            let ask = vector::borrow_mut(&mut book.asks, i);
 
-        if (ask.price <= price) {
-            let available = ask.quantity - ask.filled;
-            let matched = if (available <= remaining) { available } else { remaining };
+            if (ask.price <= price) {
+                let available = ask.quantity - ask.filled;
+                let matched = if (available <= remaining) {
+                    available
+                } else {
+                    remaining
+                };
 
-            // Execute at the resting ask price.
-            let match_price = ask.price;
-            let trade_value_u128 = trade_quote_u128(
-                (match_price as u128),
-                (matched as u128),
-                book.base_decimals,
-                book.quote_decimals,
-            );
-            assert!(trade_value_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
-            let quote_amount = checked_u64(trade_value_u128);
+                // Execute at the resting ask price.
+                let match_price = ask.price;
+                let trade_value_u128 = trade_quote_u128(
+                    (match_price as u128),
+                    (matched as u128),
+                    book.base_decimals,
+                    book.quote_decimals
+                );
+                assert!(trade_value_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
+                let quote_amount = checked_u64(trade_value_u128);
 
-            // Taker fee on the quote leg.
-            let fee_amount = checked_u64(math::bps_mul_floor_u128(
-                trade_value_u128,
-                (book.fee_bps as u128),
-            ));
-            let maker_receives = quote_amount - fee_amount;
+                // Taker fee on the quote leg.
+                let fee_amount = checked_u64(
+                    math::bps_mul_floor_u128(
+                        trade_value_u128,
+                        (book.fee_bps as u128)
+                    )
+                );
+                let maker_receives = quote_amount - fee_amount;
 
-            // Update order
-            ask.filled = ask.filled + matched;
-            ask.locked_amount = ask.locked_amount - matched;
-            remaining = remaining - matched;
-            remaining_locked = remaining_locked - quote_amount;
+                // Update order
+                ask.filled = ask.filled + matched;
+                ask.locked_amount = ask.locked_amount - matched;
+                remaining = remaining - matched;
+                remaining_locked = remaining_locked - quote_amount;
 
-            // Transfer base to taker (buyer)
-            let base_to_taker = balance::split(&mut book.base_balance, matched);
-            transfer::public_transfer(coin::from_balance(base_to_taker, ctx), maker);
+                // Transfer base to taker (buyer)
+                let base_to_taker = balance::split(&mut book.base_balance, matched);
+                transfer::public_transfer(coin::from_balance(base_to_taker, ctx), maker);
 
-            // Transfer quote to maker (seller) minus fee
-            let quote_to_maker = balance::split(&mut book.quote_balance, maker_receives);
-            transfer::public_transfer(coin::from_balance(quote_to_maker, ctx), ask.maker);
+                // Transfer quote to maker (seller) minus fee
+                let quote_to_maker = balance::split(&mut book.quote_balance, maker_receives);
+                transfer::public_transfer(coin::from_balance(quote_to_maker, ctx), ask.maker);
 
-            let maker_order = ask.maker;
-            let maker_order_id = ask.id;
-            let fully_filled = ask.filled == ask.quantity;
+                let maker_order = ask.maker;
+                let maker_order_id = ask.id;
+                let fully_filled = ask.filled == ask.quantity;
 
-            // Collect fee (in quote tokens)
-            collect_fee(book, fee_amount);
+                // Collect fee (in quote tokens)
+                collect_fee(book, fee_amount);
 
-            event::emit(OrderMatched {
-                book_id: object::uid_address(&book.id),
-                order_id: maker_order_id,
-                taker: maker,
-                maker: maker_order,
-                price: match_price,
-                quantity: matched,
-            });
+                event::emit(
+                    OrderMatched {
+                        book_id: object::uid_address(&book.id),
+                        order_id: maker_order_id,
+                        taker: maker,
+                        maker: maker_order,
+                        price: match_price,
+                        quantity: matched
+                    }
+                );
 
-            // Remove fully filled order
-            if (fully_filled) {
-                vector::remove(&mut book.asks, i);
+                // Remove fully filled order
+                if (fully_filled) {
+                    vector::remove(&mut book.asks, i);
+                } else {
+                    i = i + 1;
+                };
             } else {
-                i = i + 1;
+                break // asks are sorted, no more matches possible
             };
-        } else {
-            break // asks are sorted, no more matches possible
         };
-    };
         // If there's remaining quantity, handle based on order type
         if (remaining > 0) {
-        // IOC: refund remaining locked quote back to maker and do NOT add resting order
-        if (order_type == 1u8) {
-            if (remaining_locked > 0) {
-                let refund = balance::split(&mut book.quote_balance, remaining_locked);
-                transfer::public_transfer(coin::from_balance(refund, ctx), maker);
-            };
-        } else {
-            let new_order = LimitOrder {
-                id: order_id,
-                maker,
-                is_bid: true,
-                price,
-                quantity: remaining,
-                filled: 0,
-                locked_amount: remaining_locked,
-            };
-
-            // Insert in sorted order (highest price first)
-            let mut len = vector::length(&book.bids);
-
-            // If side is full, evict the worst bid and refund its unmatched share
-            if (len >= book.max_depth) {
-                let worst = vector::pop_back(&mut book.bids);
-                let unmatched = worst.quantity - worst.filled;
-                if (unmatched > 0) {
-                    let refund_quote = checked_u64(math::mul_div_u128(
-                        (worst.locked_amount as u128),
-                        (unmatched as u128),
-                        (worst.quantity as u128),
-                    ));
-                    if (refund_quote > 0) {
-                        let refund = balance::split(&mut book.quote_balance, refund_quote);
-                        transfer::public_transfer(coin::from_balance(refund, ctx), worst.maker);
-                    };
+            // IOC: refund remaining locked quote back to maker and do NOT add resting order
+            if (order_type == 1u8) {
+                if (remaining_locked > 0) {
+                    let refund = balance::split(&mut book.quote_balance, remaining_locked);
+                    transfer::public_transfer(coin::from_balance(refund, ctx), maker);
                 };
-                len = len - 1;
-            };
-
-            let mut insert_pos = len;
-            let mut j = 0;
-            while (j < len) {
-                let bid = vector::borrow(&book.bids, j);
-                // insert before strictly lower-priced bids; equal price keeps FIFO
-                if (price > bid.price || (price == bid.price && order_id < bid.id)) {
-                    insert_pos = j;
-                    break
-                };
-                j = j + 1;
-            };
-
-            if (insert_pos == len) {
-                vector::push_back(&mut book.bids, new_order);
             } else {
-                vector::insert(&mut book.bids, new_order, insert_pos);
-            };
+                let new_order = LimitOrder {
+                    id: order_id,
+                    maker,
+                    is_bid: true,
+                    price,
+                    quantity: remaining,
+                    filled: 0,
+                    locked_amount: remaining_locked
+                };
 
-            event::emit(OrderPlaced {
-                book_id: object::uid_address(&book.id),
-                order_id,
-                maker,
-                is_bid: true,
-                price,
-                quantity: remaining,
-            });
+                // Insert in sorted order (highest price first)
+                let mut len = vector::length(&book.bids);
+
+                // If side is full, evict the worst bid and refund its unmatched share
+                if (len >= book.max_depth) {
+                    let worst = vector::pop_back(&mut book.bids);
+                    let unmatched = worst.quantity - worst.filled;
+                    if (unmatched > 0) {
+                        let refund_quote = checked_u64(
+                            math::mul_div_u128(
+                                (worst.locked_amount as u128),
+                                (unmatched as u128),
+                                (worst.quantity as u128)
+                            )
+                        );
+                        if (refund_quote > 0) {
+                            let refund = balance::split(&mut book.quote_balance, refund_quote);
+                            transfer::public_transfer(coin::from_balance(refund, ctx), worst.maker);
+                        };
+                    };
+                    len = len - 1;
+                };
+
+                let mut insert_pos = len;
+                let mut j = 0;
+                while (j < len) {
+                    let bid = vector::borrow(&book.bids, j);
+                    // insert before strictly lower-priced bids; equal price keeps FIFO
+                    if (price > bid.price || (price == bid.price && order_id < bid.id)) {
+                        insert_pos = j;
+                        break
+                    };
+                    j = j + 1;
+                };
+
+                if (insert_pos == len) {
+                    vector::push_back(&mut book.bids, new_order);
+                } else {
+                    vector::insert(&mut book.bids, new_order, insert_pos);
+                };
+
+                event::emit(
+                    OrderPlaced {
+                        book_id: object::uid_address(&book.id),
+                        order_id,
+                        maker,
+                        is_bid: true,
+                        price,
+                        quantity: remaining
+                    }
+                );
+            };
         };
-    };
     }
 
     /// Place a sell order (supports order types)
@@ -447,7 +470,7 @@ module deepbook::deepbook {
         quantity: u64,
         mut base_coin: Coin<Base>,
         order_type: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(price > 0, E_INVALID_PRICE);
         assert!(quantity > 0, E_INVALID_QUANTITY);
@@ -459,47 +482,47 @@ module deepbook::deepbook {
 
         // FOK: ensure there is sufficient available bid quantity at >= price before consuming funds
         if (order_type == 2u8) {
-        let mut total_available = 0u64;
-        let mut k = 0u64;
-        while (k < vector::length(&book.bids)) {
-            let b = vector::borrow(&book.bids, k);
-            if (b.price >= price) {
-                total_available = total_available + (b.quantity - b.filled);
-                k = k + 1;
-            } else {
-                break
+            let mut total_available = 0u64;
+            let mut k = 0u64;
+            while (k < vector::length(&book.bids)) {
+                let b = vector::borrow(&book.bids, k);
+                if (b.price >= price) {
+                    total_available = total_available + (b.quantity - b.filled);
+                    k = k + 1;
+                } else {
+                    break
+                };
             };
+            assert!(total_available >= quantity, E_INSUFFICIENT_LIQUIDITY);
         };
-        assert!(total_available >= quantity, E_INSUFFICIENT_LIQUIDITY);
-    };
 
         // PostOnly: if the order would match immediately, abort
         if (order_type == 3u8) {
-        if (vector::length(&book.bids) > 0) {
-            let best = vector::borrow(&book.bids, 0);
-            assert!(best.price < price, E_POST_ONLY_VIOLATION);
+            if (vector::length(&book.bids) > 0) {
+                let best = vector::borrow(&book.bids, 0);
+                assert!(best.price < price, E_POST_ONLY_VIOLATION);
+            };
         };
-    };
 
         // Defensive pre-check: reject orders whose quote value would round to
         // zero or exceed u64 bounds before any funds move.
         let potential_quote_u128 = trade_quote_u128(
-        (price as u128),
-        (quantity as u128),
-        book.base_decimals,
-        book.quote_decimals,
-    );
+            (price as u128),
+            (quantity as u128),
+            book.base_decimals,
+            book.quote_decimals
+        );
         assert!(potential_quote_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
         let _potential_quote = checked_u64(potential_quote_u128);
 
         // Split exact amount needed, return excess
         let locked_base = if (coin_value > quantity) {
-        let excess = coin::split(&mut base_coin, coin_value - quantity, ctx);
-        transfer::public_transfer(excess, maker);
-        base_coin
-    } else {
-        base_coin
-    };
+            let excess = coin::split(&mut base_coin, coin_value - quantity, ctx);
+            transfer::public_transfer(excess, maker);
+            base_coin
+        } else {
+            base_coin
+        };
 
         // Add base coin to book balance
         let base_balance = coin::into_balance(locked_base);
@@ -513,147 +536,160 @@ module deepbook::deepbook {
         // Try to match with existing bids
         let mut i = 0;
         while (i < vector::length(&book.bids) && remaining > 0) {
-        let bid = vector::borrow_mut(&mut book.bids, i);
+            let bid = vector::borrow_mut(&mut book.bids, i);
 
-        if (bid.price >= price) {
-            let available = bid.quantity - bid.filled;
-            let matched = if (available <= remaining) { available } else { remaining };
+            if (bid.price >= price) {
+                let available = bid.quantity - bid.filled;
+                let matched = if (available <= remaining) {
+                    available
+                } else {
+                    remaining
+                };
 
-            // Execute at the resting bid price.
-            let match_price = bid.price;
-            let trade_value_u128 = trade_quote_u128(
-                (match_price as u128),
-                (matched as u128),
-                book.base_decimals,
-                book.quote_decimals,
-            );
-            assert!(trade_value_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
-            let quote_amount = checked_u64(trade_value_u128);
+                // Execute at the resting bid price.
+                let match_price = bid.price;
+                let trade_value_u128 = trade_quote_u128(
+                    (match_price as u128),
+                    (matched as u128),
+                    book.base_decimals,
+                    book.quote_decimals
+                );
+                assert!(trade_value_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
+                let quote_amount = checked_u64(trade_value_u128);
 
-            // Taker fee on the quote leg.
-            let fee_amount = checked_u64(math::bps_mul_floor_u128(
-                trade_value_u128,
-                (book.fee_bps as u128),
-            ));
+                // Taker fee on the quote leg.
+                let fee_amount = checked_u64(
+                    math::bps_mul_floor_u128(
+                        trade_value_u128,
+                        (book.fee_bps as u128)
+                    )
+                );
 
-            // Update order
-            bid.filled = bid.filled + matched;
-            if (quote_amount > 0) {
-                bid.locked_amount = bid.locked_amount - quote_amount;
-            };
-            remaining = remaining - matched;
+                // Update order
+                bid.filled = bid.filled + matched;
+                if (quote_amount > 0) {
+                    bid.locked_amount = bid.locked_amount - quote_amount;
+                };
+                remaining = remaining - matched;
 
-            // Transfer quote to taker (seller) minus fee
-            let taker_receive = quote_amount - fee_amount;
-            let quote_to_taker = balance::split(&mut book.quote_balance, taker_receive);
-            transfer::public_transfer(coin::from_balance(quote_to_taker, ctx), maker);
+                // Transfer quote to taker (seller) minus fee
+                let taker_receive = quote_amount - fee_amount;
+                let quote_to_taker = balance::split(&mut book.quote_balance, taker_receive);
+                transfer::public_transfer(coin::from_balance(quote_to_taker, ctx), maker);
 
-            // Transfer base to maker (buyer)
-            let base_to_maker = balance::split(&mut book.base_balance, matched);
-            transfer::public_transfer(coin::from_balance(base_to_maker, ctx), bid.maker);
+                // Transfer base to maker (buyer)
+                let base_to_maker = balance::split(&mut book.base_balance, matched);
+                transfer::public_transfer(coin::from_balance(base_to_maker, ctx), bid.maker);
 
-            let maker_order = bid.maker;
-            let maker_order_id = bid.id;
-            let fully_filled = bid.filled == bid.quantity;
+                let maker_order = bid.maker;
+                let maker_order_id = bid.id;
+                let fully_filled = bid.filled == bid.quantity;
 
-            // Collect fee in quote tokens
-            collect_fee(book, fee_amount);
+                // Collect fee in quote tokens
+                collect_fee(book, fee_amount);
 
-            event::emit(OrderMatched {
-                book_id: object::uid_address(&book.id),
-                order_id: maker_order_id,
-                taker: maker,
-                maker: maker_order,
-                price: match_price,
-                quantity: matched,
-            });
+                event::emit(
+                    OrderMatched {
+                        book_id: object::uid_address(&book.id),
+                        order_id: maker_order_id,
+                        taker: maker,
+                        maker: maker_order,
+                        price: match_price,
+                        quantity: matched
+                    }
+                );
 
-            // Remove fully filled order
-            if (fully_filled) {
-                vector::remove(&mut book.bids, i);
+                // Remove fully filled order
+                if (fully_filled) {
+                    vector::remove(&mut book.bids, i);
+                } else {
+                    i = i + 1;
+                };
             } else {
-                i = i + 1;
+                break // bids are sorted, no more matches possible
             };
-        } else {
-            break // bids are sorted, no more matches possible
         };
-    };
 
         // If there's remaining quantity, handle based on order type
         if (remaining > 0) {
-        // IOC: refund remaining locked base back to maker and do NOT add resting order
-        if (order_type == 1u8) {
-            if (remaining > 0) {
-                let refund = balance::split(&mut book.base_balance, remaining);
-                transfer::public_transfer(coin::from_balance(refund, ctx), maker);
-            };
-        } else {
-            let new_order = LimitOrder {
-                id: order_id,
-                maker,
-                is_bid: false,
-                price,
-                quantity: remaining,
-                filled: 0,
-                locked_amount: remaining, // locked base amount
-            };
-
-            // Insert in sorted order (lowest price first)
-            let mut len = vector::length(&book.asks);
-
-            // If side is full, evict the worst ask and refund its unmatched share
-            if (len >= book.max_depth) {
-                let worst = vector::pop_back(&mut book.asks);
-                let unmatched = worst.quantity - worst.filled;
-                if (unmatched > 0) {
-                    let refund_base = checked_u64(math::mul_div_u128(
-                        (worst.locked_amount as u128),
-                        (unmatched as u128),
-                        (worst.quantity as u128),
-                    ));
-                    if (refund_base > 0) {
-                        let refund = balance::split(&mut book.base_balance, refund_base);
-                        transfer::public_transfer(coin::from_balance(refund, ctx), worst.maker);
-                    };
+            // IOC: refund remaining locked base back to maker and do NOT add resting order
+            if (order_type == 1u8) {
+                if (remaining > 0) {
+                    let refund = balance::split(&mut book.base_balance, remaining);
+                    transfer::public_transfer(coin::from_balance(refund, ctx), maker);
                 };
-                len = len - 1;
-            };
-
-            let mut insert_pos = len;
-            let mut j = 0;
-            while (j < len) {
-                let ask = vector::borrow(&book.asks, j);
-                // insert before strictly higher-priced asks; equal price keeps FIFO
-                if (price < ask.price || (price == ask.price && order_id < ask.id)) {
-                    insert_pos = j;
-                    break
-                };
-                j = j + 1;
-            };
-
-            if (insert_pos == len) {
-                vector::push_back(&mut book.asks, new_order);
             } else {
-                vector::insert(&mut book.asks, new_order, insert_pos);
-            };
+                let new_order = LimitOrder {
+                    id: order_id,
+                    maker,
+                    is_bid: false,
+                    price,
+                    quantity: remaining,
+                    filled: 0,
+                    locked_amount: remaining,
+                    // locked base amount
+                };
 
-            event::emit(OrderPlaced {
-                book_id: object::uid_address(&book.id),
-                order_id,
-                maker,
-                is_bid: false,
-                price,
-                quantity: remaining,
-            });
+                // Insert in sorted order (lowest price first)
+                let mut len = vector::length(&book.asks);
+
+                // If side is full, evict the worst ask and refund its unmatched share
+                if (len >= book.max_depth) {
+                    let worst = vector::pop_back(&mut book.asks);
+                    let unmatched = worst.quantity - worst.filled;
+                    if (unmatched > 0) {
+                        let refund_base = checked_u64(
+                            math::mul_div_u128(
+                                (worst.locked_amount as u128),
+                                (unmatched as u128),
+                                (worst.quantity as u128)
+                            )
+                        );
+                        if (refund_base > 0) {
+                            let refund = balance::split(&mut book.base_balance, refund_base);
+                            transfer::public_transfer(coin::from_balance(refund, ctx), worst.maker);
+                        };
+                    };
+                    len = len - 1;
+                };
+
+                let mut insert_pos = len;
+                let mut j = 0;
+                while (j < len) {
+                    let ask = vector::borrow(&book.asks, j);
+                    // insert before strictly higher-priced asks; equal price keeps FIFO
+                    if (price < ask.price || (price == ask.price && order_id < ask.id)) {
+                        insert_pos = j;
+                        break
+                    };
+                    j = j + 1;
+                };
+
+                if (insert_pos == len) {
+                    vector::push_back(&mut book.asks, new_order);
+                } else {
+                    vector::insert(&mut book.asks, new_order, insert_pos);
+                };
+
+                event::emit(
+                    OrderPlaced {
+                        book_id: object::uid_address(&book.id),
+                        order_id,
+                        maker,
+                        is_bid: false,
+                        price,
+                        quantity: remaining
+                    }
+                );
+            };
         };
-    };
     }
 
     /// Cancel an order and return locked funds to maker
     public entry fun cancel_order<Base, Quote>(
         book: &mut OrderBook<Base, Quote>,
         order_id: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let caller = tx_context::sender(ctx);
 
@@ -661,57 +697,63 @@ module deepbook::deepbook {
         let mut i = 0;
         let bids_len = vector::length(&book.bids);
         while (i < bids_len) {
-        let bid = vector::borrow(&book.bids, i);
-        if (bid.id == order_id) {
-            assert!(bid.maker == caller, E_UNAUTHORIZED);
+            let bid = vector::borrow(&book.bids, i);
+            if (bid.id == order_id) {
+                assert!(bid.maker == caller, E_UNAUTHORIZED);
 
-            // Refund the unmatched share of the locked quote.
-            let refund_amount = checked_u64(math::mul_div_u128(
-                (bid.locked_amount as u128),
-                ((bid.quantity - bid.filled) as u128),
-                (bid.quantity as u128),
-            ));
+                // Refund the unmatched share of the locked quote.
+                let refund_amount = checked_u64(
+                    math::mul_div_u128(
+                        (bid.locked_amount as u128),
+                        ((bid.quantity - bid.filled) as u128),
+                        (bid.quantity as u128)
+                    )
+                );
 
-            vector::remove(&mut book.bids, i);
+                vector::remove(&mut book.bids, i);
 
-            if (refund_amount > 0) {
-                let refund = balance::split(&mut book.quote_balance, refund_amount);
-                transfer::public_transfer(coin::from_balance(refund, ctx), caller);
+                if (refund_amount > 0) {
+                    let refund = balance::split(&mut book.quote_balance, refund_amount);
+                    transfer::public_transfer(coin::from_balance(refund, ctx), caller);
+                };
+
+                event::emit(
+                    OrderCancelled {
+                        book_id: object::uid_address(&book.id),
+                        order_id
+                    }
+                );
+                return
             };
-
-            event::emit(OrderCancelled {
-                book_id: object::uid_address(&book.id),
-                order_id,
-            });
-            return
+            i = i + 1;
         };
-        i = i + 1;
-    };
 
         // Search in asks
         let mut j = 0;
         let asks_len = vector::length(&book.asks);
         while (j < asks_len) {
-        let ask = vector::borrow(&book.asks, j);
-        if (ask.id == order_id) {
-            assert!(ask.maker == caller, E_UNAUTHORIZED);
+            let ask = vector::borrow(&book.asks, j);
+            if (ask.id == order_id) {
+                assert!(ask.maker == caller, E_UNAUTHORIZED);
 
-            let refund_base = ask.locked_amount;
-            vector::remove(&mut book.asks, j);
+                let refund_base = ask.locked_amount;
+                vector::remove(&mut book.asks, j);
 
-            if (refund_base > 0) {
-                let refund = balance::split(&mut book.base_balance, refund_base);
-                transfer::public_transfer(coin::from_balance(refund, ctx), caller);
+                if (refund_base > 0) {
+                    let refund = balance::split(&mut book.base_balance, refund_base);
+                    transfer::public_transfer(coin::from_balance(refund, ctx), caller);
+                };
+
+                event::emit(
+                    OrderCancelled {
+                        book_id: object::uid_address(&book.id),
+                        order_id
+                    }
+                );
+                return
             };
-
-            event::emit(OrderCancelled {
-                book_id: object::uid_address(&book.id),
-                order_id,
-            });
-            return
+            j = j + 1;
         };
-        j = j + 1;
-    };
 
         abort E_ORDER_NOT_FOUND
     }
@@ -723,21 +765,21 @@ module deepbook::deepbook {
     /// Get best bid price
     public fun get_best_bid<Base, Quote>(book: &OrderBook<Base, Quote>): u64 {
         if (vector::length(&book.bids) > 0) {
-        let best_bid = vector::borrow(&book.bids, 0);
-        best_bid.price
-    } else {
-        0
-    }
+            let best_bid = vector::borrow(&book.bids, 0);
+            best_bid.price
+        } else {
+            0
+        }
     }
 
     /// Get best ask price
     public fun get_best_ask<Base, Quote>(book: &OrderBook<Base, Quote>): u64 {
         if (vector::length(&book.asks) > 0) {
-        let best_ask = vector::borrow(&book.asks, 0);
-        best_ask.price
-    } else {
-        0
-    }
+            let best_ask = vector::borrow(&book.asks, 0);
+            best_ask.price
+        } else {
+            0
+        }
     }
 
     /// Get spread (difference between best ask and best bid)
@@ -746,10 +788,10 @@ module deepbook::deepbook {
         let best_ask = get_best_ask(book);
 
         if (best_bid > 0 && best_ask > 0 && best_ask > best_bid) {
-        best_ask - best_bid
-    } else {
-        0
-    }
+            best_ask - best_bid
+        } else {
+            0
+        }
     }
 
     /// Get total number of open bids
@@ -774,17 +816,17 @@ module deepbook::deepbook {
 
         let mut i = 0;
         while (i < vector::length(&book.bids)) {
-        let bid = vector::borrow(&book.bids, i);
-        total_bid_quantity = total_bid_quantity + (bid.quantity - bid.filled);
-        i = i + 1;
-    };
+            let bid = vector::borrow(&book.bids, i);
+            total_bid_quantity = total_bid_quantity + (bid.quantity - bid.filled);
+            i = i + 1;
+        };
 
         let mut j = 0;
         while (j < vector::length(&book.asks)) {
-        let ask = vector::borrow(&book.asks, j);
-        total_ask_quantity = total_ask_quantity + (ask.quantity - ask.filled);
-        j = j + 1;
-    };
+            let ask = vector::borrow(&book.asks, j);
+            total_ask_quantity = total_ask_quantity + (ask.quantity - ask.filled);
+            j = j + 1;
+        };
 
         (total_bid_quantity, total_ask_quantity)
     }
@@ -805,20 +847,24 @@ module deepbook::deepbook {
 
     /// Calculate quote amount for given base amount at price
     public fun calculate_quote_amount(base_amount: u64, price: u64): u64 {
-        checked_u64(math::mul_div_u128(
-        (base_amount as u128),
-        (price as u128),
-        PRICE_SCALE,
-    ))
+        checked_u64(
+            math::mul_div_u128(
+                (base_amount as u128),
+                (price as u128),
+                PRICE_SCALE
+            )
+        )
     }
 
     /// Calculate base amount for given quote amount at price
     public fun calculate_base_amount(quote_amount: u64, price: u64): u64 {
-        checked_u64(math::mul_div_u128(
-        (quote_amount as u128),
-        PRICE_SCALE,
-        (price as u128),
-    ))
+        checked_u64(
+            math::mul_div_u128(
+                (quote_amount as u128),
+                PRICE_SCALE,
+                (price as u128)
+            )
+        )
     }
 
     /// Decimals-aware quote amount calculation
@@ -826,14 +872,16 @@ module deepbook::deepbook {
         base_amount: u64,
         price: u64,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     ): u64 {
-        checked_u64(trade_quote_u128(
-        (price as u128),
-        (base_amount as u128),
-        base_decimals,
-        quote_decimals,
-    ))
+        checked_u64(
+            trade_quote_u128(
+                (price as u128),
+                (base_amount as u128),
+                base_decimals,
+                quote_decimals
+            )
+        )
     }
 
     /// Decimals-aware base amount calculation
@@ -841,15 +889,14 @@ module deepbook::deepbook {
         quote_amount: u64,
         price: u64,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     ): u64 {
         let numerator = math::mul_div_u128(
         (quote_amount as u128),
         PRICE_SCALE,
         1,
     ) * math::pow_u128(10, (base_decimals as u32));
-        let denominator =
-        (price as u128) * math::pow_u128(10, (quote_decimals as u32));
+        let denominator = (price as u128) * math::pow_u128(10, (quote_decimals as u32));
         checked_u64(math::mul_div_u128(numerator, 1, denominator))
     }
 
@@ -858,14 +905,14 @@ module deepbook::deepbook {
         price: u64,
         quantity: u64,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     ) {
         let required_quote_u128 = trade_quote_u128(
-        (price as u128),
-        (quantity as u128),
-        base_decimals,
-        quote_decimals,
-    );
+            (price as u128),
+            (quantity as u128),
+            base_decimals,
+            quote_decimals
+        );
         assert!(required_quote_u128 > 0, E_INSUFFICIENT_LIQUIDITY);
         let _fits = checked_u64(required_quote_u128);
     }
@@ -875,7 +922,7 @@ module deepbook::deepbook {
         unmatched: u128,
         price: u128,
         base_decimals: u8,
-        quote_decimals: u8,
+        quote_decimals: u8
     ) {
         let refund_quote_u128 = trade_quote_u128(price, unmatched, base_decimals, quote_decimals);
         let _fits = checked_u64(refund_quote_u128);
@@ -898,7 +945,7 @@ module deepbook::deepbook {
     /// Helper: get locked_amount for a bid at index
     public fun get_bid_locked_amount_at<Base, Quote>(
         book: &OrderBook<Base, Quote>,
-        index: u64,
+        index: u64
     ): u64 {
         let b = vector::borrow(&book.bids, index);
         b.locked_amount
@@ -907,7 +954,7 @@ module deepbook::deepbook {
     /// Helper: get locked_amount for an ask at index
     public fun get_ask_locked_amount_at<Base, Quote>(
         book: &OrderBook<Base, Quote>,
-        index: u64,
+        index: u64
     ): u64 {
         let a = vector::borrow(&book.asks, index);
         a.locked_amount
@@ -970,7 +1017,7 @@ module deepbook::deepbook {
         book: &mut OrderBook<Base, Quote>,
         amount: u64,
         to: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         if (amount > 0) {
             let base_part = balance::split(&mut book.fee_balance_base, amount);
@@ -983,7 +1030,7 @@ module deepbook::deepbook {
         book: &mut OrderBook<Base, Quote>,
         amount: u64,
         to: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         if (amount > 0) {
             let quote_part = balance::split(&mut book.fee_balance_quote, amount);
@@ -1005,7 +1052,7 @@ module deepbook::deepbook {
     /// Test-only destroy: consumes an OrderBook, destroying all balances and
     /// the underlying UID. Used by integration tests to avoid `drop` errors.
     public fun destroy_order_book_for_testing<Base, Quote>(
-        book: OrderBook<Base, Quote>,
+        book: OrderBook<Base, Quote>
     ) {
         let OrderBook {
             id,
@@ -1027,4 +1074,5 @@ module deepbook::deepbook {
         let _ = _fb;
         let _ = _fq;
     }
+
 }

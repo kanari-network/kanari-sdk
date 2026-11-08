@@ -140,7 +140,7 @@ Create a display for <code>T</code> with a <code>name</code> field already set.
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_create_with_name">create_with_name</a>&lt;T: key, W: drop&gt;(
     pub: &Publisher&lt;W&gt;,
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
     <b>let</b> keys = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;();
     <b>let</b> values = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;();
@@ -172,7 +172,7 @@ Create an empty display for <code>T</code>.
 
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_create_empty">create_empty</a>&lt;T: key, W: drop&gt;(
     pub: &Publisher&lt;W&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
     <b>let</b> keys = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;();
     <b>let</b> values = <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;();
@@ -205,7 +205,7 @@ same length; a mismatched pair would leave a half-written field.
     pub: &Publisher&lt;W&gt;,
     keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&keys) == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&values), <a href="display.md#0x2_display_E_FIELD_COUNT_MISMATCH">E_FIELD_COUNT_MISMATCH</a>);
     <a href="display.md#0x2_display_new_display">new_display</a>&lt;T, W&gt;(pub, keys, values, ctx)
@@ -239,12 +239,15 @@ through it.
     pub: &Publisher&lt;W&gt;,
     keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
     <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a> = utf8(<a href="display.md#0x2_display_type_name_bytes">type_name_bytes</a>&lt;T&gt;());
     <b>let</b> fields = <a href="display.md#0x2_display_seed_fields">seed_fields</a>(keys, values, <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>);
-    <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), fields }
+    <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        fields
+    }
 }
 </code></pre>
 
@@ -271,7 +274,7 @@ Build the initial field map: the type name first, then every seed pair.
 <pre><code><b>fun</b> <a href="display.md#0x2_display_seed_fields">seed_fields</a>(
     keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
     values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;,
-    <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: String,
+    <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>: String
 ): VecMap&lt;String, String&gt; {
     <b>let</b> fields = <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;String, String&gt;();
     <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> fields, <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>, <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">type_name</a>);
@@ -311,7 +314,7 @@ Add or replace one field.
     <a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
     pub: &Publisher&lt;W&gt;,
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    value: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    value: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ) {
     <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="display.md#0x2_display">display</a>.fields, utf8(name), utf8(value));
@@ -342,7 +345,7 @@ off it, and losing it would make the display unattributable.
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_remove">remove</a>&lt;T: key, W: drop&gt;(
     <a href="display.md#0x2_display">display</a>: &<b>mut</b> <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
     pub: &Publisher&lt;W&gt;,
-    name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ) {
     <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> key = utf8(name);
@@ -408,7 +411,7 @@ callers that always need a string (wallets rendering a list).
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_get_with_default">get_with_default</a>&lt;T: key&gt;(
     <a href="display.md#0x2_display">display</a>: &<a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    default: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    default: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ): String {
     <b>let</b> key = utf8(name);
     <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="display.md#0x2_display">display</a>.fields, &key)) {
@@ -596,7 +599,7 @@ the <code>UID</code> needs explicit deletion.
 
 <pre><code><b>public</b> <b>fun</b> <a href="display.md#0x2_display_destroy">destroy</a>&lt;T: key, W: drop&gt;(
     <a href="display.md#0x2_display">display</a>: <a href="display.md#0x2_display_Display">Display</a>&lt;T&gt;,
-    pub: &Publisher&lt;W&gt;,
+    pub: &Publisher&lt;W&gt;
 ) {
     <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> <a href="display.md#0x2_display_Display">Display</a> { id, fields } = <a href="display.md#0x2_display">display</a>;

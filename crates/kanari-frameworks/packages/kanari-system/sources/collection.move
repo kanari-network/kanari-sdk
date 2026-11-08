@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::collection {
+
     use std::string::{String, utf8};
     use kanari_system::tx_context::{TxContext};
     use kanari_system::tx_context;
@@ -18,7 +19,7 @@ module kanari_system::collection {
         banner_url: Url,
         website_url: Url,
         creator: address,
-        max_supply: u64,
+        max_supply: u64
     }
 
     /// A capability resource that governs minting within a Collection.
@@ -31,14 +32,14 @@ module kanari_system::collection {
         id: UID,
         remaining: u64,
         issued_counter: u64,
-        collection_id: address,
+        collection_id: address
     }
 
     /// Event emitted when a collection is created (for off-chain indexing)
     struct CollectionCreated has copy, drop {
         collection_id: address,
         creator: address,
-        max_supply: u64,
+        max_supply: u64
     }
 
     const E_NO_SUPPLY: u64 = 1;
@@ -55,7 +56,7 @@ module kanari_system::collection {
         description: vector<u8>,
         banner_url: vector<u8>,
         website_url: vector<u8>,
-        max_supply: u64,
+        max_supply: u64
     ): (Collection, NftCap) {
         let id = object::new(ctx);
         let sender = tx_context::sender(ctx);
@@ -76,7 +77,8 @@ module kanari_system::collection {
             id: object::new(ctx),
             remaining: max_supply,
             issued_counter: 0,
-            collection_id: collection_addr // use the fetched address
+            collection_id: collection_addr,
+            // use the fetched address
         };
 
         event::emit(
@@ -121,7 +123,7 @@ module kanari_system::collection {
         c: &Collection,
         banner_url: vector<u8>,
         website_url: vector<u8>,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         assert!(tx_context::sender(ctx) == c.creator, E_NOT_COLLECTION_CREATOR);
         let addr = object::uid_address(&c.id);
@@ -183,7 +185,7 @@ module kanari_system::collection {
     public fun transfer_collection(
         c: Collection,
         recipient: address,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         transfer::public_transfer(c, recipient)
     }
@@ -191,7 +193,7 @@ module kanari_system::collection {
     public fun transfer_cap(
         cap: NftCap,
         recipient: address,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         transfer::public_transfer(cap, recipient)
     }
@@ -201,15 +203,19 @@ module kanari_system::collection {
         let ctx = tx_context::dummy();
 
         // create collection with small supply
-        let (coll, cap) =
-            create_collection(
-                &mut ctx,
-                b"Test Name", // name
-                b"Test Desc", // description
-                b"https://banner", // banner_url
-                b"https://web", // website_url
-                2 // max_supply
-            );
+        let (coll, cap) = create_collection(
+            &mut ctx,
+            b"Test Name",
+            // name
+            b"Test Desc",
+            // description
+            b"https://banner",
+            // banner_url
+            b"https://web",
+            // website_url
+            2,
+            // max_supply
+        );
 
         // initial checks
         assert!(remaining(&cap) == 2, 0);
@@ -233,15 +239,14 @@ module kanari_system::collection {
     #[expected_failure(abort_code = E_NO_SUPPLY)]
     fun test_return_from_burn_past_max_supply_aborts() {
         let ctx = tx_context::dummy();
-        let (coll, cap) =
-            create_collection(
-                &mut ctx,
-                b"N",
-                b"D",
-                b"https://banner",
-                b"https://web",
-                1
-            );
+        let (coll, cap) = create_collection(
+            &mut ctx,
+            b"N",
+            b"D",
+            b"https://banner",
+            b"https://web",
+            1
+        );
         consume_for_mint(&mut cap, &coll);
         return_from_burn(&mut cap, &coll);
         // remaining == max_supply already: one more return would inflate
@@ -255,24 +260,22 @@ module kanari_system::collection {
     #[expected_failure(abort_code = E_CAP_COLLECTION_MISMATCH)]
     fun test_return_from_burn_wrong_collection_aborts() {
         let ctx = tx_context::dummy();
-        let (coll_a, cap_a) =
-            create_collection(
-                &mut ctx,
-                b"A",
-                b"D",
-                b"https://banner",
-                b"https://web",
-                10
-            );
-        let (coll_b, cap_b) =
-            create_collection(
-                &mut ctx,
-                b"B",
-                b"D",
-                b"https://banner",
-                b"https://web",
-                10
-            );
+        let (coll_a, cap_a) = create_collection(
+            &mut ctx,
+            b"A",
+            b"D",
+            b"https://banner",
+            b"https://web",
+            10
+        );
+        let (coll_b, cap_b) = create_collection(
+            &mut ctx,
+            b"B",
+            b"D",
+            b"https://banner",
+            b"https://web",
+            10
+        );
         consume_for_mint(&mut cap_a, &coll_a);
         // cap_a belongs to coll_a, not coll_b.
         return_from_burn(&mut cap_a, &coll_b);
@@ -286,15 +289,14 @@ module kanari_system::collection {
     #[expected_failure(abort_code = E_NO_SUPPLY)]
     fun test_supply_cap_survives_faked_burns() {
         let ctx = tx_context::dummy();
-        let (coll, cap) =
-            create_collection(
-                &mut ctx,
-                b"N",
-                b"D",
-                b"https://banner",
-                b"https://web",
-                2
-            );
+        let (coll, cap) = create_collection(
+            &mut ctx,
+            b"N",
+            b"D",
+            b"https://banner",
+            b"https://web",
+            2
+        );
 
         // Exhaust the advertised supply.
         consume_for_mint(&mut cap, &coll);
@@ -319,4 +321,5 @@ module kanari_system::collection {
     // Test functions that require constructing a `TxContext` are executed
     // in the framework's higher-level test suites. Keep this package focused
     // on the Collection API surface.
+
 }

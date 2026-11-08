@@ -1,5 +1,6 @@
 // note: intentionally using 0xa here to test non-0x1 module addresses
 module 0xA::type_name_tests {
+
     #[test_only]
     use std::type_name::{get, into_string};
 
@@ -45,4 +46,5 @@ module 0xA::type_name_tests {
         assert!(into_string(get<TestMultiGenerics<bool, u64, u128>>()) == string(b"000000000000000000000000000000000000000000000000000000000000000a::type_name_tests::TestMultiGenerics<bool,u64,u128>"), 0);
         assert!(into_string(get<TestMultiGenerics<bool, vector<u64>, TestGenerics<u128>>>()) == string(b"000000000000000000000000000000000000000000000000000000000000000a::type_name_tests::TestMultiGenerics<bool,vector<u64>,000000000000000000000000000000000000000000000000000000000000000a::type_name_tests::TestGenerics<u128>>"), 0);
     }
+
 }

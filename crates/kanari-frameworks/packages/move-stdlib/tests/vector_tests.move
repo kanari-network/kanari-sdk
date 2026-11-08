@@ -1,5 +1,6 @@
 #[test_only]
 module std::vector_tests {
+
     use std::vector as V;
 
     struct R has store {}
@@ -498,7 +499,7 @@ module std::vector_tests {
 
         test_natives_with_type<vector<u8>>(V::empty(), V::empty());
 
-        test_natives_with_type<Droppable>(Droppable{}, Droppable{});
+        test_natives_with_type<Droppable>(Droppable {}, Droppable {});
         (NotDroppable {}, NotDroppable {}) = test_natives_with_type<NotDroppable>(
             NotDroppable {},
             NotDroppable {}
@@ -567,4 +568,5 @@ module std::vector_tests {
             i = i + 1;
         };
     }
+
 }

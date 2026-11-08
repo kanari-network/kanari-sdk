@@ -1,4 +1,5 @@
 module kanari_system::address {
+
     use kanari_system::hex;
     use std::ascii;
     use std::bcs;
@@ -63,12 +64,9 @@ module kanari_system::address {
     }
 
     fun hex_char_value(c: u8): u8 {
-        if (c >= 48 && c <= 57) c - 48
-        // 0-9
-        else if (c >= 65 && c <= 70) c - 55
-        // A-F
-        else if (c >= 97 && c <= 102) c - 87
-        // a-f
+        if (c >= 48 && c <= 57) c - 48 // 0-9
+        else if (c >= 65 && c <= 70) c - 55 // A-F
+        else if (c >= 97 && c <= 102) c - 87 // a-f
         else abort EAddressParseError
     }
 
@@ -81,4 +79,5 @@ module kanari_system::address {
     public fun max(): u256 {
         MAX
     }
+
 }

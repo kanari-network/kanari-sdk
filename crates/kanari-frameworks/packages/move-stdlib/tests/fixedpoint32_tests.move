@@ -1,5 +1,6 @@
 #[test_only]
 module std::fixed_point32_tests {
+
     use std::fixed_point32;
 
     #[test]
@@ -185,4 +186,5 @@ module std::fixed_point32_tests {
         let val = fixed_point32::round(num);
         assert!(val == 0, 0);
     }
+
 }

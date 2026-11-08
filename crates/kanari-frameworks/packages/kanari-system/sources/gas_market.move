@@ -17,6 +17,7 @@
 /// Price encoding: `price_usd_micros` = USD value of ONE whole token, scaled by
 /// 1e6. Example: KANARI at $2.00 -> 2_000_000.
 module kanari_system::gas_market {
+
     use std::vector;
     use std::string::{Self, String};
     use kanari_system::math;
@@ -56,27 +57,27 @@ module kanari_system::gas_market {
 
     /// Capability for whitelist + base-fee governance (held by DAO timelock).
     struct AdminCap has key, store {
-        id: object::UID,
+        id: object::UID
     }
 
     /// Capability for publishing price ticks (held by feeder multisig;
     /// Phase 2 migrates to a validator-median vote).
     struct FeederCap has key, store {
-        id: object::UID,
+        id: object::UID
     }
 
     /// One whitelisted gas coin.
     struct GasCoinConfig has store, copy, drop {
         coin_type: String,
         decimals: u8,
-        active: bool,
+        active: bool
     }
 
     /// USD price tick for the coin at the same index in `configs`.
     struct PriceTick has store, copy, drop {
         price_usd_micros: u64,
         updated_at_ms: u64,
-        checkpoint_seq: u64,
+        checkpoint_seq: u64
     }
 
     /// Shared oracle + fee-policy object.
@@ -86,14 +87,18 @@ module kanari_system::gas_market {
         usd_per_gas_unit_micros: u64,
         configs: vector<GasCoinConfig>,
         prices: vector<PriceTick>,
-        max_staleness_checkpoints: u64,
+        max_staleness_checkpoints: u64
     }
 
     // Publish the market objects. Called once during genesis/framework upgrade.
     #[allow(unused_function)]
     fun init(ctx: &mut TxContext) {
-        let admin = AdminCap { id: object::new(ctx) };
-        let feeder = FeederCap { id: object::new(ctx) };
+        let admin = AdminCap {
+            id: object::new(ctx)
+        };
+        let feeder = FeederCap {
+            id: object::new(ctx)
+        };
         let table = PriceTable {
             id: object::new(ctx),
             version: 1,
@@ -110,7 +115,7 @@ module kanari_system::gas_market {
     /// USD fee for `gas_units`, in micro-USD. Pure function (no state read).
     public fun quote_usd_fee_micros(
         gas_units: u64,
-        usd_per_gas_unit_micros: u64,
+        usd_per_gas_unit_micros: u64
     ): u64 {
         let fee = (gas_units as u128) * (usd_per_gas_unit_micros as u128);
         assert!(fee <= 18446744073709551615, EOVERFLOW_QUOTE);
@@ -123,20 +128,22 @@ module kanari_system::gas_market {
     public fun usd_to_token_amount(
         usd_fee_micros: u64,
         price_usd_micros: u64,
-        decimals: u8,
+        decimals: u8
     ): u64 {
         assert!(price_usd_micros > 0, EZERO_INPUT);
-        if (usd_fee_micros == 0) { return 0 };
+        if (usd_fee_micros == 0) {
+            return 0
+        };
         let scale = pow10(decimals);
-        let quoted =
-            math::mul_div_round_u128(
-                (usd_fee_micros as u128),
-                (scale as u128),
-                (price_usd_micros as u128),
-                true
-            );
-        if (quoted == 0) { 1 }
-        else {
+        let quoted = math::mul_div_round_u128(
+            (usd_fee_micros as u128),
+            (scale as u128),
+            (price_usd_micros as u128),
+            true
+        );
+        if (quoted == 0) {
+            1
+        } else {
             assert!(quoted <= 18446744073709551615, EOVERFLOW_QUOTE);
             (quoted as u64)
         }
@@ -147,7 +154,7 @@ module kanari_system::gas_market {
         gas_units: u64,
         usd_per_gas_unit_micros: u64,
         price_usd_micros: u64,
-        decimals: u8,
+        decimals: u8
     ): u64 {
         let fee = quote_usd_fee_micros(gas_units, usd_per_gas_unit_micros);
         usd_to_token_amount(fee, price_usd_micros, decimals)
@@ -171,7 +178,7 @@ module kanari_system::gas_market {
         decimals: u8,
         price_usd_micros: u64,
         now_ms: u64,
-        checkpoint_seq: u64,
+        checkpoint_seq: u64
     ) {
         let name = string::utf8(coin_type);
         assert!(is_supported_gas_coin(&name), EUNSUPPORTED_GAS_COIN);
@@ -188,7 +195,11 @@ module kanari_system::gas_market {
         } else {
             vector::push_back(
                 &mut table.configs,
-                GasCoinConfig { coin_type: name, decimals, active: true }
+                GasCoinConfig {
+                    coin_type: name,
+                    decimals,
+                    active: true
+                }
             );
             vector::push_back(
                 &mut table.prices,
@@ -207,7 +218,7 @@ module kanari_system::gas_market {
         _: &AdminCap,
         table: &mut PriceTable,
         coin_type: String,
-        active: bool,
+        active: bool
     ) {
         let i = find_config(table, &coin_type);
         assert!(i < vector::length(&table.configs), EUNSUPPORTED_GAS_COIN);
@@ -220,7 +231,7 @@ module kanari_system::gas_market {
     public fun set_usd_per_gas_unit(
         _: &AdminCap,
         table: &mut PriceTable,
-        v: u64,
+        v: u64
     ) {
         assert!(v > 0, EZERO_INPUT);
         table.usd_per_gas_unit_micros = v;
@@ -234,7 +245,7 @@ module kanari_system::gas_market {
         coin_types: vector<String>,
         prices_usd_micros: vector<u64>,
         now_ms: u64,
-        checkpoint_seq: u64,
+        checkpoint_seq: u64
     ) {
         let len = vector::length(&coin_types);
         assert!(len == vector::length(&prices_usd_micros), ELENGTH_MISMATCH);
@@ -261,7 +272,7 @@ module kanari_system::gas_market {
         coin_type: String,
         gas_units: u64,
         current_checkpoint: u64,
-        max_price_per_unit: u64,
+        max_price_per_unit: u64
     ): u64 {
         assert!(is_supported_gas_coin(&coin_type), EUNSUPPORTED_GAS_COIN);
         let i = find_config(table, &coin_type);
@@ -274,13 +285,12 @@ module kanari_system::gas_market {
             current_checkpoint <= tick.checkpoint_seq + table.max_staleness_checkpoints,
             ESTALE_PRICE
         );
-        let amount =
-            quote_in_token(
-                gas_units,
-                table.usd_per_gas_unit_micros,
-                tick.price_usd_micros,
-                cfg.decimals
-            );
+        let amount = quote_in_token(
+            gas_units,
+            table.usd_per_gas_unit_micros,
+            tick.price_usd_micros,
+            cfg.decimals
+        );
         // Slippage cap is expressed per gas unit in token base units.
         // Compared in u128 so a huge cap cannot overflow-abort the check.
         assert!(
@@ -293,7 +303,9 @@ module kanari_system::gas_market {
     fun find_config(table: &PriceTable, coin_type: &String): u64 {
         let (i, len) = (0, vector::length(&table.configs));
         while (i < len) {
-            if (vector::borrow(&table.configs, i).coin_type == *coin_type) { return i };
+            if (vector::borrow(&table.configs, i).coin_type == *coin_type) {
+                return i
+            };
             i = i + 1;
         };
         len
@@ -352,7 +364,9 @@ module kanari_system::gas_market {
     #[expected_failure(abort_code = EZERO_INPUT)]
     fun test_zero_base_fee_rejected() {
         let ctx = tx_context::dummy();
-        let admin = AdminCap { id: object::new(&mut ctx) };
+        let admin = AdminCap {
+            id: object::new(&mut ctx)
+        };
         let table = PriceTable {
             id: object::new(&mut ctx),
             version: 1,
@@ -370,7 +384,9 @@ module kanari_system::gas_market {
     #[expected_failure(abort_code = EINVALID_DECIMALS)]
     fun test_register_coin_bad_decimals_aborts() {
         let ctx = tx_context::dummy();
-        let admin = AdminCap { id: object::new(&mut ctx) };
+        let admin = AdminCap {
+            id: object::new(&mut ctx)
+        };
         let table = PriceTable {
             id: object::new(&mut ctx),
             version: 1,
@@ -380,9 +396,16 @@ module kanari_system::gas_market {
             max_staleness_checkpoints: 600
         };
         register_gas_coin(
-            &admin, &mut table, b"0x2::kanari::KANARI", 19, 1_000_000, 0, 0
+            &admin,
+            &mut table,
+            b"0x2::kanari::KANARI",
+            19,
+            1_000_000,
+            0,
+            0
         );
         transfer::public_transfer(admin, tx_context::sender(&ctx));
         transfer::share_object(table);
     }
+
 }

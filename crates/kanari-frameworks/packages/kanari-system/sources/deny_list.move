@@ -13,6 +13,7 @@
 /// `pay::join_vec_and_transfer_checked`, `multisig::execute_transfer_checked`)
 /// consult this list via `coin::deny_list_contains`.
 module kanari_system::deny_list {
+
     // Only framework wrappers may mutate the registry. They derive the key
     // from a type or collection and gate writes behind the matching cap.
     // Without this, any package could deny-list an arbitrary
@@ -65,7 +66,7 @@ module kanari_system::deny_list {
     /// `(per_type_index, per_type_key)`.
     struct DenyList has key, store {
         id: UID,
-        lists: Bag,
+        lists: Bag
     }
 
     /// Deny data for one object family: counts of how many types each
@@ -73,7 +74,7 @@ module kanari_system::deny_list {
     /// overwhelmingly common undenied case.
     struct PerTypeList has key, store {
         id: UID,
-        denied_count: Table<address, u64>,
+        denied_count: Table<address, u64>
     }
 
     /// The address set denied for one `(per_type_index, per_type_key)`,
@@ -85,20 +86,20 @@ module kanari_system::deny_list {
     struct TypeDenySet has key, store {
         id: UID,
         addresses: VecSet<address>,
-        paused: bool,
+        paused: bool
     }
 
     /// Dynamic-object-field key for a per-type set: essentially a
     /// `(per_type_index, per_type_key)` pair.
     struct DenyKey has copy, drop, store {
         per_type_index: u64,
-        per_type_key: vector<u8>,
+        per_type_key: vector<u8>
     }
 
     /// Capability minted by `coin::create_regulated_currency`. Possession of
     /// `&DenyCap<T>` authorizes writes to `T`'s deny entries.
     struct DenyCap<phantom T> has key, store, drop {
-        id: object::UID,
+        id: object::UID
     }
 
     /// Bag index reserved for coin deny entries (used by `coin.move`).
@@ -134,13 +135,18 @@ module kanari_system::deny_list {
         assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress);
         let lists = bag::new(ctx);
         bag::add(&mut lists, COIN_INDEX, per_type_list(ctx));
-        transfer::share_object(DenyList { id: object::new(ctx), lists });
+        transfer::share_object(
+            DenyList {
+                id: object::new(ctx),
+                lists
+            }
+        );
     }
 
     fun per_type_list(ctx: &mut TxContext): PerTypeList {
         PerTypeList {
             id: object::new(ctx),
-            denied_count: table::new(ctx),
+            denied_count: table::new(ctx)
         }
     }
 
@@ -156,7 +162,10 @@ module kanari_system::deny_list {
     public fun new_for_testing(ctx: &mut TxContext): DenyList {
         let lists = bag::new(ctx);
         bag::add(&mut lists, COIN_INDEX, per_type_list(ctx));
-        DenyList { id: object::new(ctx), lists }
+        DenyList {
+            id: object::new(ctx),
+            lists
+        }
     }
 
     /// Create a `DenyCap` while constructing a regulated currency.
@@ -166,12 +175,16 @@ module kanari_system::deny_list {
     /// arbitrary addresses for arbitrary coin types and bypass every check in
     /// `coin`. `coin::create_regulated_currency` is the only minting path.
     public(friend) fun new_denycap<T>(ctx: &mut TxContext): DenyCap<T> {
-        DenyCap<T> { id: object::new(ctx) }
+        DenyCap<T> {
+            id: object::new(ctx)
+        }
     }
 
     #[test_only]
     public fun new_denycap_for_testing<T>(ctx: &mut TxContext): DenyCap<T> {
-        DenyCap<T> { id: object::new(ctx) }
+        DenyCap<T> {
+            id: object::new(ctx)
+        }
     }
 
     /// Add `addr` to the deny set for `type` under `per_type_index`. The
@@ -185,7 +198,7 @@ module kanari_system::deny_list {
         per_type_index: u64,
         `type`: vector<u8>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(!is_reserved(addr), EInvalidAddress);
         // The genesis singleton is created with an empty `lists` bag (its
@@ -195,7 +208,10 @@ module kanari_system::deny_list {
         if (!bag::contains(&deny_list.lists, per_type_index)) {
             bag::add(&mut deny_list.lists, per_type_index, per_type_list(ctx));
         };
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         if (ofield::exists_(&deny_list.id, key)) {
             let set: &mut TypeDenySet = ofield::borrow_mut(&mut deny_list.id, key);
             if (vec_set::contains(&set.addresses, &addr)) return;
@@ -204,7 +220,7 @@ module kanari_system::deny_list {
             let set = TypeDenySet {
                 id: object::new(ctx),
                 addresses: vec_set::singleton(addr),
-                paused: false,
+                paused: false
             };
             ofield::add(&mut deny_list.id, key, set);
         };
@@ -224,10 +240,13 @@ module kanari_system::deny_list {
         deny_list: &mut DenyList,
         per_type_index: u64,
         `type`: vector<u8>,
-        addr: address,
+        addr: address
     ) {
         assert!(!is_reserved(addr), EInvalidAddress);
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         assert!(ofield::exists_(&deny_list.id, key), ENotDenied);
         let set: &mut TypeDenySet = ofield::borrow_mut(&mut deny_list.id, key);
         assert!(vec_set::contains(&set.addresses, &addr), ENotDenied);
@@ -246,14 +265,17 @@ module kanari_system::deny_list {
         deny_list: &DenyList,
         per_type_index: u64,
         `type`: vector<u8>,
-        addr: address,
+        addr: address
     ): bool {
         if (is_reserved(addr)) return false;
         if (!bag::contains(&deny_list.lists, per_type_index)) return false;
         let list: &PerTypeList = bag::borrow(&deny_list.lists, per_type_index);
         if (!table::contains(&list.denied_count, addr)) return false;
         if (*table::borrow(&list.denied_count, addr) == 0) return false;
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         if (!ofield::exists_(&deny_list.id, key)) return false;
         let set: &TypeDenySet = ofield::borrow(&deny_list.id, key);
         vec_set::contains(&set.addresses, &addr)
@@ -276,9 +298,12 @@ module kanari_system::deny_list {
         deny_list: &mut DenyList,
         per_type_index: u64,
         `type`: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         if (ofield::exists_(&deny_list.id, key)) {
             let set: &mut TypeDenySet = ofield::borrow_mut(&mut deny_list.id, key);
             set.paused = true;
@@ -286,7 +311,7 @@ module kanari_system::deny_list {
             let set = TypeDenySet {
                 id: object::new(ctx),
                 addresses: vec_set::empty(),
-                paused: true,
+                paused: true
             };
             ofield::add(&mut deny_list.id, key, set);
         };
@@ -297,9 +322,12 @@ module kanari_system::deny_list {
     public(friend) fun v2_disable_global_pause(
         deny_list: &mut DenyList,
         per_type_index: u64,
-        `type`: vector<u8>,
+        `type`: vector<u8>
     ) {
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         if (!ofield::exists_(&deny_list.id, key)) return;
         let set: &mut TypeDenySet = ofield::borrow_mut(&mut deny_list.id, key);
         set.paused = false;
@@ -309,11 +337,15 @@ module kanari_system::deny_list {
     public fun v2_is_global_pause_enabled(
         deny_list: &DenyList,
         per_type_index: u64,
-        `type`: vector<u8>,
+        `type`: vector<u8>
     ): bool {
-        let key = DenyKey { per_type_index, per_type_key: `type` };
+        let key = DenyKey {
+            per_type_index,
+            per_type_key: `type`
+        };
         if (!ofield::exists_(&deny_list.id, key)) return false;
         let set: &TypeDenySet = ofield::borrow(&deny_list.id, key);
         set.paused
     }
+
 }

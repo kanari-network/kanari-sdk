@@ -9,6 +9,7 @@
 //! collected fees.
 
 module deepbook::registry {
+
     use kanari_system::event;
     use kanari_system::object;
     use kanari_system::table::{Self, Table};
@@ -33,25 +34,25 @@ module deepbook::registry {
         // owner of the registry (can change book admins)
         owner: address,
         // Maps book address -> admin address (who can withdraw fees)
-        admins: Table<address, address>,
+        admins: Table<address, address>
     }
 
     // Events
     public struct OrderBookRegistryCreated has copy, drop {
-        registry_id: address,
+        registry_id: address
     }
 
     public struct FeesWithdrawn has copy, drop {
         book_id: address,
         to: address,
         base_amount: u64,
-        quote_amount: u64,
+        quote_amount: u64
     }
 
     public struct BookAdminChanged has copy, drop {
         registry_id: address,
         book_id: address,
-        new_admin: address,
+        new_admin: address
     }
 
     // ---------------------------------------------------------------------------
@@ -62,19 +63,23 @@ module deepbook::registry {
     public fun compare_vectors(v1: &vector<u8>, v2: &vector<u8>): bool {
         let len1 = vector::length(v1);
         let len2 = vector::length(v2);
-        let min_len = if (len1 < len2) { len1 } else { len2 };
+        let min_len = if (len1 < len2) {
+            len1
+        } else {
+            len2
+        };
 
         let mut i = 0;
         while (i < min_len) {
-        let b1 = *vector::borrow(v1, i);
-        let b2 = *vector::borrow(v2, i);
-        if (b1 < b2) {
-            return true
-        } else if (b1 > b2) {
-            return false
+            let b1 = *vector::borrow(v1, i);
+            let b2 = *vector::borrow(v2, i);
+            if (b1 < b2) {
+                return true
+            } else if (b1 > b2) {
+                return false
+            };
+            i = i + 1;
         };
-        i = i + 1;
-    };
 
         // If all bytes equal up to min_len, shorter vector is "less"
         len1 <= len2
@@ -91,10 +96,10 @@ module deepbook::registry {
 
         // Sort type names so pair order doesn't matter
         let (first, second) = if (compare_vectors(&ty_x, &ty_y)) {
-        (ty_x, ty_y)
-    } else {
-        (ty_y, ty_x)
-    };
+            (ty_x, ty_y)
+        } else {
+            (ty_y, ty_x)
+        };
 
         let mut concat = first;
         vector::append(&mut concat, second);
@@ -108,14 +113,18 @@ module deepbook::registry {
     /// Create global registry for order books (call once during deployment)
     public fun create_global_registry(ctx: &mut TxContext): address {
         let registry = GlobalOrderBookRegistry {
-        id: object::new(ctx),
-        books: table::new(ctx),
-        owner: tx_context::sender(ctx),
-        admins: table::new(ctx),
-    };
+            id: object::new(ctx),
+            books: table::new(ctx),
+            owner: tx_context::sender(ctx),
+            admins: table::new(ctx)
+        };
 
         let registry_id = object::uid_address(&registry.id);
-        event::emit(OrderBookRegistryCreated { registry_id });
+        event::emit(
+            OrderBookRegistryCreated {
+                registry_id
+            }
+        );
         transfer::share_object(registry);
         registry_id
     }
@@ -133,10 +142,10 @@ module deepbook::registry {
     public fun get_book_address<Base, Quote>(registry: &GlobalOrderBookRegistry): Option<address> {
         let pair_hash = pair_hash<Base, Quote>();
         if (table::contains(&registry.books, pair_hash)) {
-        option::some(*table::borrow(&registry.books, pair_hash))
-    } else {
-        option::none<address>()
-    }
+            option::some(*table::borrow(&registry.books, pair_hash))
+        } else {
+            option::none<address>()
+        }
     }
 
     /// Create an order book and register it in the provided registry to prevent duplicates
@@ -146,7 +155,7 @@ module deepbook::registry {
         max_depth: u64,
         base_decimals: u8,
         quote_decimals: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(fee_bps <= 1000, E_INVALID_FEE); // max 10%
         assert!(max_depth > 0, E_INVALID_DEPTH);
@@ -155,7 +164,13 @@ module deepbook::registry {
         let pair_hash = pair_hash<Base, Quote>();
         assert!(!table::contains(&registry.books, pair_hash), E_ORDERBOOK_ALREADY_EXISTS);
 
-        let book_id = create_order_book_with_decimals<Base, Quote>(fee_bps, max_depth, base_decimals, quote_decimals, ctx);
+        let book_id = create_order_book_with_decimals<Base, Quote>(
+            fee_bps,
+            max_depth,
+            base_decimals,
+            quote_decimals,
+            ctx
+        );
 
         // Register book in registry
         table::add(&mut registry.books, pair_hash, book_id);
@@ -172,25 +187,31 @@ module deepbook::registry {
         max_depth: u64,
         base_decimals: u8,
         quote_decimals: u8,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): address {
         let pair_hash = pair_hash<Base, Quote>();
 
         // If exists, return existing address
         if (table::contains(&registry.books, pair_hash)) {
-        *table::borrow(&registry.books, pair_hash)
-    } else {
-        // create and register
-        assert!(fee_bps <= 1000, E_INVALID_FEE);
-        assert!(max_depth > 0, E_INVALID_DEPTH);
-        assert!(max_depth <= MAX_DEPTH, E_INVALID_DEPTH);
+            *table::borrow(&registry.books, pair_hash)
+        } else {
+            // create and register
+            assert!(fee_bps <= 1000, E_INVALID_FEE);
+            assert!(max_depth > 0, E_INVALID_DEPTH);
+            assert!(max_depth <= MAX_DEPTH, E_INVALID_DEPTH);
 
-        let book_id = create_order_book_with_decimals<Base, Quote>(fee_bps, max_depth, base_decimals, quote_decimals, ctx);
-        table::add(&mut registry.books, pair_hash, book_id);
-        // set creator as admin
-        table::add(&mut registry.admins, book_id, tx_context::sender(ctx));
-        book_id
-    }
+            let book_id = create_order_book_with_decimals<Base, Quote>(
+                fee_bps,
+                max_depth,
+                base_decimals,
+                quote_decimals,
+                ctx
+            );
+            table::add(&mut registry.books, pair_hash, book_id);
+            // set creator as admin
+            table::add(&mut registry.admins, book_id, tx_context::sender(ctx));
+            book_id
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -200,13 +221,13 @@ module deepbook::registry {
     /// Get admin for a book from the registry (returns None if not set)
     public fun get_book_admin(
         registry: &GlobalOrderBookRegistry,
-        book_addr: address,
+        book_addr: address
     ): Option<address> {
         if (table::contains(&registry.admins, book_addr)) {
-        option::some(*table::borrow(&registry.admins, book_addr))
-    } else {
-        option::none<address>()
-    }
+            option::some(*table::borrow(&registry.admins, book_addr))
+        } else {
+            option::none<address>()
+        }
     }
 
     /// Change book admin (only registry owner can call)
@@ -214,21 +235,23 @@ module deepbook::registry {
         registry: &mut GlobalOrderBookRegistry,
         book_addr: address,
         new_admin: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let caller = tx_context::sender(ctx);
         assert!(caller == registry.owner, E_UNAUTHORIZED);
 
         if (table::contains(&registry.admins, book_addr)) {
-        table::remove(&mut registry.admins, book_addr);
-    };
+            table::remove(&mut registry.admins, book_addr);
+        };
         table::add(&mut registry.admins, book_addr, new_admin);
 
-        event::emit(BookAdminChanged {
-        registry_id: object::uid_address(&registry.id),
-        book_id: book_addr,
-        new_admin,
-    });
+        event::emit(
+            BookAdminChanged {
+                registry_id: object::uid_address(&registry.id),
+                book_id: book_addr,
+                new_admin
+            }
+        );
     }
 
     /// Withdraw collected fees (only callable by book admin as set in registry)
@@ -238,7 +261,7 @@ module deepbook::registry {
         to: address,
         base_amount: u64,
         quote_amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let caller = tx_context::sender(ctx);
         let book_addr = book_id(book);
@@ -249,16 +272,19 @@ module deepbook::registry {
         withdraw_fee_base<Base, Quote>(book, base_amount, to, ctx);
         withdraw_fee_quote<Base, Quote>(book, quote_amount, to, ctx);
 
-        event::emit(FeesWithdrawn {
-        book_id: book_addr,
-        to,
-        base_amount,
-        quote_amount,
-    });
+        event::emit(
+            FeesWithdrawn {
+                book_id: book_addr,
+                to,
+                base_amount,
+                quote_amount
+            }
+        );
     }
 
     // ---------------------------------------------------------------------------
     // Constants (shared with deepbook module)
     // ---------------------------------------------------------------------------
     const MAX_DEPTH: u64 = 1_000_000;
+
 }

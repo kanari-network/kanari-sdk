@@ -1,24 +1,29 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::url {
+
     use std::ascii::{Self, String};
 
     /// Standard Uniform Resource Locator (URL) string.
     struct Url has store, copy, drop {
         // TODO: validate URL format
-        url: String,
+        url: String
     }
 
     /// Create a `Url`, with no validation
     public fun new_unsafe(url: String): Url {
-        Url { url }
+        Url {
+            url
+        }
     }
 
     /// Create a `Url` with no validation from bytes
     /// Note: this will abort if `bytes` is not valid ASCII
     public fun new_unsafe_from_bytes(bytes: vector<u8>): Url {
         let url = ascii::string(bytes);
-        Url { url }
+        Url {
+            url
+        }
     }
 
     /// Get inner URL
@@ -30,4 +35,5 @@ module kanari_system::url {
     public fun update(self: &mut Url, url: String) {
         self.url = url;
     }
+
 }

@@ -203,9 +203,19 @@ fn block<'s, 't>(
     opts: &FormatOptions,
     line_ending: &'static str,
 ) -> Doc<'s> {
+    // Expression blocks used as call arguments (`swap(v, i, { ... })`) get
+    // their spacing from the arg list (`, ` / newline) — a leading ` `
+    // would double-space inline and indent one extra step when broken.
+    // Statement blocks (`{ let ... }` as a block_item) already receive
+    // indentation from the enclosing block — the leading ` ` would add
+    // one extra space (`         {` instead of `        {`).
+    let is_arg = node
+        .parent()
+        .is_some_and(|p| matches!(p.kind(), "arg_list" | "call_expression" | "block_item"));
+    let open: &str = if is_arg { "{" } else { " {" };
     let members = named_children(node);
     if members.is_empty() {
-        return text(" {}");
+        return if is_arg { text("{}") } else { text(" {}") };
     }
     // Blank lines right after `{` and right before `}` are part of the
     // author's layout and are reproduced verbatim.
@@ -216,7 +226,7 @@ fn block<'s, 't>(
     );
     if line_ending.is_empty() {
         return concat(vec![
-            text(" {"),
+            text(open),
             indent(
                 concat(vec![
                     concat(hardlines(leading)),
@@ -246,7 +256,7 @@ fn block<'s, 't>(
         }
     }
     concat(vec![
-        text(" {"),
+        text(open),
         indent(
             concat(vec![concat(hardlines(leading)), concat(parts)]),
             opts,
@@ -603,15 +613,26 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 else_idx += 1;
             }
             if else_idx < named.len() {
+                let else_node = &named[else_idx];
+                let else_is_block = else_node.kind() == "block";
+                // Blocks already start with ` {`; bare exprs need a space.
+                // `else {` must be a single space — `else ` + ` {` would
+                // render as `else  {` (double space).
                 // `//` comment eats the rest of the line — break before `else`
                 if saw_line_comment {
                     parts.push(RcDoc::hardline());
-                    parts.push(text("else "));
+                    parts.push(if else_is_block {
+                        text("else")
+                    } else {
+                        text("else ")
+                    });
+                } else if else_is_block {
+                    parts.push(text(" else"));
                 } else {
                     parts.push(text(" else "));
                 }
                 // else arm may be `if` (else-if chain) or block/expr
-                parts.push(print_node(&named[else_idx], source, opts));
+                parts.push(print_node(else_node, source, opts));
             }
             concat(parts)
         }
@@ -627,18 +648,40 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 !children.is_empty() && node.end_position().row > node.start_position().row;
             breakable_comma_separated_list(node, source, opts, "(", ")", multiline)
         }
-        "while_statement" | "while_expression" => concat(vec![
-            text("while ("),
-            print_named(node, source, opts, 0),
-            text(")"),
-            print_named(node, source, opts, 1),
-        ]),
-        "for_statement" | "for_expression" => concat(vec![
-            text("for ("),
-            print_named(node, source, opts, 0),
-            text(")"),
-            print_named(node, source, opts, 1),
-        ]),
+        "while_statement" | "while_expression" => {
+            let body_node = named_children(node).get(1).copied();
+            let body = print_named(node, source, opts, 1);
+            // `while (cond) { ... }` needs no space (block starts with ` {`);
+            // `while (cond) call(...)` / expr needs a space.
+            let sep = if body_node.is_some_and(|n| n.kind() == "block") {
+                text("")
+            } else {
+                text(" ")
+            };
+            concat(vec![
+                text("while ("),
+                print_named(node, source, opts, 0),
+                text(")"),
+                sep,
+                body,
+            ])
+        }
+        "for_statement" | "for_expression" => {
+            let body_node = named_children(node).get(1).copied();
+            let body = print_named(node, source, opts, 1);
+            let sep = if body_node.is_some_and(|n| n.kind() == "block") {
+                text("")
+            } else {
+                text(" ")
+            };
+            concat(vec![
+                text("for ("),
+                print_named(node, source, opts, 0),
+                text(")"),
+                sep,
+                body,
+            ])
+        }
         "function_parameters" => {
             let children = named_children(node);
             let multiline =

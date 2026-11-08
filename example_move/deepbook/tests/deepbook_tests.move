@@ -4,6 +4,7 @@
 #[allow(unused_let_mut)]
 #[test_only]
 module deepbook::deepbook_tests {
+
     use deepbook::deepbook::{
         calculate_base_amount, calculate_base_amount_with_decimals, calculate_quote_amount,
         calculate_quote_amount_with_decimals, check_refund_overflow, create_order_book_with_decimals,
@@ -41,10 +42,8 @@ module deepbook::deepbook_tests {
 
     /// Creates TEST_BASE and TEST_QUOTE currencies and mints initial coins.
     fun setup_and_mint(ctx: &mut TxContext): (Coin<TEST_BASE>, Coin<TEST_QUOTE>) {
-        let (mut base_cap, base_meta) =
-            kanari_system::coin::create_currency<TEST_BASE>(TEST_BASE {}, BASE_DECIMALS, b"BASE", b"Test Base", b"", option::none(), ctx);
-        let (mut quote_cap, quote_meta) =
-            kanari_system::coin::create_currency<TEST_QUOTE>(TEST_QUOTE {}, QUOTE_DECIMALS, b"QUOTE", b"Test Quote", b"", option::none(), ctx);
+        let (mut base_cap, base_meta) = kanari_system::coin::create_currency<TEST_BASE>(TEST_BASE {}, BASE_DECIMALS, b"BASE", b"Test Base", b"", option::none(), ctx);
+        let (mut quote_cap, quote_meta) = kanari_system::coin::create_currency<TEST_QUOTE>(TEST_QUOTE {}, QUOTE_DECIMALS, b"QUOTE", b"Test Quote", b"", option::none(), ctx);
 
         let base_coin = mint<TEST_BASE>(&mut base_cap, 10_000_000_000, ctx); // 10 BASE
         let quote_coin = mint<TEST_QUOTE>(&mut quote_cap, 10_000_000, ctx); // 10 QUOTE
@@ -236,11 +235,22 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         assert!(get_best_ask(&book) == 1_000_000_000, 50);
@@ -248,7 +258,12 @@ module deepbook::deepbook_tests {
 
         let quote_to_pay = split_off(&mut quote_coin, 1_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, quote_to_pay, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            quote_to_pay,
+            0,
+            &mut ctx
         );
 
         assert!(get_best_bid(&book) == 0, 52);
@@ -265,16 +280,32 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         let quote_to_pay = split_off(&mut quote_coin, 2_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 2_000_000_000, quote_to_pay, 1, &mut ctx
+            &mut book,
+            1_000_000_000,
+            2_000_000_000,
+            quote_to_pay,
+            1,
+            &mut ctx
         );
 
         assert!(get_best_ask(&book) == 0, 60);
@@ -290,16 +321,32 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         let quote_to_pay = split_off(&mut quote_coin, 1_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, quote_to_pay, 2, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            quote_to_pay,
+            2,
+            &mut ctx
         );
 
         assert!(get_best_ask(&book) == 0, 70);
@@ -315,16 +362,32 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         let quote_to_pay = split_off(&mut quote_coin, 2_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 2_000_000_000, quote_to_pay, 2, &mut ctx
+            &mut book,
+            1_000_000_000,
+            2_000_000_000,
+            quote_to_pay,
+            2,
+            &mut ctx
         );
 
         destroy_order_book_for_testing(book);
@@ -336,16 +399,32 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 2_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            2_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         let quote_to_pay = split_off(&mut quote_coin, 1_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, quote_to_pay, 3, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            quote_to_pay,
+            3,
+            &mut ctx
         );
 
         assert!(get_best_bid(&book) == 1_000_000_000, 80);
@@ -361,16 +440,32 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let base_to_sell = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, base_to_sell, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            base_to_sell,
+            0,
+            &mut ctx
         );
 
         let quote_to_pay = split_off(&mut quote_coin, 2_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 2_000_000_000, 1_000_000_000, quote_to_pay, 3, &mut ctx
+            &mut book,
+            2_000_000_000,
+            1_000_000_000,
+            quote_to_pay,
+            3,
+            &mut ctx
         );
 
         destroy_order_book_for_testing(book);
@@ -382,11 +477,22 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (_base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         let quote_to_pay = split_off(&mut quote_coin, 1_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 1_000_000_000, 1_000_000_000, quote_to_pay, 0, &mut ctx
+            &mut book,
+            1_000_000_000,
+            1_000_000_000,
+            quote_to_pay,
+            0,
+            &mut ctx
         );
 
         assert!(get_bid_count(&book) == 1, 90);
@@ -406,7 +512,13 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 1000, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            1000,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         assert!(get_best_bid(&book) == 0, 100);
         assert!(get_best_ask(&book) == 0, 101);
@@ -433,24 +545,45 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 3, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            3,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         // Bid 1: price 100, qty 1 (order_id=1)
         let q1 = split_off(&mut quote_coin, 1_000_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 100_000_000, 1_000_000_000, q1, 0, &mut ctx
+            &mut book,
+            100_000_000,
+            1_000_000_000,
+            q1,
+            0,
+            &mut ctx
         );
 
         // Bid 2: price 90, qty 1 (order_id=2)
         let q2 = split_off(&mut quote_coin, 900_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 90_000_000, 1_000_000_000, q2, 0, &mut ctx
+            &mut book,
+            90_000_000,
+            1_000_000_000,
+            q2,
+            0,
+            &mut ctx
         );
 
         // Bid 3: price 80, qty 1 (order_id=3)
         let q3 = split_off(&mut quote_coin, 800_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 80_000_000, 1_000_000_000, q3, 0, &mut ctx
+            &mut book,
+            80_000_000,
+            1_000_000_000,
+            q3,
+            0,
+            &mut ctx
         );
 
         assert!(get_bid_count(&book) == 3, 120);
@@ -459,7 +592,12 @@ module deepbook::deepbook_tests {
         // Bid 4: price 95, qty 1 (order_id=4) -> evicts bid 3 (price 80, worst)
         let q4 = split_off(&mut quote_coin, 950_000, &mut ctx);
         place_bid<TEST_BASE, TEST_QUOTE>(
-            &mut book, 95_000_000, 1_000_000_000, q4, 0, &mut ctx
+            &mut book,
+            95_000_000,
+            1_000_000_000,
+            q4,
+            0,
+            &mut ctx
         );
 
         assert!(get_bid_count(&book) == 3, 122);
@@ -474,24 +612,45 @@ module deepbook::deepbook_tests {
         let mut ctx = tx_context::dummy();
         let (mut base_coin, mut quote_coin) = setup_and_mint(&mut ctx);
 
-        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(30, 3, BASE_DECIMALS, QUOTE_DECIMALS, &mut ctx);
+        let mut book = new_order_book<TEST_BASE, TEST_QUOTE>(
+            30,
+            3,
+            BASE_DECIMALS,
+            QUOTE_DECIMALS,
+            &mut ctx
+        );
 
         // Ask 1: price 100, qty 1 (order_id=1)
         let b1 = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 100_000_000, 1_000_000_000, b1, 0, &mut ctx
+            &mut book,
+            100_000_000,
+            1_000_000_000,
+            b1,
+            0,
+            &mut ctx
         );
 
         // Ask 2: price 110, qty 1 (order_id=2)
         let b2 = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 110_000_000, 1_000_000_000, b2, 0, &mut ctx
+            &mut book,
+            110_000_000,
+            1_000_000_000,
+            b2,
+            0,
+            &mut ctx
         );
 
         // Ask 3: price 120, qty 1 (order_id=3)
         let b3 = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 120_000_000, 1_000_000_000, b3, 0, &mut ctx
+            &mut book,
+            120_000_000,
+            1_000_000_000,
+            b3,
+            0,
+            &mut ctx
         );
 
         assert!(get_ask_count(&book) == 3, 130);
@@ -500,7 +659,12 @@ module deepbook::deepbook_tests {
         // Ask 4: price 105, qty 1 (order_id=4) -> evicts ask 3 (price 120, worst)
         let b4 = split_off(&mut base_coin, 1_000_000_000, &mut ctx);
         place_ask<TEST_BASE, TEST_QUOTE>(
-            &mut book, 105_000_000, 1_000_000_000, b4, 0, &mut ctx
+            &mut book,
+            105_000_000,
+            1_000_000_000,
+            b4,
+            0,
+            &mut ctx
         );
 
         assert!(get_ask_count(&book) == 3, 132);
@@ -509,4 +673,5 @@ module deepbook::deepbook_tests {
         destroy_order_book_for_testing(book);
         consume_coins(base_coin, quote_coin);
     }
+
 }

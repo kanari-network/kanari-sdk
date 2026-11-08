@@ -3,6 +3,7 @@
 
 /// Type-convention checks mirroring `sui::types`.
 module kanari_system::types {
+
     /// True iff `T` follows the one-time-witness convention: a `drop` struct
     /// named after its defining module in all caps (e.g. `my_coin::MY_COIN`).
     ///
@@ -35,4 +36,5 @@ module kanari_system::types {
         assert!(!is_one_time_witness(&w), 0);
         assert!(!is_one_time_witness<u64>(&42), 1);
     }
+
 }

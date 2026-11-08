@@ -95,7 +95,9 @@ Create an empty set.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_set.md#0x2_vec_set_empty">empty</a>&lt;K: <b>copy</b> + drop + store&gt;(): <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a>&lt;K&gt; {
-    <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a> { contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>() }
+    <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a> {
+        contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>()
+    }
 }
 </code></pre>
 
@@ -120,7 +122,9 @@ Create a single-element set.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_set.md#0x2_vec_set_singleton">singleton</a>&lt;K: <b>copy</b> + drop + store&gt;(key: K): <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a>&lt;K&gt; {
-    <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a> { contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_singleton">vector::singleton</a>(key) }
+    <a href="vec_set.md#0x2_vec_set_VecSet">VecSet</a> {
+        contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_singleton">vector::singleton</a>(key)
+    }
 }
 </code></pre>
 

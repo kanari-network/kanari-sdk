@@ -370,8 +370,12 @@ Micro-USD scale (6 decimals, USDC-style).
 
 
 <pre><code><b>fun</b> <a href="gas_market.md#0x2_gas_market_init">init</a>(ctx: &<b>mut</b> TxContext) {
-    <b>let</b> admin = <a href="gas_market.md#0x2_gas_market_AdminCap">AdminCap</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) };
-    <b>let</b> feeder = <a href="gas_market.md#0x2_gas_market_FeederCap">FeederCap</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) };
+    <b>let</b> admin = <a href="gas_market.md#0x2_gas_market_AdminCap">AdminCap</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx)
+    };
+    <b>let</b> feeder = <a href="gas_market.md#0x2_gas_market_FeederCap">FeederCap</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx)
+    };
     <b>let</b> <a href="table.md#0x2_table">table</a> = <a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         version: 1,
@@ -408,7 +412,7 @@ USD fee for <code>gas_units</code>, in micro-USD. Pure function (no state read).
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_quote_usd_fee_micros">quote_usd_fee_micros</a>(
     gas_units: u64,
-    usd_per_gas_unit_micros: u64,
+    usd_per_gas_unit_micros: u64
 ): u64 {
     <b>let</b> fee = (gas_units <b>as</b> u128) * (usd_per_gas_unit_micros <b>as</b> u128);
     <b>assert</b>!(fee &lt;= 18446744073709551615, <a href="gas_market.md#0x2_gas_market_EOVERFLOW_QUOTE">EOVERFLOW_QUOTE</a>);
@@ -441,20 +445,22 @@ protocol never under-collects; floors non-zero fees to at least 1 unit.
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_usd_to_token_amount">usd_to_token_amount</a>(
     usd_fee_micros: u64,
     price_usd_micros: u64,
-    decimals: u8,
+    decimals: u8
 ): u64 {
     <b>assert</b>!(price_usd_micros &gt; 0, <a href="gas_market.md#0x2_gas_market_EZERO_INPUT">EZERO_INPUT</a>);
-    <b>if</b> (usd_fee_micros == 0) { <b>return</b> 0 };
+    <b>if</b> (usd_fee_micros == 0) {
+        <b>return</b> 0
+    };
     <b>let</b> scale = <a href="gas_market.md#0x2_gas_market_pow10">pow10</a>(decimals);
-    <b>let</b> quoted =
-        <a href="math.md#0x2_math_mul_div_round_u128">math::mul_div_round_u128</a>(
-            (usd_fee_micros <b>as</b> u128),
-            (scale <b>as</b> u128),
-            (price_usd_micros <b>as</b> u128),
-            <b>true</b>
-        );
-    <b>if</b> (quoted == 0) { 1 }
-    <b>else</b> {
+    <b>let</b> quoted = <a href="math.md#0x2_math_mul_div_round_u128">math::mul_div_round_u128</a>(
+        (usd_fee_micros <b>as</b> u128),
+        (scale <b>as</b> u128),
+        (price_usd_micros <b>as</b> u128),
+        <b>true</b>
+    );
+    <b>if</b> (quoted == 0) {
+        1
+    } <b>else</b> {
         <b>assert</b>!(quoted &lt;= 18446744073709551615, <a href="gas_market.md#0x2_gas_market_EOVERFLOW_QUOTE">EOVERFLOW_QUOTE</a>);
         (quoted <b>as</b> u64)
     }
@@ -485,7 +491,7 @@ Full quote: gas units -> token base units. Pure function.
     gas_units: u64,
     usd_per_gas_unit_micros: u64,
     price_usd_micros: u64,
-    decimals: u8,
+    decimals: u8
 ): u64 {
     <b>let</b> fee = <a href="gas_market.md#0x2_gas_market_quote_usd_fee_micros">quote_usd_fee_micros</a>(gas_units, usd_per_gas_unit_micros);
     <a href="gas_market.md#0x2_gas_market_usd_to_token_amount">usd_to_token_amount</a>(fee, price_usd_micros, decimals)
@@ -549,7 +555,7 @@ Register (or re-enable) a gas coin. Admin only.
     decimals: u8,
     price_usd_micros: u64,
     now_ms: u64,
-    checkpoint_seq: u64,
+    checkpoint_seq: u64
 ) {
     <b>let</b> name = <a href="dependencies/move-stdlib/string.md#0x1_string_utf8">string::utf8</a>(coin_type);
     <b>assert</b>!(<a href="gas_market.md#0x2_gas_market_is_supported_gas_coin">is_supported_gas_coin</a>(&name), <a href="gas_market.md#0x2_gas_market_EUNSUPPORTED_GAS_COIN">EUNSUPPORTED_GAS_COIN</a>);
@@ -566,7 +572,11 @@ Register (or re-enable) a gas coin. Admin only.
     } <b>else</b> {
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(
             &<b>mut</b> <a href="table.md#0x2_table">table</a>.configs,
-            <a href="gas_market.md#0x2_gas_market_GasCoinConfig">GasCoinConfig</a> { coin_type: name, decimals, active: <b>true</b> }
+            <a href="gas_market.md#0x2_gas_market_GasCoinConfig">GasCoinConfig</a> {
+                coin_type: name,
+                decimals,
+                active: <b>true</b>
+            }
         );
         <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(
             &<b>mut</b> <a href="table.md#0x2_table">table</a>.prices,
@@ -605,7 +615,7 @@ Enable/disable a listed coin without touching its price. Admin only.
     _: &<a href="gas_market.md#0x2_gas_market_AdminCap">AdminCap</a>,
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a>,
     coin_type: String,
-    active: bool,
+    active: bool
 ) {
     <b>let</b> i = <a href="gas_market.md#0x2_gas_market_find_config">find_config</a>(<a href="table.md#0x2_table">table</a>, &coin_type);
     <b>assert</b>!(i &lt; <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&<a href="table.md#0x2_table">table</a>.configs), <a href="gas_market.md#0x2_gas_market_EUNSUPPORTED_GAS_COIN">EUNSUPPORTED_GAS_COIN</a>);
@@ -638,7 +648,7 @@ quote free, so it is rejected.
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_set_usd_per_gas_unit">set_usd_per_gas_unit</a>(
     _: &<a href="gas_market.md#0x2_gas_market_AdminCap">AdminCap</a>,
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a>,
-    v: u64,
+    v: u64
 ) {
     <b>assert</b>!(v &gt; 0, <a href="gas_market.md#0x2_gas_market_EZERO_INPUT">EZERO_INPUT</a>);
     <a href="table.md#0x2_table">table</a>.usd_per_gas_unit_micros = v;
@@ -672,7 +682,7 @@ Publish fresh price ticks. Feeder only; bumps version once per batch.
     coin_types: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;String&gt;,
     prices_usd_micros: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u64&gt;,
     now_ms: u64,
-    checkpoint_seq: u64,
+    checkpoint_seq: u64
 ) {
     <b>let</b> len = <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coin_types);
     <b>assert</b>!(len == <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&prices_usd_micros), <a href="gas_market.md#0x2_gas_market_ELENGTH_MISMATCH">ELENGTH_MISMATCH</a>);
@@ -719,7 +729,7 @@ failure is explicit in Move execution rather than silent under-charge.
     coin_type: String,
     gas_units: u64,
     current_checkpoint: u64,
-    max_price_per_unit: u64,
+    max_price_per_unit: u64
 ): u64 {
     <b>assert</b>!(<a href="gas_market.md#0x2_gas_market_is_supported_gas_coin">is_supported_gas_coin</a>(&coin_type), <a href="gas_market.md#0x2_gas_market_EUNSUPPORTED_GAS_COIN">EUNSUPPORTED_GAS_COIN</a>);
     <b>let</b> i = <a href="gas_market.md#0x2_gas_market_find_config">find_config</a>(<a href="table.md#0x2_table">table</a>, &coin_type);
@@ -732,13 +742,12 @@ failure is explicit in Move execution rather than silent under-charge.
         current_checkpoint &lt;= tick.checkpoint_seq + <a href="table.md#0x2_table">table</a>.max_staleness_checkpoints,
         <a href="gas_market.md#0x2_gas_market_ESTALE_PRICE">ESTALE_PRICE</a>
     );
-    <b>let</b> amount =
-        <a href="gas_market.md#0x2_gas_market_quote_in_token">quote_in_token</a>(
-            gas_units,
-            <a href="table.md#0x2_table">table</a>.usd_per_gas_unit_micros,
-            tick.price_usd_micros,
-            cfg.decimals
-        );
+    <b>let</b> amount = <a href="gas_market.md#0x2_gas_market_quote_in_token">quote_in_token</a>(
+        gas_units,
+        <a href="table.md#0x2_table">table</a>.usd_per_gas_unit_micros,
+        tick.price_usd_micros,
+        cfg.decimals
+    );
     // Slippage cap is expressed per gas unit in token base units.
     // Compared in u128 so a huge cap cannot overflow-<b>abort</b> the check.
     <b>assert</b>!(
@@ -771,7 +780,9 @@ failure is explicit in Move execution rather than silent under-charge.
 <pre><code><b>fun</b> <a href="gas_market.md#0x2_gas_market_find_config">find_config</a>(<a href="table.md#0x2_table">table</a>: &<a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a>, coin_type: &String): u64 {
     <b>let</b> (i, len) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&<a href="table.md#0x2_table">table</a>.configs));
     <b>while</b> (i &lt; len) {
-        <b>if</b> (<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="table.md#0x2_table">table</a>.configs, i).coin_type == *coin_type) { <b>return</b> i };
+        <b>if</b> (<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&<a href="table.md#0x2_table">table</a>.configs, i).coin_type == *coin_type) {
+            <b>return</b> i
+        };
         i = i + 1;
     };
     len

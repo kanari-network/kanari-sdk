@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::coin {
+
     use std::option;
     use std::vector;
     use std::string;
@@ -50,7 +51,7 @@ module kanari_system::coin {
     /// Coin resource wrapper with balance (Removed `drop` for asset safety)
     struct Coin<phantom T> has key, store {
         id: object::UID,
-        balance: Balance<T>,
+        balance: Balance<T>
     }
 
     /// Capability allowing the bearer to mint and burn coins (Removed `drop`)
@@ -67,7 +68,7 @@ module kanari_system::coin {
         name: string::String,
         symbol: ascii::String,
         description: string::String,
-        icon_url: option::Option<url::Url>,
+        icon_url: option::Option<url::Url>
     }
 
     // --- Public Functions ---
@@ -81,7 +82,7 @@ module kanari_system::coin {
         name_bytes: vector<u8>,
         description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<T>, CoinMetadata<T>) {
         // One canonical currency per coin type: the host rejects a second
         // claim for `T`, so mint authority cannot fragment across caps.
@@ -94,7 +95,10 @@ module kanari_system::coin {
         let name = string::utf8(name_bytes);
         let description = string::utf8(description_bytes);
 
-        let treasury_cap = TreasuryCap<T> { id: object::new(ctx), total_supply: 0 };
+        let treasury_cap = TreasuryCap<T> {
+            id: object::new(ctx),
+            total_supply: 0
+        };
         let metadata = CoinMetadata<T> {
             id: object::new(ctx),
             decimals,
@@ -128,7 +132,7 @@ module kanari_system::coin {
         name_bytes: vector<u8>,
         description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (
         TreasuryCap<T>, kanari_system::deny_list::DenyCap<T>, CoinMetadata<T>
     ) {
@@ -141,7 +145,10 @@ module kanari_system::coin {
         let name = string::utf8(name_bytes);
         let description = string::utf8(description_bytes);
 
-        let treasury_cap = TreasuryCap<T> { id: object::new(ctx), total_supply: 0 };
+        let treasury_cap = TreasuryCap<T> {
+            id: object::new(ctx),
+            total_supply: 0
+        };
         let denycap = kanari_system::deny_list::new_denycap<T>(ctx);
         let metadata = CoinMetadata<T> {
             id: object::new(ctx),
@@ -175,7 +182,7 @@ module kanari_system::coin {
         deny_list: &mut DenyList,
         _cap: &DenyCap<T>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         deny_list::v1_add(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr, ctx);
     }
@@ -185,7 +192,7 @@ module kanari_system::coin {
         deny_list: &mut DenyList,
         _cap: &DenyCap<T>,
         addr: address,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         deny_list::v1_remove(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr);
     }
@@ -200,7 +207,7 @@ module kanari_system::coin {
     public fun deny_list_pause<T>(
         deny_list: &mut DenyList,
         _cap: &DenyCap<T>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         deny_list::v2_enable_global_pause(
             deny_list,
@@ -214,7 +221,7 @@ module kanari_system::coin {
     public fun deny_list_unpause<T>(
         deny_list: &mut DenyList,
         _cap: &DenyCap<T>,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         deny_list::v2_disable_global_pause(deny_list, deny_list::coin_index(), deny_type_key<T>());
     }
@@ -222,7 +229,11 @@ module kanari_system::coin {
     /// Open read: true iff `T` is currently paused. The `*_checked`
     /// transfer paths reject paused types alongside denied addresses.
     public fun deny_list_paused<T>(deny_list: &DenyList): bool {
-        deny_list::v2_is_global_pause_enabled(deny_list, deny_list::coin_index(), deny_type_key<T>())
+        deny_list::v2_is_global_pause_enabled(
+            deny_list,
+            deny_list::coin_index(),
+            deny_type_key<T>()
+        )
     }
 
     /// Singleton-based deny read: like `deny_list_contains`, but resolves
@@ -233,7 +244,7 @@ module kanari_system::coin {
             deny_list::borrow_singleton(),
             deny_list::coin_index(),
             deny_type_key<T>(),
-            addr,
+            addr
         )
     }
 
@@ -243,7 +254,7 @@ module kanari_system::coin {
         deny_list::v2_is_global_pause_enabled(
             deny_list::borrow_singleton(),
             deny_list::coin_index(),
-            deny_type_key<T>(),
+            deny_type_key<T>()
         )
     }
 
@@ -270,7 +281,7 @@ module kanari_system::coin {
     /// `EGlobalPauseNotAllowed`.
     struct DenyCapV2<phantom T> has key, store {
         id: object::UID,
-        allow_global_pause: bool,
+        allow_global_pause: bool
     }
 
     /// Immutable link between a regulated coin's metadata and its deny cap.
@@ -280,7 +291,7 @@ module kanari_system::coin {
     struct RegulatedCoinMetadata<phantom T> has key, store {
         id: object::UID,
         coin_metadata_object: address,
-        deny_cap_object: address,
+        deny_cap_object: address
     }
 
     /// Create a regulated currency with a v2 deny cap. Like
@@ -295,7 +306,7 @@ module kanari_system::coin {
         description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
         allow_global_pause: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<T>, DenyCapV2<T>, CoinMetadata<T>) {
         // `create_currency` claims the witness: one canonical currency per T.
         let (treasury_cap, metadata) = create_currency(
@@ -305,14 +316,19 @@ module kanari_system::coin {
             name_bytes,
             description_bytes,
             icon_url,
-            ctx,
+            ctx
         );
-        let deny_cap = DenyCapV2 { id: object::new(ctx), allow_global_pause };
-        transfer::freeze_object(RegulatedCoinMetadata<T> {
+        let deny_cap = DenyCapV2 {
             id: object::new(ctx),
-            coin_metadata_object: object::uid_address(&metadata.id),
-            deny_cap_object: object::uid_address(&deny_cap.id),
-        });
+            allow_global_pause
+        };
+        transfer::freeze_object(
+            RegulatedCoinMetadata<T> {
+                id: object::new(ctx),
+                coin_metadata_object: object::uid_address(&metadata.id),
+                deny_cap_object: object::uid_address(&deny_cap.id)
+            }
+        );
         (treasury_cap, deny_cap, metadata)
     }
 
@@ -326,7 +342,7 @@ module kanari_system::coin {
         deny_list: &mut DenyList,
         _cap: &DenyCapV2<T>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         deny_list::v1_add(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr, ctx);
     }
@@ -336,7 +352,7 @@ module kanari_system::coin {
         deny_list: &mut DenyList,
         _cap: &DenyCapV2<T>,
         addr: address,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         deny_list::v1_remove(deny_list, deny_list::coin_index(), deny_type_key<T>(), addr);
     }
@@ -351,7 +367,7 @@ module kanari_system::coin {
     public fun deny_list_v2_enable_global_pause<T>(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<T>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         assert!(cap.allow_global_pause, EGlobalPauseNotAllowed);
         deny_list::v2_enable_global_pause(
@@ -366,7 +382,7 @@ module kanari_system::coin {
     public fun deny_list_v2_disable_global_pause<T>(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<T>,
-        _ctx: &mut TxContext,
+        _ctx: &mut TxContext
     ) {
         assert!(cap.allow_global_pause, EGlobalPauseNotAllowed);
         deny_list::v2_disable_global_pause(deny_list, deny_list::coin_index(), deny_type_key<T>());
@@ -374,14 +390,18 @@ module kanari_system::coin {
 
     /// Open read: true iff the global pause is enabled for `T`.
     public fun deny_list_v2_is_global_pause_enabled<T>(deny_list: &DenyList): bool {
-        deny_list::v2_is_global_pause_enabled(deny_list, deny_list::coin_index(), deny_type_key<T>())
+        deny_list::v2_is_global_pause_enabled(
+            deny_list,
+            deny_list::coin_index(),
+            deny_type_key<T>()
+        )
     }
 
     /// Mint new coins using TreasuryCap
     public fun mint<T>(
         cap: &mut TreasuryCap<T>,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Coin<T> {
         assert!(amount > 0, EZERO_AMOUNT);
         let new_total = cap.total_supply + amount;
@@ -399,7 +419,7 @@ module kanari_system::coin {
         cap: &mut TreasuryCap<T>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let coin = mint(cap, amount, ctx);
         transfer::public_transfer(coin, recipient);
@@ -426,7 +446,10 @@ module kanari_system::coin {
 
     /// Construct a `Coin<T>` from a `Balance<T>`.
     public fun from_balance<T>(balance: Balance<T>, ctx: &mut TxContext): Coin<T> {
-        Coin { id: object::new(ctx), balance }
+        Coin {
+            id: object::new(ctx),
+            balance
+        }
     }
 
     /// Get total supply from TreasuryCap
@@ -454,7 +477,10 @@ module kanari_system::coin {
 
         let new_balance = kanari_system::balance::split(&mut coin.balance, amount);
         object::save_object(coin);
-        Coin { id: object::new(ctx), balance: new_balance }
+        Coin {
+            id: object::new(ctx),
+            balance: new_balance
+        }
     }
 
     /// Join two coins together (adds the balance of 'other' into 'coin').
@@ -482,7 +508,7 @@ module kanari_system::coin {
     public fun divide_into_n<T>(
         self: &mut Coin<T>,
         n: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): vector<Coin<T>> {
         assert!(n > 0, EInvalidArg);
         assert!(n <= MAX_SPLIT_PARTS, ETOO_MANY_PARTS);
@@ -504,7 +530,7 @@ module kanari_system::coin {
     public fun update_icon_url<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        url: option::Option<url::Url>,
+        url: option::Option<url::Url>
     ) {
         let _ = treasury;
         metadata.icon_url = url;
@@ -513,7 +539,7 @@ module kanari_system::coin {
     public fun update_name<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        name: string::String,
+        name: string::String
     ) {
         let _ = treasury;
         metadata.name = name;
@@ -522,7 +548,7 @@ module kanari_system::coin {
     public fun update_symbol<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        symbol: ascii::String,
+        symbol: ascii::String
     ) {
         let _ = treasury;
         metadata.symbol = symbol;
@@ -531,9 +557,10 @@ module kanari_system::coin {
     public fun update_description<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        description: string::String,
+        description: string::String
     ) {
         let _ = treasury;
         metadata.description = description;
     }
+
 }

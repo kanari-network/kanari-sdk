@@ -103,7 +103,7 @@ regular dynamic-field path.
 <pre><code><b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_record_child">record_child</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
     name: Name,
-    child: &Value,
+    child: &Value
 );
 </code></pre>
 
@@ -129,7 +129,7 @@ Drop the <code>(parent, name)</code> link from the host child index.
 
 <pre><code><b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_unrecord_child">unrecord_child</a>&lt;Name: <b>copy</b> + drop + store&gt;(
     <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
+    name: Name
 );
 </code></pre>
 
@@ -184,7 +184,7 @@ UID-first (publish-time object rule), so their BCS opens with the
 
 <pre><code><b>native</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_field_id">field_id</a>&lt;Name: <b>copy</b> + drop + store&gt;(
     <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    name: Name
 ): <b>address</b>;
 </code></pre>
 
@@ -212,10 +212,16 @@ object <code>value</code>. Aborts if the field already exists.
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_add">add</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
     name: Name,
-    value: Value,
+    value: Value
 ) {
     <a href="dynamic_object_field.md#0x2_dynamic_object_field_record_child">record_child</a>(<a href="object.md#0x2_object">object</a>, name, &value);
-    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name }, value);
+    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        },
+        value
+    );
 }
 </code></pre>
 
@@ -242,9 +248,14 @@ Aborts if the field does not exist or has a different value type.
 
 <pre><code><b>public</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    name: Name
 ): &Value {
-    <a href="dynamic_field.md#0x2_dynamic_field_borrow">dynamic_field::borrow</a>(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name })
+    <a href="dynamic_field.md#0x2_dynamic_field_borrow">dynamic_field::borrow</a>(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        }
+    )
 }
 </code></pre>
 
@@ -271,9 +282,14 @@ Aborts if the field does not exist or has a different value type.
 
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_borrow_mut">borrow_mut</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
+    name: Name
 ): &<b>mut</b> Value {
-    <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name })
+    <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        }
+    )
 }
 </code></pre>
 
@@ -300,10 +316,15 @@ bound object. Aborts if the field does not exist.
 
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_remove">remove</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &<b>mut</b> UID,
-    name: Name,
+    name: Name
 ): Value {
     <a href="dynamic_object_field.md#0x2_dynamic_object_field_unrecord_child">unrecord_child</a>(<a href="object.md#0x2_object">object</a>, name);
-    <a href="dynamic_field.md#0x2_dynamic_field_remove">dynamic_field::remove</a>(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name })
+    <a href="dynamic_field.md#0x2_dynamic_field_remove">dynamic_field::remove</a>(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        }
+    )
 }
 </code></pre>
 
@@ -329,9 +350,14 @@ Returns true iff <code><a href="object.md#0x2_object">object</a></code> has a dy
 
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_exists_">exists_</a>&lt;Name: <b>copy</b> + drop + store&gt;(
     <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    name: Name
 ): bool {
-    <a href="dynamic_field.md#0x2_dynamic_field_exists_">dynamic_field::exists_</a>(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name })
+    <a href="dynamic_field.md#0x2_dynamic_field_exists_">dynamic_field::exists_</a>(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        }
+    )
 }
 </code></pre>
 
@@ -358,9 +384,14 @@ bound value type is exactly <code>Value</code>.
 
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_exists_with_type">exists_with_type</a>&lt;Name: <b>copy</b> + drop + store, Value: key + store&gt;(
     <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    name: Name
 ): bool {
-    <a href="dynamic_field.md#0x2_dynamic_field_exists_with_type">dynamic_field::exists_with_type</a>&lt;<a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a>&lt;Name&gt;, Value&gt;(<a href="object.md#0x2_object">object</a>, <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> { name })
+    <a href="dynamic_field.md#0x2_dynamic_field_exists_with_type">dynamic_field::exists_with_type</a>&lt;<a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a>&lt;Name&gt;, Value&gt;(
+        <a href="object.md#0x2_object">object</a>,
+        <a href="dynamic_object_field.md#0x2_dynamic_object_field_Wrapper">Wrapper</a> {
+            name
+        }
+    )
 }
 </code></pre>
 
@@ -387,7 +418,7 @@ the field does not exist.
 
 <pre><code><b>public</b> <b>fun</b> <a href="dynamic_object_field.md#0x2_dynamic_object_field_id">id</a>&lt;Name: <b>copy</b> + drop + store&gt;(
     <a href="object.md#0x2_object">object</a>: &UID,
-    name: Name,
+    name: Name
 ): Option&lt;<a href="object.md#0x2_object_ID">object::ID</a>&gt; {
     <b>if</b> (!<a href="dynamic_object_field.md#0x2_dynamic_object_field_exists_">exists_</a>(<a href="object.md#0x2_object">object</a>, name)) <b>return</b> <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>();
     <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(<a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(<a href="dynamic_object_field.md#0x2_dynamic_object_field_field_id">field_id</a>(<a href="object.md#0x2_object">object</a>, name)))

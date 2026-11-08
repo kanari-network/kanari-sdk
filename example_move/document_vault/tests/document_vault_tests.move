@@ -1,5 +1,6 @@
 #[test_only]
 module document_vault::document_vault_tests {
+
     use std::string;
     use std::vector;
     use document_vault::document_vault;
@@ -29,7 +30,7 @@ module document_vault::document_vault_tests {
             string::utf8(b"application/pdf"),
             1024,
             false,
-            &mut ctx,
+            &mut ctx
         );
 
         assert!(document_vault::owner(&doc) == OWNER, 0);
@@ -51,7 +52,7 @@ module document_vault::document_vault_tests {
             string::utf8(b"application/pdf"),
             2048,
             false,
-            &mut ctx,
+            &mut ctx
         );
 
         document_vault::grant_access_ref(&mut doc, READER, &mut ctx);
@@ -74,7 +75,7 @@ module document_vault::document_vault_tests {
             string::utf8(b"application/pdf"),
             4096,
             false,
-            &mut ctx,
+            &mut ctx
         );
 
         document_vault::update_document_ref(
@@ -85,7 +86,7 @@ module document_vault::document_vault_tests {
             string::utf8(b"application/pdf"),
             8192,
             true,
-            &mut ctx,
+            &mut ctx
         );
 
         assert!(document_vault::version(&doc) == 2, 0);
@@ -106,8 +107,9 @@ module document_vault::document_vault_tests {
             string::utf8(b"application/pdf"),
             1,
             false,
-            &mut ctx,
+            &mut ctx
         );
         document_vault::destroy_for_test(doc);
     }
+
 }

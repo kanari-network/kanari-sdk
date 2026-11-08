@@ -105,7 +105,9 @@ Return an empty <code><a href="../../dependencies/move-stdlib/option.md#0x1_opti
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_none">none</a>&lt;Element&gt;(): <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt; {
-    <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a> { vec: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>() }
+    <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a> {
+        vec: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>()
+    }
 }
 </code></pre>
 
@@ -130,7 +132,9 @@ Return an <code><a href="../../dependencies/move-stdlib/option.md#0x1_option_Opt
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_some">some</a>&lt;Element&gt;(e: Element): <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt; {
-    <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a> { vec: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_singleton">vector::singleton</a>(e) }
+    <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a> {
+        vec: <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_singleton">vector::singleton</a>(e)
+    }
 }
 </code></pre>
 
@@ -260,8 +264,7 @@ Return <code>default_ref</code> if <code>t</code> does not hold a value
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_borrow_with_default">borrow_with_default</a>&lt;Element&gt;(t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;, default_ref: &Element): &Element {
     <b>let</b> vec_ref = &t.vec;
-    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) default_ref
-    <b>else</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(vec_ref, 0)
+    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) default_ref <b>else</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(vec_ref, 0)
 }
 </code></pre>
 
@@ -288,11 +291,10 @@ Return <code>default</code> if <code>t</code> does not hold a value
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_get_with_default">get_with_default</a>&lt;Element: <b>copy</b> + drop&gt;(
     t: &<a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;,
-    default: Element,
+    default: Element
 ): Element {
     <b>let</b> vec_ref = &t.vec;
-    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) default
-    <b>else</b> *<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(vec_ref, 0)
+    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) default <b>else</b> *<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(vec_ref, 0)
 }
 </code></pre>
 
@@ -319,8 +321,7 @@ Aborts if <code>t</code> already holds a value
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_fill">fill</a>&lt;Element&gt;(t: &<b>mut</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;, e: Element) {
     <b>let</b> vec_ref = &<b>mut</b> t.vec;
-    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(vec_ref, e)
-    <b>else</b> <b>abort</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_EOPTION_IS_SET">EOPTION_IS_SET</a>
+    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(vec_ref, e) <b>else</b> <b>abort</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_EOPTION_IS_SET">EOPTION_IS_SET</a>
 }
 </code></pre>
 
@@ -432,8 +433,7 @@ Different from swap(), swap_or_fill() allows for <code>t</code> not holding a va
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_swap_or_fill">swap_or_fill</a>&lt;Element&gt;(t: &<b>mut</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;, e: Element): <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt; {
     <b>let</b> vec_ref = &<b>mut</b> t.vec;
-    <b>let</b> old_value = <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) <a href="../../dependencies/move-stdlib/option.md#0x1_option_none">none</a>()
-        <b>else</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_some">some</a>(<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(vec_ref));
+    <b>let</b> old_value = <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(vec_ref)) <a href="../../dependencies/move-stdlib/option.md#0x1_option_none">none</a>() <b>else</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_some">some</a>(<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(vec_ref));
     <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(vec_ref, e);
     old_value
 }
@@ -461,8 +461,7 @@ Destroys <code>t.</code> If <code>t</code> holds a value, return it. Returns <co
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_destroy_with_default">destroy_with_default</a>&lt;Element: drop&gt;(t: <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a>&lt;Element&gt;, default: Element): Element {
     <b>let</b> <a href="../../dependencies/move-stdlib/option.md#0x1_option_Option">Option</a> { vec } = t;
-    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(&vec)) default
-    <b>else</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> vec)
+    <b>if</b> (<a href="../../dependencies/move-stdlib/vector.md#0x1_vector_is_empty">vector::is_empty</a>(&vec)) default <b>else</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> vec)
 }
 </code></pre>
 

@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::bcs {
+
     use std::option::{Self, Option};
     use std::vector as v;
     use kanari_system::address;
@@ -19,7 +20,7 @@ module kanari_system::bcs {
     /// vector performance, it stores reversed bytes of the BCS and
     /// enables use of `vector::pop_back`.
     struct BCS has store, copy, drop {
-        bytes: vector<u8>,
+        bytes: vector<u8>
     }
 
     /// Get BCS serialized bytes for any value.
@@ -32,7 +33,9 @@ module kanari_system::bcs {
     /// bytes for better performance.
     public fun new(bytes: vector<u8>): BCS {
         v::reverse(&mut bytes);
-        BCS { bytes }
+        BCS {
+            bytes
+        }
     }
 
     /// Unpack the `BCS` struct returning the leftover bytes.
@@ -57,9 +60,11 @@ module kanari_system::bcs {
     /// Read a `bool` value from bcs-serialized bytes.
     public fun peel_bool(bcs: &mut BCS): bool {
         let value = peel_u8(bcs);
-        if (value == 0) { false }
-        else if (value == 1) { true }
-        else {
+        if (value == 0) {
+            false
+        } else if (value == 1) {
+            true
+        } else {
             abort ENotBool
         }
     }
@@ -126,7 +131,9 @@ module kanari_system::bcs {
             let byte = (v::pop_back(&mut bcs.bytes) as u64);
             len = len + 1;
             total = total | ((byte & 0x7f) << shift);
-            if ((byte & 0x80) == 0) { break };
+            if ((byte & 0x80) == 0) {
+                break
+            };
             shift = shift + 7;
         };
         total
@@ -247,7 +254,7 @@ module kanari_system::bcs {
         c: u64,
         d: u128,
         k: vector<bool>,
-        s: address,
+        s: address
     }
 
     #[test]
@@ -316,49 +323,57 @@ module kanari_system::bcs {
             assert!(value == peel_address(&mut bytes), 0);
         };
 
-        { // boolean: true
+        {
+            // boolean: true
             let value = true;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_bool(&mut bytes), 0);
         };
 
-        { // boolean: false
+        {
+            // boolean: false
             let value = false;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_bool(&mut bytes), 0);
         };
 
-        { // u8
+        {
+            // u8
             let value = 100u8;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_u8(&mut bytes), 0);
         };
 
-        { // u64 (4 bytes)
+        {
+            // u64 (4 bytes)
             let value = 1000100u64;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_u64(&mut bytes), 0);
         };
 
-        { // u64 (8 bytes)
+        {
+            // u64 (8 bytes)
             let value = 100000000000000u64;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_u64(&mut bytes), 0);
         };
 
-        { // u128 (16 bytes)
+        {
+            // u128 (16 bytes)
             let value = 100000000000000000000000000u128;
             let bytes = new(to_bytes(&value));
             assert!(value == peel_u128(&mut bytes), 0);
         };
 
-        { // vector length
+        {
+            // vector length
             let value = vector[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             let bytes = new(to_bytes(&value));
             assert!(v::length(&value) == peel_vec_length(&mut bytes), 0);
         };
 
-        { // vector length (more data)
+        {
+            // vector length (more data)
             let value = vector[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -381,7 +396,8 @@ module kanari_system::bcs {
             assert!(v::length(&value) == peel_vec_length(&mut bytes), 0);
         };
 
-        { // full deserialization test (ordering)
+        {
+            // full deserialization test (ordering)
             let info = Info {
                 a: true,
                 b: 100,
@@ -410,41 +426,48 @@ module kanari_system::bcs {
             assert!(info.s == peel_address(&mut bytes), 0);
         };
 
-        { // read vector of bytes directly
+        {
+            // read vector of bytes directly
             let value = vector[vector[1, 2, 3, 4, 5], vector[1, 2, 3, 4, 5], vector[1, 2,
             3, 4, 5]];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_vec_u8(&mut bytes), 0);
         };
 
-        { // read vector of bytes directly
+        {
+            // read vector of bytes directly
             let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u8(&mut bytes), 0);
         };
 
-        { // read vector of bytes directly
+        {
+            // read vector of bytes directly
             let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u64(&mut bytes), 0);
         };
 
-        { // read vector of bytes directly
+        {
+            // read vector of bytes directly
             let value = vector[1, 2, 3, 4, 5];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_u128(&mut bytes), 0);
         };
 
-        { // read vector of bytes directly
+        {
+            // read vector of bytes directly
             let value = vector[true, false, true, false];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_bool(&mut bytes), 0);
         };
 
-        { // read vector of address directly
+        {
+            // read vector of address directly
             let value = vector[@0x0, @0x1, @0x2, @0x3];
             let bytes = new(to_bytes(&value));
             assert!(value == peel_vec_address(&mut bytes), 0);
         };
     }
+
 }

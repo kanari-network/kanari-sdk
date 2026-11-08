@@ -828,7 +828,7 @@ so nothing is lost by dropping it here.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
-    item: T,
+    item: T
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_place">place</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, item);
     <b>let</b> _ = handle;
@@ -861,7 +861,7 @@ handle. See <code>place_item</code> for why the return value is dropped.
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     policy: &TransferPolicy&lt;T&gt;,
-    item: T,
+    item: T
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item);
     <b>let</b> _ = handle;
@@ -898,10 +898,17 @@ Lock an item, list it at <code>price</code>, and bind the seller with a
     item: T,
     price: u64,
     lockout_ms: u64,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock_with_lockout">lock_with_lockout</a>&lt;K, T&gt;(
-        <a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item, price, lockout_ms, ctx
+        <a href="kiosk.md#0x2_kiosk">kiosk</a>,
+        cap,
+        item_id,
+        policy,
+        item,
+        price,
+        lockout_ms,
+        ctx
     );
     <b>let</b> _ = handle;
 }
@@ -932,7 +939,7 @@ List the item at <code>item_id</code> for <code>price</code>.
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     price: u64,
-    ctx: &TxContext,
+    ctx: &TxContext
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
@@ -966,7 +973,7 @@ Stop selling the item at <code>item_id</code>.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
@@ -1004,7 +1011,7 @@ rather than left dangling.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
-    recipient: <b>address</b>,
+    recipient: <b>address</b>
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
@@ -1045,7 +1052,7 @@ and is what a composing module should call.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
         <a href="kiosk.md#0x2_kiosk">kiosk</a>: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.id),
@@ -1084,7 +1091,7 @@ it is locked.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
-    item: T,
+    item: T
 ): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <a href="kiosk.md#0x2_kiosk_insert_item">insert_item</a>&lt;T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, item_id, item, <b>false</b>, 0, @0x0)
@@ -1121,7 +1128,7 @@ unsellable forever.
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     item_id: ID,
     policy: &TransferPolicy&lt;T&gt;,
-    item: T,
+    item: T
 ): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     // Proof that this item is sellable. `take` will refuse a locked item,
@@ -1171,7 +1178,7 @@ the same handle starts clean.
     item: T,
     price: u64,
     lockout_ms: u64,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_lock">lock</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, item_id, policy, item);
     <a href="kiosk.md#0x2_kiosk_list_with_lockout">list_with_lockout</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, price, lockout_ms, ctx);
@@ -1209,7 +1216,7 @@ the lockout field folded in.
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     price: u64,
     lockout_ms: u64,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(price &gt; 0, <a href="kiosk.md#0x2_kiosk_E_PRICE_ZERO">E_PRICE_ZERO</a>);
@@ -1227,7 +1234,7 @@ the lockout field folded in.
         price,
         seller: <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx),
         purchase_cap: listing.purchase_cap,
-        lockout_end_ms: <a href="tx_context.md#0x2_tx_context_epoch_timestamp_ms">tx_context::epoch_timestamp_ms</a>(ctx) + lockout_ms,
+        lockout_end_ms: <a href="tx_context.md#0x2_tx_context_epoch_timestamp_ms">tx_context::epoch_timestamp_ms</a>(ctx) + lockout_ms
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
 }
@@ -1283,7 +1290,7 @@ guarantee a buyer relies on: a locked listing cannot be withdrawn.
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_take">take</a>&lt;K: key, T: key + store&gt;(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
-    handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
+    handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>
 ): T {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>let</b> listing = <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
@@ -1318,7 +1325,7 @@ stays locked; an unlocked one may still be taken back.
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     price: u64,
-    ctx: &TxContext,
+    ctx: &TxContext
 ) {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(price &gt; 0, <a href="kiosk.md#0x2_kiosk_E_PRICE_ZERO">E_PRICE_ZERO</a>);
@@ -1335,7 +1342,7 @@ stays locked; an unlocked one may still be taken back.
         price,
         seller: <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx),
         purchase_cap: listing.purchase_cap,
-        lockout_end_ms: listing.lockout_end_ms,
+        lockout_end_ms: listing.lockout_end_ms
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
 }
@@ -1368,7 +1375,7 @@ who started against this listing gets the whole window to complete.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
-    ctx: &TxContext,
+    ctx: &TxContext
 ) {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(
@@ -1386,7 +1393,7 @@ who started against this listing gets the whole window to complete.
         price: 0,
         seller: @0x0,
         purchase_cap: listing.purchase_cap,
-        lockout_end_ms: listing.lockout_end_ms,
+        lockout_end_ms: listing.lockout_end_ms
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
 }
@@ -1432,7 +1439,7 @@ buyer. A reserved listing must be filled through <code>purchase_with_cap</code>.
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     from: ID,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (T, TransferRequest&lt;T&gt;) {
     <b>let</b> listing = <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
     <b>assert</b>!(listing.price &gt; 0, <a href="kiosk.md#0x2_kiosk_E_NOT_LISTED">E_NOT_LISTED</a>);
@@ -1484,7 +1491,7 @@ holder's right, so it is rejected rather than overwritten.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(
@@ -1508,7 +1515,7 @@ holder's right, so it is rejected rather than overwritten.
         price: listing.price,
         seller: listing.seller,
         purchase_cap: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&purchase_cap.id),
-        lockout_end_ms: 0,
+        lockout_end_ms: 0
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
     purchase_cap
@@ -1545,7 +1552,7 @@ the cap rather than merely knows its id.
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">KioskOwnerCap</a>&lt;K&gt;,
     handle: <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a>,
-    purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a>,
+    purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a>
 ): <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> {
     <a href="kiosk.md#0x2_kiosk_assert_owner">assert_owner</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap);
     <b>assert</b>!(
@@ -1565,7 +1572,7 @@ the cap rather than merely knows its id.
         price: listing.price,
         seller: listing.seller,
         purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
-        lockout_end_ms: 0,
+        lockout_end_ms: 0
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, updated);
     purchase_cap
@@ -1600,7 +1607,7 @@ exactly one item and cannot be replayed.
     purchase_cap: <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     from: ID,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (T, TransferRequest&lt;T&gt;) {
     <b>let</b> listing = <a href="kiosk.md#0x2_kiosk_listing_of">listing_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &handle);
     <b>assert</b>!(listing.price &gt; 0, <a href="kiosk.md#0x2_kiosk_E_NOT_LISTED">E_NOT_LISTED</a>);
@@ -1699,7 +1706,7 @@ or another module that knows how to discharge the hot potato.
     item_id: ID,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(<a href="transfer_policy.md#0x2_transfer_policy_rule_count">transfer_policy::rule_count</a>(policy) == 0, <a href="kiosk.md#0x2_kiosk_E_POLICY_HAS_RULES">E_POLICY_HAS_RULES</a>);
     <b>let</b> handle = <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
@@ -1770,7 +1777,7 @@ seller, hand over the item, mint the request — is identical for both.
     listing: <a href="kiosk.md#0x2_kiosk_Listing">Listing</a>,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
     from: ID,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (T, TransferRequest&lt;T&gt;) {
     <b>let</b> price = listing.price;
     <b>assert</b>!(<a href="coin.md#0x2_coin_value">coin::value</a>(payment) &gt;= price, <a href="kiosk.md#0x2_kiosk_E_INSUFFICIENT_PAYMENT">E_INSUFFICIENT_PAYMENT</a>);
@@ -1785,7 +1792,7 @@ seller, hand over the item, mint the request — is identical for both.
         price: 0,
         seller: @0x0,
         purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
-        lockout_end_ms: 0,
+        lockout_end_ms: 0
     };
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, handle.item, cleared);
 
@@ -1836,7 +1843,7 @@ payouts rather than paying inline.
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_record_profit">record_profit</a>(
     <a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>,
     currency: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    amount: u64,
+    amount: u64
 ) {
     <b>let</b> current = <a href="kiosk.md#0x2_kiosk_profit_of">profit_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &currency);
     <a href="kiosk.md#0x2_kiosk_set_profit">set_profit</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, currency, current + amount);
@@ -1866,7 +1873,9 @@ Total owed in <code>currency</code>.
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk.md#0x2_kiosk_profit_of">profit_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, currency: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): u64 {
     <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, currency)) {
         *<a href="vec_map.md#0x2_vec_map_get">vec_map::get</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, currency)
-    } <b>else</b> { 0 }
+    } <b>else</b> {
+        0
+    }
 }
 </code></pre>
 
@@ -2100,7 +2109,7 @@ derives the child address from it.
     item: T,
     locked: bool,
     price: u64,
-    seller: <b>address</b>,
+    seller: <b>address</b>
 ): <a href="kiosk.md#0x2_kiosk_ItemId">ItemId</a> {
     <b>let</b> count = <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.items);
     <b>assert</b>!(count &lt; <a href="kiosk.md#0x2_kiosk_MAX_ITEMS">MAX_ITEMS</a>, <a href="kiosk.md#0x2_kiosk_E_KIOSK_FULL">E_KIOSK_FULL</a>);
@@ -2115,7 +2124,7 @@ derives the child address from it.
         price,
         seller,
         purchase_cap: <a href="object.md#0x2_object_id_from_address">object::id_from_address</a>(@0x0),
-        lockout_end_ms: 0,
+        lockout_end_ms: 0
     };
     dof::add&lt;ID, T&gt;(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.id, item_id, item);
     <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, item_id, listing);

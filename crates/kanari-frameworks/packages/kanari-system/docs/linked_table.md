@@ -170,7 +170,7 @@ Creates a new, empty table
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         size: 0,
         head: <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>(),
-        tail: <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>(),
+        tail: <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>()
     }
 }
 </code></pre>
@@ -248,7 +248,7 @@ Insert at the front. Aborts when <code>k</code> already exists.
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_push_front">push_front</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
     k: K,
-    value: V,
+    value: V
 ) {
     <b>let</b> old_head = <a href="dependencies/move-stdlib/option.md#0x1_option_swap_or_fill">option::swap_or_fill</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.head, k);
     <b>if</b> (<a href="dependencies/move-stdlib/option.md#0x1_option_is_none">option::is_none</a>(&<a href="table.md#0x2_table">table</a>.tail)) {
@@ -257,13 +257,22 @@ Insert at the front. Aborts when <code>k</code> already exists.
     <b>let</b> prev = <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>();
     <b>let</b> next = <b>if</b> (<a href="dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&old_head)) {
         <b>let</b> old_head_k = <a href="dependencies/move-stdlib/option.md#0x1_option_destroy_some">option::destroy_some</a>(old_head);
-        <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, old_head_k).prev =
-            <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(k);
+        <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, old_head_k).prev = <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(
+            k
+        );
         <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(old_head_k)
     } <b>else</b> {
         <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>()
     };
-    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k, <a href="linked_table.md#0x2_linked_table_Node">Node</a> { prev, next, value });
+    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(
+        &<b>mut</b> <a href="table.md#0x2_table">table</a>.id,
+        k,
+        <a href="linked_table.md#0x2_linked_table_Node">Node</a> {
+            prev,
+            next,
+            value
+        }
+    );
     <a href="table.md#0x2_table">table</a>.size = <a href="table.md#0x2_table">table</a>.size + 1;
 }
 </code></pre>
@@ -291,7 +300,7 @@ Insert at the back. Aborts when <code>k</code> already exists.
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_push_back">push_back</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
     k: K,
-    value: V,
+    value: V
 ) {
     <b>if</b> (<a href="dependencies/move-stdlib/option.md#0x1_option_is_none">option::is_none</a>(&<a href="table.md#0x2_table">table</a>.head)) {
         <a href="dependencies/move-stdlib/option.md#0x1_option_fill">option::fill</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.head, k);
@@ -299,14 +308,23 @@ Insert at the back. Aborts when <code>k</code> already exists.
     <b>let</b> old_tail = <a href="dependencies/move-stdlib/option.md#0x1_option_swap_or_fill">option::swap_or_fill</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.tail, k);
     <b>let</b> prev = <b>if</b> (<a href="dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&old_tail)) {
         <b>let</b> old_tail_k = <a href="dependencies/move-stdlib/option.md#0x1_option_destroy_some">option::destroy_some</a>(old_tail);
-        <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, old_tail_k).next =
-            <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(k);
+        <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, old_tail_k).next = <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(
+            k
+        );
         <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(old_tail_k)
     } <b>else</b> {
         <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>()
     };
     <b>let</b> next = <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>();
-    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k, <a href="linked_table.md#0x2_linked_table_Node">Node</a> { prev, next, value });
+    <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(
+        &<b>mut</b> <a href="table.md#0x2_table">table</a>.id,
+        k,
+        <a href="linked_table.md#0x2_linked_table_Node">Node</a> {
+            prev,
+            next,
+            value
+        }
+    );
     <a href="table.md#0x2_table">table</a>.size = <a href="table.md#0x2_table">table</a>.size + 1;
 }
 </code></pre>
@@ -333,7 +351,7 @@ Immutably borrow the value for <code>k</code>. Aborts when absent.
 
 <pre><code><b>public</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): &V {
     &<a href="dynamic_field.md#0x2_dynamic_field_borrow">dynamic_field::borrow</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<a href="table.md#0x2_table">table</a>.id, k).value
 }
@@ -361,7 +379,7 @@ Mutably borrow the value for <code>k</code>. Aborts when absent.
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_borrow_mut">borrow_mut</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): &<b>mut</b> V {
     &<b>mut</b> <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k).value
 }
@@ -389,7 +407,7 @@ The key before <code>k</code>, or <code>None</code> for the front element.
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_prev">prev</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): &Option&lt;K&gt; {
     &<a href="dynamic_field.md#0x2_dynamic_field_borrow">dynamic_field::borrow</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<a href="table.md#0x2_table">table</a>.id, k).prev
 }
@@ -417,7 +435,7 @@ The key after <code>k</code>, or <code>None</code> for the back element.
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_next">next</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): &Option&lt;K&gt; {
     &<a href="dynamic_field.md#0x2_dynamic_field_borrow">dynamic_field::borrow</a>&lt;K, <a href="linked_table.md#0x2_linked_table_Node">Node</a>&lt;K, V&gt;&gt;(&<a href="table.md#0x2_table">table</a>.id, k).next
 }
@@ -446,7 +464,7 @@ Aborts when absent.
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_remove">remove</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): V {
     <b>let</b> <a href="linked_table.md#0x2_linked_table_Node">Node</a> { prev, next, value } = <a href="dynamic_field.md#0x2_dynamic_field_remove">dynamic_field::remove</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k);
     <a href="table.md#0x2_table">table</a>.size = <a href="table.md#0x2_table">table</a>.size - 1;
@@ -493,7 +511,7 @@ Remove the front entry. Aborts <code><a href="linked_table.md#0x2_linked_table_E
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_pop_front">pop_front</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
-    <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
+    <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;
 ): (K, V) {
     <b>assert</b>!(<a href="dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&<a href="table.md#0x2_table">table</a>.head), <a href="linked_table.md#0x2_linked_table_ETableIsEmpty">ETableIsEmpty</a>);
     <b>let</b> head = *<a href="dependencies/move-stdlib/option.md#0x1_option_borrow">option::borrow</a>(&<a href="table.md#0x2_table">table</a>.head);
@@ -522,7 +540,7 @@ Remove the back entry. Aborts <code><a href="linked_table.md#0x2_linked_table_ET
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_pop_back">pop_back</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
-    <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
+    <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;
 ): (K, V) {
     <b>assert</b>!(<a href="dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&<a href="table.md#0x2_table">table</a>.tail), <a href="linked_table.md#0x2_linked_table_ETableIsEmpty">ETableIsEmpty</a>);
     <b>let</b> tail = *<a href="dependencies/move-stdlib/option.md#0x1_option_borrow">option::borrow</a>(&<a href="table.md#0x2_table">table</a>.tail);
@@ -553,7 +571,7 @@ name-based (not typed) existence.
 
 <pre><code><b>public</b> <b>fun</b> <a href="linked_table.md#0x2_linked_table_contains">contains</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<a href="linked_table.md#0x2_linked_table_LinkedTable">LinkedTable</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): bool {
     <a href="dynamic_field.md#0x2_dynamic_field_exists_">dynamic_field::exists_</a>(&<a href="table.md#0x2_table">table</a>.id, k)
 }

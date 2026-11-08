@@ -5,6 +5,7 @@
 // Tests pool creation, liquidity provision, swapping, and edge cases
 #[test_only]
 module kanari_system::dex_pool_tests {
+
     use std::vector;
 
     // =================================================================
@@ -88,8 +89,7 @@ module kanari_system::dex_pool_tests {
         let amount_in_with_fee = (amount_in * 9970) / 10000; // 100 * 9970 / 10000 = 99
 
         // Calculate output with reduced input
-        let amount_out_with_fee =
-            (amount_in_with_fee * reserve_b) / (reserve_a + amount_in_with_fee);
+        let amount_out_with_fee = (amount_in_with_fee * reserve_b) / (reserve_a + amount_in_with_fee);
 
         // With small amounts and integer division, results may be equal
         // The key is that fee reduces effective input
@@ -198,7 +198,7 @@ module kanari_system::dex_pool_tests {
         reserve_b: u64,
         k_initial: u64,
         trades: &vector<u64>,
-        index: u64,
+        index: u64
     ): bool {
         let len = vector::length(trades);
 
@@ -215,8 +215,9 @@ module kanari_system::dex_pool_tests {
             // After each trade, k should increase (representing accumulated fees)
             let new_k = new_reserve_a * new_reserve_b;
 
-            if (new_k < k_initial) { false }
-            else {
+            if (new_k < k_initial) {
+                false
+            } else {
                 // Continue with next trade
                 process_trades_recursive(
                     new_reserve_a,
@@ -247,7 +248,7 @@ module kanari_system::dex_pool_tests {
     fun validate_price_impacts(
         reserve: u64,
         trade_sizes: &vector<u64>,
-        index: u64,
+        index: u64
     ): bool {
         let len = vector::length(trade_sizes);
 
@@ -259,17 +260,19 @@ module kanari_system::dex_pool_tests {
             let output = (amount * reserve) / (reserve + amount);
             let price_impact_pct = (amount - output) * 100 / amount;
 
-            let valid =
-                if (amount == 100) {
-                    price_impact_pct < 2 // < 2% for small trade
-                } else if (amount == 1000) {
-                    price_impact_pct < 10 // < 10% for medium trade
-                } else if (amount == 5000) {
-                    price_impact_pct < 40 // < 40% for large trade
-                } else { false };
+            let valid = if (amount == 100) {
+                price_impact_pct < 2 // < 2% for small trade
+            } else if (amount == 1000) {
+                price_impact_pct < 10 // < 10% for medium trade
+            } else if (amount == 5000) {
+                price_impact_pct < 40 // < 40% for large trade
+            } else {
+                false
+            };
 
-            if (!valid) { false }
-            else {
+            if (!valid) {
+                false
+            } else {
                 // Continue validating next trade size
                 validate_price_impacts(reserve, trade_sizes, index + 1)
             }
@@ -316,4 +319,5 @@ module kanari_system::dex_pool_tests {
         let remaining_reserve_b = reserve_b - amount_out;
         assert!(remaining_reserve_b > 0, EInsufficientLiquidity);
     }
+
 }

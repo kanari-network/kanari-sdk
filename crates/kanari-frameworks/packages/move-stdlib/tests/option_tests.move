@@ -1,5 +1,6 @@
 #[test_only]
 module std::option_tests {
+
     use std::option;
     use std::vector;
 
@@ -167,4 +168,5 @@ module std::option_tests {
         let v: vector<u64> = option::to_vec(option::none());
         assert!(vector::is_empty(&v), 0);
     }
+
 }

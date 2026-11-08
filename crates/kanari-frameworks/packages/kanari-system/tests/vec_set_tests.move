@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::vec_set_tests {
+
     use kanari_system::vec_set;
 
     #[test]
@@ -60,4 +61,5 @@ module kanari_system::vec_set_tests {
         assert!(std::vector::length(&moved) == 3, 4);
         assert!(*std::vector::borrow(&moved, 0) == 30, 5);
     }
+
 }

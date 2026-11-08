@@ -436,7 +436,14 @@ Aborts if <code>i</code> is out of bounds.
     <b>if</b> (i &gt;= len) <b>abort</b> <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_EINDEX_OUT_OF_BOUNDS">EINDEX_OUT_OF_BOUNDS</a>;
 
     len = len - 1;
-    <b>while</b> (i &lt; len) <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_swap">swap</a>(v, i, { i = i + 1; i });
+    <b>while</b> (i &lt; len) <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_swap">swap</a>(
+        v,
+        i,
+        {
+            i = i + 1;
+            i
+        }
+    );
     <a href="../../dependencies/move-stdlib/vector.md#0x1_vector_pop_back">pop_back</a>(v)
 }
 </code></pre>

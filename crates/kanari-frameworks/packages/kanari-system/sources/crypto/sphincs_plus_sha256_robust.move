@@ -4,6 +4,7 @@
 /// FIPS 205 SLH-DSA-SHA2-256f verification.
 /// This is the standardized successor of SPHINCS+ SHA256-256f-robust.
 module kanari_system::sphincs_plus_sha256_robust {
+
     const PUBLIC_KEY_LENGTH: u64 = 64;
     const SIGNATURE_LENGTH: u64 = 49856;
 
@@ -18,7 +19,7 @@ module kanari_system::sphincs_plus_sha256_robust {
     public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -76,4 +77,5 @@ module kanari_system::sphincs_plus_sha256_robust {
             1
         );
     }
+
 }

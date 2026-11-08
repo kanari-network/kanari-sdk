@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::vec_map_tests {
+
     use std::option;
     use std::vector;
     use kanari_system::vec_map;
@@ -83,4 +84,5 @@ module kanari_system::vec_map_tests {
         assert!(k3 == 8 && v3 == 80, 3);
         vec_map::destroy_empty(m);
     }
+
 }

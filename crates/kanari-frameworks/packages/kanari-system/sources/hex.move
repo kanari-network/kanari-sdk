@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::hex {
+
     use std::vector;
 
     const EInvalidHexLength: u64 = 0;
@@ -36,8 +37,7 @@ module kanari_system::hex {
         let (i, r, l) = (0, vector[], vector::length(&hex));
         assert!(l % 2 == 0, EInvalidHexLength);
         while (i < l) {
-            let decimal =
-                (decode_byte(*vector::borrow(&hex, i)) * 16)
+            let decimal = (decode_byte(*vector::borrow(&hex, i)) * 16)
                     + decode_byte(*vector::borrow(&hex, i + 1));
             vector::push_back(&mut r, decimal);
             i = i + 2;
@@ -46,10 +46,11 @@ module kanari_system::hex {
     }
 
     fun decode_byte(hex: u8): u8 {
-        if (/* 0 .. 9 */ 48 <= hex && hex < 58) { hex - 48 }
-        else if (/* A .. F */ 65 <= hex && hex < 71) {
+        if (/* 0 .. 9 */48 <= hex && hex < 58) {
+            hex - 48
+        } else if (/* A .. F */65 <= hex && hex < 71) {
             10 + hex - 65
-        } else if (/* a .. f */ 97 <= hex && hex < 103) {
+        } else if (/* a .. f */97 <= hex && hex < 103) {
             10 + hex - 97
         } else {
             abort ENotValidHexCharacter
@@ -112,4 +113,5 @@ module kanari_system::hex {
     fun test_hex_decode__invalid_string_literal() {
         decode(b"0g");
     }
+
 }

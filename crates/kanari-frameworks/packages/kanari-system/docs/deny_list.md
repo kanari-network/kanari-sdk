@@ -420,7 +420,12 @@ the singleton from runtime genesis at <code><a href="deny_list.md#0x2_deny_list_
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="deny_list.md#0x2_deny_list_ENotSystemAddress">ENotSystemAddress</a>);
     <b>let</b> lists = <a href="bag.md#0x2_bag_new">bag::new</a>(ctx);
     <a href="bag.md#0x2_bag_add">bag::add</a>(&<b>mut</b> lists, <a href="deny_list.md#0x2_deny_list_COIN_INDEX">COIN_INDEX</a>, <a href="deny_list.md#0x2_deny_list_per_type_list">per_type_list</a>(ctx));
-    <a href="transfer.md#0x2_transfer_share_object">transfer::share_object</a>(<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), lists });
+    <a href="transfer.md#0x2_transfer_share_object">transfer::share_object</a>(
+        <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a> {
+            id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+            lists
+        }
+    );
 }
 </code></pre>
 
@@ -446,7 +451,7 @@ the singleton from runtime genesis at <code><a href="deny_list.md#0x2_deny_list_
 <pre><code><b>fun</b> <a href="deny_list.md#0x2_deny_list_per_type_list">per_type_list</a>(ctx: &<b>mut</b> TxContext): <a href="deny_list.md#0x2_deny_list_PerTypeList">PerTypeList</a> {
     <a href="deny_list.md#0x2_deny_list_PerTypeList">PerTypeList</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
-        denied_count: <a href="table.md#0x2_table_new">table::new</a>(ctx),
+        denied_count: <a href="table.md#0x2_table_new">table::new</a>(ctx)
     }
 }
 </code></pre>
@@ -477,7 +482,9 @@ arbitrary addresses for arbitrary coin types and bypass every check in
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_new_denycap">new_denycap</a>&lt;T&gt;(ctx: &<b>mut</b> TxContext): <a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt; {
-    <a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) }
+    <a href="deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx)
+    }
 }
 </code></pre>
 
@@ -511,7 +518,7 @@ pairs are never accepted from outside the framework.
     per_type_index: u64,
     `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     addr: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(!<a href="deny_list.md#0x2_deny_list_is_reserved">is_reserved</a>(addr), <a href="deny_list.md#0x2_deny_list_EInvalidAddress">EInvalidAddress</a>);
     // The genesis singleton is created <b>with</b> an empty `lists` <a href="bag.md#0x2_bag">bag</a> (its
@@ -521,7 +528,10 @@ pairs are never accepted from outside the framework.
     <b>if</b> (!<a href="bag.md#0x2_bag_contains">bag::contains</a>(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index)) {
         <a href="bag.md#0x2_bag_add">bag::add</a>(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index, <a href="deny_list.md#0x2_deny_list_per_type_list">per_type_list</a>(ctx));
     };
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>if</b> (ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) {
         <b>let</b> set: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow_mut(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
         <b>if</b> (<a href="vec_set.md#0x2_vec_set_contains">vec_set::contains</a>(&set.addresses, &addr)) <b>return</b>;
@@ -530,7 +540,7 @@ pairs are never accepted from outside the framework.
         <b>let</b> set = <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> {
             id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
             addresses: <a href="vec_set.md#0x2_vec_set_singleton">vec_set::singleton</a>(addr),
-            paused: <b>false</b>,
+            paused: <b>false</b>
         };
         ofield::add(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key, set);
     };
@@ -570,10 +580,13 @@ Friend-only: callers reach this through coin or KRC-721 wrappers.
     <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>,
     per_type_index: u64,
     `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    addr: <b>address</b>,
+    addr: <b>address</b>
 ) {
     <b>assert</b>!(!<a href="deny_list.md#0x2_deny_list_is_reserved">is_reserved</a>(addr), <a href="deny_list.md#0x2_deny_list_EInvalidAddress">EInvalidAddress</a>);
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>assert</b>!(ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key), <a href="deny_list.md#0x2_deny_list_ENotDenied">ENotDenied</a>);
     <b>let</b> set: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow_mut(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
     <b>assert</b>!(<a href="vec_set.md#0x2_vec_set_contains">vec_set::contains</a>(&set.addresses, &addr), <a href="deny_list.md#0x2_deny_list_ENotDenied">ENotDenied</a>);
@@ -612,14 +625,17 @@ Open membership read: anyone may check whether <code>addr</code> is denied for
     <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>,
     per_type_index: u64,
     `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    addr: <b>address</b>,
+    addr: <b>address</b>
 ): bool {
     <b>if</b> (<a href="deny_list.md#0x2_deny_list_is_reserved">is_reserved</a>(addr)) <b>return</b> <b>false</b>;
     <b>if</b> (!<a href="bag.md#0x2_bag_contains">bag::contains</a>(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index)) <b>return</b> <b>false</b>;
     <b>let</b> list: &<a href="deny_list.md#0x2_deny_list_PerTypeList">PerTypeList</a> = <a href="bag.md#0x2_bag_borrow">bag::borrow</a>(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.lists, per_type_index);
     <b>if</b> (!<a href="table.md#0x2_table_contains">table::contains</a>(&list.denied_count, addr)) <b>return</b> <b>false</b>;
     <b>if</b> (*<a href="table.md#0x2_table_borrow">table::borrow</a>(&list.denied_count, addr) == 0) <b>return</b> <b>false</b>;
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>if</b> (!ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) <b>return</b> <b>false</b>;
     <b>let</b> set: &<a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
     <a href="vec_set.md#0x2_vec_set_contains">vec_set::contains</a>(&set.addresses, &addr)
@@ -652,9 +668,12 @@ capability-gated wrappers may call this.
     <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>,
     per_type_index: u64,
     `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>if</b> (ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) {
         <b>let</b> set: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow_mut(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
         set.paused = <b>true</b>;
@@ -662,7 +681,7 @@ capability-gated wrappers may call this.
         <b>let</b> set = <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> {
             id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
             addresses: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>(),
-            paused: <b>true</b>,
+            paused: <b>true</b>
         };
         ofield::add(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key, set);
     };
@@ -693,9 +712,12 @@ a no-op rather than an abort. Friend-only.
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="deny_list.md#0x2_deny_list_v2_disable_global_pause">v2_disable_global_pause</a>(
     <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>,
     per_type_index: u64,
-    `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ) {
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>if</b> (!ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) <b>return</b>;
     <b>let</b> set: &<b>mut</b> <a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow_mut(&<b>mut</b> <a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
     set.paused = <b>false</b>;
@@ -725,9 +747,12 @@ Open read: true iff <code>type</code> is currently paused.
 <pre><code><b>public</b> <b>fun</b> <a href="deny_list.md#0x2_deny_list_v2_is_global_pause_enabled">v2_is_global_pause_enabled</a>(
     <a href="deny_list.md#0x2_deny_list">deny_list</a>: &<a href="deny_list.md#0x2_deny_list_DenyList">DenyList</a>,
     per_type_index: u64,
-    `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    `type`: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ): bool {
-    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> { per_type_index, per_type_key: `type` };
+    <b>let</b> key = <a href="deny_list.md#0x2_deny_list_DenyKey">DenyKey</a> {
+        per_type_index,
+        per_type_key: `type`
+    };
     <b>if</b> (!ofield::exists_(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key)) <b>return</b> <b>false</b>;
     <b>let</b> set: &<a href="deny_list.md#0x2_deny_list_TypeDenySet">TypeDenySet</a> = ofield::borrow(&<a href="deny_list.md#0x2_deny_list">deny_list</a>.id, key);
     set.paused

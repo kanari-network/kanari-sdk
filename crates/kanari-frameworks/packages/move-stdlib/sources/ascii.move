@@ -4,6 +4,7 @@
 /// The `ASCII` module defines basic string and char newtypes in Move that verify
 /// that characters are valid ASCII, and that strings consist of only valid ASCII characters.
 module std::ascii {
+
     use std::vector;
     use std::option::{Self, Option};
 
@@ -16,18 +17,20 @@ module std::ascii {
     /// characters you should use the `all_characters_printable` predicate
     /// defined in this module.
     struct String has copy, drop, store {
-        bytes: vector<u8>,
+        bytes: vector<u8>
     }
 
     /// An ASCII character.
     struct Char has copy, drop, store {
-        byte: u8,
+        byte: u8
     }
 
     /// Convert a `byte` into a `Char` that is checked to make sure it is valid ASCII.
     public fun char(byte: u8): Char {
         assert!(is_valid_char(byte), EINVALID_ASCII_CHARACTER);
-        Char { byte }
+        Char {
+            byte
+        }
     }
 
     /// Convert a vector of bytes `bytes` into an `String`. Aborts if
@@ -52,7 +55,11 @@ module std::ascii {
             if (!is_valid_char(possible_byte)) return option::none();
             i = i + 1;
         };
-        option::some(String { bytes })
+        option::some(
+            String {
+                bytes
+            }
+        )
     }
 
     /// Returns `true` if all characters in `string` are printable characters
@@ -73,7 +80,9 @@ module std::ascii {
     }
 
     public fun pop_char(string: &mut String): Char {
-        Char { byte: vector::pop_back(&mut string.bytes) }
+        Char {
+            byte: vector::pop_back(&mut string.bytes)
+        }
     }
 
     public fun length(string: &String): u64 {
@@ -107,4 +116,5 @@ module std::ascii {
         byte >= 0x20 && // Disallow metacharacters
        byte <= 0x7E // Don't allow DEL metacharacter
     }
+
 }

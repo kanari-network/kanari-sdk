@@ -6,6 +6,7 @@
 // specifically that the royalty gate holds across the whole trade path.
 #[test_only]
 module kanari_pet::pet_tests {
+
     use kanari_pet::pet::{Self, FEE};
     use kanari_system::balance;
     use kanari_system::coin::{Self, Coin};
@@ -32,7 +33,7 @@ module kanari_pet::pet_tests {
 
     /// Wire up a collection-scoped policy with the 5% royalty as `init` does.
     fun setup(
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (
         TransferPolicy<Nft>,
         CollectionPolicyCap,
@@ -40,10 +41,15 @@ module kanari_pet::pet_tests {
         collection::Collection,
         collection::NftCap,
     ) {
-        let (coll, mint_cap) =
-            collection::create_collection(ctx, b"Pets", b"Test", b"https://b", b"https://w", 10);
-        let (policy, scope, cap) =
-            krc_721::new_collection_policy(&mint_cap, &coll, ctx);
+        let (coll, mint_cap) = collection::create_collection(
+            ctx,
+            b"Pets",
+            b"Test",
+            b"https://b",
+            b"https://w",
+            10
+        );
+        let (policy, scope, cap) = krc_721::new_collection_policy(&mint_cap, &coll, ctx);
         royalty_rule::add_for_krc_721_collection(&mut policy, &cap, 500, 0, CREATOR);
         (policy, cap, scope, coll, mint_cap)
     }
@@ -55,7 +61,7 @@ module kanari_pet::pet_tests {
         policy: &mut TransferPolicy<Nft>,
         request: transfer_policy::TransferRequest<Nft>,
         payment: &mut coin::Coin<FEE>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): transfer_policy::TransferRequest<Nft> {
         let request_ref = &mut request;
         royalty_rule::pay<Nft, FEE>(policy, request_ref, payment, ctx);
@@ -73,7 +79,7 @@ module kanari_pet::pet_tests {
             b"Test Fee",
             b"Royalties settle in this for tests",
             std::option::none(),
-            ctx,
+            ctx
         );
         let payment = coin::mint<FEE>(&mut treasury, amount, ctx);
         transfer::public_freeze_object(treasury);
@@ -95,8 +101,7 @@ module kanari_pet::pet_tests {
         let request = krc_721::new_collection_request(&policy, &scope, &nft, 1_000, from);
 
         let request = pay_fee(&mut policy, request, &mut payment, &mut ctx);
-        let (_item, paid, _from) =
-            transfer_policy::confirm_request<Nft>(&policy, request);
+        let (_item, paid, _from) = transfer_policy::confirm_request<Nft>(&policy, request);
         assert!(paid == 1_000, 1);
         // `pay` split the 5% fee off and forwarded it to the beneficiary, so
         // 950 must remain with the buyer.
@@ -127,8 +132,7 @@ module kanari_pet::pet_tests {
         // Deliberately skip `royalty_rule::pay`. No receipt is ever added, so
         // `confirm_request` aborts on the incomplete-receipt check. This is the
         // enforcement the hot potato buys: the buyer cannot opt out of the fee.
-        let (_item, _paid, _from) =
-            transfer_policy::confirm_request<Nft>(&policy, request);
+        let (_item, _paid, _from) = transfer_policy::confirm_request<Nft>(&policy, request);
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(scope);
@@ -143,7 +147,12 @@ module kanari_pet::pet_tests {
         let ctx = tx_context::dummy();
         let (policy, policy_cap, scope, _policy_collection, _policy_mint_cap) = setup(&mut ctx);
         let (other_collection, other_mint_cap) = collection::create_collection(
-            &mut ctx, b"Other", b"Test", b"https://b", b"https://w", 10,
+            &mut ctx,
+            b"Other",
+            b"Test",
+            b"https://b",
+            b"https://w",
+            10
         );
         let nft = pet::mint_for_test(&mut other_mint_cap, &other_collection, &mut ctx);
         let from = object::id_from_address(@0x2);
@@ -191,14 +200,27 @@ module kanari_pet::pet_tests {
     fun test_collection_policy_rejects_a_mismatched_mint_cap_at_creation() {
         let ctx = tx_context::dummy();
         let (collection_a, cap_a) = collection::create_collection(
-            &mut ctx, b"A", b"Test", b"https://a", b"https://a", 10,
+            &mut ctx,
+            b"A",
+            b"Test",
+            b"https://a",
+            b"https://a",
+            10
         );
         let (collection_b, cap_b) = collection::create_collection(
-            &mut ctx, b"B", b"Test", b"https://b", b"https://b", 10,
+            &mut ctx,
+            b"B",
+            b"Test",
+            b"https://b",
+            b"https://b",
+            10
         );
 
-        let (policy, scope, policy_cap) =
-            krc_721::new_collection_policy(&cap_a, &collection_b, &mut ctx);
+        let (policy, scope, policy_cap) = krc_721::new_collection_policy(
+            &cap_a,
+            &collection_b,
+            &mut ctx
+        );
 
         transfer::public_freeze_object(policy);
         transfer::public_freeze_object(scope);
@@ -252,7 +274,12 @@ module kanari_pet::pet_tests {
     fun test_display_is_type_keyed_and_readable() {
         let ctx = tx_context::dummy();
         let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Pets", b"Test", b"https://b", b"https://w", 10,
+            &mut ctx,
+            b"Pets",
+            b"Test",
+            b"https://b",
+            b"https://w",
+            10
         );
 
         let keys = vector::empty<vector<u8>>();
@@ -284,20 +311,29 @@ module kanari_pet::pet_tests {
     fun test_collection_display_rejects_another_collections_cap() {
         let ctx = tx_context::dummy();
         let (coll_a, cap_a) = collection::create_collection(
-            &mut ctx, b"A", b"Test", b"https://b", b"https://w", 10,
+            &mut ctx,
+            b"A",
+            b"Test",
+            b"https://b",
+            b"https://w",
+            10
         );
         let (coll_b, cap_b) = collection::create_collection(
-            &mut ctx, b"B", b"Test", b"https://b", b"https://w", 10,
+            &mut ctx,
+            b"B",
+            b"Test",
+            b"https://b",
+            b"https://w",
+            10
         );
         let keys = vector::empty<vector<u8>>();
         let values = vector::empty<vector<u8>>();
-        let mut_ref_display =
-            krc_721::create_collection_display(&cap_a, keys, values, &mut ctx);
+        let mut_ref_display = krc_721::create_collection_display(&cap_a, keys, values, &mut ctx);
         krc_721::add_collection_display_field(
             &mut mut_ref_display,
             &cap_b,
             b"creator",
-            b"wrong",
+            b"wrong"
         );
         transfer::public_freeze_object(mut_ref_display);
         transfer::public_freeze_object(coll_a);
@@ -315,7 +351,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let stats = test_stats(&mut ctx);
 
@@ -344,7 +380,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let stats = test_stats(&mut ctx);
         pet::mint(&mut cap, &coll, ALICE, &mut stats, &mut ctx);
@@ -364,7 +400,7 @@ module kanari_pet::pet_tests {
     fun mint_here(
         cap: &mut collection::NftCap,
         coll: &collection::Collection,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         pet::mint_for_test(cap, coll, ctx)
     }
@@ -379,7 +415,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            10,
+            10
         );
 
         let keys = vector::empty<String>();
@@ -394,7 +430,7 @@ module kanari_pet::pet_tests {
             &coll,
             keys,
             values,
-            &mut ctx,
+            &mut ctx
         );
 
         assert!(pet::attribute_count(&pet) == 2, 0);
@@ -409,7 +445,11 @@ module kanari_pet::pet_tests {
         );
 
         // Upsert does not add a second entry.
-        pet::set_string_attribute(&mut pet, std::string::utf8(b"breed"), std::string::utf8(b"akita"));
+        pet::set_string_attribute(
+            &mut pet,
+            std::string::utf8(b"breed"),
+            std::string::utf8(b"akita")
+        );
         assert!(pet::attribute_count(&pet) == 2, 3);
         assert!(
             *std::option::borrow(&pet::attribute(&pet, &std::string::utf8(b"breed")))
@@ -443,7 +483,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let pet = mint_here(&mut cap, &coll, &mut ctx);
         pet::transfer(pet, @0xFEED);
@@ -461,7 +501,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            10,
+            10
         );
         let pet = pet::mint_for_test(&mut cap, &coll, &mut ctx);
 
@@ -504,7 +544,7 @@ module kanari_pet::pet_tests {
     /// Keeps the `create_collection` argument noise out of the test bodies.
     fun stage(
         level: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (
         Nft,
         collection::Collection,
@@ -512,7 +552,12 @@ module kanari_pet::pet_tests {
         pet::Stats,
     ) {
         let (coll, cap) = collection::create_collection(
-            ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
+            ctx,
+            b"Coll",
+            b"D",
+            b"https://b",
+            b"https://w",
+            10
         );
         let stats = test_stats(ctx);
         let pet = pet::mint_with_level_for_test(&mut cap, &coll, &mut stats, level, ctx);
@@ -526,7 +571,7 @@ module kanari_pet::pet_tests {
         pet: Nft,
         coll: collection::Collection,
         cap: collection::NftCap,
-        stats: pet::Stats,
+        stats: pet::Stats
     ) {
         transfer::public_freeze_object(pet);
         transfer::public_freeze_object(coll);
@@ -587,17 +632,17 @@ module kanari_pet::pet_tests {
         krc_721::set_attribute(
             &mut pet,
             std::string::utf8(b"level"),
-            std::string::utf8(b"999"),
+            std::string::utf8(b"999")
         );
         krc_721::set_attribute(
             &mut pet,
             std::string::utf8(b"power"),
-            std::string::utf8(b"999999"),
+            std::string::utf8(b"999999")
         );
         krc_721::set_attribute(
             &mut pet,
             std::string::utf8(b"rarity"),
-            std::string::utf8(b"Legendary"),
+            std::string::utf8(b"Legendary")
         );
 
         assert!(pet::level(&stats, &pet) == 0, 0);
@@ -620,7 +665,12 @@ module kanari_pet::pet_tests {
     fun test_mint_rejects_reserved_progression_attributes() {
         let ctx = tx_context::dummy();
         let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 1,
+            &mut ctx,
+            b"Coll",
+            b"D",
+            b"https://b",
+            b"https://w",
+            1
         );
         let stats = test_stats(&mut ctx);
         let keys = vector::empty<vector<u8>>();
@@ -718,7 +768,11 @@ module kanari_pet::pet_tests {
         let ctx = tx_context::dummy();
         let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
-        pet::set_string_attribute(&mut pet, std::string::utf8(b"power"), std::string::utf8(b"999999"));
+        pet::set_string_attribute(
+            &mut pet,
+            std::string::utf8(b"power"),
+            std::string::utf8(b"999999")
+        );
 
         seal(pet, coll, cap, stats);
     }
@@ -730,7 +784,11 @@ module kanari_pet::pet_tests {
         let ctx = tx_context::dummy();
         let (pet, coll, cap, stats) = stage(0, &mut ctx);
 
-        pet::set_string_attribute(&mut pet, std::string::utf8(b"rarity"), std::string::utf8(b"Legendary"));
+        pet::set_string_attribute(
+            &mut pet,
+            std::string::utf8(b"rarity"),
+            std::string::utf8(b"Legendary")
+        );
 
         seal(pet, coll, cap, stats);
     }
@@ -861,7 +919,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            10,
+            10
         );
 
         let keys = vector::empty<String>();
@@ -876,7 +934,7 @@ module kanari_pet::pet_tests {
             &coll,
             keys,
             values,
-            &mut ctx,
+            &mut ctx
         );
         transfer::public_freeze_object(pet);
         transfer::public_freeze_object(coll);
@@ -895,7 +953,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let stats = test_stats(&mut ctx);
         assert!(collection::remaining(&cap) == 1, 0);
@@ -929,7 +987,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let stats = test_stats(&mut ctx);
 
@@ -963,7 +1021,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            1,
+            1
         );
         let stats = test_stats(&mut ctx);
 
@@ -993,7 +1051,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            2,
+            2
         );
         let stats = test_stats(&mut ctx);
 
@@ -1006,7 +1064,7 @@ module kanari_pet::pet_tests {
             &coll,
             keys,
             values,
-            &mut ctx,
+            &mut ctx
         );
         assert!(pet::attribute_count(&pet) == 1, 0);
 
@@ -1031,7 +1089,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            5,
+            5
         );
         let stats = test_stats(&mut ctx);
         let (coll_b, _cap_b) = collection::create_collection(
@@ -1040,7 +1098,7 @@ module kanari_pet::pet_tests {
             b"D",
             b"https://b",
             b"https://w",
-            5,
+            5
         );
 
         let pet = mint_here(&mut cap_a, &coll_a, &mut ctx);
@@ -1071,7 +1129,12 @@ module kanari_pet::pet_tests {
     fun test_shared_stats_carry_the_intended_economics() {
         let ctx = tx_context::dummy();
         let (coll, cap) = collection::create_collection(
-            &mut ctx, b"Coll", b"D", b"https://b", b"https://w", 10,
+            &mut ctx,
+            b"Coll",
+            b"D",
+            b"https://b",
+            b"https://w",
+            10
         );
         let honest = test_stats(&mut ctx);
 
@@ -1091,4 +1154,5 @@ module kanari_pet::pet_tests {
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
     }
+
 }

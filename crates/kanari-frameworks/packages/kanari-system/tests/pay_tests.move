@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::pay_tests {
+
     use std::vector;
     use kanari_system::coin::Coin;
     use kanari_system::coin::{Self, TreasuryCap, CoinMetadata};
@@ -154,4 +155,5 @@ module kanari_system::pay_tests {
         transfer::public_transfer(coin_val, @0x1);
         cleanup(cap, meta);
     }
+
 }

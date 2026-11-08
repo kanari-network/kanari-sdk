@@ -1,4 +1,5 @@
 module james::euro {
+
     use kanari_system::coin;
     use kanari_system::coin::{Coin, DenyCapV2, TreasuryCap};
     use kanari_system::deny_list::{Self, DenyList};
@@ -19,21 +20,20 @@ module james::euro {
     /// so TreasuryCap, DenyCap and metadata land with the deployer and no
     /// replayable setup entry needs to exist.
     fun init(witness: EURO, ctx: &mut TxContext) {
-        let (treasury, deny_cap, metadata) =
-            coin::create_regulated_currency_v2<EURO>(
-                witness,
-                6,
-                b"EURO",
-                b"EURO Token",
-                b"",
-                option::some(
-                    url::new_unsafe_from_bytes(
-                        b"https://assets.coingecko.com/coins/images/26045/standard/EURC.png?1769615705"
-                    )
-                ),
-                true,
-                ctx
-            );
+        let (treasury, deny_cap, metadata) = coin::create_regulated_currency_v2<EURO>(
+            witness,
+            6,
+            b"EURO",
+            b"EURO Token",
+            b"",
+            option::some(
+                url::new_unsafe_from_bytes(
+                    b"https://assets.coingecko.com/coins/images/26045/standard/EURC.png?1769615705"
+                )
+            ),
+            true,
+            ctx
+        );
         let sender = kanari_system::tx_context::sender(ctx);
         transfer::public_transfer(treasury, sender);
         transfer::public_transfer(deny_cap, sender);
@@ -50,7 +50,7 @@ module james::euro {
         treasury_cap: &mut TreasuryCap<EURO>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Mint a new Coin with the specified amount
         let coin = coin::mint<EURO>(treasury_cap, amount, ctx);
@@ -69,7 +69,7 @@ module james::euro {
         c: &mut coin::Coin<EURO>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         transfer_amount_with_list(c, amount, recipient, deny_list::borrow_singleton(), ctx);
     }
@@ -81,12 +81,14 @@ module james::euro {
         amount: u64,
         recipient: address,
         deny_list: &DenyList,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // 1. Check if sender is the same as recipient, if so, do nothing
         let sender = kanari_system::tx_context::sender(ctx);
         // 2. sender is not the same as recipient, proceed with the checked transfer
-        if (sender == recipient) { return };
+        if (sender == recipient) {
+            return
+        };
         pay::split_and_transfer_checked(c, amount, recipient, deny_list, ctx);
     }
 
@@ -96,7 +98,7 @@ module james::euro {
         treasury_cap: &mut TreasuryCap<EURO>,
         c: &mut Coin<EURO>,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
@@ -113,7 +115,7 @@ module james::euro {
         deny_list: &mut DenyList,
         cap: &DenyCapV2<EURO>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_add(deny_list, cap, addr, ctx);
     }
@@ -123,7 +125,7 @@ module james::euro {
         deny_list: &mut DenyList,
         cap: &DenyCapV2<EURO>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_remove(deny_list, cap, addr, ctx);
     }
@@ -132,7 +134,7 @@ module james::euro {
     public entry fun deny_pause(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<EURO>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_enable_global_pause(deny_list, cap, ctx);
     }
@@ -141,7 +143,7 @@ module james::euro {
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<EURO>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_disable_global_pause(deny_list, cap, ctx);
     }
@@ -160,7 +162,7 @@ module james::euro {
     /// Mint a fresh regulated EURO currency for tests (the real `init` runs
     /// only on publish, so tests build the same objects directly).
     public fun create_regulated_for_test(
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<EURO>, DenyCapV2<EURO>, coin::CoinMetadata<EURO>) {
         coin::create_regulated_currency_v2(
             EURO {},
@@ -170,7 +172,8 @@ module james::euro {
             b"",
             option::none(),
             true,
-            ctx,
+            ctx
         )
     }
+
 }

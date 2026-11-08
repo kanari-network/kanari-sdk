@@ -148,7 +148,9 @@ bytes for better performance.
 
 <pre><code><b>public</b> <b>fun</b> <a href="bcs.md#0x2_bcs_new">new</a>(bytes: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="bcs.md#0x2_bcs_BCS">BCS</a> {
     v::reverse(&<b>mut</b> bytes);
-    <a href="bcs.md#0x2_bcs_BCS">BCS</a> { bytes }
+    <a href="bcs.md#0x2_bcs_BCS">BCS</a> {
+        bytes
+    }
 }
 </code></pre>
 
@@ -233,9 +235,11 @@ Read a <code>bool</code> value from bcs-serialized bytes.
 
 <pre><code><b>public</b> <b>fun</b> <a href="bcs.md#0x2_bcs_peel_bool">peel_bool</a>(<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>: &<b>mut</b> <a href="bcs.md#0x2_bcs_BCS">BCS</a>): bool {
     <b>let</b> value = <a href="bcs.md#0x2_bcs_peel_u8">peel_u8</a>(<a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>);
-    <b>if</b> (value == 0) { <b>false</b> }
-    <b>else</b> <b>if</b> (value == 1) { <b>true</b> }
-    <b>else</b> {
+    <b>if</b> (value == 0) {
+        <b>false</b>
+    } <b>else</b> <b>if</b> (value == 1) {
+        <b>true</b>
+    } <b>else</b> {
         <b>abort</b> <a href="bcs.md#0x2_bcs_ENotBool">ENotBool</a>
     }
 }
@@ -400,7 +404,9 @@ See more here: https://en.wikipedia.org/wiki/LEB128
         <b>let</b> byte = (v::pop_back(&<b>mut</b> <a href="dependencies/move-stdlib/bcs.md#0x1_bcs">bcs</a>.bytes) <b>as</b> u64);
         len = len + 1;
         total = total | ((byte & 0x7f) &lt;&lt; shift);
-        <b>if</b> ((byte & 0x80) == 0) { <b>break</b> };
+        <b>if</b> ((byte & 0x80) == 0) {
+            <b>break</b>
+        };
         shift = shift + 7;
     };
     total

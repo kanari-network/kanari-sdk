@@ -21,6 +21,7 @@
 /// prefer the most recent. Packages that care should create exactly one, in
 /// `init`.
 module kanari_system::display {
+
     use std::vector;
     use std::option::{Self, Option};
     use std::string::{String, utf8};
@@ -47,14 +48,14 @@ module kanari_system::display {
         id: UID,
         /// `T`'s canonical type name is always the first entry, so indexers
         /// can identify the display from its object alone.
-        fields: VecMap<String, String>,
+        fields: VecMap<String, String>
     }
 
     /// Create a display for `T` with a `name` field already set.
     public fun create_with_name<T: key, W: drop>(
         pub: &Publisher<W>,
         name: vector<u8>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Display<T> {
         let keys = vector::empty<vector<u8>>();
         let values = vector::empty<vector<u8>>();
@@ -66,7 +67,7 @@ module kanari_system::display {
     /// Create an empty display for `T`.
     public fun create_empty<T: key, W: drop>(
         pub: &Publisher<W>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Display<T> {
         let keys = vector::empty<vector<u8>>();
         let values = vector::empty<vector<u8>>();
@@ -79,7 +80,7 @@ module kanari_system::display {
         pub: &Publisher<W>,
         keys: vector<vector<u8>>,
         values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Display<T> {
         assert!(vector::length(&keys) == vector::length(&values), E_FIELD_COUNT_MISMATCH);
         new_display<T, W>(pub, keys, values, ctx)
@@ -93,19 +94,22 @@ module kanari_system::display {
         pub: &Publisher<W>,
         keys: vector<vector<u8>>,
         values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Display<T> {
         package::assert_governs_type<T, W>(pub);
         let type_name = utf8(type_name_bytes<T>());
         let fields = seed_fields(keys, values, type_name);
-        Display<T> { id: object::new(ctx), fields }
+        Display<T> {
+            id: object::new(ctx),
+            fields
+        }
     }
 
     /// Build the initial field map: the type name first, then every seed pair.
     fun seed_fields(
         keys: vector<vector<u8>>,
         values: vector<vector<u8>>,
-        type_name: String,
+        type_name: String
     ): VecMap<String, String> {
         let fields = vec_map::empty<String, String>();
         vec_map::insert(&mut fields, type_name, type_name);
@@ -125,7 +129,7 @@ module kanari_system::display {
         display: &mut Display<T>,
         pub: &Publisher<W>,
         name: vector<u8>,
-        value: vector<u8>,
+        value: vector<u8>
     ) {
         package::assert_governs_type<T, W>(pub);
         vec_map::insert(&mut display.fields, utf8(name), utf8(value));
@@ -136,7 +140,7 @@ module kanari_system::display {
     public fun remove<T: key, W: drop>(
         display: &mut Display<T>,
         pub: &Publisher<W>,
-        name: vector<u8>,
+        name: vector<u8>
     ) {
         package::assert_governs_type<T, W>(pub);
         let key = utf8(name);
@@ -162,7 +166,7 @@ module kanari_system::display {
     public fun get_with_default<T: key>(
         display: &Display<T>,
         name: vector<u8>,
-        default: vector<u8>,
+        default: vector<u8>
     ): String {
         let key = utf8(name);
         if (vec_map::contains(&display.fields, &key)) {
@@ -210,7 +214,7 @@ module kanari_system::display {
     /// the `UID` needs explicit deletion.
     public fun destroy<T: key, W: drop>(
         display: Display<T>,
-        pub: &Publisher<W>,
+        pub: &Publisher<W>
     ) {
         package::assert_governs_type<T, W>(pub);
         let Display { id, fields } = display;
@@ -315,8 +319,7 @@ module kanari_system::display {
     /// a real foreign claim produces exactly this foreign name.
     fun create_refuses_foreign_publisher() {
         let ctx = tx_context::dummy();
-        let fake =
-            package::forged_publisher_for_test<DISPLAY>(b"0x44::other::OTHER", &mut ctx);
+        let fake = package::forged_publisher_for_test<DISPLAY>(b"0x44::other::OTHER", &mut ctx);
         let d = create_empty<DISPLAY, DISPLAY>(&fake, &mut ctx);
         share<DISPLAY>(d);
         transfer::public_freeze_object(fake);
@@ -330,8 +333,7 @@ module kanari_system::display {
         let ctx = tx_context::dummy();
         let real = package::new<DISPLAY>(DISPLAY {}, &mut ctx);
         let d = create_empty<DISPLAY, DISPLAY>(&real, &mut ctx);
-        let fake =
-            package::forged_publisher_for_test<DISPLAY>(b"0x44::other::OTHER", &mut ctx);
+        let fake = package::forged_publisher_for_test<DISPLAY>(b"0x44::other::OTHER", &mut ctx);
         add<DISPLAY, DISPLAY>(&mut d, &fake, b"name", b"spoofed");
         // Unreachable when the abort above fires, but the compiler requires
         // every path to consume the value.
@@ -342,4 +344,5 @@ module kanari_system::display {
 
         package::revoke_forever<DISPLAY>(fake);
     }
+
 }

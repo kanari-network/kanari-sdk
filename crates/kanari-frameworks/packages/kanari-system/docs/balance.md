@@ -148,7 +148,9 @@ Create a new zero-value Balance
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_zero">zero</a>&lt;T&gt;(): <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
-    <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; { value: 0 }
+    <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+        value: 0
+    }
 }
 </code></pre>
 
@@ -175,7 +177,9 @@ is the production path (backed by <code>TreasuryCap</code>).
 
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
-    <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; { value }
+    <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+        value
+    }
 }
 </code></pre>
 
@@ -289,7 +293,7 @@ Transfer value from one Balance to another
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(
     from: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
     <b>to</b>: &<b>mut</b> <a href="balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
-    amount: u64,
+    amount: u64
 ) {
     <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
     <a href="balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(from, amount);
@@ -441,7 +445,9 @@ the <code>uniswap_amm</code> test package) instead of one <code><a href="balance
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_new_supply">new_supply</a>&lt;T: drop&gt;(witness: T): <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
     kanari_system::types::claim_witness(&witness);
     <b>let</b> _ = witness;
-    <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; { total: 0 }
+    <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
+        total: 0
+    }
 }
 </code></pre>
 

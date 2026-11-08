@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::bag {
+
     use kanari_system::object::{Self, UID};
     use kanari_system::tx_context::TxContext;
     use kanari_system::dynamic_field;
@@ -11,12 +12,15 @@ module kanari_system::bag {
     /// A Bag that stores heterogeneous key-value pairs dynamically
     struct Bag has key, store {
         id: UID,
-        size: u64,
+        size: u64
     }
 
     /// Creates a new, empty bag
     public fun new(ctx: &mut TxContext): Bag {
-        Bag { id: object::new(ctx), size: 0 }
+        Bag {
+            id: object::new(ctx),
+            size: 0
+        }
     }
 
     /// Adds a key-value pair to the bag.
@@ -53,4 +57,5 @@ module kanari_system::bag {
         assert!(size == 0, EBagNotEmpty);
         object::delete(id);
     }
+
 }

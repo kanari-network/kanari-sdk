@@ -187,7 +187,7 @@ two applies. Setting <code>amount_bp</code> to 0 makes it a flat commission.
     cap: &TransferPolicyCap&lt;T&gt;,
     amount_bp: u64,
     min_amount: u64,
-    beneficiary: <b>address</b>,
+    beneficiary: <b>address</b>
 ) {
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
@@ -221,7 +221,7 @@ Install royalties on one KRC-721 collection's scoped policy.
     cap: &CollectionPolicyCap,
     amount_bp: u64,
     min_amount: u64,
-    beneficiary: <b>address</b>,
+    beneficiary: <b>address</b>
 ) {
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
@@ -255,7 +255,7 @@ Update royalties on one KRC-721 collection's scoped policy.
     cap: &CollectionPolicyCap,
     amount_bp: u64,
     min_amount: u64,
-    beneficiary: <b>address</b>,
+    beneficiary: <b>address</b>
 ) {
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
@@ -286,7 +286,7 @@ Remove royalties from one KRC-721 collection's scoped policy.
 
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_remove_for_krc_721_collection">remove_for_krc_721_collection</a>(
     policy: &<b>mut</b> TransferPolicy&lt;Nft&gt;,
-    cap: &CollectionPolicyCap,
+    cap: &CollectionPolicyCap
 ) {
     <a href="krc_721.md#0x2_krc_721_remove_collection_policy_rule">krc_721::remove_collection_policy_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap);
 }
@@ -317,7 +317,7 @@ Update the rule's terms in place.
     cap: &TransferPolicyCap&lt;T&gt;,
     amount_bp: u64,
     min_amount: u64,
-    beneficiary: <b>address</b>,
+    beneficiary: <b>address</b>
 ) {
     <b>assert</b>!(amount_bp &lt;= <a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a>, <a href="royalty_rule.md#0x2_royalty_rule_E_BPS_TOO_LARGE">E_BPS_TOO_LARGE</a>);
     <b>assert</b>!(beneficiary != @0x0, <a href="royalty_rule.md#0x2_royalty_rule_E_INVALID_BENEFICIARY">E_INVALID_BENEFICIARY</a>);
@@ -348,7 +348,7 @@ Remove the royalty rule entirely, making trades of <code>T</code> free again.
 
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_remove">remove</a>&lt;T: key + store&gt;(
     policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
-    cap: &TransferPolicyCap&lt;T&gt;,
+    cap: &TransferPolicyCap&lt;T&gt;
 ) {
     <a href="transfer_policy.md#0x2_transfer_policy_remove_rule">transfer_policy::remove_rule</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>, T&gt;(<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a> {}, policy, cap);
 }
@@ -408,7 +408,11 @@ The fee formula: percentage of <code>paid</code>, floored at <code>min_amount</c
 <pre><code><b>public</b> <b>fun</b> <a href="royalty_rule.md#0x2_royalty_rule_compute">compute</a>(paid: u64, amount_bp: u64, min_amount: u64): u64 {
     <b>let</b> share = (paid <b>as</b> u128) * (amount_bp <b>as</b> u128) / (<a href="royalty_rule.md#0x2_royalty_rule_MAX_BPS">MAX_BPS</a> <b>as</b> u128);
     <b>let</b> share = (share <b>as</b> u64);
-    <b>if</b> (share &lt; min_amount) { min_amount } <b>else</b> { share }
+    <b>if</b> (share &lt; min_amount) {
+        min_amount
+    } <b>else</b> {
+        share
+    }
 }
 </code></pre>
 
@@ -447,7 +451,7 @@ why this takes two type parameters rather than reusing one.
     policy: &<b>mut</b> TransferPolicy&lt;T&gt;,
     request: &<b>mut</b> TransferRequest&lt;T&gt;,
     payment: &<b>mut</b> Coin&lt;Asset&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> bytes = <a href="transfer_policy.md#0x2_transfer_policy_rule_config">transfer_policy::rule_config</a>&lt;<a href="royalty_rule.md#0x2_royalty_rule_Rule">Rule</a>, T&gt;(policy);
     <b>let</b> amount_bp = <a href="royalty_rule.md#0x2_royalty_rule_decode_bp">decode_bp</a>(bytes);

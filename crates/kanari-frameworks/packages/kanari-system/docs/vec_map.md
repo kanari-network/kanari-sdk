@@ -182,7 +182,9 @@ Create an empty <code><a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a></code>
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_map.md#0x2_vec_map_empty">empty</a>&lt;K: <b>copy</b>, V&gt;(): <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a>&lt;K, V&gt; {
-    <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a> { contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>() }
+    <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a> {
+        contents: <a href="dependencies/move-stdlib/vector.md#0x1_vector_empty">vector::empty</a>()
+    }
 }
 </code></pre>
 
@@ -208,7 +210,13 @@ Insert <code>key</code> |-> <code>value</code>. Aborts <code><a href="vec_map.md
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_map.md#0x2_vec_map_insert">insert</a>&lt;K: <b>copy</b>, V&gt;(self: &<b>mut</b> <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a>&lt;K, V&gt;, key: K, value: V) {
     <b>assert</b>!(!<a href="vec_map.md#0x2_vec_map_contains">contains</a>(self, &key), <a href="vec_map.md#0x2_vec_map_EKeyAlreadyExists">EKeyAlreadyExists</a>);
-    <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(&<b>mut</b> self.contents, <a href="vec_map.md#0x2_vec_map_Entry">Entry</a> { key, value });
+    <a href="dependencies/move-stdlib/vector.md#0x1_vector_push_back">vector::push_back</a>(
+        &<b>mut</b> self.contents,
+        <a href="vec_map.md#0x2_vec_map_Entry">Entry</a> {
+            key,
+            value
+        }
+    );
 }
 </code></pre>
 
@@ -514,7 +522,7 @@ Aborts <code><a href="vec_map.md#0x2_vec_map_EUnequalLengths">EUnequalLengths</a
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_map.md#0x2_vec_map_from_keys_values">from_keys_values</a>&lt;K: <b>copy</b>, V&gt;(
     keys: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;K&gt;,
-    values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;V&gt;,
+    values: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;V&gt;
 ): <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a>&lt;K, V&gt; {
     <b>let</b> keys = keys;
     <b>let</b> values = values;
@@ -673,7 +681,7 @@ Mutably borrow the <code>idx</code>th entry. Aborts <code><a href="vec_map.md#0x
 
 <pre><code><b>public</b> <b>fun</b> <a href="vec_map.md#0x2_vec_map_get_entry_by_idx_mut">get_entry_by_idx_mut</a>&lt;K: <b>copy</b>, V&gt;(
     self: &<b>mut</b> <a href="vec_map.md#0x2_vec_map_VecMap">VecMap</a>&lt;K, V&gt;,
-    idx: u64,
+    idx: u64
 ): (&K, &<b>mut</b> V) {
     <b>assert</b>!(idx &lt; <a href="vec_map.md#0x2_vec_map_size">size</a>(self), <a href="vec_map.md#0x2_vec_map_EIndexOutOfBounds">EIndexOutOfBounds</a>);
     <b>let</b> entry = <a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow_mut">vector::borrow_mut</a>(&<b>mut</b> self.contents, idx);

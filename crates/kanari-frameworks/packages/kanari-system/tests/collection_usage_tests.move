@@ -1,5 +1,6 @@
 #[test_only]
 module kanari_system::collection_usage_tests {
+
     use kanari_system::bag;
     use kanari_system::deny_list;
     use kanari_system::dynamic_field;
@@ -9,20 +10,25 @@ module kanari_system::collection_usage_tests {
     use kanari_system::tx_context;
 
     struct Host has key, store, drop {
-        id: UID,
+        id: UID
     }
 
     struct Child has key, store, drop {
         id: UID,
-        value: u64,
+        value: u64
     }
 
     fun new_host(ctx: &mut tx_context::TxContext): Host {
-        Host { id: object::new(ctx) }
+        Host {
+            id: object::new(ctx)
+        }
     }
 
     fun new_child(ctx: &mut tx_context::TxContext, value: u64): Child {
-        Child { id: object::new(ctx), value }
+        Child {
+            id: object::new(ctx),
+            value
+        }
     }
 
     #[test]
@@ -177,4 +183,5 @@ module kanari_system::collection_usage_tests {
         assert!(kanari_system::coin::deny_list_contains<u64>(&denylist, @0x200), 43);
         kanari_system::transfer::public_freeze_object(denylist);
     }
+
 }
