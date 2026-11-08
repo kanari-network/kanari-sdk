@@ -82,6 +82,18 @@ async function stopInternal(): Promise<void> {
   if (client !== undefined) { const c = client; client = undefined; await c.stop(); }
   setStatus('stopped');
 }
+// Two windows / a Reload can leave a stale `kanari-move-analyzer` behind;
+// the leftover keeps pushing (0) diagnostics and hides real errors.
+// Kill any stale instances before starting (singleton per machine).
+function killStaleServers(): void {
+  try {
+    if (process.platform === 'win32') {
+      childProcess.spawnSync('taskkill', ['/F', '/IM', binaryName], { stdio: 'ignore' });
+    } else {
+      childProcess.spawnSync('pkill', ['-f', binaryName], { stdio: 'ignore' });
+    }
+  } catch { /* ignore */ }
+}
 const start = (): Promise<void> => enqueue(startInternal);
 const stop = (): Promise<void> => enqueue(stopInternal);
 const restart = (): Promise<void> => enqueue(async () => { await stopInternal(); await startInternal(); });
@@ -246,6 +258,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     if (doInstall && !(await ensureBinary(ctx))) { setStatus('error', 'move-analyzer binary install failed'); return; }
   } catch (e) { log(`install check failed: ${String(e)}`); }
 
+  // Kill any stale server from a previous Reload / second window before
+  // spawning, so two instances don't fight over diagnostics (one pushes
+  // stale `(0)` and hides real errors).
+  await stopInternal();
+  killStaleServers();
   try { await start(); }
   catch (e) {
     const m = e instanceof Error ? e.message : String(e);
@@ -262,8 +279,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 
   if (updateVersion) await ctx.globalState.update(VERSION_KEY, version);
   log('Move on Kanari activated');
+  // Ensure the LSP process dies with the extension host (Reload / Close).
+  ctx.subscriptions.push({ dispose: () => { void stopInternal(); } });
 }
 
-export async function deactivate(): Promise<void> { /* disposed via subscriptions */ }
+export async function deactivate(): Promise<void> { await stopInternal(); }
 
 
