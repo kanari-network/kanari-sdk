@@ -25,9 +25,10 @@ impl MoveEdition {
 }
 
 /// Parse `edition = "..."` from raw Move.toml text.
+/// A leading UTF-8 BOM (`\u{FEFF}`) is skipped (Windows editors add it).
 pub fn parse_edition(text: &str) -> MoveEdition {
     for line in text.lines() {
-        let t = line.trim();
+        let t = line.trim_start_matches('\u{FEFF}').trim();
         if let Some(rest) = t.strip_prefix("edition") {
             let rest = rest.trim_start_matches(['=', ' ', '\t']);
             if let Some(inner) = rest.strip_prefix('"').and_then(|r| r.split('"').next()) {
@@ -101,6 +102,33 @@ mod tests {
         assert!(is_prelude("Option", &MoveEdition::Edition2024));
         assert!(!is_prelude("vector", &MoveEdition::Legacy));
         assert!(!is_prelude("TxContext", &MoveEdition::Edition2024));
+    }
+
+    #[test]
+    fn parse_crlf_and_tabs() {
+        assert_eq!(
+            parse_edition("edition\t=\t\"2024\"\r\n"),
+            MoveEdition::Edition2024
+        );
+        assert_eq!(parse_edition("edition=\"legacy\""), MoveEdition::Legacy);
+        assert_eq!(parse_edition("edition = \"unknown\""), MoveEdition::Legacy);
+        assert_eq!(parse_edition("edition = '2024'"), MoveEdition::Legacy);
+    }
+
+    #[test]
+    fn is_prelude_case_sensitive() {
+        assert!(!is_prelude("Vector", &MoveEdition::Edition2024));
+        assert!(!is_prelude("VECTOR", &MoveEdition::Edition2024));
+        assert!(!is_prelude(" vector ", &MoveEdition::Edition2024));
+        assert!(!is_prelude("TxContext", &MoveEdition::Legacy));
+    }
+
+    #[test]
+    fn edition_for_file_missing_toml_is_legacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("mod.move");
+        std::fs::write(&file, "module x::m {}").unwrap();
+        assert_eq!(edition_for_file(&file), MoveEdition::Legacy);
     }
 
     #[test]

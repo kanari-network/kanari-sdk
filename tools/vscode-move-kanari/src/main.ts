@@ -25,6 +25,7 @@ function resolveUserPath(v: string): string {
   return v.startsWith('~/') ? os.homedir() + v.slice(1) : path.resolve(v);
 }
 function findPkgRoot(file: string): string | undefined {
+  if (typeof file !== 'string' || file.length === 0) return undefined;
   let dir = path.dirname(file);
   for (;;) {
     if (fs.existsSync(path.join(dir, 'Move.toml'))) return dir;
@@ -98,16 +99,21 @@ async function ensureBinary(ctx: vscode.ExtensionContext): Promise<boolean> {
     if (!targetExists) { void vscode.window.showErrorMessage(`move-analyzer not found at '${serverPath}'.`); return false; }
     return true;
   }
-  if (targetExists) {
-    if (bundledExists) await vscode.workspace.fs.delete(target);
-    else return true;
-  }
   if (!bundledExists) {
     void vscode.window.showErrorMessage('Pre-built kanari-move-analyzer not found. Run tools/vscode-move-kanari/scripts/package.ps1, or set move.server.path.');
     return false;
   }
   if (!(await uriExists(defaultServerDir))) await vscode.workspace.fs.createDirectory(defaultServerDir);
-  await vscode.workspace.fs.copy(bundled, target);
+  try {
+    // Copy overwrites the target — no delete beforehand (on Windows the
+    // running binary would be locked and the delete would fail, leaving
+    // no binary at all).
+    await vscode.workspace.fs.copy(bundled, target);
+  } catch (e) {
+    log(`binary install copy failed: ${String(e)}`);
+    void vscode.window.showErrorMessage(`Failed to install kanari-move-analyzer: ${String(e)}`);
+    return false;
+  }
   log(`Installed kanari-move-analyzer to ${serverPath}`);
   return true;
 }
@@ -123,8 +129,25 @@ async function kanariMove(subcommand: string): Promise<void> {
   t.show(true);
   t.sendText(`${kanariPath} move ${subcommand}`, true);
 }
-async function runMoveTest(fileUri: vscode.Uri, filter?: string): Promise<void> {
-  const pkgRoot = findPkgRoot(fileUri.fsPath);
+
+// CodeLens args arrive as JSON strings ("file:///…" from the LSP server),
+// not vscode.Uri objects. Accept both so `runTest`/`runTestFile` never
+// crash with `The "path" argument must be of type string. Received undefined`.
+function toFsPath(uriLike: unknown): string | undefined {
+  if (uriLike === undefined || uriLike === null) return undefined;
+  if (typeof uriLike === 'string') {
+    try { return vscode.Uri.parse(uriLike).fsPath; } catch { return uriLike; }
+  }
+  const u = uriLike as { fsPath?: unknown; path?: unknown };
+  if (typeof u.fsPath === 'string') return u.fsPath;
+  if (typeof u.path === 'string') return u.path;
+  return undefined;
+}
+
+async function runMoveTest(uriLike: unknown, filter?: string): Promise<void> {
+  const fsPath = toFsPath(uriLike);
+  if (fsPath === undefined) { void vscode.window.showErrorMessage('Cannot run Move test: invalid file URI'); return; }
+  const pkgRoot = findPkgRoot(fsPath);
   if (pkgRoot === undefined) { void vscode.window.showErrorMessage('Cannot run Move test: no Move.toml found above this file.'); return; }
   const name = 'kanari move';
   let t = vscode.window.terminals.find((x) => x.name === name);
@@ -182,8 +205,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   reg('move-kanari.restartServer', async () => { await restart(); void vscode.window.showInformationMessage('Move language server restarted.'); });
   reg('move-kanari.stopServer', async () => { await stop(); void vscode.window.showInformationMessage('Move language server stopped.'); });
   reg('move-kanari.openLogs', async () => output.show());
-  reg('move-kanari.runTest', async (uri: vscode.Uri, filter: string) => runMoveTest(uri, filter));
-  reg('move-kanari.runTestFile', async (uri: vscode.Uri) => runMoveTest(uri));
+  reg('move-kanari.runTest', async (uri: unknown, filter?: string) => runMoveTest(uri, filter));
+  reg('move-kanari.runTestFile', async (uri: unknown) => runMoveTest(uri));
 
   // Restart on new/deleted .move or Move.toml (ignoring build output),
   // plus on save (so stale diagnostics clear without manual restart).

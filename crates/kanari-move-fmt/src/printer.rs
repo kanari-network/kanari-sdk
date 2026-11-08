@@ -179,14 +179,8 @@ fn breakable_comma_separated_list<'s, 't>(
         }
         parts.push(print_named(node, source, opts, index));
     }
-    // Trailing comma only when the group breaks (mirrors prettier's
-    // `ifBreak` on the items group by nesting it inside the group).
-    let trailing_comma: Doc<'s> = match children.last() {
-        Some(last) if needs_comma(last.kind()) => {
-            concat(vec![text(","), trailing]).flat_alt(RcDoc::nil())
-        }
-        _ => trailing.flat_alt(RcDoc::nil()),
-    };
+    // No trailing comma on the last item.
+    let trailing_comma: Doc<'s> = trailing.flat_alt(RcDoc::nil());
     let inner = if force_break {
         RcDoc::hardline()
     } else {
@@ -234,8 +228,9 @@ fn block<'s, 't>(
             text("}"),
         ]);
     }
-    // Comma-separated block (e.g. struct fields): the author's blank lines
-    // between fields are preserved the same way.
+    // Comma-separated block (e.g. struct fields): commas go between
+    // members, but the LAST member gets NO trailing comma.
+    let len = members.len();
     let mut parts: Vec<Doc<'s>> = Vec::new();
     for (index, member) in members.iter().enumerate() {
         if index > 0 {
@@ -245,7 +240,8 @@ fn block<'s, 't>(
             )));
         }
         parts.push(print_named(node, source, opts, index));
-        if needs_comma(member.kind()) {
+        let is_last = index + 1 == len;
+        if !is_last && needs_comma(member.kind()) {
             parts.push(text(line_ending));
         }
     }
@@ -303,13 +299,14 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 // empty module (the only content children are the curlies)
                 text("{}")
             } else {
-                // Blank lines right after `{` and right before `}` belong to
-                // the author's layout and are reproduced verbatim.
-                let leading = breaks(node.start_position().row, members[0].start_position().row);
+                // Enforce exactly one blank line after `{` and before `}`.
+                let leading =
+                    breaks(node.start_position().row, members[0].start_position().row).max(2);
                 let trailing = breaks(
                     members[members.len() - 1].end_position().row,
                     node.end_position().row,
-                );
+                )
+                .max(2);
                 concat(vec![
                     text("{"),
                     indent(
@@ -463,6 +460,24 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
         }
         "datatype_fields" => first_named(node, source, opts),
         "named_fields" => block(node, source, opts, ","),
+        // Struct literal `OrderMatched { a: x, b: y }` inside a call.
+        "pack_expression" => concat(vec![
+            print_named(node, source, opts, 0),
+            print_named(node, source, opts, 1),
+        ]),
+        "field_initialize_list" => block(node, source, opts, ","),
+        "exp_field" => {
+            // `name` shorthand (`new_admin,`) vs `name: expr`.
+            if content_named_count(node) <= 1 {
+                print_named(node, source, opts, 0)
+            } else {
+                concat(vec![
+                    print_named(node, source, opts, 0),
+                    text(": "),
+                    print_named(node, source, opts, 1),
+                ])
+            }
+        }
         "field_annotation" => concat(vec![
             print_named(node, source, opts, 0),
             text(": "),
@@ -470,6 +485,160 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
         ]),
         "positional_fields" => breakable_comma_separated_list(node, source, opts, "(", ")", false),
         "block" => block(node, source, opts, ""),
+        // Control flow: keep the keyword + condition inline, indent the body.
+        "if_condition" => concat(vec![
+            text("("),
+            print_named(node, source, opts, 0),
+            text(")"),
+        ]),
+        // `let x = expr;` / `let (a, b): T = expr;` — keep RHS inline;
+        // nested call args break internally without an extra level.
+        "let_statement" => {
+            let named = named_children(node);
+            // named: [bind, (type), (expr)] — count via content
+            let count = named.len();
+            if count >= 2 {
+                let has_expr = named.last().is_some_and(|n| {
+                    let txt = node_text(n, source);
+                    !txt.trim().is_empty()
+                });
+                if has_expr && count >= 2 {
+                    // binds = 0, type = 1 if present, else expr = 1.
+                    // Handle both `let x = ...` and `let x: T = ...`.
+                    let has_type = {
+                        let second = named.get(1);
+                        matches!(second, Some(n) if n.kind().contains("type") || n.kind().contains("Primitive"))
+                    };
+                    let _ = has_type;
+                    return concat(vec![
+                        text("let "),
+                        print_named(node, source, opts, 0),
+                        if count >= 3 {
+                            concat(vec![
+                                text(": "),
+                                print_named(node, source, opts, 1),
+                                text(" = "),
+                                print_named(node, source, opts, 2),
+                            ])
+                        } else {
+                            concat(vec![text(" = "), print_named(node, source, opts, 1)])
+                        },
+                    ]);
+                }
+            }
+            first_named(node, source, opts)
+        }
+        "assign_expression" => concat(vec![
+            print_named(node, source, opts, 0),
+            text(" = "),
+            print_named(node, source, opts, 1),
+        ]),
+        "block_item" => {
+            // `block_item { expr ; }` — re-emit the trailing `;` so
+            // `let x = 1;` keeps its terminator.
+            let has_semi = content_children(node)
+                .iter()
+                .any(|c| !c.is_named() && c.kind() == ";");
+            let inner = first_named(node, source, opts);
+            if has_semi {
+                concat(vec![inner, text(";")])
+            } else {
+                inner
+            }
+        }
+        "if_statement" | "if_expression" => {
+            // Named children: [cond?, then_arm, else_arm?] with
+            // `block_comment`s possibly interleaved before the cond.
+            // Skip comments for structural indexes but re-emit them inside
+            // the parens so `if (/* c */ 1 < 2)` keeps its comment.
+            let named = named_children(node);
+            // Find condition index = first non-comment named node.
+            let Some(cond_start) = named
+                .iter()
+                .position(|n| !matches!(n.kind(), "block_comment" | "line_comment"))
+            else {
+                return text(node_text(node, source));
+            };
+            let cond_idx = cond_start;
+            // Everything before the then-arm after the cond belongs to the
+            // condition (comments).
+            let mut cond_docs: Vec<Doc> = Vec::new();
+            for (i, child) in named.iter().enumerate() {
+                if i <= cond_idx {
+                    if i > cond_idx {
+                        cond_docs.push(text(" "));
+                    }
+                    cond_docs.push(print_node(child, source, opts));
+                }
+            }
+            let mut then_idx = cond_idx + 1;
+            while then_idx < named.len()
+                && matches!(named[then_idx].kind(), "block_comment" | "line_comment")
+            {
+                then_idx += 1;
+            }
+            if then_idx >= named.len() {
+                return concat(vec![text("if ("), concat(cond_docs), text(")")]);
+            }
+            let then_node = &named[then_idx];
+            let then_doc = print_node(then_node, source, opts);
+            let mut parts: Vec<Doc> = vec![text("if ("), concat(cond_docs), text(")")];
+            // Blocks already start with ` {`; bare exprs need a space.
+            if then_node.kind() != "block" {
+                parts.push(text(" "));
+            }
+            parts.push(then_doc);
+            // else arm: first non-comment after then_idx
+            let mut else_idx = then_idx + 1;
+            let mut saw_line_comment = false;
+            while else_idx < named.len()
+                && matches!(named[else_idx].kind(), "block_comment" | "line_comment")
+            {
+                // trailing comment on the then-arm line — emit it inline
+                if named[else_idx].kind() == "line_comment" {
+                    saw_line_comment = true;
+                }
+                parts.push(text(" "));
+                parts.push(print_node(&named[else_idx], source, opts));
+                else_idx += 1;
+            }
+            if else_idx < named.len() {
+                // `//` comment eats the rest of the line — break before `else`
+                if saw_line_comment {
+                    parts.push(RcDoc::hardline());
+                    parts.push(text("else "));
+                } else {
+                    parts.push(text(" else "));
+                }
+                // else arm may be `if` (else-if chain) or block/expr
+                parts.push(print_node(&named[else_idx], source, opts));
+            }
+            concat(parts)
+        }
+        "call_expression" => {
+            // `callee(args...)` — args handled by `arg_list` below.
+            let callee = print_named(node, source, opts, 0);
+            let args = print_named(node, source, opts, 1);
+            concat(vec![callee, args])
+        }
+        "arg_list" => {
+            let children = named_children(node);
+            let multiline =
+                !children.is_empty() && node.end_position().row > node.start_position().row;
+            breakable_comma_separated_list(node, source, opts, "(", ")", multiline)
+        }
+        "while_statement" | "while_expression" => concat(vec![
+            text("while ("),
+            print_named(node, source, opts, 0),
+            text(")"),
+            print_named(node, source, opts, 1),
+        ]),
+        "for_statement" | "for_expression" => concat(vec![
+            text("for ("),
+            print_named(node, source, opts, 0),
+            text(")"),
+            print_named(node, source, opts, 1),
+        ]),
         "function_parameters" => {
             let children = named_children(node);
             let multiline =

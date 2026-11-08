@@ -17,29 +17,29 @@ module test::functions {
         p1: SomeStructWithALongName,
         p2: SomeStructWithALongName,
         p3: SomeStructWithALongName,
-        p1: SomeStructWithALongName,
+        p1: SomeStructWithALongName
     ): u64 {}
 
     fun long_type_list_and_generics<
         TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT1: key,
         TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT2: store,
-        TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3: drop,
+        TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3: drop
     >(
         p1: SomeStructWithALongName,
         p2: SomeStructWithALongName,
         p3: SomeStructWithALongName,
-        p1: SomeStructWithALongName,
+        p1: SomeStructWithALongName
     ): u64 {}
 
     fun long_type_list_generics_and_body<
         TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT1: key,
         TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT2: store,
-        TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3: drop,
+        TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3: drop
     >(
         p1: SomeStructWithALongName,
         p2: SomeStructWithALongName,
         p3: SomeStructWithALongName,
-        p1: SomeStructWithALongName,
+        p1: SomeStructWithALongName
     ): u64 {
         some_long_function_name();
         some_long_function_name();

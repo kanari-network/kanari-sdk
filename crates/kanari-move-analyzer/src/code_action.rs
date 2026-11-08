@@ -30,6 +30,17 @@ fn uri_to_file_path(uri: &lsp_types::Uri) -> Result<std::path::PathBuf, String> 
 
 #[allow(clippy::mutable_key_type)]
 pub fn on_code_action_request(params: &CodeActionParams) -> Vec<CodeAction> {
+    on_code_action_request_with_text(params, None)
+}
+
+/// Code action with the editor's *current* (possibly unsaved) text, so
+/// quick-fixes (underscore rename, import insert) act on what the user
+/// sees — not on stale disk content. `None` falls back to disk.
+#[allow(clippy::mutable_key_type)]
+pub fn on_code_action_request_with_text(
+    params: &CodeActionParams,
+    current_text: Option<String>,
+) -> Vec<CodeAction> {
     let file_path = uri_to_file_path(&params.text_document.uri).ok();
     eprintln!(
         "code_action: file_path={file_path:?} diags={:?}",
@@ -39,10 +50,13 @@ pub fn on_code_action_request(params: &CodeActionParams) -> Vec<CodeAction> {
         .as_deref()
         .map(edition_for_file)
         .unwrap_or(MoveEdition::Unknown);
-    let file_text = file_path
-        .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .unwrap_or_default();
+    let file_text = match current_text {
+        Some(t) => t,
+        None => file_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default(),
+    };
     let lines: Vec<&str> = file_text.lines().collect();
 
     let (all_members, all_modules) = file_path
@@ -55,8 +69,28 @@ pub fn on_code_action_request(params: &CodeActionParams) -> Vec<CodeAction> {
     // key -> (diag indices, member names)
     let mut groups: HashMap<(String, String), (Vec<usize>, HashSet<String>)> = HashMap::new();
     let mut module_only: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    let mut actions = Vec::new();
 
     for (i, diag) in params.context.diagnostics.iter().enumerate() {
+        // Unused param/var → offer rename to `_name`.
+        if let Some(unused_name) = extract_unused_name(&diag.message) {
+            if let Some(edit) = rename_to_underscored(&lines, diag.range, &unused_name) {
+                let mut changes = HashMap::new();
+                changes.insert(params.text_document.uri.clone(), edit);
+                actions.push(CodeAction {
+                    title: format!("Rename '{unused_name}' to '_{unused_name}'"),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    is_preferred: Some(true),
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
         if diag.message.contains("Unnecessary alias")
             || (diag.message.contains("duplicate alias")
                 && diag.message.contains("provided by default"))
@@ -94,8 +128,6 @@ pub fn on_code_action_request(params: &CodeActionParams) -> Vec<CodeAction> {
                 .push(i);
         }
     }
-
-    let mut actions = Vec::new();
 
     // --- 2. one merged action per member-group ---------------------------
     for ((addr, module), (diag_idxs, members)) in groups {
@@ -320,6 +352,12 @@ pub fn extract_unresolved_name(message: &str) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for pat in patterns {
         if let Some(idx) = message.find(pat) {
+            if idx > 0 {
+                let prev = message[..idx].chars().next_back();
+                if prev.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    continue;
+                }
+            }
             let rest = &message[idx + pat.len()..];
             let end = rest
                 .find(|c: char| c == '\'' || c == '`' || (!c.is_ascii_alphanumeric() && c != '_'))
@@ -337,6 +375,117 @@ pub fn extract_unresolved_name(message: &str) -> Option<String> {
         }
     }
     best.map(|(_, n)| n)
+}
+
+/// `Unused parameter 'x'. Consider ... prefixing with an underscore: '_x'`
+/// (Move compiler `UnusedItem::Variable`). Also matches the
+/// `Unused local variable 'x'` / `Unused variable 'x'` forms.
+pub fn extract_unused_name(message: &str) -> Option<String> {
+    let patterns = [
+        "Unused parameter '",
+        "Unused local variable '",
+        "Unused variable '",
+    ];
+    let mut best: Option<(usize, String)> = None;
+    for pat in patterns {
+        if let Some(idx) = message.find(pat) {
+            if idx > 0 {
+                let prev = message[..idx].chars().next_back();
+                if prev.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    continue;
+                }
+            }
+            let rest = &message[idx + pat.len()..];
+            let end = rest.find('\'').unwrap_or(rest.len());
+            let name = &rest[..end];
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && !name.starts_with('_')
+                && best.as_ref().is_none_or(|(bidx, _)| idx < *bidx)
+            {
+                best = Some((idx, name.to_string()));
+            }
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
+/// Build a `TextEdit` that renames the identifier at `range` to
+/// `_{name}`. Returns `None` when the name already starts with `_`
+/// or the identifier cannot be located on the target line.
+pub fn rename_to_underscored(lines: &[&str], range: Range, name: &str) -> Option<Vec<TextEdit>> {
+    if name.is_empty() || name.starts_with('_') {
+        return None;
+    }
+    let line_idx = range.start.line as usize;
+    let line_text = lines.get(line_idx)?;
+    let start = range.start.character as usize;
+    let end = range.end.character as usize;
+    let new_name = format!("_{name}");
+    // Fast path: the diagnostic range exactly covers the identifier.
+    if start < end && line_text.get(start..end) == Some(name) {
+        return Some(vec![TextEdit {
+            range: Range::new(
+                lsp_types::Position::new(range.start.line, range.start.character),
+                lsp_types::Position::new(range.end.line, range.end.character),
+            ),
+            new_text: new_name,
+        }]);
+    }
+    // Zero-length range: insert `_` before the identifier.
+    if start == end && start <= line_text.len() && line_text[start..].starts_with(name) {
+        return Some(vec![TextEdit {
+            range: Range::new(
+                lsp_types::Position::new(range.start.line, range.start.character),
+                lsp_types::Position::new(range.start.line, range.start.character),
+            ),
+            new_text: "_".to_string(),
+        }]);
+    }
+    // Fallback: search the line for `name` as an identifier token
+    // near the reported column (handles off-by-one / UTF-16 units).
+    let search_from = start.min(line_text.len());
+    if let Some(pos) = find_identifier_token(&line_text[search_from..], name) {
+        let s = (search_from + pos) as u32;
+        return Some(vec![TextEdit {
+            range: Range::new(
+                lsp_types::Position::new(range.start.line, s),
+                lsp_types::Position::new(range.start.line, s + name.len() as u32),
+            ),
+            new_text: new_name,
+        }]);
+    }
+    // Last resort: first token occurrence anywhere on the line.
+    if let Some(pos) = find_identifier_token(line_text, name) {
+        let s = pos as u32;
+        return Some(vec![TextEdit {
+            range: Range::new(
+                lsp_types::Position::new(range.start.line, s),
+                lsp_types::Position::new(range.start.line, s + name.len() as u32),
+            ),
+            new_text: new_name,
+        }]);
+    }
+    None
+}
+
+fn find_identifier_token(haystack: &str, needle: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(needle) {
+        let pos = from + rel;
+        let before = haystack[..pos].chars().next_back();
+        let after = haystack[pos + needle.len()..].chars().next();
+        let before_ok = before.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+        let after_ok = after.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+        if before_ok && after_ok {
+            return Some(pos);
+        }
+        from = pos + needle.len();
+    }
+    None
 }
 
 pub fn module_used_as_alias(text: &str, module: &str) -> bool {
@@ -487,7 +636,7 @@ pub fn local_dep_dirs(root: &Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     let mut in_deps = false;
     for line in text.lines() {
-        let t = line.trim();
+        let t = line.trim_start_matches('\u{FEFF}').trim();
         if t.starts_with('[') {
             in_deps = t == "[dependencies]" || t == "[dev-dependencies]";
             continue;
@@ -575,7 +724,7 @@ fn read_package_name(root: &Path) -> Option<String> {
     let text = std::fs::read_to_string(root.join("Move.toml")).ok()?;
     let mut in_pkg = false;
     for line in text.lines() {
-        let t = line.trim();
+        let t = line.trim_start_matches('\u{FEFF}').trim();
         if t.starts_with('[') {
             in_pkg = t == "[package]";
             continue;
@@ -593,28 +742,15 @@ fn read_package_name(root: &Path) -> Option<String> {
     None
 }
 
-// Formatting: delegate to `kanari move fmt` on a temp file.
+// Formatting: use the in-process kanari-move-fmt library directly so
+// `kanari move fmt` (CLI) and the LSP share exactly one implementation.
 
 pub fn format_document(params: &lsp_types::DocumentFormattingParams, text: &str) -> Vec<TextEdit> {
     let _ = params;
     if text.trim().is_empty() {
         return Vec::new();
     }
-    let tmp = std::env::temp_dir().join(format!("kanari-fmt-{}.move", std::process::id()));
-    let formatted = std::fs::write(&tmp, text)
-        .map_err(|e| e.to_string())
-        .and_then(|_| {
-            let output = std::process::Command::new("kanari")
-                .args(["move", "fmt", tmp.to_str().unwrap_or("")])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(String::from_utf8_lossy(&output.stderr).to_string());
-            }
-            std::fs::read_to_string(&tmp).map_err(|e| e.to_string())
-        });
-    let _ = std::fs::remove_file(&tmp);
-    match formatted {
+    match kanari_move_fmt::format_source(text, &kanari_move_fmt::FormatOptions::default()) {
         Ok(out) if out != text => {
             let last_line = text.lines().count().saturating_sub(1) as u32;
             let last_col = text.lines().last().map(|l| l.len() as u32).unwrap_or(0);

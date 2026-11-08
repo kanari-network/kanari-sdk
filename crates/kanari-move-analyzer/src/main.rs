@@ -15,7 +15,8 @@ use lsp_types::{
 use move_compiler::linters::LintLevel;
 use std::{
     collections::BTreeMap,
-    path::PathBuf,
+    io::Read,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -214,12 +215,24 @@ fn main() {
                         match result {
                             Ok(diags) => {
                                 for (k, v) in diags {
+                                    let file_text = read_doc_text(&ide_files_root, &k);
                                     let v: Vec<_> = v
                                         .into_iter()
                                         .filter(|d| {
-                                            !kanari_move_analyzer::diagnostics::is_kanari_false_positive(
+                                            !kanari_move_analyzer::diagnostics::is_kanari_false_positive_with_file(
                                                 &d.message,
+                                                &file_text,
+                                                d.range.start.line as usize,
                                             )
+                                        })
+                                        .map(|mut d| {
+                                            if kanari_move_analyzer::diagnostics::is_kanari_warning(
+                                                &d.message,
+                                            ) {
+                                                d.severity =
+                                                    Some(lsp_types::DiagnosticSeverity::WARNING);
+                                            }
+                                            d
                                         })
                                         .collect();
                                     let uri = path_to_uri(&k).unwrap();
@@ -284,6 +297,29 @@ fn main() {
     io_threads.join().expect("I/O threads could not finish");
     symbolicator_runner.quit();
     eprintln!("Shut down language server '{}'.", exe);
+}
+
+/// Read the *current* (possibly unsaved) text for `path` from the VFS,
+/// falling back to disk. Unsaved edits live only in the VFS — reading
+/// disk here would make code actions, formatting and the entry-param
+/// filter act on stale text (wrong lines / missing `_` etc.).
+fn read_doc_text(ide_files_root: &VfsPath, path: &Path) -> String {
+    if let Ok(vfs_path) = ide_files_root.join(path.to_string_lossy())
+        && let Ok(mut f) = vfs_path.open_file()
+    {
+        let mut buf = String::new();
+        if f.read_to_string(&mut buf).is_ok() {
+            return buf;
+        }
+    }
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+fn read_uri_text(ide_files_root: &VfsPath, uri: &lsp_types::Uri) -> String {
+    match move_analyzer::utils::uri_to_file_path(uri) {
+        Ok(p) => read_doc_text(ide_files_root, &p),
+        Err(_) => String::new(),
+    }
 }
 
 /// This function returns `true` if shutdown request has been received, and `false` otherwise.
@@ -355,7 +391,11 @@ fn on_request(
                         },
                     }
                 });
-            let actions = kanari_move_analyzer::code_action::on_code_action_request(&params);
+            let current_text = read_uri_text(&ide_files_root, &params.text_document.uri);
+            let actions = kanari_move_analyzer::code_action::on_code_action_request_with_text(
+                &params,
+                Some(current_text),
+            );
             let response = lsp_server::Response::new_ok(
                 request.id.clone(),
                 serde_json::to_value(actions).unwrap_or(serde_json::Value::Null),
@@ -383,7 +423,7 @@ fn on_request(
                         work_done_progress_params: Default::default(),
                     }
                 });
-            let text = kanari_move_analyzer::code_action::read_disk_text(&params.text_document.uri);
+            let text = read_uri_text(&ide_files_root, &params.text_document.uri);
             let edits = kanari_move_analyzer::code_action::format_document(&params, &text);
             let response = lsp_server::Response::new_ok(
                 request.id.clone(),
@@ -403,7 +443,7 @@ fn on_request(
                     work_done_progress_params: Default::default(),
                     partial_result_params: Default::default(),
                 });
-            let text = kanari_move_analyzer::code_action::read_disk_text(&params.text_document.uri);
+            let text = read_uri_text(&ide_files_root, &params.text_document.uri);
             let lenses = kanari_move_analyzer::code_action::code_lenses(&params, &text);
             let response = lsp_server::Response::new_ok(
                 request.id.clone(),

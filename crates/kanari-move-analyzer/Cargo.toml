@@ -13,16 +13,17 @@ description.workspace = true
 
 [dependencies]
 # Stock Move LSP, pulled as a library — not forked, not spawned.
-move-analyzer = { path = "../../third_party/move/crates/move-analyzer" }
+move-analyzer = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-crossbeam = "0.8.5"
-lsp-server = "0.10.0"
-lsp-types = "0.97.0"
+crossbeam = { workspace = true }
+lsp-server = { workspace = true }
+lsp-types = { workspace = true }
 move-compiler = { workspace = true }
-vfs = "0.13.0"
-url = "2.5.8"
+vfs = { workspace = true }
+url = { workspace = true }
+kanari-move-fmt = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

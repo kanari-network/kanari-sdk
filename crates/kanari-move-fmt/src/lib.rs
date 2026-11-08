@@ -153,11 +153,11 @@ mod tests {
 
     #[test]
     fn formats_grouped_uses() {
-        // Adjacent members stay adjacent: no blank line is inserted where
-        // the author did not write one.
+        // Adjacent members stay adjacent: no blank line is inserted between
+        // members, but module body gets 1 blank line after `{` and before `}`.
         let src = "module james::euro {\n    use kanari_system::coin;\n    use kanari_system::transfer;\n    struct EURO has drop {}\n}";
         let out = format_source(src, &FormatOptions::default()).unwrap();
-        let expected = "module james::euro {\n    use kanari_system::coin;\n    use kanari_system::transfer;\n    struct EURO has drop {}\n}\n";
+        let expected = "module james::euro {\n\n    use kanari_system::coin;\n    use kanari_system::transfer;\n    struct EURO has drop {}\n\n}\n";
         assert_eq!(out, expected);
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let out = format_source(src, &FormatOptions::default()).unwrap();
         // The whitespace-only line counts as a blank line (trailing spaces
         // are stripped), so two blank lines survive between `use` and `const`.
-        let expected = "module mika::storage {\n\n    use std::vector;\n\n\n    const E: u64 = 0;\n\n\n    struct S has key {\n        id: u64,\n\n        owner: address,\n    }\n\n}\n";
+        let expected = "module mika::storage {\n\n    use std::vector;\n\n\n    const E: u64 = 0;\n\n\n    struct S has key {\n        id: u64,\n\n        owner: address\n    }\n\n}\n";
         assert_eq!(out, expected);
     }
 

@@ -333,7 +333,15 @@ move-stdlib-natives = { path = "third_party/move/crates/move-stdlib-natives" }
 move-vm-runtime = { path = "third_party/move/crates/move-vm-runtime" }
 move-coverage = { path = "third_party/move/crates/move-coverage" }
 move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifier" }
+move-analyzer = { path = "third_party/move/crates/move-analyzer" }
 
+# Move LSP (kanari-move-analyzer)
+crossbeam = "0.8.5"
+lsp-server = "0.10.0"
+lsp-types = "0.97.0"
+vfs = "0.13.0"
+url = "2.5.8"
+tree-sitter-move = { path = "third_party/tree-sitter-move" }
 
 [patch.crates-io]
 # libp2p-kad = { path = "third_party/patches/libp2p-kad-0.48.0" }
