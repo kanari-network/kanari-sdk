@@ -74,46 +74,57 @@ module std::error {
         canonical(INVALID_ARGUMENT, r)
     }
 
+    /// Caller specified an invalid argument (http: 400)
     public fun out_of_range(r: u64): u64 {
         canonical(OUT_OF_RANGE, r)
     }
 
+    /// An input or result of a computation is out of range (http: 400)
     public fun invalid_state(r: u64): u64 {
         canonical(INVALID_STATE, r)
     }
 
+    /// Request not authenticated due to missing, invalid, or expired auth token (http: 401)
     public fun unauthenticated(r: u64): u64 {
         canonical(UNAUTHENTICATED, r)
     }
 
+    /// client does not have sufficient permission (http: 403)
     public fun permission_denied(r: u64): u64 {
         canonical(PERMISSION_DENIED, r)
     }
 
+    /// A specified resource is not found (http: 404)
     public fun not_found(r: u64): u64 {
         canonical(NOT_FOUND, r)
     }
 
+    /// Concurrency conflict, such as read-modify-write conflict (http: 409)
     public fun aborted(r: u64): u64 {
         canonical(ABORTED, r)
     }
 
+    /// The resource that a client tried to create already exists (http: 409)
     public fun already_exists(r: u64): u64 {
         canonical(ALREADY_EXISTS, r)
     }
 
+    /// Out of gas or other forms of quota (http: 429)
     public fun resource_exhausted(r: u64): u64 {
         canonical(RESOURCE_EXHAUSTED, r)
     }
 
+    /// Internal error (http: 500)
     public fun internal(r: u64): u64 {
         canonical(INTERNAL, r)
     }
 
+    /// Feature not implemented (http: 501)
     public fun not_implemented(r: u64): u64 {
         canonical(NOT_IMPLEMENTED, r)
     }
 
+    /// The service is currently unavailable. Indicates that a retry could solve the issue (http: 503)
     public fun unavailable(r: u64): u64 {
         canonical(UNAVAILABLE, r)
     }

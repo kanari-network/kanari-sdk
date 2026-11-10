@@ -75,16 +75,19 @@ module std::ascii {
         true
     }
 
+    /// Pushes a `Char` to the back of a `String`.
     public fun push_char(string: &mut String, char: Char) {
         vector::push_back(&mut string.bytes, char.byte);
     }
 
+    /// Removes and returns the last character in a `String`.
     public fun pop_char(string: &mut String): Char {
         Char {
             byte: vector::pop_back(&mut string.bytes)
         }
     }
 
+    /// Returns the length of the `String`.
     public fun length(string: &String): u64 {
         vector::length(as_bytes(string))
     }

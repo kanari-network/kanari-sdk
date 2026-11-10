@@ -36,7 +36,8 @@ impl fmt::Display for Severity {
 /// Unique identifier for an audit rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum RuleId {
-    Reentrancy,
+    EntryWithoutAuth,
+    ExternalCall,
     MissingAccessControl,
     BorrowGlobalWithoutCheck,
     HardcodedAddress,
@@ -51,7 +52,8 @@ pub enum RuleId {
 impl fmt::Display for RuleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RuleId::Reentrancy => write!(f, "reentrancy"),
+            RuleId::EntryWithoutAuth => write!(f, "entry-without-auth"),
+            RuleId::ExternalCall => write!(f, "external-call"),
             RuleId::MissingAccessControl => write!(f, "missing-access-control"),
             RuleId::BorrowGlobalWithoutCheck => write!(f, "borrow-global-without-check"),
             RuleId::HardcodedAddress => write!(f, "hardcoded-address"),

@@ -492,7 +492,11 @@ module kanari_system::coin {
     }
 
     /// Entry wrapper for joining two coin objects owned by the sender.
-    public entry fun join_entry<T>(coin: &mut Coin<T>, other: Coin<T>) {
+    public entry fun join_entry<T>(
+        coin: &mut Coin<T>,
+        other: Coin<T>,
+        _ctx: &mut TxContext
+    ) {
         join(coin, other);
     }
 

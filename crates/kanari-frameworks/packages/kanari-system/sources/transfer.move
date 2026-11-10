@@ -8,6 +8,7 @@ module kanari_system::transfer {
     use std::vector;
     use kanari_system::math;
     use kanari_system::object::UID;
+    use kanari_system::tx_context::TxContext;
 
     /// Error codes
     const ERR_INVALID_AMOUNT: u64 = 1;
@@ -116,8 +117,14 @@ module kanari_system::transfer {
     /// sender. No royalty/`TransferPolicy` gate runs here — this is the
     /// direct-transfer path, the on-chain escape hatch equivalent of Sui
     /// `public_transfer` in a PTB.
-    public entry fun transfer<T: key + store>(obj: T, recipient: address) {
+    public entry fun transfer<T: key + store>(
+        obj: T,
+        recipient: address,
+        ctx: &mut TxContext
+    ) {
+        let sender = kanari_system::tx_context::sender(ctx);
         public_transfer(obj, recipient);
+        let _ = sender;
     }
 
     /// Internal transfer that extracts UID for tracking

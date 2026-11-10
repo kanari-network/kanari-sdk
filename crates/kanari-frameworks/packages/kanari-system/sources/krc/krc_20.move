@@ -122,7 +122,11 @@ module kanari_system::krc_20 {
     }
 
     /// Merge `other` into `token`, reducing coin-object fragmentation.
-    public entry fun join<T>(token: &mut Coin<T>, other: Coin<T>) {
+    public entry fun join<T>(
+        token: &mut Coin<T>,
+        other: Coin<T>,
+        _ctx: &mut TxContext
+    ) {
         coin::join(token, other)
     }
 

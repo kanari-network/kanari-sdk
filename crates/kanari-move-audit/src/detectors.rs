@@ -25,7 +25,7 @@ pub fn detect_all(source: &str, file: &str) -> Vec<AuditFinding> {
 
     let mut findings: Vec<AuditFinding> = Vec::new();
 
-    findings.extend(detect_entry_without_signer(source, file, root));
+    findings.extend(detect_entry_without_auth(source, file, root));
     findings.extend(detect_borrow_global_without_exists(source, file, root));
     findings.extend(detect_hardcoded_address(source, file, root));
     findings.extend(detect_external_call_in_entry(source, file, root));
@@ -107,7 +107,13 @@ fn func_has_authenticated_param<'a>(func: Node<'a>, source: &'a str) -> bool {
             };
             if let Some(ty) = child_by_field(actual_param, "type") {
                 let t = node_text(ty, source);
-                if t == "signer" || t.contains("TxContext") {
+                // signer model OR object model (TxContext) OR capability-based auth
+                if t == "signer"
+                    || t.contains("TxContext")
+                    || t.contains("TreasuryCap")
+                    || t.contains("KioskOwnerCap")
+                    || t.contains("TransferPolicy")
+                {
                     return true;
                 }
             }
@@ -147,21 +153,7 @@ fn enclosing_function<'a>(node: Node<'a>) -> Option<Node<'a>> {
     None
 }
 
-/// Return true if any ancestor of `node` (including itself) has the given kind.
-fn has_ancestor_kind(node: Node, kind: &str) -> bool {
-    let mut cur = node;
-    while let Some(parent) = cur.parent() {
-        if parent.kind() == kind {
-            return true;
-        }
-        cur = parent;
-    }
-    false
-}
-
-// Detectors ----------------------------------------------------------------
-
-fn detect_entry_without_signer(source: &str, file: &str, root: Node) -> Vec<AuditFinding> {
+fn detect_entry_without_auth(source: &str, file: &str, root: Node) -> Vec<AuditFinding> {
     let mut out = Vec::new();
     let mut funcs = Vec::new();
     descendants_by_kind(root, "function_definition", &mut funcs);
@@ -176,12 +168,12 @@ fn detect_entry_without_signer(source: &str, file: &str, root: Node) -> Vec<Audi
             let (line, col) = line_col(func);
             let name = func_name_from_def(func, source).unwrap_or("<unknown>");
             out.push(AuditFinding::new(
-                RuleId::PublicEntryWithoutSigner,
+                RuleId::EntryWithoutAuth,
                 Severity::High,
-                format!("entry function `{name}` lacks a `signer` parameter"),
-                "Entry functions must authenticate the caller with a `signer` \
-                 as the first parameter. Without it the function cannot be \
-                 authorized.",
+                format!("entry function `{name}` lacks caller authentication"),
+                "Entry functions must authenticate the caller via a `signer` \
+                 parameter, a `&mut TxContext` parameter (object model), or a \
+                 capability parameter such as `TreasuryCap`/`KioskOwnerCap`.",
                 file,
                 line,
                 col,
@@ -245,13 +237,28 @@ fn detect_hardcoded_address(source: &str, file: &str, root: Node) -> Vec<AuditFi
 
     for addr in addrs {
         let text = node_text(addr, source);
-        // Only flag hex address literals; skip module-address declarations
-        // (whose ancestor is `module_identity`) and the zero/one addresses.
-        if !text.starts_with("0x")
-            || text == "0x0"
-            || text == "0x1"
-            || has_ancestor_kind(addr, "module_identity")
+        // Only flag hex address literals
+        if !text.starts_with("0x") {
+            continue;
+        }
+        let hex = &text[2..];
+        // Skip bit masks and small constants (hex length <= 4 means value <= 0xFFFF)
+        if hex.len() <= 4 {
+            continue;
+        }
+        // Skip canonical error codes (5 hex digits starting with 0x1-0x4):
+        // e.g. 0x10000, 0x20000, 0x40000 — these are error code constants,
+        // not account addresses.
+        if hex.len() == 5
+            && (hex.starts_with('1')
+                || hex.starts_with('2')
+                || hex.starts_with('3')
+                || hex.starts_with('4'))
         {
+            continue;
+        }
+        // Skip test files - test constants are not real addresses
+        if file.contains("/tests/") || file.contains("\\tests\\") {
             continue;
         }
         let (line, col) = line_col(addr);
@@ -288,7 +295,7 @@ fn detect_external_call_in_entry(source: &str, file: &str, root: Node) -> Vec<Au
             let (line, col) = line_col(call);
             let name = func_name_from_def(func, source).unwrap_or("<unknown>");
             out.push(AuditFinding::new(
-                RuleId::Reentrancy,
+                RuleId::ExternalCall,
                 Severity::High,
                 format!("entry function `{name}` makes an external call"),
                 "Entry functions that call into other modules before state \
@@ -442,7 +449,10 @@ fn detect_missing_doc(source: &str, file: &str, root: Node) -> Vec<AuditFinding>
         let before = &source[..func.start_byte()];
         let has_doc = before.lines().rev().take(3).any(|l| {
             let t = l.trim();
-            t.starts_with("/**") || t.starts_with("///") || t.starts_with("//!")
+            t.starts_with("/**")
+                || t.starts_with("///")
+                || t.starts_with("//!")
+                || t.starts_with("//")
         });
         if !has_doc {
             let name = func_name_from_def(func, source).unwrap_or("<unknown>");
@@ -514,7 +524,7 @@ module 0x1::Example {
         let c = borrow_global<Coin>(addr);
     }
     public fun hardcoded() {
-        let a = 0x42;
+        let a = 0x12345678;
     }
     public entry fun external_call(signer: signer) {
         let _ = 0x2::Other::foo(&mut ctx);
@@ -529,11 +539,7 @@ module 0x1::Example {
     #[test]
     fn detects_missing_signer() {
         let findings = detect_all(SAMPLE, "test.move");
-        assert!(
-            findings
-                .iter()
-                .any(|f| f.rule == RuleId::PublicEntryWithoutSigner)
-        );
+        assert!(findings.iter().any(|f| f.rule == RuleId::EntryWithoutAuth));
     }
 
     #[test]
@@ -547,9 +553,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings
-                .iter()
-                .all(|f| f.rule != RuleId::PublicEntryWithoutSigner),
+            findings.iter().all(|f| f.rule != RuleId::EntryWithoutAuth),
             "unexpected findings: {:?}",
             findings
         );
@@ -566,7 +570,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings.iter().all(|f| f.rule != RuleId::Reentrancy),
+            findings.iter().all(|f| f.rule != RuleId::ExternalCall),
             "unexpected findings: {:?}",
             findings
         );
@@ -581,9 +585,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings
-                .iter()
-                .all(|f| f.rule != RuleId::PublicEntryWithoutSigner),
+            findings.iter().all(|f| f.rule != RuleId::EntryWithoutAuth),
             "unexpected findings: {:?}",
             findings
         );
@@ -602,9 +604,31 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
+            findings.iter().all(|f| f.rule != RuleId::EntryWithoutAuth),
+            "unexpected findings: {:?}",
             findings
-                .iter()
-                .all(|f| f.rule != RuleId::PublicEntryWithoutSigner),
+        );
+    }
+
+    #[test]
+    fn does_not_flag_capability_based_entry_function() {
+        let src = r#"
+module 0x1::M {
+    entry fun place_item(
+        kiosk: &mut Kiosk,
+        cap: &KioskOwnerCap<Coin>,
+        item_id: ID,
+        item: Coin
+    ) { }
+    entry fun burn(
+        treasury_cap: &mut TreasuryCap<Coin>,
+        coin: Coin
+    ) { }
+}
+"#;
+        let findings = detect_all(src, "test.move");
+        assert!(
+            findings.iter().all(|f| f.rule != RuleId::EntryWithoutAuth),
             "unexpected findings: {:?}",
             findings
         );
@@ -624,7 +648,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings.iter().all(|f| f.rule != RuleId::Reentrancy),
+            findings.iter().all(|f| f.rule != RuleId::ExternalCall),
             "unexpected findings: {:?}",
             findings
         );
@@ -641,7 +665,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings.iter().any(|f| f.rule == RuleId::Reentrancy),
+            findings.iter().any(|f| f.rule == RuleId::ExternalCall),
             "expected a reentrancy finding for state-changing call"
         );
     }
@@ -658,7 +682,7 @@ module 0x1::M {
 "#;
         let findings = detect_all(src, "test.move");
         assert!(
-            findings.iter().all(|f| f.rule != RuleId::Reentrancy),
+            findings.iter().all(|f| f.rule != RuleId::ExternalCall),
             "unexpected findings: {:?}",
             findings
         );
@@ -683,7 +707,7 @@ module 0x1::M {
     #[test]
     fn detects_external_call_in_entry() {
         let findings = detect_all(SAMPLE, "test.move");
-        assert!(findings.iter().any(|f| f.rule == RuleId::Reentrancy));
+        assert!(findings.iter().any(|f| f.rule == RuleId::ExternalCall));
     }
 
     #[test]

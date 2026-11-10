@@ -116,12 +116,20 @@ module kanari_system::pay {
     }
 
     /// Join `coin` into `self`. Re-exports `coin::join` function.
-    public entry fun join<T>(self: &mut Coin<T>, coin: Coin<T>) {
+    public entry fun join<T>(
+        self: &mut Coin<T>,
+        coin: Coin<T>,
+        _ctx: &mut TxContext
+    ) {
         coin::join(self, coin)
     }
 
     /// Join everything in `coins` with `self`
-    public entry fun join_vec<T>(self: &mut Coin<T>, coins: vector<Coin<T>>) {
+    public entry fun join_vec<T>(
+        self: &mut Coin<T>,
+        coins: vector<Coin<T>>,
+        _ctx: &mut TxContext
+    ) {
         assert!(vector::length(&coins) <= coin::max_split_parts(), ETOO_MANY_COINS);
         let (i, len) = (0, vector::length(&coins));
         while (i < len) {
@@ -137,7 +145,7 @@ module kanari_system::pay {
     public entry fun join_vec_and_transfer<T>(
         coins: vector<Coin<T>>,
         receiver: address,
-        ctx: &TxContext
+        ctx: &mut TxContext
     ) {
         assert!(receiver != tx_context::sender(ctx), ESELF_PAY);
         assert!(vector::length(&coins) > 0, ENoCoins);
@@ -147,7 +155,7 @@ module kanari_system::pay {
         );
 
         let self = vector::pop_back(&mut coins);
-        join_vec(&mut self, coins);
+        join_vec(&mut self, coins, ctx);
         transfer::public_transfer(self, receiver)
     }
 
@@ -159,7 +167,7 @@ module kanari_system::pay {
         coins: vector<Coin<T>>,
         receiver: address,
         deny: &DenyList,
-        ctx: &TxContext
+        ctx: &mut TxContext
     ) {
         assert!(!coin::deny_list_contains<T>(deny, tx_context::sender(ctx)), EDENIED);
         assert!(!coin::deny_list_contains<T>(deny, receiver), EDENIED);

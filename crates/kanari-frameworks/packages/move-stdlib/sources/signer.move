@@ -12,7 +12,7 @@ module std::signer {
     // `borrow_address` borrows this inner field
     public native fun borrow_address(s: &signer): &address;
 
-    // Copies the address of the signer
+    /// Copies the address of the signer
     public fun address_of(s: &signer): address {
         *borrow_address(s)
     }

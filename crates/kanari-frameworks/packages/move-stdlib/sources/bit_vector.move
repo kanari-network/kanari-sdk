@@ -22,6 +22,7 @@ module std::bit_vector {
         bit_field: vector<bool>
     }
 
+    /// Creates a new `BitVector` of `length` bits, all initialized to `false`.
     public fun new(length: u64): BitVector {
         assert!(length > 0, ELENGTH);
         assert!(length < MAX_SIZE, ELENGTH);
@@ -112,6 +113,7 @@ module std::bit_vector {
     }
 
     #[test_only]
+    /// Returns the word size used by the bitvector.
     public fun word_size(): u64 {
         WORD_SIZE
     }

@@ -124,6 +124,7 @@ module std::string {
     // Test only API for the native function. Don't return a value so other
     // tests aren't tempted to use this function.
     #[test_only]
+    /// Returns the substring from `i` to `j` for testing purposes.
     public fun internal_sub_string_for_testing(v: &vector<u8>, i: u64, j: u64) {
         internal_sub_string(v, i, j);
     }
