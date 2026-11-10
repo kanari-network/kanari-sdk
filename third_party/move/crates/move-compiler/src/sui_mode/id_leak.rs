@@ -160,7 +160,10 @@ impl<'a> SimpleAbsInt for IDLeakVerifierAI<'a> {
         }
 
         let mut fields_iter = fields.iter();
-        let (f, _, first_e) = fields_iter.next().unwrap();
+        // Key structs with no fields (`Pack{} {}`) have no UID to check.
+        let Some((f, _, first_e)) = fields_iter.next() else {
+            return None;
+        };
         let first_value = self.exp(context, state, first_e).pop().unwrap_or_default();
         if !matches!(first_value, Value::FreshID(_)) {
             let msg = "Invalid object creation without a newly created UID.".to_string();

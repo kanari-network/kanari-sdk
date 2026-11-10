@@ -120,7 +120,7 @@ async function ensureBinary(ctx: vscode.ExtensionContext): Promise<boolean> {
     // Copy overwrites the target — no delete beforehand (on Windows the
     // running binary would be locked and the delete would fail, leaving
     // no binary at all).
-    await vscode.workspace.fs.copy(bundled, target);
+    await vscode.workspace.fs.copy(bundled, target, { overwrite: true });
   } catch (e) {
     log(`binary install copy failed: ${String(e)}`);
     void vscode.window.showErrorMessage(`Failed to install kanari-move-analyzer: ${String(e)}`);

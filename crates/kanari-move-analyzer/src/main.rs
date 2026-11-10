@@ -224,15 +224,11 @@ fn main() {
                                                 &file_text,
                                                 d.range.start.line as usize,
                                             )
-                                        })
-                                        .map(|mut d| {
-                                            if kanari_move_analyzer::diagnostics::is_kanari_warning(
+                                            && !kanari_move_analyzer::diagnostics::is_kanari_entry_id_param(
                                                 &d.message,
-                                            ) {
-                                                d.severity =
-                                                    Some(lsp_types::DiagnosticSeverity::WARNING);
-                                            }
-                                            d
+                                                &file_text,
+                                                d.range.start.line as usize,
+                                            )
                                         })
                                         .collect();
                                     let uri = path_to_uri(&k).unwrap();
@@ -368,10 +364,6 @@ fn on_request(
             symbols::on_document_symbol_request(context, request, &context.symbols.lock().unwrap());
         }
         lsp_types::request::CodeActionRequest::METHOD => {
-            eprintln!(
-                "kanari-move-analyzer: codeAction request {}",
-                request.params
-            );
             let params: lsp_types::CodeActionParams =
                 serde_json::from_value(request.params.clone()).unwrap_or_else(|_| {
                     lsp_types::CodeActionParams {

@@ -1431,42 +1431,40 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
 
     // Deterministic RSA-2048 (xorshift): same key, same JWT, every run.
     struct Xor(u64);
-    impl rsa::rand_core::RngCore for Xor {
-        fn next_u32(&mut self) -> u32 {
-            self.next_u64() as u32
+    impl rsa::rand_core::TryRng for Xor {
+        type Error = rsa::rand_core::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(self.try_next_u64()? as u32)
         }
-        fn next_u64(&mut self) -> u64 {
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
             let mut x = self.0 | 1;
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
             self.0 = x;
-            x
+            Ok(x)
         }
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             let mut i = 0;
             while i < dest.len() {
-                let b = self.next_u64().to_le_bytes();
+                let b = self.try_next_u64()?.to_le_bytes();
                 let n = core::cmp::min(8, dest.len() - i);
                 dest[i..i + n].copy_from_slice(&b[..n]);
                 i += n;
             }
-        }
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rsa::rand_core::Error> {
-            self.fill_bytes(dest);
             Ok(())
         }
     }
-    impl rsa::rand_core::CryptoRng for Xor {}
+    impl rsa::rand_core::TryCryptoRng for Xor {}
 
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use rsa::pkcs1::EncodeRsaPrivateKey as _;
     use rsa::traits::PublicKeyParts as _;
     let mut rng = Xor(0xBEEF);
-    let rsa_sk = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
-    let rsa_pk = rsa::RsaPublicKey::from(&rsa_sk);
-    let n_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.n().to_bytes_be());
-    let e_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.e().to_bytes_be());
+    let rsa_sk = rsa::PrivateKey::new(&mut rng, 2048).unwrap();
+    let rsa_pk = rsa::PublicKey::from(&rsa_sk);
+    let n_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.n().to_be_bytes());
+    let e_b64 = URL_SAFE_NO_PAD.encode(rsa_pk.e().to_be_bytes());
     let der = rsa_sk.to_pkcs1_der().unwrap().as_bytes().to_vec();
 
     // Fixed session: ephemeral secret [42u8;32], epoch 1000, rand [7u8;32].

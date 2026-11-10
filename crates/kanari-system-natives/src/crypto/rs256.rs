@@ -173,17 +173,14 @@ pub fn make_rs256_natives(gas_cost: InternalGas) -> impl Iterator<Item = (String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsa::sha2::{Digest as RsaDigest, Sha256 as RsaSha256};
-    use rsa::{
-        RsaPrivateKey, RsaPublicKey, pkcs1v15::SigningKey, rand_core::OsRng, signature::Signer,
-        traits::PublicKeyParts,
-    };
+    use rsa::sha2::Sha256 as RsaSha256;
+    use rsa::{pkcs1v15::SigningKey, signature::Signer, traits::PublicKeyParts};
 
     #[test]
     fn test_rs256_verify_valid_signature() {
-        let mut rng = OsRng;
-        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
-        let public_key = RsaPublicKey::from(&private_key);
+        let mut rng = rand::rngs::SysRng;
+        let private_key = rsa::PrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        let public_key = rsa::PublicKey::from(&private_key);
 
         let msg = b"Kanari RS256 test";
         let hashed_msg = RsaSha256::digest(msg);
@@ -193,8 +190,8 @@ mod tests {
         let signature_bytes: Box<[u8]> = signature.into();
 
         let result = verify_rs256_prehash_native(
-            public_key.n().to_bytes_be().as_slice(),
-            public_key.e().to_bytes_be().as_slice(),
+            &public_key.n().to_be_bytes(),
+            &public_key.e().to_be_bytes(),
             hashed_msg.as_slice(),
             signature_bytes.as_ref(),
         );
@@ -204,9 +201,9 @@ mod tests {
 
     #[test]
     fn test_rs256_verify_invalid_signature() {
-        let mut rng = OsRng;
-        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
-        let public_key = RsaPublicKey::from(&private_key);
+        let mut rng = rand::rngs::SysRng;
+        let private_key = rsa::PrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        let public_key = rsa::PublicKey::from(&private_key);
 
         let msg = b"Kanari RS256 test";
         let hashed_msg = RsaSha256::digest(msg);
@@ -218,8 +215,8 @@ mod tests {
         bad_signature[0] ^= 0xff;
 
         let result = verify_rs256_prehash_native(
-            public_key.n().to_bytes_be().as_slice(),
-            public_key.e().to_bytes_be().as_slice(),
+            &public_key.n().to_be_bytes(),
+            &public_key.e().to_be_bytes(),
             hashed_msg.as_slice(),
             &bad_signature,
         );
@@ -229,8 +226,8 @@ mod tests {
 
     #[test]
     fn test_rs256_verify_invalid_pubkey_returns_false() {
-        let mut rng = OsRng;
-        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        let mut rng = rand::rngs::SysRng;
+        let private_key = rsa::PrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
 
         let msg = b"Kanari RS256 test";
         let hashed_msg = RsaSha256::digest(msg);

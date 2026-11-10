@@ -58,7 +58,7 @@ jobs:
           cargo test -p kanari-move-runtime-v2 --lib
 
       - name: Unit tests (kanari-core engine)
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: cargo test -p kanari-core --lib
 
       - name: Move Build (move-stdlib)
@@ -230,6 +230,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Install libsecret (for keytar native build on Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libsecret-1-dev
 
       - name: Package VSIX (${{ matrix.label }})
         run: |

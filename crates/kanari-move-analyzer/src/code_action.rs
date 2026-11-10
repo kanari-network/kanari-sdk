@@ -42,10 +42,6 @@ pub fn on_code_action_request_with_text(
     current_text: Option<String>,
 ) -> Vec<CodeAction> {
     let file_path = uri_to_file_path(&params.text_document.uri).ok();
-    eprintln!(
-        "code_action: file_path={file_path:?} diags={:?}",
-        params.context.diagnostics.len()
-    );
     let edition = file_path
         .as_deref()
         .map(edition_for_file)

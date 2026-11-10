@@ -136,7 +136,7 @@ k256 = { version = "0.14.0", features = ["ecdsa", "std", "sha2"] }              
 p256 = { version = "0.14.0", features = ["ecdsa", "std", "sha2"] }                  # NIST P-256
 ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }                     # Ed25519 signatures
 secp256k1 = { version = "0.33.1", features = ["recovery"] }                         # secp256k1 with recovery
-rsa = { version = "0.9.10", default-features = false, features = ["std"] }          # RSA signature verification
+rsa = { version = "0.10.0", default-features = false, features = ["std", "encoding", "pkcs1v15"] }          # RSA signature verification (0.10 moved hash algos out of features; pkcs1v15 needed for SignEngine)
 
 ## Symmetric Encryption & MAC
 aes-gcm = "0.11.1"                                                                  # Authenticated encryption
@@ -239,7 +239,7 @@ ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.29.1", features = ["v4", "serde"] }
+uuid = { version = "1.29.2", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
@@ -274,7 +274,7 @@ rusqlite = { version = "0.41.1", features = ["bundled", "chrono", "serde_json"] 
 # ============================================================================
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "3.0.9", features = ["full"] }
+syn = { version = "3.0.10", features = ["full"] }
 
 # ============================================================================
 # Miscellaneous Utilities
@@ -282,7 +282,14 @@ syn = { version = "3.0.9", features = ["full"] }
 uniffi = { version = "0.32.2" }
 
 # ============================================================================
-
+# Move LSP (kanari-move-analyzer)
+# ============================================================================
+crossbeam = "0.8.5"
+lsp-server = "0.10.0"
+lsp-types = "0.97.0"
+vfs = "0.13.0"
+url = "2.5.8"
+tree-sitter-move = { path = "third_party/tree-sitter-move" }
 
 # ============================================================================
 # Workspace Members (Internal Crates)
@@ -335,13 +342,6 @@ move-coverage = { path = "third_party/move/crates/move-coverage" }
 move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifier" }
 move-analyzer = { path = "third_party/move/crates/move-analyzer" }
 
-# Move LSP (kanari-move-analyzer)
-crossbeam = "0.8.5"
-lsp-server = "0.10.0"
-lsp-types = "0.97.0"
-vfs = "0.13.0"
-url = "2.5.8"
-tree-sitter-move = { path = "third_party/tree-sitter-move" }
 
 [patch.crates-io]
 # libp2p-kad = { path = "third_party/patches/libp2p-kad-0.48.0" }

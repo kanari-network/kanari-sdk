@@ -676,16 +676,12 @@ mod tests {
 
     fn rsa_test_key() -> (String, String, Vec<u8>) {
         // Generate a throwaway 2048-bit RSA key and return (n_b64, e_b64, der).
-        // DER keeps the test working with `default-features = false`
-        // (no `pem` feature in jsonwebtoken).
-        use rsa::{
-            RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, rand_core::OsRng, traits::PublicKeyParts,
-        };
-        let mut rng = OsRng;
-        let sk = RsaPrivateKey::new(&mut rng, 2048).unwrap();
+        use rsa::{PrivateKey, pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts};
+        let mut rng = rand::rngs::SysRng;
+        let sk = PrivateKey::new(&mut rng, 2048).unwrap();
         let pk = sk.to_public_key();
-        let n = general_purpose::URL_SAFE_NO_PAD.encode(pk.n().to_bytes_be());
-        let e = general_purpose::URL_SAFE_NO_PAD.encode(pk.e().to_bytes_be());
+        let n = general_purpose::URL_SAFE_NO_PAD.encode(pk.n().to_be_bytes());
+        let e = general_purpose::URL_SAFE_NO_PAD.encode(pk.e().to_be_bytes());
         let der = sk.to_pkcs1_der().unwrap().as_bytes().to_vec();
         (n, e, der)
     }
@@ -711,6 +707,7 @@ mod tests {
         use jsonwebtoken::{Algorithm, EncodingKey, Header};
         use rsa::{
             pkcs1::DecodeRsaPrivateKey,
+            pkcs1v15::SigningKey,
             sha2::Sha256,
             signature::{SignatureEncoding, Signer},
         };
@@ -725,8 +722,8 @@ mod tests {
         let signing_input = format!("{header_b64}.{payload_b64}");
         let key = EncodingKey::from_rsa_der(der);
         let _ = key;
-        let sk = rsa::RsaPrivateKey::from_pkcs1_der(der).unwrap();
-        let scheme = rsa::pkcs1v15::SigningKey::<Sha256>::new(sk);
+        let sk = rsa::PrivateKey::from_pkcs1_der(der).unwrap();
+        let scheme = SigningKey::<Sha256>::new(sk);
         let sig = scheme.sign(signing_input.as_bytes());
         format!(
             "{signing_input}.{}",

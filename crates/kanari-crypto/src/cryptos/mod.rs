@@ -18,9 +18,10 @@ use k256::{
 };
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use rsa::{
-    BigUint, RsaPublicKey,
+    BoxedUint, PublicKey as RsaPublicKey,
     pkcs1v15::{Signature as RsaPkcs1v15Signature, VerifyingKey as RsaPkcs1v15VerifyingKey},
 };
+
 use secp256k1::{
     Message as SecpMessage, XOnlyPublicKey,
     ecdsa::RecoverableSignature as SecpRecoverableSignature, ecdsa::RecoveryId as SecpRecoveryId,
@@ -28,6 +29,8 @@ use secp256k1::{
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 use sha3::Keccak256;
+
+type BigUint = BoxedUint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeEcdsaHash {
@@ -198,14 +201,31 @@ pub fn verify_rs256_prehash_native(
     {
         return false;
     }
-    let Ok(public_key) = RsaPublicKey::new(
-        BigUint::from_bytes_be(modulus_n),
-        BigUint::from_bytes_be(exponent_e),
-    ) else {
+    // `from_be_hex` panics on hex size mismatch — pad to a 64-bit-aligned
+    // limb width so short/odd-size DER-free keys never panic the verifier
+    // (verify must fail closed, never hang or crash).
+    fn boxed_from_be_bytes(bytes: &[u8]) -> Option<BigUint> {
+        if bytes.is_empty() {
+            return None;
+        }
+        let bits_precision = ((bytes.len() * 8) + 63) & !63;
+        let expected = bits_precision / 4;
+        let raw = hex::encode(bytes);
+        let padded = format!("{:0>width$}", raw, width = expected);
+        debug_assert_eq!(padded.len(), expected);
+        BigUint::from_be_hex(&padded, bits_precision as u32).into_option()
+    }
+    let Some(n) = boxed_from_be_bytes(modulus_n) else {
+        return false;
+    };
+    let Some(e) = boxed_from_be_bytes(exponent_e) else {
+        return false;
+    };
+    let Ok(public_key) = RsaPublicKey::new(n, e) else {
         return false;
     };
 
-    let verifying_key = RsaPkcs1v15VerifyingKey::<rsa::sha2::Sha256>::new(public_key);
+    let verifying_key = RsaPkcs1v15VerifyingKey::<Sha256>::new(public_key);
     let Ok(signature) = RsaPkcs1v15Signature::try_from(signature) else {
         return false;
     };
