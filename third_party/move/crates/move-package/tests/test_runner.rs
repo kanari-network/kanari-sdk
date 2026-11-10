@@ -198,6 +198,7 @@ fn normalize_snapshot(output: String) -> String {
         .replace("\\\\", "/")
         .replace('\\', "/")
         .replace("$ROOT/external-crates/move/", "$ROOT/")
+        .replace("$ROOT/third_party/move/", "$ROOT/")
         .replace(
             "The system cannot find the path specified. (os error 3)",
             "No such file or directory (os error 2)",
