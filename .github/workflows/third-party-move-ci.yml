@@ -48,5 +48,8 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Ensure resolver scripts are executable
+        run: chmod +x crates/move-package/tests/test_sources/resolvers/*.sh
+
       - name: Move workspace unit tests
         run: cargo test --workspace
