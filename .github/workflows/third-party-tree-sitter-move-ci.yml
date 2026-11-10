@@ -1,0 +1,69 @@
+name: Tree-sitter Move Grammar CI (third_party/tree-sitter-move)
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "move-lang-2027"
+      - "kanari-sdk"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tree-sitter-move:
+    name: tree-sitter-move grammar
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install tree-sitter CLI
+        run: npm install -g @tree-sitter/cli
+
+      - name: Generate parser from grammar
+        working-directory: third_party/tree-sitter-move
+        run: |
+          tree-sitter generate
+          git diff --exit-code -- src/
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            third_party/tree-sitter-move/target
+          key: ${{ runner.os }}-third-party-tree-sitter-move-cargo-${{ hashFiles('third_party/tree-sitter-move/Cargo.toml') }}
+
+      - name: Tree-sitter Rust binding tests
+        working-directory: third_party/tree-sitter-move
+        run: cargo test
+
+      - name: Formatter golden tests over vendored grammar
+        run: cargo test -p kanari-move-fmt
+
+      - name: Move sources fmt check (vendored grammar)
+        run: |
+          set -e
+          for pkg in \
+            crates/kanari-frameworks/packages/move-stdlib \
+            crates/kanari-frameworks/packages/kanari-system \
+            example_move/dex_v1 \
+            example_move/escrow; do
+            echo "==> kanari move fmt --check in ${pkg}"
+            (cd "${pkg}" && cargo run -p kanari -- move fmt --check)
+          done

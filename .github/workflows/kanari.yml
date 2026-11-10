@@ -39,15 +39,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binaries
-        run: cargo build --release --bin kanari --bin kanari-node
+        run: cargo build --release --bin kanari --bin kanari-node --bin kanari-move-analyzer
 
       - name: Create tarball
         run: |
           mkdir -p dist
           cp target/release/kanari dist/
           cp target/release/kanari-node dist/
+          cp target/release/kanari-move-analyzer dist/
           cd dist
-          tar -czvf kanari-linux-x86_64.tar.gz kanari kanari-node
+          tar -czvf kanari-linux-x86_64.tar.gz kanari kanari-node kanari-move-analyzer
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,15 +79,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binaries (x86_64)
-        run: cargo build --release --bin kanari --bin kanari-node
+        run: cargo build --release --bin kanari --bin kanari-node --bin kanari-move-analyzer
 
       - name: Create tarball (x86_64)
         run: |
           mkdir -p dist
           cp target/release/kanari dist/
           cp target/release/kanari-node dist/
+          cp target/release/kanari-move-analyzer dist/
           cd dist
-          tar -czvf kanari-macos-x86_64.tar.gz kanari kanari-node
+          tar -czvf kanari-macos-x86_64.tar.gz kanari kanari-node kanari-move-analyzer
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -120,15 +122,16 @@ jobs:
           key: ${{ runner.os }}-cargo-arm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binaries (ARM64)
-        run: cargo build --release --bin kanari --bin kanari-node --target aarch64-apple-darwin
+        run: cargo build --release --bin kanari --bin kanari-node --bin kanari-move-analyzer --target aarch64-apple-darwin
 
       - name: Create tarball (ARM64)
         run: |
           mkdir -p dist
           cp target/aarch64-apple-darwin/release/kanari dist/
           cp target/aarch64-apple-darwin/release/kanari-node dist/
+          cp target/aarch64-apple-darwin/release/kanari-move-analyzer dist/
           cd dist
-          tar -czvf kanari-macos-arm64.tar.gz kanari kanari-node
+          tar -czvf kanari-macos-arm64.tar.gz kanari kanari-node kanari-move-analyzer
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -159,15 +162,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binaries
-        run: cargo build --release --bin kanari --bin kanari-node
+        run: cargo build --release --bin kanari --bin kanari-node --bin kanari-move-analyzer
 
       - name: Create ZIP archive
         run: |
           mkdir dist
           Copy-Item target\release\kanari.exe dist\
           Copy-Item target\release\kanari-node.exe dist\
+          Copy-Item target\release\kanari-move-analyzer.exe dist\
           cd dist
-          Compress-Archive -Path kanari.exe,kanari-node.exe -DestinationPath kanari-windows-x86_64.zip
+          Compress-Archive -Path kanari.exe,kanari-node.exe,kanari-move-analyzer.exe -DestinationPath kanari-windows-x86_64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -238,7 +242,7 @@ jobs:
 
             **Version**: v${{ steps.get_version.outputs.VERSION }}
 
-            Each archive includes both the `kanari` CLI and the `kanari-node` node binary.
+            Each archive includes the `kanari` CLI, the `kanari-node` node binary, and the `kanari-move-analyzer` analyzer binary.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
