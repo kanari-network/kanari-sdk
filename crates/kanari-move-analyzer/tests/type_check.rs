@@ -153,6 +153,37 @@ fn wrong_generic_arg_errors() {
     assert!(n > 0, "wrong generic arg must warn: {rendered}");
 }
 
+#[test]
+fn unused_private_function_warns() {
+    // `fun init` (private, never called) must surface W09008 — a WARNING —
+    // exactly like `kanari move build` does. Under Sui flavor the compiler
+    // exempts `init`; under Kanari (Core) it must warn unless suppressed.
+    let src = "module M::f {\n    fun unused_helper() {}\n}\n";
+    let (rendered, n) = diag_count(src);
+    assert!(n > 0, "unused private function must warn: {rendered}");
+    assert!(
+        rendered.contains("never called"),
+        "expected 'never called' unused warning, got: {rendered}"
+    );
+}
+
+#[test]
+fn unused_init_function_warns_under_core_flavor() {
+    // Direct analog of the user's `fun init(witness: M, ctx: &mut TxContext)`:
+    // Core flavor (Kanari) must NOT exempt init from the unused-function
+    // lint, so the editor and `kanari move build` agree.
+    let src = "module M::f {\n    struct M has drop {}\n    fun init(witness: M, ctx: &mut TxContext) {}\n}\n";
+    let (rendered, n) = diag_count(src);
+    assert!(
+        n > 0,
+        "unused init must warn under Kanari flavor: {rendered}"
+    );
+    assert!(
+        rendered.contains("never called"),
+        "expected 'never called' unused warning on init, got: {rendered}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // filter must not hide real type errors, but must hide TxContext entry FP
 // ---------------------------------------------------------------------------

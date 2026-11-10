@@ -1060,7 +1060,7 @@ pub fn get_symbols(
     let build_config = move_package::BuildConfig {
         test_mode: true,
         install_dir: Some(tempdir().unwrap().path().to_path_buf()),
-        default_flavor: Some(Flavor::Sui),
+        default_flavor: Some(Flavor::Core),
         lint_flag: lint.into(),
         ..Default::default()
     };

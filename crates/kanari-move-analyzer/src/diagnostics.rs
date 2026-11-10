@@ -238,6 +238,26 @@ module m::kiosk {
     }
 
     #[test]
+    fn init_unused_warning_is_never_filtered() {
+        // W09008: `fun init` has no in-source callers (the runtime invokes
+        // it on publish), so `kanari move build` reports it as a *warning*
+        // — yellow — unless the module/member carries
+        // `#[allow(unused_function)]` (compiler-side warning filter). The
+        // editor must surface exactly that warning, never swallow it and
+        // never escalate it: it passes every Kanari filter untouched.
+        let msg =
+            "The non-'public', non-'entry' function 'init' is never called. Consider removing it.";
+        let file = "module m::m {\n    fun init() {}\n}\n";
+        assert!(!is_kanari_false_positive(msg));
+        assert!(!is_kanari_false_positive_with_file(msg, file, 1));
+        assert!(!is_kanari_entry_id_param(msg, file, 1));
+        assert!(!is_kanari_warning(msg), "already a warning, no downgrade");
+        // Non-init private functions keep the same treatment.
+        let helper = "The non-'public', non-'entry' function 'helper' is never called. Consider removing it.";
+        assert!(!is_kanari_false_positive(helper));
+    }
+
+    #[test]
     fn entry_param_name_extraction() {
         assert_eq!(
             entry_param_name("Invalid 'entry' parameter type for parameter 'ctx'"),
