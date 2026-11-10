@@ -32,13 +32,14 @@ jobs:
           node-version: "20"
 
       - name: Install tree-sitter CLI
-        run: npm install -g tree-sitter-cli
+        run: npm install -g tree-sitter-cli@0.24.4
 
       - name: Generate parser from grammar
         working-directory: third_party/tree-sitter-move
         run: |
           tree-sitter generate
-          git diff --exit-code -- src/
+          git add -A src/
+          git diff --cached --exit-code -- src/
 
       - name: Cache cargo
         uses: actions/cache@v4

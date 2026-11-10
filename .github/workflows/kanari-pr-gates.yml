@@ -235,7 +235,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libsecret-1-dev
+          sudo apt-get install -y -qq libsecret-1-dev pkg-config
 
       - name: Package VSIX (${{ matrix.label }})
         run: |
