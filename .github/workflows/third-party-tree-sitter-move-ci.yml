@@ -32,7 +32,7 @@ jobs:
           node-version: "20"
 
       - name: Install tree-sitter CLI
-        run: npm install -g @tree-sitter/cli
+        run: npm install -g tree-sitter-cli
 
       - name: Generate parser from grammar
         working-directory: third_party/tree-sitter-move
