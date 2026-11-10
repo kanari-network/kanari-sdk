@@ -135,6 +135,7 @@ module kanari_system::tx_context {
     }
 
     #[test_only]
+    /// Returns the number of objects created in this transaction.
     public fun get_ids_created(self: &TxContext): u64 {
         ids_created(self)
     }
@@ -148,11 +149,13 @@ module kanari_system::tx_context {
     }
 
     #[test_only]
+    /// Increments the epoch number for testing.
     public fun increment_epoch_number(self: &mut TxContext) {
         self.epoch = self.epoch + 1
     }
 
     #[test_only]
+    /// Increments the epoch timestamp for testing.
     public fun increment_epoch_timestamp(
         self: &mut TxContext,
         delta_ms: u64

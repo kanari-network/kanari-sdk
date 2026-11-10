@@ -49,14 +49,17 @@ module kanari_system::zklogin {
     const EPHEMERAL_SIG_LENGTH: u64 = 64;
     const SALT_LENGTH: u64 = 32;
 
+    /// Returns the ephemeral public key length for zkLogin.
     public fun ephemeral_pubkey_length(): u64 {
         EPHEMERAL_PUBKEY_LENGTH
     }
 
+    /// Returns the ephemeral signature length for zkLogin.
     public fun ephemeral_sig_length(): u64 {
         EPHEMERAL_SIG_LENGTH
     }
 
+    /// Returns the salt length for zkLogin.
     public fun salt_length(): u64 {
         SALT_LENGTH
     }

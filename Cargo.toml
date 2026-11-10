@@ -57,7 +57,8 @@ members = [
 
 
       "crates/kanari-move-fmt", 
-      "crates/kanari-move-analyzer",
+      "crates/kanari-move-analyzer", 
+      "crates/kanari-move-audit",
 ]
 
 
@@ -304,6 +305,7 @@ kanari-rpc-client = { path = "crates/kanari-rpc-client" }
 kanari-rpc-server = { path = "crates/kanari-rpc-server" }
 kanari-faucet = { path = "crates/kanari-faucet" }
 kanari-move-fmt = { path = "crates/kanari-move-fmt" }
+kanari-move-audit = { path = "crates/kanari-move-audit" }
 kanari-core = { path = "crates/kanari-core" }
 kanari-system-natives = { path = "crates/kanari-system-natives" }
 kanari-db-common = { path = "crates/kanari-db-common" }

@@ -527,6 +527,7 @@ module kanari_system::coin {
     // ==========================================
     // Functions to update CoinMetadata
     // ==========================================
+    /// Updates the icon URL for coin type `T`.
     public fun update_icon_url<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
@@ -536,6 +537,7 @@ module kanari_system::coin {
         metadata.icon_url = url;
     }
 
+    /// Updates the name for coin type `T`.
     public fun update_name<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
@@ -545,6 +547,7 @@ module kanari_system::coin {
         metadata.name = name;
     }
 
+    /// Updates the symbol for coin type `T`.
     public fun update_symbol<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
@@ -554,6 +557,7 @@ module kanari_system::coin {
         metadata.symbol = symbol;
     }
 
+    /// Updates the icon URL for coin type `T`.
     public fun update_description<T>(
         treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,

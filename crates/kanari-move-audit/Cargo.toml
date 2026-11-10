@@ -1,0 +1,22 @@
+[package]
+name = "kanari-move-audit"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-move = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[[bin]]
+name = "kanari-move-audit"
+path = "src/main.rs"

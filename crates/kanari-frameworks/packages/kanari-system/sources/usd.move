@@ -89,6 +89,7 @@ module kanari_system::usd {
         let _burned = coin::burn(cap, to_burn);
     }
 
+    /// Returns the number of units per USD.
     public fun units_per_usd(): u64 {
         UNITS_PER_USD
     }

@@ -255,6 +255,7 @@ module kanari_system::multisig {
         proposal
     }
 
+    /// Propose a token transfer. Caller must be an owner; proposer auto-approves.
     public fun propose_transfer<T>(
         wallet: &MultisigWallet<T>,
         target_address: address,
@@ -276,6 +277,7 @@ module kanari_system::multisig {
         )
     }
 
+    /// Propose adding a new owner. Caller must be an owner; proposer auto-approves.
     public fun propose_add_owner<T>(
         wallet: &MultisigWallet<T>,
         new_owner: address,
@@ -297,6 +299,7 @@ module kanari_system::multisig {
         )
     }
 
+    /// Propose removing an owner. Caller must be an owner; proposer auto-approves.
     public fun propose_remove_owner<T>(
         wallet: &MultisigWallet<T>,
         owner_to_remove: address,
@@ -318,6 +321,7 @@ module kanari_system::multisig {
         )
     }
 
+    /// Propose changing the threshold. Caller must be an owner; proposer auto-approves.
     public fun propose_change_threshold<T>(
         wallet: &MultisigWallet<T>,
         new_threshold: u64,
@@ -340,6 +344,7 @@ module kanari_system::multisig {
     }
 
     // --- Approval / cancellation / expiry ---
+    /// Approve a pending proposal. Caller must be an owner who has not already approved.
     public fun approve_transaction<T>(
         wallet: &MultisigWallet<T>,
         proposal: &mut TransactionProposal,
@@ -780,6 +785,7 @@ module kanari_system::multisig {
     }
 
     // --- Read API ---
+    /// Returns true if `addr` is an owner of the wallet.
     public fun is_owner<T>(wallet: &MultisigWallet<T>, addr: address): bool {
         let (len, i) = (vector::length(&wallet.owners), 0);
         while (i < len) {
@@ -791,18 +797,22 @@ module kanari_system::multisig {
         false
     }
 
+    /// Returns the number of owners in the wallet.
     public fun owner_count<T>(wallet: &MultisigWallet<T>): u64 {
         (vector::length(&wallet.owners) as u64)
     }
 
+    /// Returns the current threshold.
     public fun get_threshold<T>(wallet: &MultisigWallet<T>): u64 {
         wallet.threshold
     }
 
+    /// Returns the number of executed transactions.
     public fun get_transaction_count<T>(wallet: &MultisigWallet<T>): u64 {
         wallet.transaction_count
     }
 
+    /// Returns true if the proposal has enough approvals to meet the threshold.
     public fun has_enough_approvals<T>(
         wallet: &MultisigWallet<T>,
         proposal: &TransactionProposal
@@ -814,6 +824,7 @@ module kanari_system::multisig {
     /// An owner removed after approving no longer contributes, so a proposal
     /// approved under an old owner set cannot execute against a changed one.
     /// Execution gates use this; `has_enough_approvals` stays as the raw read.
+    /// Returns the number of approvals from current owners only.
     fun count_current_approvals<T>(
         wallet: &MultisigWallet<T>,
         proposal: &TransactionProposal
@@ -828,6 +839,7 @@ module kanari_system::multisig {
         count
     }
 
+    /// Returns true if current owner approvals meet the threshold.
     fun has_enough_current_approvals<T>(
         wallet: &MultisigWallet<T>,
         proposal: &TransactionProposal
@@ -835,34 +847,42 @@ module kanari_system::multisig {
         count_current_approvals(wallet, proposal) >= wallet.threshold
     }
 
+    /// Returns the number of approvers on the proposal.
     public fun get_approval_count(proposal: &TransactionProposal): u64 {
         (vector::length(&proposal.approvers) as u64)
     }
 
+    /// Returns true if the proposal has been executed (tombstoned).
     public fun is_executed(proposal: &TransactionProposal): bool {
         proposal.executed
     }
 
+    /// Returns the proposer address of the proposal.
     public fun get_proposer(proposal: &TransactionProposal): address {
         proposal.proposer
     }
 
+    /// Returns the transaction type of the proposal.
     public fun get_tx_type(proposal: &TransactionProposal): u8 {
         proposal.tx_type
     }
 
+    /// Returns the target address of the proposal.
     public fun get_target_address(proposal: &TransactionProposal): address {
         proposal.target_address
     }
 
+    /// Returns the transfer amount of the proposal.
     public fun get_amount(proposal: &TransactionProposal): u64 {
         proposal.amount
     }
 
+    /// Returns the description of the proposal.
     public fun get_description(proposal: &TransactionProposal): &string::String {
         &proposal.description
     }
 
+    /// Returns the expiry timestamp of the proposal.
     public fun get_expires_at_ms(proposal: &TransactionProposal): u64 {
         proposal.expires_at_ms
     }
@@ -988,6 +1008,7 @@ module kanari_system::multisig {
     }
 
     #[test_only]
+    /// Destroy a wallet for testing, transferring any remaining funds to sender.
     public fun destroy_wallet<T>(
         wallet: MultisigWallet<T>,
         ctx: &mut TxContext

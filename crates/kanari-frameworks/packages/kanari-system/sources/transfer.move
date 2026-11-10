@@ -47,10 +47,12 @@ module kanari_system::transfer {
         transfer.amount
     }
 
+    /// Get transfer sender address
     public fun get_from(transfer: &Transfer): address {
         transfer.from
     }
 
+    /// Get transfer recipient address
     public fun get_to(transfer: &Transfer): address {
         transfer.to
     }

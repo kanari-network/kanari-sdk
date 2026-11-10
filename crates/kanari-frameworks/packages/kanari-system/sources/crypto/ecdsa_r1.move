@@ -42,10 +42,12 @@ module kanari_system::ecdsa_r1 {
         hash_type: u8
     ): bool;
 
+    /// Returns the public key length for P-256 ECDSA.
     public fun public_key_length(): u64 {
         ECDSA_R1_COMPRESSED_PUBKEY_LENGTH
     }
 
+    /// Returns the raw signature length for P-256 ECDSA.
     public fun raw_signature_length(): u64 {
         ECDSA_R1_RAW_SIGNATURE_LENGTH
     }

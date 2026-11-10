@@ -7,10 +7,12 @@ module kanari_system::dilithium5 {
     const PUBLIC_KEY_LENGTH: u64 = 2592;
     const SIGNATURE_LENGTH: u64 = 4595;
 
+    /// Returns the public key length for Dilithium5.
     public fun public_key_length(): u64 {
         PUBLIC_KEY_LENGTH
     }
 
+    /// Returns the signature length for Dilithium5.
     public fun signature_length(): u64 {
         SIGNATURE_LENGTH
     }

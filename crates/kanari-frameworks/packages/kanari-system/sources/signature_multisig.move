@@ -49,14 +49,17 @@ module kanari_system::signature_multisig {
     const SCHEME_ECDSA_K1: u8 = 1;
     const SCHEME_ECDSA_R1: u8 = 2;
 
+    /// Returns the scheme selector for ed25519.
     public fun scheme_ed25519(): u8 {
         SCHEME_ED25519
     }
 
+    /// Returns the scheme selector for secp256k1 ECDSA.
     public fun scheme_ecdsa_k1(): u8 {
         SCHEME_ECDSA_K1
     }
 
+    /// Returns the scheme selector for P-256 ECDSA.
     public fun scheme_ecdsa_r1(): u8 {
         SCHEME_ECDSA_R1
     }

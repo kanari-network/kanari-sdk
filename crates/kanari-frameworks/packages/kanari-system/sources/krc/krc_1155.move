@@ -244,34 +244,42 @@ module kanari_system::krc_1155 {
         object::delete(id);
     }
 
+    /// Returns the token type address.
     public fun token_type(token: &TokenType): address {
         object::uid_address(&token.id)
     }
 
+    /// Returns the token type address from a balance.
     public fun balance_token_type(balance: &Balance): address {
         balance.token_type
     }
 
+    /// Returns the balance value.
     public fun balance_value(balance: &Balance): u64 {
         balance.amount
     }
 
+    /// Returns the total supply of the token type.
     public fun total_supply(token: &TokenType): u64 {
         token.total_supply
     }
 
+    /// Returns the maximum supply of the token type.
     public fun max_supply(token: &TokenType): u64 {
         token.max_supply
     }
 
+    /// Returns the token type name.
     public fun name(token: &TokenType): String {
         token.name
     }
 
+    /// Returns the token type description.
     public fun description(token: &TokenType): String {
         token.description
     }
 
+    /// Returns the token type image URL.
     public fun image_url(token: &TokenType): Url {
         token.image_url
     }

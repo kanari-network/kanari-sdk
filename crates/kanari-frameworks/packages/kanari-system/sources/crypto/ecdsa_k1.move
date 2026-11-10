@@ -47,22 +47,27 @@ module kanari_system::ecdsa_k1 {
         ECDSA_K1_COMPRESSED_PUBKEY_LENGTH
     }
 
+    /// Returns the uncompressed public key length for secp256k1 ECDSA.
     public fun uncompressed_public_key_length(): u64 {
         ECDSA_K1_UNCOMPRESSED_PUBKEY_LENGTH
     }
 
+    /// Returns the scheme selector for Keccak256 hashing.
     public fun keccak256(): u8 {
         KECCAK256
     }
 
+    /// Returns the scheme selector for SHA256 hashing.
     public fun sha256(): u8 {
         SHA256
     }
 
+    /// Returns the scheme selector for ECDSA.
     public fun ecdsa(): u8 {
         ECDSA
     }
 
+    /// Returns the scheme selector for Schnorr.
     public fun schnorr(): u8 {
         SCHNORR
     }

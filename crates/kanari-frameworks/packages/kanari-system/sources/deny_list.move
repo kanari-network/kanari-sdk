@@ -181,6 +181,7 @@ module kanari_system::deny_list {
     }
 
     #[test_only]
+    /// Create a `DenyCap` for unit tests (mirrors production `new_denycap`).
     public fun new_denycap_for_testing<T>(ctx: &mut TxContext): DenyCap<T> {
         DenyCap<T> {
             id: object::new(ctx)

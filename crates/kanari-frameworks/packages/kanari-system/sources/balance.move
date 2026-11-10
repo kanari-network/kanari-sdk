@@ -152,6 +152,7 @@ module kanari_system::balance {
 
     // Test-only supply cleanup: unpacks the handle explicitly.
     #[test_only]
+    /// Destroy supply for testing (burns remaining supply).
     public fun destroy_supply_for_testing<T>(s: Supply<T>) {
         let Supply { total: _ } = s;
     }

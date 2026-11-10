@@ -84,6 +84,7 @@ module kanari_system::clock {
     // Functions for Testing
     // =================================================================
     #[test_only]
+    /// Create a `Clock` for testing (bypasses genesis gate).
     public fun create_for_testing(ctx: &mut TxContext): Clock {
         Clock {
             id: object::new(ctx),
@@ -92,17 +93,20 @@ module kanari_system::clock {
     }
 
     #[test_only]
+    /// Advance clock time by `tick` for testing.
     public fun increment_for_testing(clock: &mut Clock, tick: u64) {
         clock.timestamp_ms = clock.timestamp_ms + tick;
     }
 
     #[test_only]
+    /// Set clock timestamp for testing.
     public fun set_for_testing(clock: &mut Clock, timestamp_ms: u64) {
         assert!(timestamp_ms >= clock.timestamp_ms, 1);
         clock.timestamp_ms = timestamp_ms;
     }
 
     #[test_only]
+    /// Destroy a `Clock` for testing.
     public fun destroy_for_testing(clock: Clock) {
         let Clock { id, timestamp_ms: _ } = clock;
         object::delete(id);

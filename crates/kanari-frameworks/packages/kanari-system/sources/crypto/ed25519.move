@@ -11,6 +11,7 @@ module kanari_system::ed25519 {
         ED25519_PUBKEY_LENGTH
     }
 
+    /// Returns the signature length for ed25519.
     public fun signature_length(): u64 {
         ED25519_SIG_LENGTH
     }

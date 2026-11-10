@@ -26,6 +26,7 @@ module kanari_system::rs256 {
     const SHA256: u8 = 0;
 
     // functions to the constants
+    /// Returns the scheme selector for RSA SHA-256.
     public fun sha256(): u8 {
         SHA256
     }

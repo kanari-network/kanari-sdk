@@ -103,10 +103,12 @@ module kanari_system::collection {
         cap.collection_id
     }
 
+    /// Returns the creator address of the collection.
     public fun collection_creator(c: &Collection): address {
         c.creator
     }
 
+    /// Returns the maximum supply of the collection.
     public fun max_supply(c: &Collection): u64 {
         c.max_supply
     }
@@ -133,10 +135,12 @@ module kanari_system::collection {
         object::save_object(c_mut);
     }
 
+    /// Returns the number of remaining (unminted) NFTs.
     public fun remaining(cap: &NftCap): u64 {
         cap.remaining
     }
 
+    /// Returns the number of issued NFTs.
     public fun issued(cap: &NftCap): u64 {
         cap.issued_counter
     }
@@ -190,6 +194,7 @@ module kanari_system::collection {
         transfer::public_transfer(c, recipient)
     }
 
+    /// Transfers collection capability to a new address.
     public fun transfer_cap(
         cap: NftCap,
         recipient: address,

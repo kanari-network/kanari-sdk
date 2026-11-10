@@ -41,6 +41,7 @@ module kanari_system::kiosk_rule {
     /// rule; authority lives in the friend gate, not in the value.
     struct Rule has drop {}
 
+    /// Add a rule for type `T` on `policy`. Requires the owner cap and rule witness.
     public fun add_rule<T: key + store>(
         policy: &mut TransferPolicy<T>,
         cap: &TransferPolicyCap<T>
@@ -48,6 +49,7 @@ module kanari_system::kiosk_rule {
         transfer_policy::add_rule<Rule, T>(Rule {}, policy, cap, b"");
     }
 
+    /// Remove rule `R` from `policy`. Requires the owner cap and rule witness.
     public fun remove_rule<T: key + store>(
         policy: &mut TransferPolicy<T>,
         cap: &TransferPolicyCap<T>

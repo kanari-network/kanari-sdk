@@ -317,22 +317,28 @@ module kanari_system::gas_market {
     }
 
     // --- Getters (used by SDK/RPC, also keeps ENOT_AUTHORIZED referenced) ---
+    /// The current price table version. Bumps on each config/publish write.
     public fun version(table: &PriceTable): u64 {
         table.version
     }
 
+    /// USD base fee per gas unit (micro-USD).
     public fun usd_per_gas_unit(table: &PriceTable): u64 {
         table.usd_per_gas_unit_micros
     }
 
+    /// Number of whitelisted gas coin configs.
     public fun num_coins(table: &PriceTable): u64 {
         vector::length(&table.configs)
     }
 
+    /// USD micro-scale constant (1e6).
     public fun usd_scale(): u64 {
         USD_SCALE
     }
 
+    /// Assert caller is authorized (feeder/admin). Admin/feeder wrappers pass
+    /// `true`; unauthorized callers abort `ENOT_AUTHORIZED`.
     public fun assert_authorized(ok: bool) {
         assert!(ok, ENOT_AUTHORIZED);
     }

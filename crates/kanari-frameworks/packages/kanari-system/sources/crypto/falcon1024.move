@@ -7,10 +7,12 @@ module kanari_system::falcon1024 {
     const PUBLIC_KEY_LENGTH: u64 = 1793;
     const MAX_SIGNATURE_LENGTH: u64 = 2048;
 
+    /// Returns the public key length for Falcon-1024.
     public fun public_key_length(): u64 {
         PUBLIC_KEY_LENGTH
     }
 
+    /// Returns the maximum signature length for Falcon-1024.
     public fun max_signature_length(): u64 {
         MAX_SIGNATURE_LENGTH
     }

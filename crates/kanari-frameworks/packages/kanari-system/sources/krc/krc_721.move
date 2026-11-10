@@ -400,6 +400,7 @@ module kanari_system::krc_721 {
 
     // Construct an unindexed NFT fixture for unit tests only.
     #[test_only]
+    /// Creates a new NFT collection.
     public fun create(
         name: String,
         description: Option<String>,
@@ -418,6 +419,7 @@ module kanari_system::krc_721 {
 
     // Construct a test fixture from parallel key and value vectors.
     #[test_only]
+    /// Creates a new NFT collection with attributes.
     public fun create_with_attributes(
         name: String,
         description: Option<String>,
@@ -442,6 +444,7 @@ module kanari_system::krc_721 {
 
     // Construct a test fixture whose attributes are already a `VecMap`.
     #[test_only]
+    /// Converts a vec map to attributes.
     public fun from_vec_map(
         name: String,
         description: Option<String>,
@@ -513,6 +516,7 @@ module kanari_system::krc_721 {
 
     // Test-only destruction for metadata and attribute unit tests.
     #[test_only]
+    /// Destroys an NFT for testing.
     public fun destroy_for_test(nft: Nft) {
         let Nft {
             id,
@@ -627,6 +631,7 @@ module kanari_system::krc_721 {
         object::uid_address(&nft.id)
     }
 
+    /// Returns the collection address for an NFT.
     public fun collection_of(nft: &Nft): address {
         nft.collection
     }

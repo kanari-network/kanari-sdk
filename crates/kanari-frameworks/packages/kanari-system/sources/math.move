@@ -42,22 +42,27 @@ module kanari_system::math {
         MAX_U8
     }
 
+    /// Returns the maximum u16 value.
     public fun max_u16_value(): u16 {
         MAX_U16
     }
 
+    /// Returns the maximum u32 value.
     public fun max_u32_value(): u32 {
         MAX_U32
     }
 
+    /// Returns the maximum u64 value.
     public fun max_u64_value(): u64 {
         MAX_U64
     }
 
+    /// Returns the maximum u128 value.
     public fun max_u128_value(): u128 {
         MAX_U128
     }
 
+    /// Returns the maximum u256 value.
     public fun max_u256_value(): u256 {
         MAX_U256
     }
@@ -193,6 +198,7 @@ module kanari_system::math {
     // =================================================================
     // u8 helpers (pure Move over u64/u128 natives)
     // =================================================================
+    /// Returns the minimum of two u8 values.
     public fun min_u8(x: u8, y: u8): u8 {
         if (x < y) {
             x
@@ -201,6 +207,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the maximum of two u8 values.
     public fun max_u8(x: u8, y: u8): u8 {
         if (x > y) {
             x
@@ -209,6 +216,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the absolute difference of two u8 values.
     public fun diff_u8(x: u8, y: u8): u8 {
         if (x > y) {
             x - y
@@ -222,6 +230,7 @@ module kanari_system::math {
         ((average_u64((a as u64), (b as u64))) as u8)
     }
 
+    /// Clamps a u8 value to [lo, hi].
     public fun clamp_u8(x: u8, lo: u8, hi: u8): u8 {
         assert!(lo <= hi, E_INVALID_ARG);
         if (x < lo) {
@@ -233,32 +242,39 @@ module kanari_system::math {
         }
     }
 
+    /// Bounds a u8 value to [lo, hi], returning status.
     public fun bound_u8(x: u8, lo: u8, hi: u8): u8 {
         clamp_u8(x, lo, hi)
     }
 
+    /// Returns the integer square root of a u8.
     public fun sqrt_u8(x: u8): u8 {
         ((sqrt_u64((x as u64))) as u8)
     }
 
+    /// Returns floor(log2(x)) for a u8.
     public fun log2_u8(x: u8): u8 {
         ((log2_u64((x as u64))) as u8)
     }
 
+    /// Returns true if x is a power of two (u8).
     public fun is_pow2_u8(x: u8): bool {
         x > 0 && (x & (x - 1)) == 0
     }
 
+    /// Returns 2^exp as u8.
     public fun pow2_u8(exp: u8): u8 {
         pow_u8(2, exp)
     }
 
+    /// Returns base^exponent as u8.
     public fun pow_u8(base: u8, exponent: u8): u8 {
         let r = pow_u64((base as u64), exponent);
         assert!(r <= (MAX_U8 as u64), E_OVERFLOW);
         (r as u8)
     }
 
+    /// Returns (success, base^exponent) as u8, with overflow check.
     public fun try_pow_u8(base: u8, exponent: u8): (bool, u8) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
         if (!ok || r > (MAX_U8 as u64)) {
@@ -268,6 +284,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns ceil(x / y) for u8.
     public fun ceil_div_u8(x: u8, y: u8): u8 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
         if (x == 0) {
@@ -277,18 +294,21 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z for u8.
     public fun mul_div_u8(x: u8, y: u8, z: u8): u8 {
         let r = mul_div_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U8 as u128), E_OVERFLOW);
         (r as u8)
     }
 
+    /// Returns ceil(x * y / z) for u8.
     public fun mul_div_ceil_u8(x: u8, y: u8, z: u8): u8 {
         let r = mul_div_round_u128((x as u128), (y as u128), (z as u128), true);
         assert!(r <= (MAX_U8 as u128), E_OVERFLOW);
         (r as u8)
     }
 
+    /// Returns (success, x * y / z) for u8 with overflow check.
     public fun try_mul_div_u8(x: u8, y: u8, z: u8): (bool, u8) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
         if (!ok || r > (MAX_U8 as u128)) {
@@ -298,12 +318,14 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y + z for u8.
     public fun mul_add_u8(x: u8, y: u8, z: u8): u8 {
         let r = mul_add_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U8 as u128), E_OVERFLOW);
         (r as u8)
     }
 
+    /// Returns amount * bps / 10_000 (floor) for u8.
     public fun bps_mul_floor_u8(amount: u8, bps: u8): u8 {
         // 10_000 does not fit u8, so scale through u128 explicitly.
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
@@ -312,6 +334,7 @@ module kanari_system::math {
         (r as u8)
     }
 
+    /// Returns amount * bps / 10_000 (ceil) for u8.
     public fun bps_mul_ceil_u8(amount: u8, bps: u8): u8 {
         // NOTE: u8 caps bps at 255; amounts stay exact via u128 intermediate.
         // 10_000 does not fit u8, so scale through u128 explicitly.
@@ -321,16 +344,19 @@ module kanari_system::math {
         (r as u8)
     }
 
+    /// Returns amount * pct / 100 (floor) for u8.
     public fun percent_mul_floor_u8(amount: u8, pct: u8): u8 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_u8(amount, pct, 100)
     }
 
+    /// Returns amount * pct / 100 (ceil) for u8.
     public fun percent_mul_ceil_u8(amount: u8, pct: u8): u8 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u8(amount, pct, 100)
     }
 
+    /// Returns true if |a - b| <= tolerance for u8.
     public fun within_tolerance_u8(a: u8, b: u8, tolerance: u8): bool {
         diff_u8(a, b) <= tolerance
     }
@@ -338,6 +364,7 @@ module kanari_system::math {
     // =================================================================
     // u16 helpers (pure Move over u64/u128 natives)
     // =================================================================
+    /// Returns the minimum of two u16 values.
     public fun min_u16(x: u16, y: u16): u16 {
         if (x < y) {
             x
@@ -346,6 +373,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the maximum of two u16 values.
     public fun max_u16(x: u16, y: u16): u16 {
         if (x > y) {
             x
@@ -354,6 +382,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the absolute difference of two u16 values.
     public fun diff_u16(x: u16, y: u16): u16 {
         if (x > y) {
             x - y
@@ -362,10 +391,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the average of two u16 values.
     public fun average_u16(a: u16, b: u16): u16 {
         ((average_u64((a as u64), (b as u64))) as u16)
     }
 
+    /// Clamps a u16 value to [lo, hi].
     public fun clamp_u16(x: u16, lo: u16, hi: u16): u16 {
         assert!(lo <= hi, E_INVALID_ARG);
         if (x < lo) {
@@ -377,32 +408,39 @@ module kanari_system::math {
         }
     }
 
+    /// Bounds a u16 value to [lo, hi], returning status.
     public fun bound_u16(x: u16, lo: u16, hi: u16): u16 {
         clamp_u16(x, lo, hi)
     }
 
+    /// Returns the integer square root of a u16.
     public fun sqrt_u16(x: u16): u16 {
         ((sqrt_u64((x as u64))) as u16)
     }
 
+    /// Returns floor(log2(x)) for u16.
     public fun log2_u16(x: u16): u16 {
         ((log2_u64((x as u64))) as u16)
     }
 
+    /// Returns true if x is a power of two (u16).
     public fun is_pow2_u16(x: u16): bool {
         x > 0 && (x & (x - 1)) == 0
     }
 
+    /// Returns 2^exp as u16.
     public fun pow2_u16(exp: u8): u16 {
         pow_u16(2, exp)
     }
 
+    /// Returns base^exponent as u16.
     public fun pow_u16(base: u16, exponent: u8): u16 {
         let r = pow_u64((base as u64), exponent);
         assert!(r <= (MAX_U16 as u64), E_OVERFLOW);
         (r as u16)
     }
 
+    /// Returns (success, base^exponent) as u16, with overflow check.
     public fun try_pow_u16(base: u16, exponent: u8): (bool, u16) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
         if (!ok || r > (MAX_U16 as u64)) {
@@ -412,6 +450,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns ceil(x / y) for u16.
     public fun ceil_div_u16(x: u16, y: u16): u16 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
         if (x == 0) {
@@ -421,18 +460,21 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z for u16.
     public fun mul_div_u16(x: u16, y: u16, z: u16): u16 {
         let r = mul_div_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U16 as u128), E_OVERFLOW);
         (r as u16)
     }
 
+    /// Returns ceil(x * y / z) for u16.
     public fun mul_div_ceil_u16(x: u16, y: u16, z: u16): u16 {
         let r = mul_div_round_u128((x as u128), (y as u128), (z as u128), true);
         assert!(r <= (MAX_U16 as u128), E_OVERFLOW);
         (r as u16)
     }
 
+    /// Returns (success, x * y / z) for u16 with overflow check.
     public fun try_mul_div_u16(x: u16, y: u16, z: u16): (bool, u16) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
         if (!ok || r > (MAX_U16 as u128)) {
@@ -442,12 +484,14 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y + z for u16.
     public fun mul_add_u16(x: u16, y: u16, z: u16): u16 {
         let r = mul_add_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U16 as u128), E_OVERFLOW);
         (r as u16)
     }
 
+    /// Returns amount * bps / 10_000 (floor) for u16.
     public fun bps_mul_floor_u16(amount: u16, bps: u16): u16 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         let r = mul_div_u128((amount as u128), (bps as u128), BPS_SCALE);
@@ -455,6 +499,7 @@ module kanari_system::math {
         (r as u16)
     }
 
+    /// Returns amount * bps / 10_000 (ceil) for u16.
     public fun bps_mul_ceil_u16(amount: u16, bps: u16): u16 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         let r = mul_div_round_u128((amount as u128), (bps as u128), BPS_SCALE, true);
@@ -462,16 +507,19 @@ module kanari_system::math {
         (r as u16)
     }
 
+    /// Returns amount * pct / 100 (floor) for u16.
     public fun percent_mul_floor_u16(amount: u16, pct: u16): u16 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_u16(amount, pct, 100)
     }
 
+    /// Returns amount * pct / 100 (ceil) for u16.
     public fun percent_mul_ceil_u16(amount: u16, pct: u16): u16 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u16(amount, pct, 100)
     }
 
+    /// Returns true if |a - b| <= tolerance for u16.
     public fun within_tolerance_u16(a: u16, b: u16, tolerance: u16): bool {
         diff_u16(a, b) <= tolerance
     }
@@ -479,6 +527,7 @@ module kanari_system::math {
     // =================================================================
     // u32 helpers (pure Move over u64/u128 natives)
     // =================================================================
+    /// Returns the minimum of two u32 values.
     public fun min_u32(x: u32, y: u32): u32 {
         if (x < y) {
             x
@@ -487,6 +536,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the maximum of two u32 values.
     public fun max_u32(x: u32, y: u32): u32 {
         if (x > y) {
             x
@@ -495,6 +545,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the absolute difference of two u32 values.
     public fun diff_u32(x: u32, y: u32): u32 {
         if (x > y) {
             x - y
@@ -503,10 +554,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the average of two u32 values.
     public fun average_u32(a: u32, b: u32): u32 {
         ((average_u64((a as u64), (b as u64))) as u32)
     }
 
+    /// Clamps a u32 value to [lo, hi].
     public fun clamp_u32(x: u32, lo: u32, hi: u32): u32 {
         assert!(lo <= hi, E_INVALID_ARG);
         if (x < lo) {
@@ -518,32 +571,39 @@ module kanari_system::math {
         }
     }
 
+    /// Bounds a u32 value to [lo, hi], returning status.
     public fun bound_u32(x: u32, lo: u32, hi: u32): u32 {
         clamp_u32(x, lo, hi)
     }
 
+    /// Returns the integer square root of a u32.
     public fun sqrt_u32(x: u32): u32 {
         ((sqrt_u64((x as u64))) as u32)
     }
 
+    /// Returns floor(log2(x)) for u32.
     public fun log2_u32(x: u32): u32 {
         ((log2_u64((x as u64))) as u32)
     }
 
+    /// Returns true if x is a power of two (u32).
     public fun is_pow2_u32(x: u32): bool {
         x > 0 && (x & (x - 1)) == 0
     }
 
+    /// Returns 2^exp as u32.
     public fun pow2_u32(exp: u8): u32 {
         pow_u32(2, exp)
     }
 
+    /// Returns base^exponent as u32.
     public fun pow_u32(base: u32, exponent: u8): u32 {
         let r = pow_u64((base as u64), exponent);
         assert!(r <= (MAX_U32 as u64), E_OVERFLOW);
         (r as u32)
     }
 
+    /// Returns (success, base^exponent) as u32, with overflow check.
     public fun try_pow_u32(base: u32, exponent: u8): (bool, u32) {
         let (ok, r) = try_pow_u64((base as u64), exponent);
         if (!ok || r > (MAX_U32 as u64)) {
@@ -553,6 +613,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns ceil(x / y) for u32.
     public fun ceil_div_u32(x: u32, y: u32): u32 {
         assert!(y > 0, E_DIVIDE_BY_ZERO);
         if (x == 0) {
@@ -562,18 +623,21 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z for u32.
     public fun mul_div_u32(x: u32, y: u32, z: u32): u32 {
         let r = mul_div_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U32 as u128), E_OVERFLOW);
         (r as u32)
     }
 
+    /// Returns ceil(x * y / z) for u32.
     public fun mul_div_ceil_u32(x: u32, y: u32, z: u32): u32 {
         let r = mul_div_round_u128((x as u128), (y as u128), (z as u128), true);
         assert!(r <= (MAX_U32 as u128), E_OVERFLOW);
         (r as u32)
     }
 
+    /// Returns (success, x * y / z) for u32 with overflow check.
     public fun try_mul_div_u32(x: u32, y: u32, z: u32): (bool, u32) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
         if (!ok || r > (MAX_U32 as u128)) {
@@ -583,12 +647,14 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y + z for u32.
     public fun mul_add_u32(x: u32, y: u32, z: u32): u32 {
         let r = mul_add_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U32 as u128), E_OVERFLOW);
         (r as u32)
     }
 
+    /// Returns amount * bps / 10_000 (floor) for u32.
     public fun bps_mul_floor_u32(amount: u32, bps: u32): u32 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         let r = mul_div_u128((amount as u128), (bps as u128), BPS_SCALE);
@@ -596,6 +662,7 @@ module kanari_system::math {
         (r as u32)
     }
 
+    /// Returns amount * bps / 10_000 (ceil) for u32.
     public fun bps_mul_ceil_u32(amount: u32, bps: u32): u32 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         let r = mul_div_round_u128((amount as u128), (bps as u128), BPS_SCALE, true);
@@ -603,16 +670,19 @@ module kanari_system::math {
         (r as u32)
     }
 
+    /// Returns amount * pct / 100 (floor) for u32.
     public fun percent_mul_floor_u32(amount: u32, pct: u32): u32 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_u32(amount, pct, 100)
     }
 
+    /// Returns amount * pct / 100 (ceil) for u32.
     public fun percent_mul_ceil_u32(amount: u32, pct: u32): u32 {
         assert!((pct as u128) <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u32(amount, pct, 100)
     }
 
+    /// Returns true if |a - b| <= tolerance for u32.
     public fun within_tolerance_u32(a: u32, b: u32, tolerance: u32): bool {
         diff_u32(a, b) <= tolerance
     }
@@ -620,6 +690,7 @@ module kanari_system::math {
     // =================================================================
     // u64 / u128 basics
     // =================================================================
+    /// Returns the minimum of two u64 values.
     public fun min_u64(x: u64, y: u64): u64 {
         if (x < y) {
             x
@@ -628,6 +699,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the maximum of two u64 values.
     public fun max_u64(x: u64, y: u64): u64 {
         if (x > y) {
             x
@@ -637,6 +709,7 @@ module kanari_system::math {
     }
 
     /// Absolute difference. Useful for slippage / tolerance checks.
+    /// Returns the absolute difference of two u64 values.
     public fun diff_u64(x: u64, y: u64): u64 {
         if (x > y) {
             x - y
@@ -645,6 +718,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the absolute difference of two u128 values.
     public fun diff_u128(x: u128, y: u128): u128 {
         if (x > y) {
             x - y
@@ -653,6 +727,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns the absolute difference of two u256 values.
     public fun diff_u256(x: u256, y: u256): u256 {
         if (x > y) {
             x - y
@@ -662,29 +737,35 @@ module kanari_system::math {
     }
 
     /// Clamp with a readable abort code for inverted bounds (same as native).
+    /// Bounds a u64 value to [lo, hi], returning status.
     public fun bound_u64(x: u64, lo: u64, hi: u64): u64 {
         assert!(lo <= hi, E_INVALID_ARG);
         clamp_u64(x, lo, hi)
     }
 
+    /// Bounds a u128 value to [lo, hi], returning status.
     public fun bound_u128(x: u128, lo: u128, hi: u128): u128 {
         assert!(lo <= hi, E_INVALID_ARG);
         clamp_u128(x, lo, hi)
     }
 
+    /// Bounds a u256 value to [lo, hi], returning status.
     public fun bound_u256(x: u256, lo: u256, hi: u256): u256 {
         assert!(lo <= hi, E_INVALID_ARG);
         clamp_u256(x, lo, hi)
     }
 
+    /// Returns true if x is a power of two (u64).
     public fun is_pow2_u64(x: u64): bool {
         x > 0 && (x & (x - 1)) == 0
     }
 
+    /// Returns true if x is a power of two (u128).
     public fun is_pow2_u128(x: u128): bool {
         x > 0 && (x & (x - 1)) == 0
     }
 
+    /// Returns true if x is a power of two (u256).
     public fun is_pow2_u256(x: u256): bool {
         x > 0 && (x & (x - 1)) == 0
     }
@@ -694,10 +775,12 @@ module kanari_system::math {
         pow_u128(2, exp)
     }
 
+    /// Returns 2^exp as u64.
     public fun pow2_u64(exp: u8): u64 {
         pow_u64(2, exp)
     }
 
+    /// Returns 2^exp as u256.
     public fun pow2_u256(exp: u32): u256 {
         pow_u256(2, exp)
     }
@@ -711,6 +794,7 @@ module kanari_system::math {
         ceil_div_u64(x, y)
     }
 
+    /// Returns ceil(x / y) for u128.
     public fun divide_and_round_up_u128(x: u128, y: u128): u128 {
         ceil_div_u128(x, y)
     }
@@ -721,6 +805,7 @@ module kanari_system::math {
 
     /// (x * y) / z for u64, floor. Routes through U256 native so
     /// `MAX_U64 * 2 / 2` works. Aborts E_OVERFLOW when result > MAX_U64.
+    /// Returns x * y / z for u64.
     public fun mul_div_u64(x: u64, y: u64, z: u64): u64 {
         let r = mul_div_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U64 as u128), E_OVERFLOW);
@@ -728,6 +813,7 @@ module kanari_system::math {
     }
 
     /// (x * y) / z for u64, ceil.
+    /// Returns ceil(x * y / z) for u64.
     public fun mul_div_ceil_u64(x: u64, y: u64, z: u64): u64 {
         let r = mul_div_round_u128((x as u128), (y as u128), (z as u128), true);
         assert!(r <= (MAX_U64 as u128), E_OVERFLOW);
@@ -735,16 +821,19 @@ module kanari_system::math {
     }
 
     /// (x * y) / z for u128, ceil.
+    /// Returns ceil(x * y / z) for u128.
     public fun mul_div_ceil_u128(x: u128, y: u128, z: u128): u128 {
         mul_div_round_u128(x, y, z, true)
     }
 
     /// (x * y) / z for u256, ceil.
+    /// Returns ceil(x * y / z) for u256.
     public fun mul_div_ceil_u256(x: u256, y: u256, z: u256): u256 {
         mul_div_round_u256(x, y, z, true)
     }
 
     /// (x * y) + z for u64. Aborts E_OVERFLOW when result > MAX_U64.
+    /// Returns x * y + z for u64.
     public fun mul_add_u64(x: u64, y: u64, z: u64): u64 {
         let r = mul_add_u128((x as u128), (y as u128), (z as u128));
         assert!(r <= (MAX_U64 as u128), E_OVERFLOW);
@@ -756,15 +845,18 @@ module kanari_system::math {
         mul_div_ceil_u64(x, y, z)
     }
 
+    /// Returns x * y / z rounded up for u128.
     public fun mul_div_round_up_u128(x: u128, y: u128, z: u128): u128 {
         mul_div_ceil_u128(x, y, z)
     }
 
+    /// Returns x * y / z rounded up for u256.
     public fun mul_div_round_up_u256(x: u256, y: u256, z: u256): u256 {
         mul_div_ceil_u256(x, y, z)
     }
 
     /// Non-aborting u64 variant: (false, 0) on div-by-zero or u64 overflow.
+    /// Returns (success, x * y / z) for u64 with overflow check.
     public fun try_mul_div_u64(x: u64, y: u64, z: u64): (bool, u64) {
         let (ok, r) = try_mul_div_u128((x as u128), (y as u128), (z as u128));
         if (!ok || r > (MAX_U64 as u128)) {
@@ -779,32 +871,38 @@ module kanari_system::math {
     // =================================================================
 
     /// amount * bps / 10_000, floor. `bps` must be <= 10_000.
+    /// Returns amount * bps / 10_000 (floor) for u128.
     public fun bps_mul_floor_u128(amount: u128, bps: u128): u128 {
         assert!(bps <= BPS_SCALE, E_OUT_OF_RANGE);
         mul_div_u128(amount, bps, BPS_SCALE)
     }
 
     /// amount * bps / 10_000, ceil (favors the fee receiver / pool).
+    /// Returns amount * bps / 10_000 (ceil) for u128.
     public fun bps_mul_ceil_u128(amount: u128, bps: u128): u128 {
         assert!(bps <= BPS_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u128(amount, bps, BPS_SCALE)
     }
 
+    /// Returns amount * bps / 10_000 (floor) for u64.
     public fun bps_mul_floor_u64(amount: u64, bps: u64): u64 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         mul_div_u64(amount, bps, BPS_SCALE_U64)
     }
 
+    /// Returns amount * bps / 10_000 (ceil) for u64.
     public fun bps_mul_ceil_u64(amount: u64, bps: u64): u64 {
         assert!((bps as u128) <= BPS_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u64(amount, bps, BPS_SCALE_U64)
     }
 
+    /// Returns amount * bps / 10_000 (floor) for u256.
     public fun bps_mul_floor_u256(amount: u256, bps: u256): u256 {
         assert!(bps <= BPS_SCALE_U256, E_OUT_OF_RANGE);
         mul_div_u256(amount, bps, BPS_SCALE_U256)
     }
 
+    /// Returns amount * bps / 10_000 (ceil) for u256.
     public fun bps_mul_ceil_u256(amount: u256, bps: u256): u256 {
         assert!(bps <= BPS_SCALE_U256, E_OUT_OF_RANGE);
         mul_div_ceil_u256(amount, bps, BPS_SCALE_U256)
@@ -824,10 +922,12 @@ module kanari_system::math {
         amount - fee
     }
 
+    /// Returns amount + amount * bps / 10_000 for u256.
     public fun add_bps_u256(amount: u256, bps: u256): u256 {
         amount + bps_mul_floor_u256(amount, bps)
     }
 
+    /// Returns amount - amount * bps / 10_000 for u256.
     public fun sub_bps_u256(amount: u256, bps: u256): u256 {
         let fee = bps_mul_ceil_u256(amount, bps);
         assert!(fee <= amount, E_OVERFLOW);
@@ -835,22 +935,26 @@ module kanari_system::math {
     }
 
     /// amount * pct / 100, floor. `pct` must be <= 100.
+    /// Returns amount * pct / 100 (floor) for u128.
     public fun percent_mul_floor_u128(amount: u128, pct: u128): u128 {
         assert!(pct <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_u128(amount, pct, PCT_SCALE)
     }
 
     /// amount * pct / 100, ceil.
+    /// Returns amount * pct / 100 (ceil) for u128.
     public fun percent_mul_ceil_u128(amount: u128, pct: u128): u128 {
         assert!(pct <= PCT_SCALE, E_OUT_OF_RANGE);
         mul_div_ceil_u128(amount, pct, PCT_SCALE)
     }
 
+    /// Returns amount * pct / 100 (floor) for u256.
     public fun percent_mul_floor_u256(amount: u256, pct: u256): u256 {
         assert!(pct <= PCT_SCALE_U256, E_OUT_OF_RANGE);
         mul_div_u256(amount, pct, PCT_SCALE_U256)
     }
 
+    /// Returns amount * pct / 100 (ceil) for u256.
     public fun percent_mul_ceil_u256(amount: u256, pct: u256): u256 {
         assert!(pct <= PCT_SCALE_U256, E_OUT_OF_RANGE);
         mul_div_ceil_u256(amount, pct, PCT_SCALE_U256)
@@ -895,22 +999,27 @@ module kanari_system::math {
         mul_div_u256(a, b, WAD_U256)
     }
 
+    /// Returns a / b scaled by WAD for u256.
     public fun wad_div_u256(a: u256, b: u256): u256 {
         mul_div_u256(a, WAD_U256, b)
     }
 
+    /// Returns a * b / WAD ceil for u256.
     public fun wad_mul_ceil_u256(a: u256, b: u256): u256 {
         mul_div_ceil_u256(a, b, WAD_U256)
     }
 
+    /// Returns a / b ceil for u256.
     public fun wad_div_ceil_u256(a: u256, b: u256): u256 {
         mul_div_ceil_u256(a, WAD_U256, b)
     }
 
+    /// Returns a * b / RAY for u256.
     public fun ray_mul_u256(a: u256, b: u256): u256 {
         mul_div_u256(a, b, RAY_U256)
     }
 
+    /// Returns a / b * RAY for u256.
     public fun ray_div_u256(a: u256, b: u256): u256 {
         mul_div_u256(a, RAY_U256, b)
     }
@@ -946,6 +1055,7 @@ module kanari_system::math {
         mul_div_u128(amount, price_num, price_den)
     }
 
+    /// Applies price in fixed-point (RAY) to amount for u256.
     public fun apply_price_u256(
         amount: u256,
         price_num: u256,
@@ -955,14 +1065,17 @@ module kanari_system::math {
     }
 
     /// Check `|a - b| <= tolerance` without overflow.
+    /// Returns true if |a - b| <= tolerance for u128.
     public fun within_tolerance_u128(a: u128, b: u128, tolerance: u128): bool {
         diff_u128(a, b) <= tolerance
     }
 
+    /// Returns true if |a - b| <= tolerance for u64.
     public fun within_tolerance_u64(a: u64, b: u64, tolerance: u64): bool {
         diff_u64(a, b) <= tolerance
     }
 
+    /// Returns true if |a - b| <= tolerance for u256.
     public fun within_tolerance_u256(a: u256, b: u256, tolerance: u256): bool {
         diff_u256(a, b) <= tolerance
     }
@@ -973,6 +1086,7 @@ module kanari_system::math {
         assert!(actual_out >= min_amount_out, E_INVALID_ARG);
     }
 
+    /// Asserts actual_out >= min_amount_out, else aborts.
     public fun assert_min_out_u256(actual_out: u256, min_amount_out: u256) {
         assert!(actual_out >= min_amount_out, E_INVALID_ARG);
     }
@@ -983,6 +1097,7 @@ module kanari_system::math {
     // =================================================================
 
     // --- u8 ---
+    /// Returns x + y as Option<u8>, or None on overflow.
     public fun checked_add_u8(x: u8, y: u8): Option<u8> {
         if (x > MAX_U8 - y) {
             option::none()
@@ -991,6 +1106,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u8>, or None on underflow.
     public fun checked_sub_u8(x: u8, y: u8): Option<u8> {
         if (y > x) {
             option::none()
@@ -999,6 +1115,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u8>, or None on overflow.
     public fun checked_mul_u8(x: u8, y: u8): Option<u8> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1009,6 +1126,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u8>, or None if y == 0.
     public fun checked_div_u8(x: u8, y: u8): Option<u8> {
         if (y == 0) {
             option::none()
@@ -1017,6 +1135,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u8>, or None on overflow.
     public fun checked_pow_u8(base: u8, exponent: u8): Option<u8> {
         let (ok, v) = try_pow_u8(base, exponent);
         if (ok) {
@@ -1027,6 +1146,7 @@ module kanari_system::math {
     }
 
     // --- u16 ---
+    /// Returns x + y as Option<u16>, or None on overflow.
     public fun checked_add_u16(x: u16, y: u16): Option<u16> {
         if (x > MAX_U16 - y) {
             option::none()
@@ -1035,6 +1155,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u16>, or None on underflow.
     public fun checked_sub_u16(x: u16, y: u16): Option<u16> {
         if (y > x) {
             option::none()
@@ -1043,6 +1164,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u16>, or None on overflow.
     public fun checked_mul_u16(x: u16, y: u16): Option<u16> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1053,6 +1175,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u16>, or None if y == 0.
     public fun checked_div_u16(x: u16, y: u16): Option<u16> {
         if (y == 0) {
             option::none()
@@ -1061,6 +1184,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u16>, or None on overflow.
     public fun checked_pow_u16(base: u16, exponent: u8): Option<u16> {
         let (ok, v) = try_pow_u16(base, exponent);
         if (ok) {
@@ -1071,6 +1195,7 @@ module kanari_system::math {
     }
 
     // --- u32 ---
+    /// Returns x + y as Option<u32>, or None on overflow.
     public fun checked_add_u32(x: u32, y: u32): Option<u32> {
         if (x > MAX_U32 - y) {
             option::none()
@@ -1079,6 +1204,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u32>, or None on underflow.
     public fun checked_sub_u32(x: u32, y: u32): Option<u32> {
         if (y > x) {
             option::none()
@@ -1087,6 +1213,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u32>, or None on overflow.
     public fun checked_mul_u32(x: u32, y: u32): Option<u32> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1097,6 +1224,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u32>, or None if y == 0.
     public fun checked_div_u32(x: u32, y: u32): Option<u32> {
         if (y == 0) {
             option::none()
@@ -1105,6 +1233,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u32>, or None on overflow.
     public fun checked_pow_u32(base: u32, exponent: u8): Option<u32> {
         let (ok, v) = try_pow_u32(base, exponent);
         if (ok) {
@@ -1115,6 +1244,7 @@ module kanari_system::math {
     }
 
     // --- u64 ---
+    /// Returns x + y as Option<u64>, or None on overflow.
     public fun checked_add_u64(x: u64, y: u64): Option<u64> {
         if (x > MAX_U64 - y) {
             option::none()
@@ -1123,6 +1253,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u64>, or None on underflow.
     public fun checked_sub_u64(x: u64, y: u64): Option<u64> {
         if (y > x) {
             option::none()
@@ -1131,6 +1262,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u64>, or None on overflow.
     public fun checked_mul_u64(x: u64, y: u64): Option<u64> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1141,6 +1273,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u64>, or None if y == 0.
     public fun checked_div_u64(x: u64, y: u64): Option<u64> {
         if (y == 0) {
             option::none()
@@ -1149,6 +1282,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u64>, or None on overflow.
     public fun checked_pow_u64(base: u64, exponent: u8): Option<u64> {
         let (ok, v) = try_pow_u64(base, exponent);
         if (ok) {
@@ -1159,6 +1293,7 @@ module kanari_system::math {
     }
 
     // --- u128 ---
+    /// Returns x + y as Option<u128>, or None on overflow.
     public fun checked_add_u128(x: u128, y: u128): Option<u128> {
         if (x > MAX_U128 - y) {
             option::none()
@@ -1167,6 +1302,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u128>, or None on underflow.
     public fun checked_sub_u128(x: u128, y: u128): Option<u128> {
         if (y > x) {
             option::none()
@@ -1175,6 +1311,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u128>, or None on overflow.
     public fun checked_mul_u128(x: u128, y: u128): Option<u128> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1185,6 +1322,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u128>, or None if y == 0.
     public fun checked_div_u128(x: u128, y: u128): Option<u128> {
         if (y == 0) {
             option::none()
@@ -1193,6 +1331,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u128>, or None on overflow.
     public fun checked_pow_u128(base: u128, exponent: u32): Option<u128> {
         let (ok, v) = try_pow_u128(base, exponent);
         if (ok) {
@@ -1203,6 +1342,7 @@ module kanari_system::math {
     }
 
     // --- u256 ---
+    /// Returns x + y as Option<u256>, or None on overflow.
     public fun checked_add_u256(x: u256, y: u256): Option<u256> {
         if (x > MAX_U256 - y) {
             option::none()
@@ -1211,6 +1351,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y as Option<u256>, or None on underflow.
     public fun checked_sub_u256(x: u256, y: u256): Option<u256> {
         if (y > x) {
             option::none()
@@ -1219,6 +1360,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y as Option<u256>, or None on overflow.
     public fun checked_mul_u256(x: u256, y: u256): Option<u256> {
         if (x == 0 || y == 0) {
             option::some(0)
@@ -1229,6 +1371,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u256>, or None if y == 0.
     public fun checked_div_u256(x: u256, y: u256): Option<u256> {
         if (y == 0) {
             option::none()
@@ -1237,6 +1380,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent as Option<u256>, or None on overflow.
     public fun checked_pow_u256(base: u256, exponent: u32): Option<u256> {
         let (ok, v) = try_pow_u256(base, exponent);
         if (ok) {
@@ -1251,6 +1395,7 @@ module kanari_system::math {
     // =================================================================
 
     // --- u8 ---
+    /// Returns x + y saturating at u8::MAX.
     public fun saturating_add_u8(x: u8, y: u8): u8 {
         if (x > MAX_U8 - y) {
             MAX_U8
@@ -1259,6 +1404,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u8(x: u8, y: u8): u8 {
         if (y > x) {
             0
@@ -1267,6 +1413,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u8::MAX.
     public fun saturating_mul_u8(x: u8, y: u8): u8 {
         if (x == 0 || y == 0) {
             0
@@ -1277,6 +1424,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u8::MAX.
     public fun saturating_pow_u8(base: u8, exponent: u8): u8 {
         let (ok, v) = try_pow_u8(base, exponent);
         if (ok) {
@@ -1286,6 +1434,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u8::MAX.
     public fun saturating_mul_div_u8(x: u8, y: u8, z: u8): u8 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u8(x, y, z);
@@ -1297,6 +1446,7 @@ module kanari_system::math {
     }
 
     // --- u16 ---
+    /// Returns x + y saturating at u16::MAX.
     public fun saturating_add_u16(x: u16, y: u16): u16 {
         if (x > MAX_U16 - y) {
             MAX_U16
@@ -1305,6 +1455,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u16(x: u16, y: u16): u16 {
         if (y > x) {
             0
@@ -1313,6 +1464,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u16::MAX.
     public fun saturating_mul_u16(x: u16, y: u16): u16 {
         if (x == 0 || y == 0) {
             0
@@ -1323,6 +1475,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u16::MAX.
     public fun saturating_pow_u16(base: u16, exponent: u8): u16 {
         let (ok, v) = try_pow_u16(base, exponent);
         if (ok) {
@@ -1332,6 +1485,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u16::MAX.
     public fun saturating_mul_div_u16(x: u16, y: u16, z: u16): u16 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u16(x, y, z);
@@ -1343,6 +1497,7 @@ module kanari_system::math {
     }
 
     // --- u32 ---
+    /// Returns x + y saturating at u32::MAX.
     public fun saturating_add_u32(x: u32, y: u32): u32 {
         if (x > MAX_U32 - y) {
             MAX_U32
@@ -1351,6 +1506,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u32(x: u32, y: u32): u32 {
         if (y > x) {
             0
@@ -1359,6 +1515,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u32::MAX.
     public fun saturating_mul_u32(x: u32, y: u32): u32 {
         if (x == 0 || y == 0) {
             0
@@ -1369,6 +1526,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u32::MAX.
     public fun saturating_pow_u32(base: u32, exponent: u8): u32 {
         let (ok, v) = try_pow_u32(base, exponent);
         if (ok) {
@@ -1378,6 +1536,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u32::MAX.
     public fun saturating_mul_div_u32(x: u32, y: u32, z: u32): u32 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u32(x, y, z);
@@ -1389,6 +1548,7 @@ module kanari_system::math {
     }
 
     // --- u64 ---
+    /// Returns x + y saturating at u64::MAX.
     public fun saturating_add_u64(x: u64, y: u64): u64 {
         if (x > MAX_U64 - y) {
             MAX_U64
@@ -1397,6 +1557,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u64(x: u64, y: u64): u64 {
         if (y > x) {
             0
@@ -1405,6 +1566,8 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u64::MAX.
+    /// Returns x * y saturating at u64::MAX.
     public fun saturating_mul_u64(x: u64, y: u64): u64 {
         if (x == 0 || y == 0) {
             0
@@ -1415,6 +1578,8 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u64::MAX.
+    /// Returns base^exponent saturating at u64::MAX.
     public fun saturating_pow_u64(base: u64, exponent: u8): u64 {
         let (ok, v) = try_pow_u64(base, exponent);
         if (ok) {
@@ -1424,6 +1589,8 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u64::MAX.
+    /// Returns x * y / z saturating at u64::MAX.
     public fun saturating_mul_div_u64(x: u64, y: u64, z: u64): u64 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u64(x, y, z);
@@ -1435,6 +1602,7 @@ module kanari_system::math {
     }
 
     // --- u128 ---
+    /// Returns x + y saturating at u128::MAX.
     public fun saturating_add_u128(x: u128, y: u128): u128 {
         if (x > MAX_U128 - y) {
             MAX_U128
@@ -1443,6 +1611,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u128(x: u128, y: u128): u128 {
         if (y > x) {
             0
@@ -1451,6 +1620,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u128::MAX.
     public fun saturating_mul_u128(x: u128, y: u128): u128 {
         if (x == 0 || y == 0) {
             0
@@ -1461,6 +1631,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u128::MAX.
     public fun saturating_pow_u128(base: u128, exponent: u32): u128 {
         let (ok, v) = try_pow_u128(base, exponent);
         if (ok) {
@@ -1470,6 +1641,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u128::MAX.
     public fun saturating_mul_div_u128(x: u128, y: u128, z: u128): u128 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u128(x, y, z);
@@ -1481,6 +1653,7 @@ module kanari_system::math {
     }
 
     // --- u256 ---
+    /// Returns x + y saturating at u256::MAX.
     public fun saturating_add_u256(x: u256, y: u256): u256 {
         if (x > MAX_U256 - y) {
             MAX_U256
@@ -1489,6 +1662,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x - y saturating at 0.
     public fun saturating_sub_u256(x: u256, y: u256): u256 {
         if (y > x) {
             0
@@ -1497,6 +1671,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y saturating at u256::MAX.
     public fun saturating_mul_u256(x: u256, y: u256): u256 {
         if (x == 0 || y == 0) {
             0
@@ -1507,6 +1682,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns base^exponent saturating at u256::MAX.
     public fun saturating_pow_u256(base: u256, exponent: u32): u256 {
         let (ok, v) = try_pow_u256(base, exponent);
         if (ok) {
@@ -1516,6 +1692,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x * y / z saturating at u256::MAX.
     public fun saturating_mul_div_u256(x: u256, y: u256, z: u256): u256 {
         assert!(z != 0, E_DIVIDE_BY_ZERO);
         let (ok, v) = try_mul_div_u256(x, y, z);
@@ -1529,6 +1706,7 @@ module kanari_system::math {
     // =================================================================
     // Shifts: checked + lossless (None when not exactly reversible)
     // =================================================================
+    /// Returns x << shift as Option<u8>, or None on overflow.
     public fun checked_shl_u8(x: u8, shift: u8): Option<u8> {
         if (shift >= 8) {
             option::none()
@@ -1537,6 +1715,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u8>, or None on underflow.
     public fun checked_shr_u8(x: u8, shift: u8): Option<u8> {
         if (shift >= 8) {
             option::none()
@@ -1545,6 +1724,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x << shift as Option<u8> without overflow check.
     public fun lossless_shl_u8(x: u8, shift: u8): Option<u8> {
         if (shift >= 8) {
             option::none()
@@ -1558,6 +1738,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u8> without underflow check.
     public fun lossless_shr_u8(x: u8, shift: u8): Option<u8> {
         if (shift >= 8) {
             option::none()
@@ -1571,6 +1752,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u8>, or None if y == 0.
     public fun lossless_div_u8(x: u8, y: u8): Option<u8> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1579,10 +1761,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u8.
     public fun bitwise_not_u8(x: u8): u8 {
         x ^ MAX_U8
     }
 
+    /// Returns x << shift as Option<u16>, or None on overflow.
     public fun checked_shl_u16(x: u16, shift: u8): Option<u16> {
         if (shift >= 16) {
             option::none()
@@ -1591,6 +1775,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u16>, or None on underflow.
     public fun checked_shr_u16(x: u16, shift: u8): Option<u16> {
         if (shift >= 16) {
             option::none()
@@ -1599,6 +1784,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x << shift as Option<u16> without overflow check.
     public fun lossless_shl_u16(x: u16, shift: u8): Option<u16> {
         if (shift >= 16) {
             option::none()
@@ -1612,6 +1798,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u16> without underflow check.
     public fun lossless_shr_u16(x: u16, shift: u8): Option<u16> {
         if (shift >= 16) {
             option::none()
@@ -1625,6 +1812,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u16>, or None if y == 0.
     public fun lossless_div_u16(x: u16, y: u16): Option<u16> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1633,10 +1821,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u16.
     public fun bitwise_not_u16(x: u16): u16 {
         x ^ MAX_U16
     }
 
+    /// Returns x << shift as Option<u32>, or None on overflow.
     public fun checked_shl_u32(x: u32, shift: u8): Option<u32> {
         if (shift >= 32) {
             option::none()
@@ -1645,6 +1835,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u32>, or None on underflow.
     public fun checked_shr_u32(x: u32, shift: u8): Option<u32> {
         if (shift >= 32) {
             option::none()
@@ -1653,6 +1844,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x << shift as Option<u32> without overflow check.
     public fun lossless_shl_u32(x: u32, shift: u8): Option<u32> {
         if (shift >= 32) {
             option::none()
@@ -1666,6 +1858,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u32> without underflow check.
     public fun lossless_shr_u32(x: u32, shift: u8): Option<u32> {
         if (shift >= 32) {
             option::none()
@@ -1679,6 +1872,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u32>, or None if y == 0.
     public fun lossless_div_u32(x: u32, y: u32): Option<u32> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1687,10 +1881,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u32.
     public fun bitwise_not_u32(x: u32): u32 {
         x ^ MAX_U32
     }
 
+    /// Returns x << shift as Option<u64>, or None on overflow.
     public fun checked_shl_u64(x: u64, shift: u8): Option<u64> {
         if (shift >= 64) {
             option::none()
@@ -1699,6 +1895,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u64>, or None on underflow.
     public fun checked_shr_u64(x: u64, shift: u8): Option<u64> {
         if (shift >= 64) {
             option::none()
@@ -1707,6 +1904,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x << shift as Option<u64> without overflow check.
     public fun lossless_shl_u64(x: u64, shift: u8): Option<u64> {
         if (shift >= 64) {
             option::none()
@@ -1720,6 +1918,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u64> without underflow check.
     public fun lossless_shr_u64(x: u64, shift: u8): Option<u64> {
         if (shift >= 64) {
             option::none()
@@ -1733,6 +1932,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u64>, or None if y == 0.
     public fun lossless_div_u64(x: u64, y: u64): Option<u64> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1741,10 +1941,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u64.
     public fun bitwise_not_u64(x: u64): u64 {
         x ^ MAX_U64
     }
 
+    /// Returns x << shift as Option<u128>, or None on overflow.
     public fun checked_shl_u128(x: u128, shift: u8): Option<u128> {
         if (shift >= 128) {
             option::none()
@@ -1753,6 +1955,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u128>, or None on underflow.
     public fun checked_shr_u128(x: u128, shift: u8): Option<u128> {
         if (shift >= 128) {
             option::none()
@@ -1761,6 +1964,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x << shift as Option<u128> without overflow check.
     public fun lossless_shl_u128(x: u128, shift: u8): Option<u128> {
         if (shift >= 128) {
             option::none()
@@ -1774,6 +1978,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u128> without underflow check.
     public fun lossless_shr_u128(x: u128, shift: u8): Option<u128> {
         if (shift >= 128) {
             option::none()
@@ -1787,6 +1992,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u128>, or None if y == 0.
     public fun lossless_div_u128(x: u128, y: u128): Option<u128> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1795,10 +2001,12 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u128.
     public fun bitwise_not_u128(x: u128): u128 {
         x ^ MAX_U128
     }
 
+    /// Returns x << shift as Option<u256>, or None on overflow.
     public fun checked_shl_u256(x: u256, shift: u8): Option<u256> {
         if (shift >= 255) {
             // shift == 255 is representable in u8; >= 256 is not. Guard the edge explicitly.
@@ -1812,11 +2020,13 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u256>, or None on underflow.
     public fun checked_shr_u256(x: u256, shift: u8): Option<u256> {
         // u8 max is 255 < 256, so every u8 shift is in range.
         option::some(x >> shift)
     }
 
+    /// Returns x << shift as Option<u256> without overflow check.
     public fun lossless_shl_u256(x: u256, shift: u8): Option<u256> {
         // Same range note as checked_shl_u256: only 255 needs care, and it is valid.
         let r = x << shift;
@@ -1827,6 +2037,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x >> shift as Option<u256> without underflow check.
     public fun lossless_shr_u256(x: u256, shift: u8): Option<u256> {
         let r = x >> shift;
         if ((r << shift) != x) {
@@ -1836,6 +2047,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns x / y as Option<u256>, or None if y == 0.
     public fun lossless_div_u256(x: u256, y: u256): Option<u256> {
         if (y == 0 || x % y != 0) {
             option::none()
@@ -1844,6 +2056,7 @@ module kanari_system::math {
         }
     }
 
+    /// Returns bitwise NOT of x as u256.
     public fun bitwise_not_u256(x: u256): u256 {
         x ^ MAX_U256
     }
@@ -1851,6 +2064,7 @@ module kanari_system::math {
     // =================================================================
     // Narrowing conversions (Option style). None = does not fit.
     // =================================================================
+    /// Tries to convert a u16 to u8, returning None on overflow.
     public fun try_as_u8_from_u16(x: u16): Option<u8> {
         if (x > (MAX_U8 as u16)) {
             option::none()
@@ -1859,6 +2073,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u32 to u8, returning None on overflow.
     public fun try_as_u8_from_u32(x: u32): Option<u8> {
         if (x > (MAX_U8 as u32)) {
             option::none()
@@ -1867,6 +2082,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u32 to u16, returning None on overflow.
     public fun try_as_u16_from_u32(x: u32): Option<u16> {
         if (x > (MAX_U16 as u32)) {
             option::none()
@@ -1875,6 +2091,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u64 to u8, returning None on overflow.
     public fun try_as_u8_from_u64(x: u64): Option<u8> {
         if (x > (MAX_U8 as u64)) {
             option::none()
@@ -1883,6 +2100,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u64 to u16, returning None on overflow.
     public fun try_as_u16_from_u64(x: u64): Option<u16> {
         if (x > (MAX_U16 as u64)) {
             option::none()
@@ -1891,6 +2109,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u64 to u32, returning None on overflow.
     public fun try_as_u32_from_u64(x: u64): Option<u32> {
         if (x > (MAX_U32 as u64)) {
             option::none()
@@ -1899,6 +2118,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u128 to u8, returning None on overflow.
     public fun try_as_u8_from_u128(x: u128): Option<u8> {
         if (x > (MAX_U8 as u128)) {
             option::none()
@@ -1907,6 +2127,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u128 to u16, returning None on overflow.
     public fun try_as_u16_from_u128(x: u128): Option<u16> {
         if (x > (MAX_U16 as u128)) {
             option::none()
@@ -1915,6 +2136,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u128 to u32, returning None on overflow.
     public fun try_as_u32_from_u128(x: u128): Option<u32> {
         if (x > (MAX_U32 as u128)) {
             option::none()
@@ -1923,6 +2145,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u128 to u64, returning None on overflow.
     public fun try_as_u64_from_u128(x: u128): Option<u64> {
         if (x > (MAX_U64 as u128)) {
             option::none()
@@ -1931,6 +2154,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u256 to u8, returning None on overflow.
     public fun try_as_u8_from_u256(x: u256): Option<u8> {
         if (x > (MAX_U8 as u256)) {
             option::none()
@@ -1939,6 +2163,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u256 to u16, returning None on overflow.
     public fun try_as_u16_from_u256(x: u256): Option<u16> {
         if (x > (MAX_U16 as u256)) {
             option::none()
@@ -1947,6 +2172,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u256 to u32, returning None on overflow.
     public fun try_as_u32_from_u256(x: u256): Option<u32> {
         if (x > (MAX_U32 as u256)) {
             option::none()
@@ -1955,6 +2181,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u256 to u64, returning None on overflow.
     public fun try_as_u64_from_u256(x: u256): Option<u64> {
         if (x > (MAX_U64 as u256)) {
             option::none()
@@ -1963,6 +2190,7 @@ module kanari_system::math {
         }
     }
 
+    /// Tries to convert a u256 to u128, returning None on overflow.
     public fun try_as_u128_from_u256(x: u256): Option<u128> {
         if (x > (MAX_U128 as u256)) {
             option::none()
