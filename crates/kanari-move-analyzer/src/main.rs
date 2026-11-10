@@ -21,7 +21,6 @@ use std::{
 };
 
 use move_analyzer::{
-    completion::on_completion_request,
     context::Context,
     symbols,
     utils::{path_to_uri, uri_to_file_path},
@@ -37,7 +36,43 @@ const LINT_ALL: &str = "all";
 #[clap(author, version, about)]
 struct Options {}
 
+/// Redirect the process's stderr into a log file (Unix only).
+///
+/// The analyzer (and the `move-analyzer` library it links) print progress
+/// lines while type-checking; the editor surfaces stderr in its output
+/// panel, which is noise for the user. The extension pipes the server's
+/// stderr into a log file instead (see `stdioOptions` in `main.ts`), so
+/// this is only a safety net for other launchers.
+#[cfg(unix)]
+fn redirect_stderr_to_log() {
+    use std::os::unix::io::AsRawFd;
+
+    unsafe extern "C" {
+        fn dup2(oldfd: i32, newfd: i32) -> i32;
+    }
+
+    let path = std::env::temp_dir().join("kanari-move-analyzer.log");
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+    unsafe {
+        dup2(file.as_raw_fd(), 2);
+    }
+}
+
+#[cfg(not(unix))]
+fn redirect_stderr_to_log() {}
+
 fn main() {
+    // The stock analyzer writes progress lines to stderr on every
+    // symbolication; the editor shows that in its output panel, which is
+    // noise. Send stderr to a log file instead — errors stay available for
+    // debugging, but the editor stays quiet.
+    redirect_stderr_to_log();
     // For now, move-analyzer only responds to options built-in to clap,
     // such as `--help` or `--version`.
     Options::parse();
@@ -127,6 +162,7 @@ fn main() {
         references_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         document_symbol_provider: Some(OneOf::Left(true)),
         code_action_provider: Some(lsp_types::CodeActionProviderCapability::Simple(true)),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(lsp_types::OneOf::Left(true)),
         code_lens_provider: Some(lsp_types::CodeLensOptions {
             resolve_provider: None,
@@ -158,7 +194,6 @@ fn main() {
                 LintLevel::Default
             }
         };
-        eprintln!("linting level {:?}", lint);
 
         symbolicator_runner = symbols::SymbolicatorRunner::new(
             ide_files_root.clone(),
@@ -292,7 +327,6 @@ fn main() {
 
     io_threads.join().expect("I/O threads could not finish");
     symbolicator_runner.quit();
-    eprintln!("Shut down language server '{}'.", exe);
 }
 
 /// Read the *current* (possibly unsaved) text for `path` from the VFS,
@@ -326,7 +360,7 @@ fn on_request(
     context: &Context,
     request: &Request,
     ide_files_root: VfsPath,
-    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, symbols::PrecompiledPkgDeps>>>,
+    _pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, symbols::PrecompiledPkgDeps>>>,
     shutdown_request_received: bool,
 ) -> bool {
     if shutdown_request_received {
@@ -346,7 +380,48 @@ fn on_request(
     }
     match request.method.as_str() {
         lsp_types::request::Completion::METHOD => {
-            on_completion_request(context, request, ide_files_root.clone(), pkg_dependencies)
+            // Semantic completion (rust-analyzer style): module members for
+            // `mod::`, in-scope names and keywords otherwise. The stock
+            // `move-analyzer` completion is purely textual (it suggests every
+            // identifier of the file), which is unusable in practice.
+            let params: lsp_types::CompletionParams =
+                serde_json::from_value(request.params.clone()).unwrap_or_else(|_| {
+                    lsp_types::CompletionParams {
+                        text_document_position: lsp_types::TextDocumentPositionParams {
+                            text_document: lsp_types::TextDocumentIdentifier {
+                                uri: "file:///".parse().unwrap(),
+                            },
+                            position: lsp_types::Position::new(0, 0),
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                        context: None,
+                    }
+                });
+            let text = read_uri_text(
+                &ide_files_root,
+                &params.text_document_position.text_document.uri,
+            );
+            let items = {
+                let file = kanari_move_analyzer::completion::uri_path(
+                    &params.text_document_position.text_document.uri,
+                );
+                let symbols = context.symbols.lock().unwrap().clone();
+                kanari_move_analyzer::completion::completion_items(
+                    &text,
+                    params.text_document_position.position,
+                    file.as_deref(),
+                    &symbols,
+                )
+            };
+            let response = lsp_server::Response::new_ok(
+                request.id.clone(),
+                serde_json::to_value(items).unwrap_or(serde_json::Value::Null),
+            );
+            let _ = context
+                .connection
+                .sender
+                .send(lsp_server::Message::Response(response));
         }
         lsp_types::request::GotoDefinition::METHOD => {
             symbols::on_go_to_def_request(context, request, &context.symbols.lock().unwrap());
@@ -391,6 +466,34 @@ fn on_request(
             let response = lsp_server::Response::new_ok(
                 request.id.clone(),
                 serde_json::to_value(actions).unwrap_or(serde_json::Value::Null),
+            );
+            let _ = context
+                .connection
+                .sender
+                .send(lsp_server::Message::Response(response));
+        }
+        lsp_types::request::InlayHintRequest::METHOD => {
+            let params: lsp_types::InlayHintParams = serde_json::from_value(request.params.clone())
+                .unwrap_or_else(|_| lsp_types::InlayHintParams {
+                    text_document: lsp_types::TextDocumentIdentifier {
+                        uri: "file:///".parse().unwrap(),
+                    },
+                    range: lsp_types::Range::new(
+                        lsp_types::Position::new(0, 0),
+                        lsp_types::Position::new(0, 0),
+                    ),
+                    work_done_progress_params: Default::default(),
+                });
+            let text = read_uri_text(&ide_files_root, &params.text_document.uri);
+            let file = kanari_move_analyzer::completion::uri_path(&params.text_document.uri);
+            let hints = {
+                let symbols = context.symbols.lock().unwrap().clone();
+                file.map(|f| kanari_move_analyzer::completion::inlay_hints(&text, &f, &symbols))
+                    .unwrap_or_default()
+            };
+            let response = lsp_server::Response::new_ok(
+                request.id.clone(),
+                serde_json::to_value(hints).unwrap_or(serde_json::Value::Null),
             );
             let _ = context
                 .connection
@@ -447,7 +550,6 @@ fn on_request(
                 .send(lsp_server::Message::Response(response));
         }
         lsp_types::request::Shutdown::METHOD => {
-            eprintln!("Shutdown request received");
             let response =
                 lsp_server::Response::new_ok(request.id.clone(), serde_json::Value::Null);
             if let Err(err) = context
@@ -459,16 +561,14 @@ fn on_request(
             }
             return true;
         }
-        _ => eprintln!("handle request '{}' from client", request.method),
+        _ => {}
     }
     false
 }
 
 // (is_kanari_false_positive moved to kanari_move_analyzer::diagnostics)
 
-fn on_response(_context: &Context, _response: &Response) {
-    eprintln!("handle response from client");
-}
+fn on_response(_context: &Context, _response: &Response) {}
 
 fn on_notification(
     ide_files_root: VfsPath,
@@ -482,6 +582,6 @@ fn on_notification(
         | lsp_types::notification::DidCloseTextDocument::METHOD => {
             on_text_document_sync_notification(ide_files_root, symbolicator_runner, notification)
         }
-        _ => eprintln!("handle notification '{}' from client", notification.method),
+        _ => {}
     }
 }

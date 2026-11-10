@@ -21,7 +21,8 @@ use std::path::Path;
 pub type MembersMap = HashMap<String, (String, String)>;
 pub type ModulesMap = HashMap<String, (String, String)>;
 
-fn uri_to_file_path(uri: &lsp_types::Uri) -> Result<std::path::PathBuf, String> {
+/// Path of a `file:` URI.
+pub fn uri_to_file_path(uri: &lsp_types::Uri) -> Result<std::path::PathBuf, String> {
     url::Url::parse(uri.as_str())
         .map_err(|e| e.to_string())?
         .to_file_path()

@@ -5,7 +5,7 @@
   "publisher": "kanari-network",
   "icon": "images/kanari.png",
   "license": "Apache-2.0",
-  "version": "0.9.17",
+  "version": "0.9.26",
   "preview": true,
   "repository": {
     "url": "https://github.com/kanari-network/kanari-sdk",
@@ -36,6 +36,17 @@
     "onLanguage:move"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[move]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        },
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.tabCompletion": "on"
+      }
+    },
     "commands": [
       {
         "command": "move-kanari.serverVersion",
@@ -81,11 +92,6 @@
           ],
           "default": "default",
           "markdownDescription": "Move source code linting level."
-        },
-        "move.restartOnSave": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Restart the language server (debounced) whenever a .move file is saved, so stale red squiggles clear without a manual restart."
         },
         "move.server.path": {
           "type": [

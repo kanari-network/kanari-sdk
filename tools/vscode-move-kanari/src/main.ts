@@ -70,6 +70,23 @@ async function startInternal(): Promise<void> {
     documentSelector: [{ scheme: 'file', language: 'move' }],
     traceOutputChannel: trace,
     initializationOptions: { lintLevel },
+    stdioOptions: {
+      stdout: () => {
+        // The server's stdout *is* the LSP protocol stream — never consume
+        // it. (With the stdio transport the client only pipes stderr.)
+      },
+      // The server writes progress lines to stderr while it type-checks.
+      // Pipe them into a log file instead of the editor's output panel:
+      // the output panel should stay clean.
+      stderr: (input: NodeJS.ReadableStream) => {
+        try {
+          const file = path.join(os.tmpdir(), 'kanari-move-analyzer.log');
+          input.pipe(fs.createWriteStream(file, { flags: 'a' }));
+        } catch {
+          input.resume();
+        }
+      },
+    },
   });
   log('Starting move-analyzer...');
   await c.start();
@@ -194,15 +211,6 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     ],
   }));
 
-  // Diagnostics dump (file/range/code/message) â€” keeps red squiggles debuggable.
-  ctx.subscriptions.push(vscode.languages.onDidChangeDiagnostics((event) => {
-    for (const uri of event.uris) {
-      const diags = vscode.languages.getDiagnostics(uri);
-      const lines = diags.map((d) => `  ${d.range.start.line + 1}:${d.range.start.character} [${d.severity === vscode.DiagnosticSeverity.Error ? 'E' : 'W'}] ${String(d.code ?? '')} ${d.source ?? ''}: ${d.message.replace(/\n/g, ' ')}`);
-      log(`Diagnostics in ${uri.fsPath} (${diags.length}):\n${lines.join('\n') || '  (none)'}`);
-    }
-  }));
-
   const reg = (id: string, cb: (...a: Array<any>) => Promise<any>): void => {
     ctx.subscriptions.push(vscode.commands.registerCommand(id, (...a: Array<any>) => cb(...a)));
   };
@@ -220,33 +228,12 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   reg('move-kanari.runTest', async (uri: unknown, filter?: string) => runMoveTest(uri, filter));
   reg('move-kanari.runTestFile', async (uri: unknown) => runMoveTest(uri));
 
-  // Restart on new/deleted .move or Move.toml (ignoring build output),
-  // plus on save (so stale diagnostics clear without manual restart).
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const schedule = (reason: string): void => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      log(`Restarting language server (${reason})`);
-      restart().then(() => log(`Language server restarted (${reason})`), (e) => { log(`Language server restart failed: ${String(e)}`); setStatus('error', String(e)); });
-    }, 750);
-  };
-  const ignore = (u: vscode.Uri): boolean => u.fsPath.split(/[\\/]/).some((p) => ['build', 'target', 'node_modules', '.git', 'bin', 'obj'].includes(p));
-  const w1 = vscode.workspace.createFileSystemWatcher('**/*.move');
-  w1.onDidCreate((u) => { if (!ignore(u)) schedule(`created ${u.fsPath}`); });
-  w1.onDidDelete((u) => { if (!ignore(u)) schedule(`deleted ${u.fsPath}`); });
-  ctx.subscriptions.push(w1);
-  const w2 = vscode.workspace.createFileSystemWatcher('**/Move.toml');
-  w2.onDidCreate((u) => { if (!ignore(u)) schedule(`created ${u.fsPath}`); });
-  w2.onDidChange((u) => { if (!ignore(u)) schedule(`changed ${u.fsPath}`); });
-  w2.onDidDelete((u) => { if (!ignore(u)) schedule(`deleted ${u.fsPath}`); });
-  ctx.subscriptions.push(w2);
-  const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
-    if (doc.languageId === 'move' && !ignore(doc.uri)) {
-      schedule(`saved ${doc.uri.fsPath}`);
-    }
-  });
-  ctx.subscriptions.push(saveListener);
+  // No automatic restarts. The server re-analyses the package on
+  // didChange/didSave by itself, and a restart tears down the LSP client —
+  // which makes VS Code dismiss the code-completion popup while typing
+  // (with `files.autoSave: afterDelay` that happened on *every* keystroke).
+  // Manual restart stays available via the `move-kanari.restartServer`
+  // command (and the status bar).
 
   // Install/verify binary on version change.
   let updateVersion = false;

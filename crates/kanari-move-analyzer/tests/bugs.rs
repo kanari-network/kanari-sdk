@@ -8,6 +8,8 @@ use kanari_move_analyzer::deps::{dependency_caches, move_home};
 use kanari_move_analyzer::diagnostics::is_kanari_false_positive;
 use kanari_move_analyzer::edition::{MoveEdition, parse_edition};
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // edition
 
@@ -243,6 +245,7 @@ fn local_dep_dirs_missing_toml_is_empty() {
 
 #[test]
 fn move_home_empty_env_ignored() {
+    let _guard = common::lock_env();
     let old = std::env::var("MOVE_HOME").ok();
     unsafe { std::env::set_var("MOVE_HOME", "   ") };
     // empty/whitespace MOVE_HOME falls back to ~/.move (cannot easily assert, just must not panic)
@@ -256,6 +259,7 @@ fn move_home_empty_env_ignored() {
 
 #[test]
 fn dependency_caches_skips_plain_dirs() {
+    let _guard = common::lock_env();
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("plain")).unwrap();
     std::fs::create_dir_all(dir.path().join("gitrepo").join(".git")).unwrap();

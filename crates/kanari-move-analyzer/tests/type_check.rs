@@ -33,6 +33,11 @@ fn testing_addresses() -> BTreeMap<String, NumericalAddress> {
 
 /// Compile `source` as a single-file package. Returns diagnostics.
 fn compile_source(source: &str) -> (String, Diagnostics) {
+    compile_source_with_flags(source, Flags::empty().set_sources_shadow_deps(true))
+}
+
+/// Same as [`compile_source`] but with explicit compiler flags.
+fn compile_source_with_flags(source: &str, flags: Flags) -> (String, Diagnostics) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.move");
     std::fs::write(&path, source).unwrap();
@@ -50,7 +55,7 @@ fn compile_source(source: &str) -> (String, Diagnostics) {
     };
     let compiler = Compiler::from_package_paths(None, targets, vec![])
         .unwrap()
-        .set_flags(Flags::empty().set_sources_shadow_deps(true))
+        .set_flags(flags)
         .set_default_config(config);
     let (files, res) = compiler.run::<PASS_PARSER>().unwrap();
     let diags = move_check_for_errors(res);
@@ -181,6 +186,23 @@ fn unused_init_function_warns_under_core_flavor() {
     assert!(
         rendered.contains("never called"),
         "expected 'never called' unused warning on init, got: {rendered}"
+    );
+}
+
+#[test]
+fn unused_warning_survives_testing_flags() {
+    // The LSP compiles packages with `test_mode: true` (Flags::testing()).
+    // If testing mode silenced the unused-function lint, the editor would
+    // never show `fun init` as a warning while `kanari move build` does.
+    let src = "module M::f {\n    fun unused_helper() {}\n}\n";
+    let (rendered, diags) = compile_source_with_flags(src, Flags::testing());
+    assert!(
+        !diags.is_empty(),
+        "unused-function warning must survive test mode: {rendered}"
+    );
+    assert!(
+        rendered.contains("never called"),
+        "expected 'never called' unused warning under test mode, got: {rendered}"
     );
 }
 

@@ -2,5 +2,5 @@ node_modules/
 out/
 vendor/
 *.vsix
-language-server/move-analyzer
-language-server/move-analyzer.exe
+language-server/kanari-move-analyzer
+language-server/kanari-move-analyzer.exe

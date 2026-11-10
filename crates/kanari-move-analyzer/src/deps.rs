@@ -27,9 +27,14 @@ fn dirs_home() -> Option<PathBuf> {
 
 /// Every clone under MOVE_HOME that is a git work tree.
 pub fn dependency_caches() -> Vec<PathBuf> {
-    let home = move_home();
+    dependency_caches_in(&move_home())
+}
+
+/// Same as [`dependency_caches`] but for an explicit home directory (keeps
+/// tests independent of the process-wide `MOVE_HOME`).
+pub fn dependency_caches_in(home: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&home) else {
+    let Ok(entries) = std::fs::read_dir(home) else {
         return out;
     };
     for entry in entries.flatten() {

@@ -6,6 +6,8 @@ use kanari_move_analyzer::code_action::{
 };
 use kanari_move_analyzer::edition::{MoveEdition, parse_edition};
 
+mod common;
+
 #[test]
 fn extract_unicode_and_empty() {
     assert_eq!(extract_unresolved_name("Unbound type '💥'"), None);
@@ -90,6 +92,7 @@ fn scan_does_not_pick_up_non_public_funs_as_importable() {
 
 #[test]
 fn deps_git_index_lock_in_git_subdir() {
+    let _guard = common::lock_env();
     // ~/.move/git/<slug>/.git/index.lock — git_cache_dirs should find both levels
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("git").join("slug").join(".git")).unwrap();
