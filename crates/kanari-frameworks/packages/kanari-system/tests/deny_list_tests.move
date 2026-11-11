@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::deny_list_tests {
+
     use kanari_system::deny_list;
     use kanari_system::tx_context;
 
@@ -323,7 +324,7 @@ module kanari_system::deny_list_tests {
     }
 
     fun setup_regulated(
-        ctx: &mut tx_context::TxContext,
+        ctx: &mut tx_context::TxContext
     ): (
         kanari_system::coin::TreasuryCap<REG>,
         kanari_system::deny_list::DenyCap<REG>,
@@ -541,4 +542,5 @@ module kanari_system::deny_list_tests {
         kanari_system::transfer::public_freeze_object(meta);
         kanari_system::transfer::public_freeze_object(denylist);
     }
+
 }

@@ -1,4 +1,5 @@
 module james::thb {
+
     use kanari_system::coin;
     use kanari_system::coin::{Coin, DenyCapV2, TreasuryCap};
     use kanari_system::deny_list::{Self, DenyList};
@@ -42,7 +43,7 @@ module james::thb {
             b"",
             option::none<kanari_system::url::Url>(),
             true,
-            ctx,
+            ctx
         );
         let sender = kanari_system::tx_context::sender(ctx);
         transfer::public_transfer(treasury, sender);
@@ -60,7 +61,7 @@ module james::thb {
         treasury_cap: &mut TreasuryCap<THB>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Mint a new Coin with the specified amount
         let coin = coin::mint<THB>(treasury_cap, amount, ctx);
@@ -79,7 +80,7 @@ module james::thb {
         c: &mut coin::Coin<THB>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         transfer_amount_with_list(c, amount, recipient, deny_list::borrow_singleton(), ctx);
     }
@@ -91,7 +92,7 @@ module james::thb {
         amount: u64,
         recipient: address,
         deny_list: &DenyList,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // 1. Check if sender is the same as recipient, if so, do nothing
         let sender = kanari_system::tx_context::sender(ctx);
@@ -139,7 +140,7 @@ module james::thb {
         treasury_cap: &mut TreasuryCap<THB>,
         c: &mut Coin<THB>,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
@@ -152,7 +153,7 @@ module james::thb {
     public entry fun update_icon(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
-        new_url: vector<u8>,
+        new_url: vector<u8>
     ) {
         let new_url_obj = url::new_unsafe_from_bytes(new_url);
         coin::update_icon_url<THB>(treasury_cap, metadata, option::some(new_url_obj));
@@ -162,7 +163,7 @@ module james::thb {
     public entry fun update_name(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
-        new_name: vector<u8>,
+        new_name: vector<u8>
     ) {
         let name_str = string::utf8(new_name);
         coin::update_name<THB>(treasury_cap, metadata, name_str);
@@ -172,7 +173,7 @@ module james::thb {
     public entry fun update_symbol(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
-        new_symbol: vector<u8>,
+        new_symbol: vector<u8>
     ) {
         let symbol_str = ascii::string(new_symbol);
         coin::update_symbol<THB>(treasury_cap, metadata, symbol_str);
@@ -182,7 +183,7 @@ module james::thb {
     public entry fun update_description(
         treasury_cap: &TreasuryCap<THB>,
         metadata: &mut coin::CoinMetadata<THB>,
-        new_description: vector<u8>,
+        new_description: vector<u8>
     ) {
         let desc_str = string::utf8(new_description);
         coin::update_description<THB>(treasury_cap, metadata, desc_str);
@@ -199,7 +200,7 @@ module james::thb {
         deny_list: &mut DenyList,
         cap: &DenyCapV2<THB>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_add(deny_list, cap, addr, ctx);
     }
@@ -209,7 +210,7 @@ module james::thb {
         deny_list: &mut DenyList,
         cap: &DenyCapV2<THB>,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_remove(deny_list, cap, addr, ctx);
     }
@@ -218,7 +219,7 @@ module james::thb {
     public entry fun deny_pause(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<THB>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_enable_global_pause(deny_list, cap, ctx);
     }
@@ -227,7 +228,7 @@ module james::thb {
     public entry fun deny_unpause(
         deny_list: &mut DenyList,
         cap: &DenyCapV2<THB>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::deny_list_v2_disable_global_pause(deny_list, cap, ctx);
     }
@@ -246,7 +247,7 @@ module james::thb {
     /// Mint a fresh regulated THB currency for tests (the real `init` runs
     /// only on publish, so tests build the same objects directly).
     public fun create_regulated_for_test(
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<THB>, DenyCapV2<THB>, coin::CoinMetadata<THB>) {
         coin::create_regulated_currency_v2(
             THB {},
@@ -256,7 +257,8 @@ module james::thb {
             b"",
             option::none(),
             true,
-            ctx,
+            ctx
         )
     }
+
 }

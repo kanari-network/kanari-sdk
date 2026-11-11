@@ -1,5 +1,6 @@
 #[test_only]
 module std::ascii_tests {
+
     use std::ascii;
     use std::vector;
     use std::option;
@@ -117,4 +118,5 @@ module std::ascii_tests {
             i = i + 1;
         };
     }
+
 }

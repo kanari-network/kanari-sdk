@@ -1,5 +1,6 @@
 #[test_only]
 module escrow::escrow_tests {
+
     use escrow::escrow::{Self};
     use kanari_system::coin::{Self, Coin};
     use kanari_system::transfer;
@@ -20,7 +21,7 @@ module escrow::escrow_tests {
             b"Test USDC",
             b"Test USDC for escrow testing",
             option::none(),
-            ctx,
+            ctx
         );
         let coin = coin::mint(&mut treasury_cap, amount, ctx);
         transfer::public_transfer(treasury_cap, @0x1);
@@ -83,4 +84,5 @@ module escrow::escrow_tests {
         );
         transfer::public_transfer(buyer_coin, @0x1);
     }
+
 }

@@ -3,6 +3,7 @@
 
 /// A map backed by a vector, mirroring `sui::vec_map`.
 module kanari_system::vec_map {
+
     use std::option::{Self, Option};
     use std::vector;
 
@@ -28,24 +29,32 @@ module kanari_system::vec_map {
     /// insertion order (not sorted); all operations are O(N). For large
     /// maps prefer `table`/`linked_table` instead.
     struct VecMap<K: copy, V> has copy, drop, store {
-        contents: vector<Entry<K, V>>,
+        contents: vector<Entry<K, V>>
     }
 
     /// An entry in the map
     struct Entry<K: copy, V> has copy, drop, store {
         key: K,
-        value: V,
+        value: V
     }
 
     /// Create an empty `VecMap`
     public fun empty<K: copy, V>(): VecMap<K, V> {
-        VecMap { contents: vector::empty() }
+        VecMap {
+            contents: vector::empty()
+        }
     }
 
     /// Insert `key` |-> `value`. Aborts `EKeyAlreadyExists` on duplicates.
     public fun insert<K: copy, V>(self: &mut VecMap<K, V>, key: K, value: V) {
         assert!(!contains(self, &key), EKeyAlreadyExists);
-        vector::push_back(&mut self.contents, Entry { key, value });
+        vector::push_back(
+            &mut self.contents,
+            Entry {
+                key,
+                value
+            }
+        );
     }
 
     /// Remove `key` and return `(key, value)`. Aborts `EKeyDoesNotExist`.
@@ -131,7 +140,7 @@ module kanari_system::vec_map {
     /// Aborts `EUnequalLengths` when the lengths differ.
     public fun from_keys_values<K: copy, V>(
         keys: vector<K>,
-        values: vector<V>,
+        values: vector<V>
     ): VecMap<K, V> {
         let keys = keys;
         let values = values;
@@ -190,7 +199,7 @@ module kanari_system::vec_map {
     /// Mutably borrow the `idx`th entry. Aborts `EIndexOutOfBounds`.
     public fun get_entry_by_idx_mut<K: copy, V>(
         self: &mut VecMap<K, V>,
-        idx: u64,
+        idx: u64
     ): (&K, &mut V) {
         assert!(idx < size(self), EIndexOutOfBounds);
         let entry = vector::borrow_mut(&mut self.contents, idx);
@@ -203,4 +212,5 @@ module kanari_system::vec_map {
         let Entry { key, value } = vector::remove(&mut self.contents, idx);
         (key, value)
     }
+
 }

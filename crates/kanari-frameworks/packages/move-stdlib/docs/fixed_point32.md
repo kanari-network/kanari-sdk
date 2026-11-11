@@ -239,7 +239,9 @@ rounding, e.g., 0.0125 will round down to 0.012 instead of up to 0.013.
     // Return the quotient <b>as</b> a fixed-point number. We first need <b>to</b> check whether the cast
     // can succeed.
     <b>assert</b>!(quotient &lt;= <a href="fixed_point32.md#0x1_fixed_point32_MAX_U64">MAX_U64</a>, <a href="fixed_point32.md#0x1_fixed_point32_ERATIO_OUT_OF_RANGE">ERATIO_OUT_OF_RANGE</a>);
-    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> { value: (quotient <b>as</b> u64) }
+    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> {
+        value: (quotient <b>as</b> u64)
+    }
 }
 </code></pre>
 
@@ -264,7 +266,9 @@ Create a fixedpoint value from a raw value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="fixed_point32.md#0x1_fixed_point32_create_from_raw_value">create_from_raw_value</a>(value: u64): <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> {
-    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> { value }
+    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> {
+        value
+    }
 }
 </code></pre>
 
@@ -401,7 +405,9 @@ Create a fixedpoint value from a u64 value.
 <pre><code><b>public</b> <b>fun</b> <a href="fixed_point32.md#0x1_fixed_point32_create_from_u64">create_from_u64</a>(val: u64): <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> {
     <b>let</b> value = (val <b>as</b> u128) &lt;&lt; 32;
     <b>assert</b>!(value &lt;= <a href="fixed_point32.md#0x1_fixed_point32_MAX_U64">MAX_U64</a>, <a href="fixed_point32.md#0x1_fixed_point32_ERATIO_OUT_OF_RANGE">ERATIO_OUT_OF_RANGE</a>);
-    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a>{value: (value <b>as</b> u64)}
+    <a href="fixed_point32.md#0x1_fixed_point32_FixedPoint32">FixedPoint32</a> {
+        value: (value <b>as</b> u64)
+    }
 }
 </code></pre>
 

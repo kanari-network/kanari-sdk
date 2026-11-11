@@ -2,6 +2,7 @@
 // deny-list add/remove/contains, global pause, and checked transfers.
 #[test_only]
 module james::deny_list_tests {
+
     use james::euro;
     use james::james;
     use james::nft;
@@ -201,7 +202,7 @@ module james::deny_list_tests {
 
     // ================= KariKid NFT =================
     fun setup_collection(
-        ctx: &mut tx_context::TxContext,
+        ctx: &mut tx_context::TxContext
     ): (collection::Collection, collection::NftCap) {
         collection::create_collection(
             ctx,
@@ -209,7 +210,7 @@ module james::deny_list_tests {
             b"test collection",
             b"https://james-project.com/banner.png",
             b"https://james-project.com",
-            10,
+            10
         )
     }
 
@@ -338,4 +339,5 @@ module james::deny_list_tests {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(deny_list);
     }
+
 }

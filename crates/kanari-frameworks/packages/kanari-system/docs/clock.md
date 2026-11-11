@@ -167,7 +167,10 @@ only sender the runtime will ever authorize to mutate it (see
 <pre><code><b>public</b> <b>fun</b> <a href="clock.md#0x2_clock_create">create</a>(ctx: &<b>mut</b> TxContext) {
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="clock.md#0x2_clock_E_NOT_SYSTEM_ADDRESS">E_NOT_SYSTEM_ADDRESS</a>);
 
-    <b>let</b> <a href="clock.md#0x2_clock">clock</a> = <a href="clock.md#0x2_clock_Clock">Clock</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), timestamp_ms: 0 };
+    <b>let</b> <a href="clock.md#0x2_clock">clock</a> = <a href="clock.md#0x2_clock_Clock">Clock</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        timestamp_ms: 0
+    };
 
     <a href="object.md#0x2_object_save_object">object::save_object</a>(&<a href="clock.md#0x2_clock">clock</a>);
 
@@ -202,7 +205,7 @@ time must never move backwards.
 <pre><code><b>public</b> <b>fun</b> <a href="clock.md#0x2_clock_consensus_commit_prologue">consensus_commit_prologue</a>(
     <a href="clock.md#0x2_clock">clock</a>: &<b>mut</b> <a href="clock.md#0x2_clock_Clock">Clock</a>,
     timestamp_ms: u64,
-    ctx: &TxContext,
+    ctx: &TxContext
 ) {
     // Requires that the call be made only through the System Validator.
     <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="clock.md#0x2_clock_E_NOT_SYSTEM_ADDRESS">E_NOT_SYSTEM_ADDRESS</a>);

@@ -27,6 +27,7 @@
 /// (`is_enabled`) is exposed so a seller UI can show where the item can be
 /// sold before the rules are applied.
 module kanari_system::kiosk_rule {
+
     use kanari_system::transfer_policy::{
         Self, TransferPolicy, TransferPolicyCap, TransferRequest,
     };
@@ -40,16 +41,18 @@ module kanari_system::kiosk_rule {
     /// rule; authority lives in the friend gate, not in the value.
     struct Rule has drop {}
 
+    /// Add a rule for type `T` on `policy`. Requires the owner cap and rule witness.
     public fun add_rule<T: key + store>(
         policy: &mut TransferPolicy<T>,
-        cap: &TransferPolicyCap<T>,
+        cap: &TransferPolicyCap<T>
     ) {
         transfer_policy::add_rule<Rule, T>(Rule {}, policy, cap, b"");
     }
 
+    /// Remove rule `R` from `policy`. Requires the owner cap and rule witness.
     public fun remove_rule<T: key + store>(
         policy: &mut TransferPolicy<T>,
-        cap: &TransferPolicyCap<T>,
+        cap: &TransferPolicyCap<T>
     ) {
         transfer_policy::remove_rule<Rule, T>(Rule {}, policy, cap);
     }
@@ -66,7 +69,7 @@ module kanari_system::kiosk_rule {
     /// live kiosk object.
     public(friend) fun kiosk_receipt<T: key + store>(
         policy: &mut TransferPolicy<T>,
-        request: &mut TransferRequest<T>,
+        request: &mut TransferRequest<T>
     ) {
         transfer_policy::add_receipt<Rule, T>(Rule {}, policy, request);
     }
@@ -89,13 +92,18 @@ module kanari_system::kiosk_rule {
     /// `drop` for `package::new`, and `key + store` to stand in for the traded
     /// type bound into the policy).
     struct KIOSK_RULE has key, store, drop {
-        id: kanari_system::object::UID,
+        id: kanari_system::object::UID
     }
 
     #[test]
     fun add_and_remove_rule() {
         let ctx = tx_context::dummy();
-        let pub = package::new<KIOSK_RULE>(KIOSK_RULE { id: object::new(&mut ctx) }, &mut ctx);
+        let pub = package::new<KIOSK_RULE>(
+            KIOSK_RULE {
+                id: object::new(&mut ctx)
+            },
+            &mut ctx
+        );
         let (policy, cap) = transfer_policy::new<KIOSK_RULE, KIOSK_RULE>(&pub, &mut ctx);
         assert!(!is_enabled(&policy), 0);
         add_rule(&mut policy, &cap);
@@ -114,7 +122,12 @@ module kanari_system::kiosk_rule {
     /// mint it from here.
     fun bypassing_the_kiosk_cannot_confirm() {
         let ctx = tx_context::dummy();
-        let pub = package::new<KIOSK_RULE>(KIOSK_RULE { id: object::new(&mut ctx) }, &mut ctx);
+        let pub = package::new<KIOSK_RULE>(
+            KIOSK_RULE {
+                id: object::new(&mut ctx)
+            },
+            &mut ctx
+        );
         let (policy, cap) = transfer_policy::new<KIOSK_RULE, KIOSK_RULE>(&pub, &mut ctx);
         add_rule(&mut policy, &cap);
 
@@ -126,4 +139,5 @@ module kanari_system::kiosk_rule {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(pub);
     }
+
 }

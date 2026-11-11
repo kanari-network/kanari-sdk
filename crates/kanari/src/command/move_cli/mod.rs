@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod audit;
 pub mod build;
 pub mod call;
 pub mod coverage;
@@ -62,6 +63,8 @@ pub enum MoveCommand {
     Errmap(errmap::Errmap),
     /// Disassemble Move bytecode
     Disassemble(disassemble::Disassemble),
+    /// Audit Move source files for security issues
+    Audit(audit::Audit),
     /// Format Move source files
     Fmt(fmt::Fmt),
     /// Migrate Move package to 2024 edition
@@ -156,6 +159,7 @@ impl MoveCommand {
                 d.execute(None, config)
             }
             MoveCommand::Fmt(f) => f.execute(),
+            MoveCommand::Audit(a) => a.execute(),
             MoveCommand::Migrate(m) => {
                 let config = m.build_config.clone();
                 m.execute(None, config)

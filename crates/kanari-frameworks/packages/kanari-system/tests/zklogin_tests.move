@@ -9,6 +9,7 @@
 //   proof, seed `0xB10C5EED`; address/nonce are the v2 scheme vectors
 #[test_only]
 module kanari_system::zklogin_tests {
+
     use kanari_system::tx_context;
     use kanari_system::zklogin;
 
@@ -249,4 +250,5 @@ module kanari_system::zklogin_tests {
             &eph_sig()
         );
     }
+
 }

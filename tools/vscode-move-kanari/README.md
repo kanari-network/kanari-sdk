@@ -1,11 +1,15 @@
 # Move on Kanari
 
 VS Code extension for Move development on the Kanari network: syntax highlighting
-for `.move` files plus the `move-analyzer` language server (go-to-definition, find
-references, hover, completion, diagnostics).
+for `.move` files plus the stock **`move-analyzer`** language server
+(go-to-definition, find references, hover, completion, diagnostics).
 
-Forked from the Move on Aptos/Sui extension (`third_party/move/crates/move-analyzer/editors/code`)
-and rebranded for Kanari.
+**0.9.0: single binary, cross-platform.** `crates/kanari-move-analyzer` is now
+a thin Rust binary (`move-analyzer` pulled as a library via
+`move-analyzer = { path = "third_party/move/crates/move-analyzer" }`, not
+forked, not spawned) that repairs `~/.move` caches then runs the LSP. One
+binary (`kanari-move-analyzer[.exe]`) ships in the vsix. The TS side is a
+**single thin launcher** (`src/main.ts`, ~230 lines) that spawns it.
 
 ## Features
 
@@ -38,36 +42,73 @@ and rebranded for Kanari.
 | Setting              | Default                       | Description                                                                                          |
 | -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `move.lint`          | `default`                     | Lint level: `default`, `all`, `none`                                                                 |
-| `move.restartOnSave` | `true`                        | Restart the language server (debounced) on `.move` save so stale errors clear without manual restart |
-| `move.server.path`   | `~/.kanari/bin/move-analyzer` | Path to the language server binary                                                                   |
+| `move.restartOnSave` | `false`                       | Restart the language server (debounced) on `.move` save. Default `false` since 0.6.0 — restarting on every save wiped unsaved diagnostics until rescan finished |
+| `move.server.path`   | `~/.kanari/bin/kanari-move-analyzer` | Path to the language server binary (`.exe` on Windows)                              |
 | `move.kanari.path`   | `kanari`                      | Path to the Kanari CLI (for build/test commands)                                                     |
+
+## 0.6.0 notes — rewrite
+
+- **Layout** (`src/` rewritten, behaviour preserved):
+  - `main.ts` — thin re-export to `app/activate.ts` (stable entry)
+  - `app/` — activation orchestration + all commands
+  - `config/` — settings + `move-analyzer` binary install
+  - `deps/` — `git` runner + `~/.move` cache repair (reports unrepairable caches)
+  - `lsp/` — language client, auto-reload watchers, **dependency diagnostics**
+  - `features/` — formatter, import quick fixes, test CodeLens, status pill
+  - `shared/` — log, extension info, `Move.toml` lookup
+
+- **Bug fixed: “still no errors” when dependencies fail to resolve ★**
+  - Root cause: when `move-analyzer` cannot `git fetch`/`git reset` a
+    `git = ...` dependency (e.g. stale `~/.move/.../.git/index.lock` left
+    behind by a crashed run), it reports a single transient toast
+    (`Failed to resolve dependencies…`) and then sends **zero**
+    `publishDiagnostics` for the whole package.
+  - Fix: `lsp/diagnostics.ts` surfaces unrepairable caches (from the
+    pre-start cache repair in `deps/cacheRepair.ts`) as a real
+    `Error` diagnostic (`E_DEPENDENCIES_UNRESOLVED`) on every open
+    `.move` file, so the failure is visible in the editor **and** in
+    the Problems panel — not just a one-off toast. The repair now
+    removes `index.lock` whenever no `git` process is running
+    (the old code waited 60 s for the lock to look “stale”, during
+    which every resolve failed with exit 128).
+  - `move-analyzer` is built from this repo’s vendored fork:
+    `third_party/move/crates/move-analyzer`
+    (`cargo build --release -p move-analyzer --manifest-path third_party/move/Cargo.toml`).
 
 ## Install (local build)
 
-Prerequisites: Rust toolchain, Node.js >= 16.
+Prerequisites: Rust toolchain, Node.js >= 16. **The vsix bundles a
+platform-specific binary**, so build and install **on the target OS**
+(Windows → `package.ps1`, macOS/Linux → `package.sh`).
 
+**Windows (PowerShell):**
 ```powershell
-# From the repository root — builds move-analyzer, bundles it, packages and installs the extension
 powershell -File tools\vscode-move-kanari\scripts\package.ps1
+```
+
+**macOS / Linux (bash):**
+```bash
+bash tools/vscode-move-kanari/scripts/package.sh
 ```
 
 Or manually:
 
-```powershell
-# 1. Build the language server
-cargo build --release -p move-analyzer --manifest-path third_party\move\Cargo.toml
+```bash
+# 1. Build the language server (single binary: move-analyzer linked as lib)
+cargo build --release -p kanari-move-analyzer --manifest-path Cargo.toml
 
-# 2. Bundle it with the extension
-Copy-Item third_party\move\target\release\move-analyzer.exe tools\vscode-move-kanari\language-server\
+# 2. Bundle it with the extension (`.exe` on Windows, no suffix on macOS/Linux)
+mkdir -p tools/vscode-move-kanari/language-server
+cp target/release/kanari-move-analyzer* tools/vscode-move-kanari/language-server/
 
 # 3. Build and package the extension
-cd tools\vscode-move-kanari
+cd tools/vscode-move-kanari
 npm install
 npm run package
 code --install-extension move-kanari.vsix
 ```
 
-On activation the extension copies the bundled `move-analyzer` binary to
+On activation the extension copies the bundled `kanari-move-analyzer[.exe]` binary to
 `~/.kanari/bin/` (override with `move.server.path`).
 
 ## Conflicting Move extensions

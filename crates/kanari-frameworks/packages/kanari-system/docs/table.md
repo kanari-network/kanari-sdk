@@ -90,7 +90,10 @@ Creates a new, empty table
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_new">new</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(ctx: &<b>mut</b> TxContext): <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt; {
-    <a href="table.md#0x2_table_Table">Table</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), size: 0 }
+    <a href="table.md#0x2_table_Table">Table</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        size: 0
+    }
 }
 </code></pre>
 
@@ -117,7 +120,7 @@ Adds a key-value pair to the table
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_add">add</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;,
     k: K,
-    v: V,
+    v: V
 ) {
     <a href="dynamic_field.md#0x2_dynamic_field_add">dynamic_field::add</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k, v);
     <a href="table.md#0x2_table">table</a>.size = <a href="table.md#0x2_table">table</a>.size + 1;
@@ -146,7 +149,7 @@ Mutably borrows the value associated with the key
 
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_borrow_mut">borrow_mut</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): &<b>mut</b> V {
     <a href="dynamic_field.md#0x2_dynamic_field_borrow_mut">dynamic_field::borrow_mut</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k)
 }
@@ -199,7 +202,7 @@ Removes the key-value pair and returns the value
 
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_remove">remove</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<b>mut</b> <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): V {
     <b>let</b> v = <a href="dynamic_field.md#0x2_dynamic_field_remove">dynamic_field::remove</a>(&<b>mut</b> <a href="table.md#0x2_table">table</a>.id, k);
     <a href="table.md#0x2_table">table</a>.size = <a href="table.md#0x2_table">table</a>.size - 1;
@@ -229,7 +232,7 @@ Returns true if the table contains the key
 
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_contains">contains</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
     <a href="table.md#0x2_table">table</a>: &<a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;,
-    k: K,
+    k: K
 ): bool {
     <a href="dynamic_field.md#0x2_dynamic_field_exists_">dynamic_field::exists_</a>(&<a href="table.md#0x2_table">table</a>.id, k)
 }
@@ -281,7 +284,7 @@ Destroys an empty table
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="table.md#0x2_table_destroy_empty">destroy_empty</a>&lt;K: <b>copy</b> + drop + store, V: store&gt;(
-    <a href="table.md#0x2_table">table</a>: <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;,
+    <a href="table.md#0x2_table">table</a>: <a href="table.md#0x2_table_Table">Table</a>&lt;K, V&gt;
 ) {
     <b>let</b> <a href="table.md#0x2_table_Table">Table</a> { id, size } = <a href="table.md#0x2_table">table</a>;
     <b>assert</b>!(size == 0, <a href="table.md#0x2_table_ETableNotEmpty">ETableNotEmpty</a>);

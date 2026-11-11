@@ -41,6 +41,6 @@ ed25519-dalek = { workspace = true }
 k256 = { workspace = true }
 p256 = { workspace = true }
 rand = { workspace = true }
-rsa = { workspace = true, features = ["hazmat", "sha2"] }
+rsa = { workspace = true, features = ["hazmat"] }
 secp256k1 = { workspace = true }
 jsonwebtoken = { workspace = true }

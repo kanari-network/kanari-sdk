@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module std::signer {
+
     // Borrows the address of the signer
     // Conceptually, you can think of the `signer` as being a struct wrapper arround an
     // address
@@ -11,7 +12,7 @@ module std::signer {
     // `borrow_address` borrows this inner field
     public native fun borrow_address(s: &signer): &address;
 
-    // Copies the address of the signer
+    /// Copies the address of the signer
     public fun address_of(s: &signer): address {
         *borrow_address(s)
     }
@@ -24,4 +25,5 @@ module std::signer {
     /// Converts an `address` to its 32-byte big-endian representation
     /// (same encoding as `kanari_system::address::to_u256`).
     public native fun address_to_bytes(a: address): vector<u8>;
+
 }

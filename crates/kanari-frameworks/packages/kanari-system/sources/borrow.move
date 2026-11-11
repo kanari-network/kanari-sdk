@@ -7,6 +7,7 @@
 /// forgetting `save_object` after a `borrow_global_mut` silently drops the
 /// mutation on commit (this exact bug once lost multisig approvals).
 module kanari_system::borrow {
+
     use kanari_system::object::{Self, ID};
 
     /// Alias check for the two-object helper.
@@ -39,4 +40,5 @@ module kanari_system::borrow {
     public fun borrow_id<T: key>(id: &ID): &T {
         borrow<T>(object::id_to_address(id))
     }
+
 }

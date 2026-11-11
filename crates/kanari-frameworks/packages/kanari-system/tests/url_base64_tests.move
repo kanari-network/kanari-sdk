@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::url_base64_tests {
+
     use kanari_system::base64;
     use kanari_system::url;
     use std::ascii;
@@ -47,4 +48,5 @@ module kanari_system::url_base64_tests {
         let ib = b"b";
         assert!(base64::encode(&ia) != base64::encode(&ib), 6);
     }
+
 }

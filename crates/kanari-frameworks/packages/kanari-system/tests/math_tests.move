@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::math_tests {
+
     use kanari_system::math;
     use std::option;
 
@@ -872,4 +873,5 @@ module kanari_system::math_tests {
             e = e + 1;
         };
     }
+
 }

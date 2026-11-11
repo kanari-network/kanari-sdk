@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::coin_tests {
+
     use std::option;
     use kanari_system::coin::{Self, Coin, TreasuryCap, CoinMetadata, DenyCapV2};
     use kanari_system::deny_list;
@@ -253,7 +254,7 @@ module kanari_system::coin_tests {
 
     // ================= Regulated currency v2 =================
     fun setup_v2(
-        ctx: &mut tx_context::TxContext,
+        ctx: &mut tx_context::TxContext
     ): (TreasuryCap<TESTV2>, DenyCapV2<TESTV2>, CoinMetadata<TESTV2>) {
         coin::create_regulated_currency_v2(
             TESTV2 {},
@@ -263,14 +264,14 @@ module kanari_system::coin_tests {
             b"coin v2 tests",
             option::none(),
             true,
-            ctx,
+            ctx
         )
     }
 
     fun cleanup_v2(
         cap: TreasuryCap<TESTV2>,
         deny_cap: DenyCapV2<TESTV2>,
-        meta: CoinMetadata<TESTV2>,
+        meta: CoinMetadata<TESTV2>
     ) {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(deny_cap);
@@ -324,7 +325,7 @@ module kanari_system::coin_tests {
             b"coin v2 no-pause tests",
             option::none(),
             false,
-            &mut ctx,
+            &mut ctx
         );
         let deny_list = deny_list::new_for_testing(&mut ctx);
 
@@ -336,4 +337,5 @@ module kanari_system::coin_tests {
         transfer::public_freeze_object(deny_cap);
         transfer::public_freeze_object(meta);
     }
+
 }

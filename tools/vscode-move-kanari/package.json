@@ -1,11 +1,11 @@
 {
   "name": "move-kanari",
   "displayName": "Move on Kanari",
-  "description": "Move language development for Kanari: syntax highlighting and move-analyzer language server.",
+  "description": "Move language development for Kanari: syntax highlighting + kanari-move-analyzer language server (move-analyzer linked as lib, single cross-platform binary).",
   "publisher": "kanari-network",
   "icon": "images/kanari.png",
   "license": "Apache-2.0",
-  "version": "0.5.6",
+  "version": "0.9.26",
   "preview": true,
   "repository": {
     "url": "https://github.com/kanari-network/kanari-sdk",
@@ -15,7 +15,7 @@
     "url": "https://github.com/kanari-network/kanari-sdk/issues"
   },
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.145.0"
   },
   "categories": [
     "Programming Languages"
@@ -33,10 +33,20 @@
     }
   },
   "activationEvents": [
-    "workspaceContains:Move.toml",
     "onLanguage:move"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[move]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        },
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.tabCompletion": "on"
+      }
+    },
     "commands": [
       {
         "command": "move-kanari.serverVersion",
@@ -82,11 +92,6 @@
           ],
           "default": "default",
           "markdownDescription": "Move source code linting level."
-        },
-        "move.restartOnSave": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Restart the language server (debounced) whenever a .move file is saved, so stale red squiggles clear without a manual restart."
         },
         "move.server.path": {
           "type": [
@@ -168,13 +173,13 @@
   "dependencies": {
     "command-exists": "^1.2.9",
     "prettier": "^3.9.10",
-    "vscode-languageclient": "^10.1.2",
-    "web-tree-sitter": "^0.27.1"
+    "vscode-languageclient": "^11.0.0",
+    "web-tree-sitter": "^0.27.2"
   },
   "devDependencies": {
     "@types/command-exists": "^1.2.3",
-    "@types/node": "^26.6.5",
-    "@types/vscode": "^1.140.0",
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.145.0",
     "typescript": "^7.0.2",
     "vsce": "^2.15.0"
   }

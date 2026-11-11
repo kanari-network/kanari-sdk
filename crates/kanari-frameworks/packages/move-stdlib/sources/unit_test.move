@@ -4,6 +4,7 @@
 #[test_only]
 /// Module providing testing functionality. Only included for tests.
 module std::unit_test {
+
     /// DEPRECATED
     public native fun create_signers_for_testing(num_signers: u64): vector<signer>;
 
@@ -11,4 +12,5 @@ module std::unit_test {
     /// This will cause a linking failure if an attempt is made to publish a
     /// test module in a VM that isn't in unit test mode.
     public native fun poison();
+
 }

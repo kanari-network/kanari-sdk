@@ -75,7 +75,7 @@ second treasury cap can be created for the same token type.
     name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     description: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     icon_url: Option&lt;Url&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (TreasuryCap&lt;T&gt;, CoinMetadata&lt;T&gt;) {
     <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
         witness,
@@ -118,7 +118,7 @@ global-pause capability. Transfers use <code>transfer_checked</code> for enforce
     description: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     icon_url: Option&lt;Url&gt;,
     allow_global_pause: bool,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (TreasuryCap&lt;T&gt;, DenyCapV2&lt;T&gt;, CoinMetadata&lt;T&gt;) {
     <a href="coin.md#0x2_coin_create_regulated_currency_v2">coin::create_regulated_currency_v2</a>(
         witness,
@@ -156,7 +156,7 @@ Mint a coin object. Only a holder of the token's treasury cap can mint.
 <pre><code><b>public</b> <b>fun</b> <a href="krc_20.md#0x2_krc_20_mint">mint</a>&lt;T&gt;(
     cap: &<b>mut</b> TreasuryCap&lt;T&gt;,
     amount: u64,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): Coin&lt;T&gt; {
     <a href="coin.md#0x2_coin_mint">coin::mint</a>(cap, amount, ctx)
 }
@@ -186,7 +186,7 @@ Mint directly to an address. This is the issuer's airdrop primitive.
     cap: &<b>mut</b> TreasuryCap&lt;T&gt;,
     amount: u64,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <a href="coin.md#0x2_coin_mint_and_transfer">coin::mint_and_transfer</a>(cap, amount, recipient, ctx)
 }
@@ -245,7 +245,7 @@ reject a denied sender, a denied recipient, or a global pause.
     token: &<b>mut</b> Coin&lt;T&gt;,
     amount: u64,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_is_denied">coin::is_denied</a>&lt;T&gt;(sender), <a href="krc_20.md#0x2_krc_20_E_DENIED_OR_PAUSED">E_DENIED_OR_PAUSED</a>);
@@ -281,7 +281,7 @@ against <code>deny</code>; a globally paused token also aborts.
     amount: u64,
     recipient: <b>address</b>,
     deny: &DenyList,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <a href="pay.md#0x2_pay_split_and_transfer_checked">pay::split_and_transfer_checked</a>(token, amount, recipient, deny, ctx)
 }

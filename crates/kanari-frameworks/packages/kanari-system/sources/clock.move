@@ -14,6 +14,7 @@
 ///   system transactions from `@0x0`, and grants `borrow_global_mut`
 ///   authorization only to those transactions.
 module kanari_system::clock {
+
     use kanari_system::object::{Self, UID};
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::transfer;
@@ -27,7 +28,7 @@ module kanari_system::clock {
     /// Singleton shared object that exposes time to Move calls.
     struct Clock has key, store {
         id: UID,
-        timestamp_ms: u64,
+        timestamp_ms: u64
     }
 
     /// The `clock`'s current timestamp as a running total of
@@ -51,7 +52,10 @@ module kanari_system::clock {
     public fun create(ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
 
-        let clock = Clock { id: object::new(ctx), timestamp_ms: 0 };
+        let clock = Clock {
+            id: object::new(ctx),
+            timestamp_ms: 0
+        };
 
         object::save_object(&clock);
 
@@ -66,7 +70,7 @@ module kanari_system::clock {
     public fun consensus_commit_prologue(
         clock: &mut Clock,
         timestamp_ms: u64,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         // Requires that the call be made only through the System Validator.
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
@@ -80,24 +84,32 @@ module kanari_system::clock {
     // Functions for Testing
     // =================================================================
     #[test_only]
+    /// Create a `Clock` for testing (bypasses genesis gate).
     public fun create_for_testing(ctx: &mut TxContext): Clock {
-        Clock { id: object::new(ctx), timestamp_ms: 0 }
+        Clock {
+            id: object::new(ctx),
+            timestamp_ms: 0
+        }
     }
 
     #[test_only]
+    /// Advance clock time by `tick` for testing.
     public fun increment_for_testing(clock: &mut Clock, tick: u64) {
         clock.timestamp_ms = clock.timestamp_ms + tick;
     }
 
     #[test_only]
+    /// Set clock timestamp for testing.
     public fun set_for_testing(clock: &mut Clock, timestamp_ms: u64) {
         assert!(timestamp_ms >= clock.timestamp_ms, 1);
         clock.timestamp_ms = timestamp_ms;
     }
 
     #[test_only]
+    /// Destroy a `Clock` for testing.
     public fun destroy_for_testing(clock: Clock) {
         let Clock { id, timestamp_ms: _ } = clock;
         object::delete(id);
     }
+
 }

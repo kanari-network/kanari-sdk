@@ -14,6 +14,7 @@
 /// `kanari move call --package 0x2 --module usd --function mint \
 ///   --args <treasury_cap_object_id> 100000000 <recipient>`
 module kanari_system::usd {
+
     use std::option;
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
@@ -31,20 +32,19 @@ module kanari_system::usd {
     // Register the `USD` coin and share the mint authority so anyone can
     // mint. Runs once at genesis (see `usd::init` dispatch in genesis).
     fun init(witness: USD, ctx: &mut TxContext) {
-        let (treasury, metadata) =
-            coin::create_currency(
-                witness,
-                6,
-                b"USD",
-                b"Kanari USD Stablecoin",
-                b"Permissionless USD: anyone can mint via usd::mint with the shared TreasuryCap",
-                option::some(
-                    url::new_unsafe_from_bytes(
-                        b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
-                    )
-                ),
-                ctx
-            );
+        let (treasury, metadata) = coin::create_currency(
+            witness,
+            6,
+            b"USD",
+            b"Kanari USD Stablecoin",
+            b"Permissionless USD: anyone can mint via usd::mint with the shared TreasuryCap",
+            option::some(
+                url::new_unsafe_from_bytes(
+                    b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
+                )
+            ),
+            ctx
+        );
         transfer::public_freeze_object(metadata);
 
         // The mint authority is shared, not held: no key, no password.
@@ -57,7 +57,7 @@ module kanari_system::usd {
         cap: &mut TreasuryCap<USD>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let minted = coin::mint(cap, amount, ctx);
         transfer::public_transfer(minted, recipient);
@@ -68,10 +68,12 @@ module kanari_system::usd {
         c: &mut coin::Coin<USD>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let sender = tx_context::sender(ctx);
-        if (sender == recipient) { return };
+        if (sender == recipient) {
+            return
+        };
         let split_coin = coin::split(c, amount, ctx);
         transfer::public_transfer(split_coin, recipient);
     }
@@ -81,12 +83,13 @@ module kanari_system::usd {
         cap: &mut TreasuryCap<USD>,
         c: &mut Coin<USD>,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(cap, to_burn);
     }
 
+    /// Returns the number of units per USD.
     public fun units_per_usd(): u64 {
         UNITS_PER_USD
     }
@@ -100,19 +103,19 @@ module kanari_system::usd {
     /// `package.move` and `kanari_pet` use, and it disappears from the release
     /// build entirely.
     public fun mint_for_test(amount: u64, ctx: &mut TxContext): Coin<USD> {
-        let (treasury, metadata) =
-            coin::create_currency(
-                USD {},
-                6,
-                b"USD",
-                b"Kanari USD Stablecoin",
-                b"minted for tests",
-                option::none(),
-                ctx
-            );
+        let (treasury, metadata) = coin::create_currency(
+            USD {},
+            6,
+            b"USD",
+            b"Kanari USD Stablecoin",
+            b"minted for tests",
+            option::none(),
+            ctx
+        );
         let minted = coin::mint<USD>(&mut treasury, amount, ctx);
         transfer::public_freeze_object(treasury);
         transfer::public_freeze_object(metadata);
         minted
     }
+
 }

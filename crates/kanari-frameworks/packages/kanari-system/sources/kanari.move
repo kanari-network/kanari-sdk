@@ -4,6 +4,7 @@
 /// Coin<KANARI> is the token used to pay for gas in KANARI.
 /// It has 9 decimals, and the smallest unit (10^-9) is called "MIST".
 module kanari_system::kanari {
+
     use std::option;
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
@@ -36,20 +37,19 @@ module kanari_system::kanari {
         // assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress); // Sender check might be too strict for init
         // assert!(tx_context::epoch(ctx) == 0, EAlreadyMinted); // Epoch check might be okay
 
-        let (treasury, metadata) =
-            coin::create_currency(
-                witness,
-                9,
-                b"KANARI",
-                b"Kanari Network Coin",
-                b"",
-                option::some(
-                    url::new_unsafe_from_bytes(
-                        b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
-                    )
-                ),
-                ctx
-            );
+        let (treasury, metadata) = coin::create_currency(
+            witness,
+            9,
+            b"KANARI",
+            b"Kanari Network Coin",
+            b"",
+            option::some(
+                url::new_unsafe_from_bytes(
+                    b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
+                )
+            ),
+            ctx
+        );
         transfer::public_freeze_object(metadata);
 
         // make a mutable binding for minting (use a different name than the original)
@@ -57,12 +57,13 @@ module kanari_system::kanari {
 
         // Mint the initial supply into two coin objects so the dev wallet has
         // a dedicated gas coin from genesis onward.
-        let dev_address: address =
-            @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
-        let primary_coin: Coin<KANARI> =
-            coin::mint(&mut treasury_cap, TOTAL_SUPPLY_MIST - DEV_GAS_RESERVE_MIST, ctx);
-        let gas_coin: Coin<KANARI> =
-            coin::mint(&mut treasury_cap, DEV_GAS_RESERVE_MIST, ctx);
+        let dev_address: address = @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
+        let primary_coin: Coin<KANARI> = coin::mint(
+            &mut treasury_cap,
+            TOTAL_SUPPLY_MIST - DEV_GAS_RESERVE_MIST,
+            ctx
+        );
+        let gas_coin: Coin<KANARI> = coin::mint(&mut treasury_cap, DEV_GAS_RESERVE_MIST, ctx);
         transfer::public_transfer(primary_coin, dev_address);
         transfer::public_transfer(gas_coin, dev_address);
 
@@ -75,7 +76,7 @@ module kanari_system::kanari {
         c: &mut coin::Coin<KANARI>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         pay::split_and_transfer<KANARI>(c, amount, recipient, ctx);
     }
@@ -83,8 +84,9 @@ module kanari_system::kanari {
     /// Burns KANARI tokens, decreasing total supply
     public entry fun burn(
         treasury_cap: &mut TreasuryCap<KANARI>,
-        coin: Coin<KANARI>,
+        coin: Coin<KANARI>
     ) {
         coin::burn(treasury_cap, coin);
     }
+
 }

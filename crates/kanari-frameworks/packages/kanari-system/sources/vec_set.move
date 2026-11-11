@@ -5,6 +5,7 @@
 /// Mirrors `sui::vec_set`; used for the per-type address sets in
 /// `kanari_system::deny_list` so that module stays free of raw vectors.
 module kanari_system::vec_set {
+
     use std::vector;
 
     /// Key is already present.
@@ -14,17 +15,21 @@ module kanari_system::vec_set {
     const EKeyDoesNotExist: u64 = 1;
 
     struct VecSet<K: copy + drop + store> has copy, drop, store {
-        contents: vector<K>,
+        contents: vector<K>
     }
 
     /// Create an empty set.
     public fun empty<K: copy + drop + store>(): VecSet<K> {
-        VecSet { contents: vector::empty() }
+        VecSet {
+            contents: vector::empty()
+        }
     }
 
     /// Create a single-element set.
     public fun singleton<K: copy + drop + store>(key: K): VecSet<K> {
-        VecSet { contents: vector::singleton(key) }
+        VecSet {
+            contents: vector::singleton(key)
+        }
     }
 
     /// Insert `key`. Aborts `EKeyAlreadyExists` when already present.
@@ -65,4 +70,5 @@ module kanari_system::vec_set {
         let VecSet { contents } = self;
         contents
     }
+
 }

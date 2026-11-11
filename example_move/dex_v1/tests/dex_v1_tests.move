@@ -1,5 +1,6 @@
 #[test_only]
 module dex_v1::dex_v1_tests {
+
     use dex_v1::dex_v1;
     use kanari_system::tx_context;
 
@@ -36,8 +37,9 @@ module dex_v1::dex_v1_tests {
         let pool_id = dex_v1::get_pool_id<TEST_COIN_A, TEST_COIN_B>(&pool);
         assert!(pool_id != @0x0, 0); // Just verify it's not zero address
 
-        let (reserve_a, reserve_b, lp_supply, fee_percent) =
-            dex_v1::get_pool_info<TEST_COIN_A, TEST_COIN_B>(&pool);
+        let (reserve_a, reserve_b, lp_supply, fee_percent) = dex_v1::get_pool_info<TEST_COIN_A, TEST_COIN_B>(
+            &pool
+        );
 
         assert!(reserve_a == 0, 1);
         assert!(reserve_b == 0, 2);
@@ -51,4 +53,5 @@ module dex_v1::dex_v1_tests {
         // Cleanup
         dex_v1::destroy_pool_for_testing<TEST_COIN_A, TEST_COIN_B>(pool);
     }
+
 }

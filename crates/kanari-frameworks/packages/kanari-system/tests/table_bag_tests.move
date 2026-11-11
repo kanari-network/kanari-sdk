@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::table_bag_tests {
+
     use kanari_system::bag;
     use kanari_system::table;
     use kanari_system::tx_context;
@@ -74,4 +75,5 @@ module kanari_system::table_bag_tests {
         bag::add(&mut b, 1u8, 1u64);
         bag::destroy_empty(b);
     }
+
 }

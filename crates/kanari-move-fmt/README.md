@@ -2,9 +2,19 @@
 
 Native Rust formatter for the Move language, exposed as `kanari move fmt`.
 
-Implements the same formatting rules as the TypeScript
-`prettier-plugin-move` (used by the Move on Kanari VS Code extension) on top
-of the vendored tree-sitter Move grammar (`third_party/tree-sitter-move`).
+Built on the vendored tree-sitter Move grammar
+(`third_party/tree-sitter-move`). This crate is the source of truth for the
+Move formatting rules; the TypeScript `prettier-plugin-move` under
+`third_party` is no longer the reference implementation.
+
+## Blank-line policy
+
+Blank lines are preserved exactly as authored. The formatter reproduces the
+author's line breaks verbatim between items — module members, statements,
+struct fields, and the lines right after `{` / right before `}` — and never
+adds, removes, collapses or extends a blank line, so runs of blank lines
+survive unchanged. The only exception: trailing whitespace is stripped from
+every line, so a whitespace-only line becomes an empty line.
 
 ## Usage
 
@@ -19,15 +29,12 @@ kanari move fmt --check
 kanari move fmt example_move/dex_v1/sources/dex_v1.move
 ```
 
-Formatting rules live in `src/printer.rs` and must stay byte-compatible with
-`third_party/move/crates/move-analyzer/prettier-plugin/src/printer.ts`.
-Rule changes go here first then get back-ported (or vice versa), verified by:
+Formatting rules live in `src/printer.rs` and are verified by:
 
-- `cargo test -p kanari-move-fmt` — golden fixtures shared with the
-  TypeScript suite plus vendored grammar samples (parse + idempotency).
-- Manual differential run against the TypeScript output over
-  `crates/kanari-frameworks/packages/*/sources` and `example_move/*/sources`
-  (currently byte-identical on all 45 files).
+- `cargo test -p kanari-move-fmt` — golden fixtures in `tests/fixtures/`
+  plus vendored grammar samples (parse + idempotency).
+- After an intentional rule change, regenerate the goldens with
+  `KANARI_FMT_UPDATE=1 cargo test -p kanari-move-fmt` and review the diff.
 
 ## Layout
 

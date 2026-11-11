@@ -8,6 +8,7 @@
 /// "Iron Sword") is a KRC-1155 `TokenType` with its own max supply,
 /// and each player's holdings are `Balance` objects they own directly.
 module game_items::game_items {
+
     use std::string::{Self, String};
     use kanari_system::event;
     use kanari_system::krc_1155::{Self, Balance, TokenCap, TokenType};
@@ -20,13 +21,13 @@ module game_items::game_items {
         id: UID,
         name: String,
         token_type: address,
-        max_supply: u64,
+        max_supply: u64
     }
 
     /// Player inventory — tracks which item types a player owns.
     public struct Inventory has key, store {
         id: UID,
-        owner: address,
+        owner: address
     }
 
     /// Create a new game item type and register it in the catalog.
@@ -38,21 +39,21 @@ module game_items::game_items {
         description: vector<u8>,
         image_url: vector<u8>,
         max_supply: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let (token, cap) = krc_1155::create(
             name,
             description,
             image_url,
             max_supply,
-            ctx,
+            ctx
         );
         let token_type = krc_1155::token_type(&token);
         let catalog = ItemCatalog {
             id: object::new(ctx),
             name: string::utf8(name),
             token_type,
-            max_supply,
+            max_supply
         };
         // Share token type so anyone can discover it (read-only).
         krc_1155::share(token);
@@ -65,9 +66,12 @@ module game_items::game_items {
     /// Get or create a player's inventory object.
     public fun get_or_create_inventory(
         owner: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Inventory {
-        Inventory { id: object::new(ctx), owner }
+        Inventory {
+            id: object::new(ctx),
+            owner
+        }
     }
 
     /// Mint `amount` of `item_type` directly to `recipient`.
@@ -77,7 +81,7 @@ module game_items::game_items {
         cap: &TokenCap,
         recipient: address,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         krc_1155::mint_to(token, cap, amount, recipient, ctx);
     }
@@ -88,26 +92,28 @@ module game_items::game_items {
         balance: &mut Balance,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let sender = tx_context::sender(ctx);
         assert!(amount > 0, 0);
         let token_type = krc_1155::balance_token_type(balance);
         krc_1155::transfer(balance, amount, recipient, ctx);
-        event::emit(ItemMoved {
-            item_type: token_type,
-            sender,
-            recipient,
-            amount,
-            timestamp: tx_context::epoch_timestamp_ms(ctx),
-        });
+        event::emit(
+            ItemMoved {
+                item_type: token_type,
+                sender,
+                recipient,
+                amount,
+                timestamp: tx_context::epoch_timestamp_ms(ctx)
+            }
+        );
     }
 
     /// Split `amount` off a player's balance, returning a new Balance object.
     public fun split_item(
         balance: &mut Balance,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Balance {
         krc_1155::split(balance, amount, ctx)
     }
@@ -115,7 +121,7 @@ module game_items::game_items {
     /// Merge two balances of the same item type into one.
     public fun join_items(
         primary: &mut Balance,
-        other: Balance,
+        other: Balance
     ) {
         krc_1155::join(primary, other);
     }
@@ -126,17 +132,19 @@ module game_items::game_items {
         token: &mut TokenType,
         cap: &TokenCap,
         balance: Balance,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         let amount = krc_1155::balance_value(&balance);
         let item_type = krc_1155::token_type(token);
         krc_1155::burn(token, cap, balance, ctx);
-        event::emit(ItemBurned {
-            item_type,
-            owner: tx_context::sender(ctx),
-            amount,
-            timestamp: tx_context::epoch_timestamp_ms(ctx),
-        });
+        event::emit(
+            ItemBurned {
+                item_type,
+                owner: tx_context::sender(ctx),
+                amount,
+                timestamp: tx_context::epoch_timestamp_ms(ctx)
+            }
+        );
     }
 
     /// Read-only helpers for UI / indexer consumption.
@@ -170,14 +178,14 @@ module game_items::game_items {
         sender: address,
         recipient: address,
         amount: u64,
-        timestamp: u64,
+        timestamp: u64
     }
 
     public struct ItemBurned has copy, drop {
         item_type: address,
         owner: address,
         amount: u64,
-        timestamp: u64,
+        timestamp: u64
     }
 
     #[test]
@@ -190,7 +198,7 @@ module game_items::game_items {
             b"Restores 50 HP",
             b"https://cdn.example.com/potion.png",
             1000,
-            &mut ctx,
+            &mut ctx
         );
         // Token type is shared; catalog and cap are transferred to sender.
         // In tests, we verify the function doesn't abort.
@@ -206,7 +214,7 @@ module game_items::game_items {
             b"Restores 50 HP",
             b"https://cdn.example.com/potion.png",
             1000,
-            &mut ctx,
+            &mut ctx
         );
         assert!(krc_1155::total_supply(&token) == 0, 0);
 
@@ -234,4 +242,5 @@ module game_items::game_items {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(alice_balance);
     }
+
 }

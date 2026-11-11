@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::pay_tests {
+
     use std::vector;
     use kanari_system::coin::Coin;
     use kanari_system::coin::{Self, TreasuryCap, CoinMetadata};
@@ -69,8 +70,8 @@ module kanari_system::pay_tests {
         vector::push_back(&mut v, coin1);
         vector::push_back(&mut v, coin2);
 
-        // pass all 3 arguments (`ctx` is `&TxContext`)
-        pay::join_vec_and_transfer(v, @0xB, &ctx);
+        // pass all 3 arguments (`ctx` is `&mut TxContext`)
+        pay::join_vec_and_transfer(v, @0xB, &mut ctx);
     }
 
     #[test]
@@ -154,4 +155,5 @@ module kanari_system::pay_tests {
         transfer::public_transfer(coin_val, @0x1);
         cleanup(cap, meta);
     }
+
 }

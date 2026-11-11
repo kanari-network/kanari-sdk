@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #[test_only]
 module kanari_system::clock_tests {
+
     use kanari_system::clock;
     use kanari_system::tx_context;
 
@@ -76,4 +77,5 @@ module kanari_system::clock_tests {
         let user = tx_context::new_from_hint(@0x1, 1, 0, 0, 0);
         clock::create(&mut user);
     }
+
 }

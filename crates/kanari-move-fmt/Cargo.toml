@@ -15,4 +15,4 @@ description.workspace = true
 anyhow = { workspace = true }
 pretty = { workspace = true }
 tree-sitter = { workspace = true }
-tree-sitter-move = { path = "../../third_party/tree-sitter-move" }
+tree-sitter-move = { workspace = true }

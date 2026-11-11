@@ -109,7 +109,7 @@ FIPS 206 FN-DSA-512 / Falcon-512 verification.
 <pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="falcon512.md#0x2_falcon512_verify">verify</a>(
     signature: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
     public_key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
-    message: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    message: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ): bool;
 </code></pre>
 

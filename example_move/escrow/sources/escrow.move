@@ -1,4 +1,5 @@
 module escrow::escrow {
+
     use std::string::{Self, String};
     use kanari_system::borrow;
     use kanari_system::coin::{Self, Coin};
@@ -39,21 +40,21 @@ module escrow::escrow {
         locked_at: u64,
         delivered_at: u64,
         completed_at: u64,
-        funds: Option<Coin<CoinType>>,
+        funds: Option<Coin<CoinType>>
     }
 
     // On-chain proof record — Kanari metadata layer
     public struct EscrowProof has key, store {
         id: object::UID,
         deal_id: String,
-        entries: vector<ProofEntry>,
+        entries: vector<ProofEntry>
     }
 
     public struct ProofEntry has copy, drop, store {
         state: u8,
         actor: address,
         timestamp: u64,
-        note: String,
+        note: String
     }
 
     // ─── Events ──────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ module escrow::escrow {
         deal_id: String,
         buyer: address,
         seller: address,
-        amount: u64,
+        amount: u64
     }
 
     public struct DealStateChanged has copy, drop, store {
@@ -69,7 +70,7 @@ module escrow::escrow {
         old_state: u8,
         new_state: u8,
         actor: address,
-        timestamp: u64,
+        timestamp: u64
     }
 
     /// Auditable fund movement. action: 1=locked, 2=released, 3=refunded.
@@ -81,7 +82,7 @@ module escrow::escrow {
         seller: address,
         actor: address,
         recipient: address,
-        timestamp: u64,
+        timestamp: u64
     }
 
     /// Object-level locked supply change. Emitted on-chain whenever coins are
@@ -91,9 +92,10 @@ module escrow::escrow {
     public struct ObjectLockedSupplyChanged<phantom CoinType> has copy, drop, store {
         object_id: address,
         amount: u64,
-        action: u8, // 1=locked, 2=released, 3=refunded
+        action: u8,
+        // 1=locked, 2=released, 3=refunded
         actor: address,
-        timestamp: u64,
+        timestamp: u64
     }
 
     // ─── Internal Helper ───────────────────────────────────────────
@@ -106,7 +108,7 @@ module escrow::escrow {
         amount: u64,
         description: String,
         buyer_coin: &mut Coin<CoinType>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let buyer_addr = tx_context::sender(ctx);
         let now = tx_context::epoch_timestamp_ms(ctx);
@@ -120,17 +122,17 @@ module escrow::escrow {
 
         // Store deal under a fresh object address (not buyer's address directly)
         let deal = EscrowDeal<CoinType> {
-            id:             object::new(ctx),
+            id: object::new(ctx),
             deal_id,
-            buyer:          buyer_addr,
+            buyer: buyer_addr,
             seller,
             amount,
             description,
-            state:          STATE_LOCKED,
-            locked_at:      now,
-            delivered_at:   0,
-            completed_at:   0,
-            funds: option::some(funds),
+            state: STATE_LOCKED,
+            locked_at: now,
+            delivered_at: 0,
+            completed_at: 0,
+            funds: option::some(funds)
         };
 
         // Capture object id before deal is moved into share_object
@@ -143,46 +145,52 @@ module escrow::escrow {
 
         // Create proof record
         let entry = ProofEntry {
-            state:      STATE_LOCKED,
-            actor:      buyer_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Deal created — funds locked in escrow"),
+            state: STATE_LOCKED,
+            actor: buyer_addr,
+            timestamp: now,
+            note: string::utf8(b"Deal created — funds locked in escrow")
         };
         let mut entries = vector::empty<ProofEntry>();
         vector::push_back(&mut entries, entry);
 
         let proof = EscrowProof {
-            id:         object::new(ctx),
-            deal_id:    deal_id_copy,
-            entries,
+            id: object::new(ctx),
+            deal_id: deal_id_copy,
+            entries
         };
 
         transfer::share_object(proof);
 
         // Emit event
-        event::emit(DealCreated {
-            deal_id: deal_id_copy,
-            buyer: buyer_addr,
-            seller,
-            amount,
-        });
-        event::emit(EscrowFundsEvent {
-            deal_id: deal_id_copy,
-            action: 1,
-            amount,
-            buyer: buyer_addr,
-            seller,
-            actor: buyer_addr,
-            recipient: @0x0,
-            timestamp: now,
-        });
-        event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: deal_object_id,
-            amount,
-            action: 1,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealCreated {
+                deal_id: deal_id_copy,
+                buyer: buyer_addr,
+                seller,
+                amount
+            }
+        );
+        event::emit(
+            EscrowFundsEvent {
+                deal_id: deal_id_copy,
+                action: 1,
+                amount,
+                buyer: buyer_addr,
+                seller,
+                actor: buyer_addr,
+                recipient: @0x0,
+                timestamp: now
+            }
+        );
+        event::emit(
+            ObjectLockedSupplyChanged<CoinType> {
+                object_id: deal_object_id,
+                amount,
+                action: 1,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
     }
 
     // ─── Entry Functions ────────────────────────────────────────────
@@ -196,7 +204,7 @@ module escrow::escrow {
         description: String,
         buyer_coin_id: address,
         // Object ID of the Coin to use
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Load Coin object from storage by ID
         let buyer_coin = borrow::borrow_mut<Coin<CoinType>>(buyer_coin_id);
@@ -208,7 +216,7 @@ module escrow::escrow {
             amount,
             description,
             buyer_coin,
-            ctx,
+            ctx
         );
     }
 
@@ -219,7 +227,7 @@ module escrow::escrow {
         amount: u64,
         description: String,
         buyer_coin: &mut Coin<CoinType>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         create_deal_internal(
             deal_id,
@@ -227,7 +235,7 @@ module escrow::escrow {
             amount,
             description,
             buyer_coin,
-            ctx,
+            ctx
         );
     }
 
@@ -240,7 +248,7 @@ module escrow::escrow {
         amount: u64,
         description: String,
         buyer_coin: &mut Coin<CoinType>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         create_deal_internal(
             deal_id,
@@ -248,7 +256,7 @@ module escrow::escrow {
             amount,
             description,
             buyer_coin,
-            ctx,
+            ctx
         );
     }
 
@@ -272,7 +280,7 @@ module escrow::escrow {
 
     fun assert_proof_matches_deal<CoinType>(
         deal: &EscrowDeal<CoinType>,
-        proof: &EscrowProof,
+        proof: &EscrowProof
     ) {
         assert!(deal.deal_id == proof.deal_id, E_PROOF_DEAL_MISMATCH);
     }
@@ -284,7 +292,7 @@ module escrow::escrow {
         // Object ID of EscrowDeal
         proof_id: address,
         // Object ID of EscrowProof
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
@@ -306,10 +314,10 @@ module escrow::escrow {
 
         // Append proof entry
         let entry = ProofEntry {
-            state:      STATE_DELIVERED,
-            actor:      seller_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Seller confirmed delivery"),
+            state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
+            note: string::utf8(b"Seller confirmed delivery")
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -318,20 +326,22 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_DELIVERED,
-            actor: seller_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_DELIVERED,
+                actor: seller_addr,
+                timestamp: now
+            }
+        );
     }
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
     public entry fun confirm_delivery_ref<CoinType>(
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let seller_addr = tx_context::sender(ctx);
 
@@ -346,30 +356,32 @@ module escrow::escrow {
         let deal_id_str = get_deal_id(deal);
 
         let entry = ProofEntry {
-            state:      STATE_DELIVERED,
-            actor:      seller_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Seller confirmed delivery"),
+            state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
+            note: string::utf8(b"Seller confirmed delivery")
         };
         vector::push_back(&mut proof.entries, entry);
 
         borrow::save(deal);
         borrow::save(proof);
 
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_DELIVERED,
-            actor: seller_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_DELIVERED,
+                actor: seller_addr,
+                timestamp: now
+            }
+        );
     }
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
     public entry fun release_funds_ref<CoinType>(
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let buyer_addr = tx_context::sender(ctx);
 
@@ -385,42 +397,48 @@ module escrow::escrow {
 
         let funds = option::extract(&mut deal.funds);
         transfer::public_transfer(funds, deal.seller);
-        event::emit(EscrowFundsEvent {
-            deal_id: deal_id_str,
-            action: 2,
-            amount: deal.amount,
-            buyer: deal.buyer,
-            seller: deal.seller,
-            actor: buyer_addr,
-            recipient: deal.seller,
-            timestamp: now,
-        });
-        event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: object::uid_address(&deal.id),
-            amount: deal.amount,
-            action: 2,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            EscrowFundsEvent {
+                deal_id: deal_id_str,
+                action: 2,
+                amount: deal.amount,
+                buyer: deal.buyer,
+                seller: deal.seller,
+                actor: buyer_addr,
+                recipient: deal.seller,
+                timestamp: now
+            }
+        );
+        event::emit(
+            ObjectLockedSupplyChanged<CoinType> {
+                object_id: object::uid_address(&deal.id),
+                amount: deal.amount,
+                action: 2,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
 
         let entry = ProofEntry {
-            state:      STATE_COMPLETED,
-            actor:      buyer_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Buyer released funds to seller"),
+            state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
+            note: string::utf8(b"Buyer released funds to seller")
         };
         vector::push_back(&mut proof.entries, entry);
 
         borrow::save(deal);
         borrow::save(proof);
 
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_COMPLETED,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_COMPLETED,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
     }
 
     // API-first entry: deal and proof are authenticated mutable object inputs.
@@ -428,7 +446,7 @@ module escrow::escrow {
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
         reason: String,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let caller = tx_context::sender(ctx);
 
@@ -443,42 +461,48 @@ module escrow::escrow {
 
         let funds = option::extract(&mut deal.funds);
         transfer::public_transfer(funds, deal.buyer);
-        event::emit(EscrowFundsEvent {
-            deal_id: deal_id_str,
-            action: 3,
-            amount: deal.amount,
-            buyer: deal.buyer,
-            seller: deal.seller,
-            actor: caller,
-            recipient: deal.buyer,
-            timestamp: now,
-        });
-        event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: object::uid_address(&deal.id),
-            amount: deal.amount,
-            action: 3,
-            actor: caller,
-            timestamp: now,
-        });
+        event::emit(
+            EscrowFundsEvent {
+                deal_id: deal_id_str,
+                action: 3,
+                amount: deal.amount,
+                buyer: deal.buyer,
+                seller: deal.seller,
+                actor: caller,
+                recipient: deal.buyer,
+                timestamp: now
+            }
+        );
+        event::emit(
+            ObjectLockedSupplyChanged<CoinType> {
+                object_id: object::uid_address(&deal.id),
+                amount: deal.amount,
+                action: 3,
+                actor: caller,
+                timestamp: now
+            }
+        );
 
         let entry = ProofEntry {
-            state:      STATE_DISPUTED,
-            actor:      caller,
-            timestamp:  now,
-            note:       reason,
+            state: STATE_DISPUTED,
+            actor: caller,
+            timestamp: now,
+            note: reason
         };
         vector::push_back(&mut proof.entries, entry);
 
         borrow::save(deal);
         borrow::save(proof);
 
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_DISPUTED,
-            actor: caller,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_DISPUTED,
+                actor: caller,
+                timestamp: now
+            }
+        );
     }
 
     // Internal helper for testing with object references
@@ -486,7 +510,7 @@ module escrow::escrow {
     public fun confirm_delivery_internal<CoinType>(
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let seller_addr = tx_context::sender(ctx);
 
@@ -502,10 +526,10 @@ module escrow::escrow {
 
         // Append proof entry
         let entry = ProofEntry {
-            state:      STATE_DELIVERED,
-            actor:      seller_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Seller confirmed delivery"),
+            state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
+            note: string::utf8(b"Seller confirmed delivery")
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -514,13 +538,15 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id,
-            old_state,
-            new_state: STATE_DELIVERED,
-            actor: seller_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id,
+                old_state,
+                new_state: STATE_DELIVERED,
+                actor: seller_addr,
+                timestamp: now
+            }
+        );
     }
 
     // Step 3: Buyer releases funds to seller
@@ -530,7 +556,7 @@ module escrow::escrow {
         // Object ID of EscrowDeal
         proof_id: address,
         // Object ID of EscrowProof
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
@@ -553,30 +579,34 @@ module escrow::escrow {
         // Transfer funds to seller
         let funds = option::extract(&mut deal.funds);
         transfer::public_transfer(funds, deal.seller);
-        event::emit(EscrowFundsEvent {
-            deal_id: deal_id_str,
-            action: 2,
-            amount: deal.amount,
-            buyer: deal.buyer,
-            seller: deal.seller,
-            actor: buyer_addr,
-            recipient: deal.seller,
-            timestamp: now,
-        });
-        event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: object::uid_address(&deal.id),
-            amount: deal.amount,
-            action: 2,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            EscrowFundsEvent {
+                deal_id: deal_id_str,
+                action: 2,
+                amount: deal.amount,
+                buyer: deal.buyer,
+                seller: deal.seller,
+                actor: buyer_addr,
+                recipient: deal.seller,
+                timestamp: now
+            }
+        );
+        event::emit(
+            ObjectLockedSupplyChanged<CoinType> {
+                object_id: object::uid_address(&deal.id),
+                amount: deal.amount,
+                action: 2,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
 
         // Append proof entry
         let entry = ProofEntry {
-            state:      STATE_COMPLETED,
-            actor:      buyer_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Buyer released funds to seller"),
+            state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
+            note: string::utf8(b"Buyer released funds to seller")
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -585,13 +615,15 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_COMPLETED,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_COMPLETED,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
     }
 
     // Internal helper for testing with object references
@@ -599,7 +631,7 @@ module escrow::escrow {
     public fun release_funds_internal<CoinType>(
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let buyer_addr = tx_context::sender(ctx);
 
@@ -618,10 +650,10 @@ module escrow::escrow {
 
         // Append proof entry
         let entry = ProofEntry {
-            state:      STATE_COMPLETED,
-            actor:      buyer_addr,
-            timestamp:  now,
-            note:       string::utf8(b"Buyer released funds to seller"),
+            state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
+            note: string::utf8(b"Buyer released funds to seller")
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -630,13 +662,15 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id,
-            old_state,
-            new_state: STATE_COMPLETED,
-            actor: buyer_addr,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id,
+                old_state,
+                new_state: STATE_COMPLETED,
+                actor: buyer_addr,
+                timestamp: now
+            }
+        );
     }
 
     // Raise dispute - refunds buyer immediately
@@ -647,7 +681,7 @@ module escrow::escrow {
         proof_id: address,
         // Object ID of EscrowProof
         reason: String,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         // Load both objects by ID; they must be distinct or Move cannot
         // hold two `&mut` at once.
@@ -674,30 +708,34 @@ module escrow::escrow {
         // 🔥 Refund funds to buyer immediately
         let funds = option::extract(&mut deal.funds);
         transfer::public_transfer(funds, deal.buyer);
-        event::emit(EscrowFundsEvent {
-            deal_id: deal_id_str,
-            action: 3,
-            amount: deal.amount,
-            buyer: deal.buyer,
-            seller: deal.seller,
-            actor: caller,
-            recipient: deal.buyer,
-            timestamp: now,
-        });
-        event::emit(ObjectLockedSupplyChanged<CoinType> {
-            object_id: object::uid_address(&deal.id),
-            amount: deal.amount,
-            action: 3,
-            actor: caller,
-            timestamp: now,
-        });
+        event::emit(
+            EscrowFundsEvent {
+                deal_id: deal_id_str,
+                action: 3,
+                amount: deal.amount,
+                buyer: deal.buyer,
+                seller: deal.seller,
+                actor: caller,
+                recipient: deal.buyer,
+                timestamp: now
+            }
+        );
+        event::emit(
+            ObjectLockedSupplyChanged<CoinType> {
+                object_id: object::uid_address(&deal.id),
+                amount: deal.amount,
+                action: 3,
+                actor: caller,
+                timestamp: now
+            }
+        );
 
         // Append proof entry with dispute reason
         let entry = ProofEntry {
-            state:      STATE_DISPUTED,
-            actor:      caller,
-            timestamp:  now,
-            note:       reason,
+            state: STATE_DISPUTED,
+            actor: caller,
+            timestamp: now,
+            note: reason
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -706,13 +744,15 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id: deal_id_str,
-            old_state,
-            new_state: STATE_DISPUTED,
-            actor: caller,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id: deal_id_str,
+                old_state,
+                new_state: STATE_DISPUTED,
+                actor: caller,
+                timestamp: now
+            }
+        );
     }
 
     // Internal helper for testing with object references
@@ -721,7 +761,7 @@ module escrow::escrow {
         deal: &mut EscrowDeal<CoinType>,
         proof: &mut EscrowProof,
         reason: String,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let caller = tx_context::sender(ctx);
 
@@ -744,10 +784,10 @@ module escrow::escrow {
 
         // Append proof entry with dispute reason
         let entry = ProofEntry {
-            state:      STATE_DISPUTED,
-            actor:      caller,
-            timestamp:  now,
-            note:       reason,
+            state: STATE_DISPUTED,
+            actor: caller,
+            timestamp: now,
+            note: reason
         };
         vector::push_back(&mut proof.entries, entry);
 
@@ -756,13 +796,15 @@ module escrow::escrow {
         borrow::save(proof);
 
         // Emit event
-        event::emit(DealStateChanged {
-            deal_id,
-            old_state,
-            new_state: STATE_DISPUTED,
-            actor: caller,
-            timestamp: now,
-        });
+        event::emit(
+            DealStateChanged {
+                deal_id,
+                old_state,
+                new_state: STATE_DISPUTED,
+                actor: caller,
+                timestamp: now
+            }
+        );
     }
 
     // ─── View Functions (for RPC/Dart queries) ──────────────────────
@@ -770,14 +812,14 @@ module escrow::escrow {
     /// Get current deal state by Object ID
     /// Returns the state of the deal (1=LOCKED, 2=DELIVERED, 3=COMPLETED, 4=DISPUTED)
     public fun get_state<CoinType>(
-        deal_id: address,
+        deal_id: address
     ): u8 {
         borrow::borrow<EscrowDeal<CoinType>>(deal_id).state
     }
 
     /// Get current deal state from an authenticated object input.
     public fun get_state_ref<CoinType>(
-        deal: &EscrowDeal<CoinType>,
+        deal: &EscrowDeal<CoinType>
     ): u8 {
         deal.state
     }
@@ -785,7 +827,7 @@ module escrow::escrow {
     /// Get proof entry count by Object ID
     /// Returns the number of proof entries in the EscrowProof
     public fun get_proof_count(
-        proof_id: address,
+        proof_id: address
     ): u64 {
         (vector::length(&borrow::borrow<EscrowProof>(proof_id).entries) as u64)
     }
@@ -793,7 +835,7 @@ module escrow::escrow {
     /// Get full deal details by Object ID
     /// Read all deal details without modifying
     public fun get_deal_details<CoinType>(
-        deal_id: address,
+        deal_id: address
     ): (address, address, address, u64) {
         let deal = borrow::borrow<EscrowDeal<CoinType>>(deal_id);
 
@@ -807,7 +849,7 @@ module escrow::escrow {
 
     /// Get full deal details from an authenticated object input.
     public fun get_deal_details_ref<CoinType>(
-        deal: &EscrowDeal<CoinType>,
+        deal: &EscrowDeal<CoinType>
     ): (address, address, address, u64) {
         (
             object::uid_address(&deal.id),
@@ -821,8 +863,9 @@ module escrow::escrow {
     /// Check if deal is in the specified state
     public fun check_deal_state<CoinType>(
         deal_id: address,
-        expected_state: u8,
+        expected_state: u8
     ): bool {
         borrow::borrow<EscrowDeal<CoinType>>(deal_id).state == expected_state
     }
+
 }

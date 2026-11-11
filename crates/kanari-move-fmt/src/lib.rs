@@ -100,18 +100,16 @@ mod tests {
         }
     }
 
-    /// Formats the shared fixtures also used by the TypeScript
-    /// `prettier-plugin-move` suite, asserting byte-identical output.
+    /// Formats the crate's golden fixtures, asserting byte-identical output.
     /// (Line endings are normalized: fixtures are stored with LF.)
+    ///
+    /// Set `KANARI_FMT_UPDATE=1` to rewrite `test.exp` from the current
+    /// formatter output (then review the diff by hand).
     fn check_fixture(name: &str) {
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../third_party/move/crates/move-analyzer/prettier-plugin/tests/"
-        );
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/");
         let input = std::fs::read_to_string(format!("{dir}{name}/test.move"))
             .unwrap_or_else(|_| panic!("missing fixture {name}/test.move"));
-        let expected = std::fs::read_to_string(format!("{dir}{name}/test.exp"))
-            .unwrap_or_else(|_| panic!("missing fixture {name}/test.exp"));
+        let expected_path = format!("{dir}{name}/test.exp");
         let out = format_source(
             &input,
             &FormatOptions {
@@ -120,6 +118,12 @@ mod tests {
             },
         )
         .unwrap();
+        if std::env::var_os("KANARI_FMT_UPDATE").is_some() {
+            std::fs::write(&expected_path, &out).expect("failed to rewrite test.exp");
+            return;
+        }
+        let expected = std::fs::read_to_string(&expected_path)
+            .unwrap_or_else(|_| panic!("missing fixture {name}/test.exp"));
         assert_eq!(
             out,
             expected.replace("\r\n", "\n"),
@@ -149,9 +153,23 @@ mod tests {
 
     #[test]
     fn formats_grouped_uses() {
+        // Adjacent members stay adjacent: no blank line is inserted between
+        // members, but module body gets 1 blank line after `{` and before `}`.
         let src = "module james::euro {\n    use kanari_system::coin;\n    use kanari_system::transfer;\n    struct EURO has drop {}\n}";
         let out = format_source(src, &FormatOptions::default()).unwrap();
-        let expected = "module james::euro {\n    use kanari_system::coin;\n    use kanari_system::transfer;\n\n    struct EURO has drop {}\n}\n";
+        let expected = "module james::euro {\n\n    use kanari_system::coin;\n    use kanari_system::transfer;\n    struct EURO has drop {}\n\n}\n";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn preserves_author_blank_lines() {
+        // Every blank line the author wrote is kept verbatim — runs of blank
+        // lines are neither collapsed nor extended.
+        let src = "module mika::storage {\n\n    use std::vector;\n\n    \n    const E: u64 = 0;\n\n\n    struct S has key {\n        id: u64,\n\n        owner: address,\n    }\n\n}\n";
+        let out = format_source(src, &FormatOptions::default()).unwrap();
+        // The whitespace-only line counts as a blank line (trailing spaces
+        // are stripped), so two blank lines survive between `use` and `const`.
+        let expected = "module mika::storage {\n\n    use std::vector;\n\n\n    const E: u64 = 0;\n\n\n    struct S has key {\n        id: u64,\n\n        owner: address\n    }\n\n}\n";
         assert_eq!(out, expected);
     }
 

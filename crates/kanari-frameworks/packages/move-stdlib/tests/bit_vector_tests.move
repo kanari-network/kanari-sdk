@@ -1,5 +1,6 @@
 #[test_only]
 module std::bit_vector_tests {
+
     use std::bit_vector;
 
     #[test_only]
@@ -220,4 +221,5 @@ module std::bit_vector_tests {
         let bitvector = bit_vector::new(1);
         assert!(bit_vector::length(&bitvector) == 1, 0);
     }
+
 }

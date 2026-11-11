@@ -9,6 +9,7 @@
 /// same name but a different value type would report present and then abort
 /// on `borrow` with a type mismatch instead.
 module kanari_system::linked_table {
+
     use std::option::{Self, Option};
     use kanari_system::dynamic_field;
     use kanari_system::object::{Self, UID};
@@ -28,7 +29,7 @@ module kanari_system::linked_table {
         /// the front of the table, i.e. the key of the first entry
         head: Option<K>,
         /// the back of the table, i.e. the key of the last entry
-        tail: Option<K>,
+        tail: Option<K>
     }
 
     struct Node<K: copy + drop + store, V: store> has store {
@@ -37,7 +38,7 @@ module kanari_system::linked_table {
         /// the next key
         next: Option<K>,
         /// the value being stored
-        value: V,
+        value: V
     }
 
     /// Creates a new, empty table
@@ -46,7 +47,7 @@ module kanari_system::linked_table {
             id: object::new(ctx),
             size: 0,
             head: option::none(),
-            tail: option::none(),
+            tail: option::none()
         }
     }
 
@@ -64,7 +65,7 @@ module kanari_system::linked_table {
     public fun push_front<K: copy + drop + store, V: store>(
         table: &mut LinkedTable<K, V>,
         k: K,
-        value: V,
+        value: V
     ) {
         let old_head = option::swap_or_fill(&mut table.head, k);
         if (option::is_none(&table.tail)) {
@@ -73,13 +74,22 @@ module kanari_system::linked_table {
         let prev = option::none();
         let next = if (option::is_some(&old_head)) {
             let old_head_k = option::destroy_some(old_head);
-            dynamic_field::borrow_mut<K, Node<K, V>>(&mut table.id, old_head_k).prev =
-                option::some(k);
+            dynamic_field::borrow_mut<K, Node<K, V>>(&mut table.id, old_head_k).prev = option::some(
+                k
+            );
             option::some(old_head_k)
         } else {
             option::none()
         };
-        dynamic_field::add(&mut table.id, k, Node { prev, next, value });
+        dynamic_field::add(
+            &mut table.id,
+            k,
+            Node {
+                prev,
+                next,
+                value
+            }
+        );
         table.size = table.size + 1;
     }
 
@@ -87,7 +97,7 @@ module kanari_system::linked_table {
     public fun push_back<K: copy + drop + store, V: store>(
         table: &mut LinkedTable<K, V>,
         k: K,
-        value: V,
+        value: V
     ) {
         if (option::is_none(&table.head)) {
             option::fill(&mut table.head, k);
@@ -95,21 +105,30 @@ module kanari_system::linked_table {
         let old_tail = option::swap_or_fill(&mut table.tail, k);
         let prev = if (option::is_some(&old_tail)) {
             let old_tail_k = option::destroy_some(old_tail);
-            dynamic_field::borrow_mut<K, Node<K, V>>(&mut table.id, old_tail_k).next =
-                option::some(k);
+            dynamic_field::borrow_mut<K, Node<K, V>>(&mut table.id, old_tail_k).next = option::some(
+                k
+            );
             option::some(old_tail_k)
         } else {
             option::none()
         };
         let next = option::none();
-        dynamic_field::add(&mut table.id, k, Node { prev, next, value });
+        dynamic_field::add(
+            &mut table.id,
+            k,
+            Node {
+                prev,
+                next,
+                value
+            }
+        );
         table.size = table.size + 1;
     }
 
     /// Immutably borrow the value for `k`. Aborts when absent.
     public fun borrow<K: copy + drop + store, V: store>(
         table: &LinkedTable<K, V>,
-        k: K,
+        k: K
     ): &V {
         &dynamic_field::borrow<K, Node<K, V>>(&table.id, k).value
     }
@@ -117,7 +136,7 @@ module kanari_system::linked_table {
     /// Mutably borrow the value for `k`. Aborts when absent.
     public fun borrow_mut<K: copy + drop + store, V: store>(
         table: &mut LinkedTable<K, V>,
-        k: K,
+        k: K
     ): &mut V {
         &mut dynamic_field::borrow_mut<K, Node<K, V>>(&mut table.id, k).value
     }
@@ -125,7 +144,7 @@ module kanari_system::linked_table {
     /// The key before `k`, or `None` for the front element.
     public fun prev<K: copy + drop + store, V: store>(
         table: &LinkedTable<K, V>,
-        k: K,
+        k: K
     ): &Option<K> {
         &dynamic_field::borrow<K, Node<K, V>>(&table.id, k).prev
     }
@@ -133,7 +152,7 @@ module kanari_system::linked_table {
     /// The key after `k`, or `None` for the back element.
     public fun next<K: copy + drop + store, V: store>(
         table: &LinkedTable<K, V>,
-        k: K,
+        k: K
     ): &Option<K> {
         &dynamic_field::borrow<K, Node<K, V>>(&table.id, k).next
     }
@@ -142,7 +161,7 @@ module kanari_system::linked_table {
     /// Aborts when absent.
     public fun remove<K: copy + drop + store, V: store>(
         table: &mut LinkedTable<K, V>,
-        k: K,
+        k: K
     ): V {
         let Node { prev, next, value } = dynamic_field::remove(&mut table.id, k);
         table.size = table.size - 1;
@@ -169,7 +188,7 @@ module kanari_system::linked_table {
 
     /// Remove the front entry. Aborts `ETableIsEmpty` when empty.
     public fun pop_front<K: copy + drop + store, V: store>(
-        table: &mut LinkedTable<K, V>,
+        table: &mut LinkedTable<K, V>
     ): (K, V) {
         assert!(option::is_some(&table.head), ETableIsEmpty);
         let head = *option::borrow(&table.head);
@@ -178,7 +197,7 @@ module kanari_system::linked_table {
 
     /// Remove the back entry. Aborts `ETableIsEmpty` when empty.
     public fun pop_back<K: copy + drop + store, V: store>(
-        table: &mut LinkedTable<K, V>,
+        table: &mut LinkedTable<K, V>
     ): (K, V) {
         assert!(option::is_some(&table.tail), ETableIsEmpty);
         let tail = *option::borrow(&table.tail);
@@ -189,7 +208,7 @@ module kanari_system::linked_table {
     /// name-based (not typed) existence.
     public fun contains<K: copy + drop + store, V: store>(
         table: &LinkedTable<K, V>,
-        k: K,
+        k: K
     ): bool {
         dynamic_field::exists_(&table.id, k)
     }
@@ -216,4 +235,5 @@ module kanari_system::linked_table {
         let LinkedTable { id, size: _, head: _, tail: _ } = table;
         object::delete(id);
     }
+
 }

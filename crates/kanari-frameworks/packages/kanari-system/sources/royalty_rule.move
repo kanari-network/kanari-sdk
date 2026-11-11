@@ -24,6 +24,7 @@
 /// `(u64 amount_bp, u64 min_amount, address beneficiary)` in that order, read
 /// back with `peel_u64` / `peel_address`.
 module kanari_system::royalty_rule {
+
     use std::vector;
     use kanari_system::coin::{Self, Coin};
     use kanari_system::address;
@@ -72,7 +73,7 @@ module kanari_system::royalty_rule {
         cap: &TransferPolicyCap<T>,
         amount_bp: u64,
         min_amount: u64,
-        beneficiary: address,
+        beneficiary: address
     ) {
         assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
         assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
@@ -86,7 +87,7 @@ module kanari_system::royalty_rule {
         cap: &CollectionPolicyCap,
         amount_bp: u64,
         min_amount: u64,
-        beneficiary: address,
+        beneficiary: address
     ) {
         assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
         assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
@@ -100,7 +101,7 @@ module kanari_system::royalty_rule {
         cap: &CollectionPolicyCap,
         amount_bp: u64,
         min_amount: u64,
-        beneficiary: address,
+        beneficiary: address
     ) {
         assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
         assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
@@ -111,7 +112,7 @@ module kanari_system::royalty_rule {
     /// Remove royalties from one KRC-721 collection's scoped policy.
     public fun remove_for_krc_721_collection(
         policy: &mut TransferPolicy<Nft>,
-        cap: &CollectionPolicyCap,
+        cap: &CollectionPolicyCap
     ) {
         krc_721::remove_collection_policy_rule<Rule>(Rule {}, policy, cap);
     }
@@ -122,7 +123,7 @@ module kanari_system::royalty_rule {
         cap: &TransferPolicyCap<T>,
         amount_bp: u64,
         min_amount: u64,
-        beneficiary: address,
+        beneficiary: address
     ) {
         assert!(amount_bp <= MAX_BPS, E_BPS_TOO_LARGE);
         assert!(beneficiary != @0x0, E_INVALID_BENEFICIARY);
@@ -133,7 +134,7 @@ module kanari_system::royalty_rule {
     /// Remove the royalty rule entirely, making trades of `T` free again.
     public fun remove<T: key + store>(
         policy: &mut TransferPolicy<T>,
-        cap: &TransferPolicyCap<T>,
+        cap: &TransferPolicyCap<T>
     ) {
         transfer_policy::remove_rule<Rule, T>(Rule {}, policy, cap);
     }
@@ -153,7 +154,11 @@ module kanari_system::royalty_rule {
     public fun compute(paid: u64, amount_bp: u64, min_amount: u64): u64 {
         let share = (paid as u128) * (amount_bp as u128) / (MAX_BPS as u128);
         let share = (share as u64);
-        if (share < min_amount) { min_amount } else { share }
+        if (share < min_amount) {
+            min_amount
+        } else {
+            share
+        }
     }
 
     /// Buyer action: pay the royalty and unblock the request.
@@ -172,7 +177,7 @@ module kanari_system::royalty_rule {
         policy: &mut TransferPolicy<T>,
         request: &mut TransferRequest<T>,
         payment: &mut Coin<Asset>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let bytes = transfer_policy::rule_config<Rule, T>(policy);
         let amount_bp = decode_bp(bytes);
@@ -332,7 +337,7 @@ module kanari_system::royalty_rule {
     /// only exists because `pay` requires `Asset: key + store` and a mintable
     /// coin needs a witness).
     struct ASSET has key, store, drop {
-        id: object::UID,
+        id: object::UID
     }
 
     // vec_set::insert aborts its duplicate with code 0 (`EKeyAlreadyExists`
@@ -349,15 +354,22 @@ module kanari_system::royalty_rule {
         add<ROYALTY_RULE>(&mut policy, &cap, 500, 0, @0xB0B);
 
         let (treasury, denycap, metadata) = coin::create_regulated_currency<ASSET>(
-            ASSET { id: object::new(&mut ctx) },
-            2, b"USD", b"Test Asset", b"", option::none(), &mut ctx,
+            ASSET {
+                id: object::new(&mut ctx)
+            },
+            2,
+            b"USD",
+            b"Test Asset",
+            b"",
+            option::none(),
+            &mut ctx
         );
         let donation = coin::mint(&mut treasury, 1_000, &mut ctx);
         let request = transfer_policy::new_request<ROYALTY_RULE>(
             &policy,
             object::id_from_address(@0xC0DE),
             1_000,
-            object::id_from_address(@0xF00D),
+            object::id_from_address(@0xF00D)
         );
         pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut donation, &mut ctx);
         // 5% of 1_000 = 500bp * 1000 / 10000 = 50 left the payment.
@@ -389,8 +401,15 @@ module kanari_system::royalty_rule {
         add<ROYALTY_RULE>(&mut policy, &cap, 500, 0, @0xB0B);
 
         let (treasury, denycap, metadata) = coin::create_regulated_currency<ASSET>(
-            ASSET { id: object::new(&mut ctx) },
-            2, b"USD", b"Test Asset", b"", option::none(), &mut ctx,
+            ASSET {
+                id: object::new(&mut ctx)
+            },
+            2,
+            b"USD",
+            b"Test Asset",
+            b"",
+            option::none(),
+            &mut ctx
         );
         // The trade is stated at 1_000, so 500bp owes a fee of 50, but the
         // buyer's payment carries only 49: `pay` must abort instead of
@@ -400,7 +419,7 @@ module kanari_system::royalty_rule {
             &policy,
             object::id_from_address(@0xC0DE),
             1_000,
-            object::id_from_address(@0xF00D),
+            object::id_from_address(@0xF00D)
         );
         pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut payment, &mut ctx);
         // Everything below is unreachable at runtime (the `pay` above aborts
@@ -431,7 +450,10 @@ module kanari_system::royalty_rule {
         let request_id = object::id_from_address(@0xC0DE);
         let from_id = object::id_from_address(@0xF00D);
         let request = transfer_policy::new_request<ROYALTY_RULE>(
-            &policy, request_id, 0, from_id,
+            &policy,
+            request_id,
+            0,
+            from_id
         );
         let payment = coin::zero<ASSET>(&mut ctx);
         pay<ROYALTY_RULE, ASSET>(&mut policy, &mut request, &mut payment, &mut ctx);
@@ -451,4 +473,5 @@ module kanari_system::royalty_rule {
         transfer::public_freeze_object(cap);
         transfer::public_freeze_object(pub);
     }
+
 }

@@ -9,6 +9,7 @@
 /// or supply ledger: `coin` is the canonical implementation, including its
 /// one-currency-per-witness check, overflow checks, and object ownership.
 module kanari_system::krc_20 {
+
     use std::option::Option;
     use kanari_system::coin::{Self, Coin, CoinMetadata, DenyCapV2, TreasuryCap};
     use kanari_system::deny_list::DenyList;
@@ -29,7 +30,7 @@ module kanari_system::krc_20 {
         name: vector<u8>,
         description: vector<u8>,
         icon_url: Option<Url>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<T>, CoinMetadata<T>) {
         coin::create_currency(
             witness,
@@ -52,7 +53,7 @@ module kanari_system::krc_20 {
         description: vector<u8>,
         icon_url: Option<Url>,
         allow_global_pause: bool,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TreasuryCap<T>, DenyCapV2<T>, CoinMetadata<T>) {
         coin::create_regulated_currency_v2(
             witness,
@@ -70,7 +71,7 @@ module kanari_system::krc_20 {
     public fun mint<T>(
         cap: &mut TreasuryCap<T>,
         amount: u64,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Coin<T> {
         coin::mint(cap, amount, ctx)
     }
@@ -80,7 +81,7 @@ module kanari_system::krc_20 {
         cap: &mut TreasuryCap<T>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         coin::mint_and_transfer(cap, amount, recipient, ctx)
     }
@@ -99,7 +100,7 @@ module kanari_system::krc_20 {
         token: &mut Coin<T>,
         amount: u64,
         recipient: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         let sender = tx_context::sender(ctx);
         assert!(!coin::is_denied<T>(sender), E_DENIED_OR_PAUSED);
@@ -115,13 +116,17 @@ module kanari_system::krc_20 {
         amount: u64,
         recipient: address,
         deny: &DenyList,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         pay::split_and_transfer_checked(token, amount, recipient, deny, ctx)
     }
 
     /// Merge `other` into `token`, reducing coin-object fragmentation.
-    public entry fun join<T>(token: &mut Coin<T>, other: Coin<T>) {
+    public entry fun join<T>(
+        token: &mut Coin<T>,
+        other: Coin<T>,
+        _ctx: &mut TxContext
+    ) {
         coin::join(token, other)
     }
 
@@ -141,16 +146,15 @@ module kanari_system::krc_20 {
     #[test]
     fun test_create_mint_and_burn_conserves_supply() {
         let ctx = kanari_system::tx_context::dummy();
-        let (cap, metadata) =
-            create(
-                TEST {},
-                6,
-                b"TEST",
-                b"Test Token",
-                b"",
-                std::option::none(),
-                &mut ctx
-            );
+        let (cap, metadata) = create(
+            TEST {},
+            6,
+            b"TEST",
+            b"Test Token",
+            b"",
+            std::option::none(),
+            &mut ctx
+        );
         let token = mint(&mut cap, 1_000, &mut ctx);
         assert!(value(&token) == 1_000, 0);
         assert!(total_supply(&cap) == 1_000, 1);
@@ -159,4 +163,5 @@ module kanari_system::krc_20 {
         kanari_system::transfer::public_freeze_object(cap);
         kanari_system::transfer::public_freeze_object(metadata);
     }
+
 }

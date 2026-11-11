@@ -108,7 +108,9 @@ Used by resources that need a guaranteed unique ID when they are created.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_new">new</a>(ctx: &<b>mut</b> TxContext): <a href="object.md#0x2_object_UID">UID</a> {
-    <a href="object.md#0x2_object_UID">UID</a> { addr: <a href="tx_context.md#0x2_tx_context_fresh_object_address">tx_context::fresh_object_address</a>(ctx) }
+    <a href="object.md#0x2_object_UID">UID</a> {
+        addr: <a href="tx_context.md#0x2_tx_context_fresh_object_address">tx_context::fresh_object_address</a>(ctx)
+    }
 }
 </code></pre>
 
@@ -133,7 +135,9 @@ Extract an <code><a href="object.md#0x2_object_ID">ID</a></code> from a <code><a
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_uid_to_inner">uid_to_inner</a>(uid: &<a href="object.md#0x2_object_UID">UID</a>): <a href="object.md#0x2_object_ID">ID</a> {
-    <a href="object.md#0x2_object_ID">ID</a> { bytes: uid.addr }
+    <a href="object.md#0x2_object_ID">ID</a> {
+        bytes: uid.addr
+    }
 }
 </code></pre>
 
@@ -158,7 +162,9 @@ Create an <code><a href="object.md#0x2_object_ID">ID</a></code> directly from an
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="object.md#0x2_object_id_from_address">id_from_address</a>(bytes: <b>address</b>): <a href="object.md#0x2_object_ID">ID</a> {
-    <a href="object.md#0x2_object_ID">ID</a> { bytes }
+    <a href="object.md#0x2_object_ID">ID</a> {
+        bytes
+    }
 }
 </code></pre>
 

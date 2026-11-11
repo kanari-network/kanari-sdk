@@ -1,5 +1,6 @@
 #[test_only]
 module std::string_tests {
+
     use std::string;
 
     #[test]
@@ -75,4 +76,5 @@ module std::string_tests {
         string::insert(&mut s, 1, string::utf8(b"xy"));
         assert!(s == string::utf8(b"axybcd"), 22)
     }
+
 }

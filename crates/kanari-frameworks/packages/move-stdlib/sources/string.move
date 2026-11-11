@@ -3,6 +3,7 @@
 
 /// The `string` module defines the `String` type which represents UTF8 encoded strings.
 module std::string {
+
     use std::ascii;
     use std::vector;
     use std::option::{Self, Option};
@@ -15,18 +16,22 @@ module std::string {
 
     /// A `String` holds a sequence of bytes which is guaranteed to be in utf8 format.
     struct String has copy, drop, store {
-        bytes: vector<u8>,
+        bytes: vector<u8>
     }
 
     /// Creates a new string from a sequence of bytes. Aborts if the bytes do not represent valid utf8.
     public fun utf8(bytes: vector<u8>): String {
         assert!(internal_check_utf8(&bytes), EINVALID_UTF8);
-        String{bytes}
+        String {
+            bytes
+        }
     }
 
     /// Convert an ASCII string to a UTF8 string
     public fun from_ascii(s: ascii::String): String {
-        String { bytes: ascii::into_bytes(s) }
+        String {
+            bytes: ascii::into_bytes(s)
+        }
     }
 
     /// Convert an UTF8 string to an ASCII string.
@@ -39,7 +44,11 @@ module std::string {
     /// Tries to create a new string from a sequence of bytes.
     public fun try_utf8(bytes: vector<u8>): Option<String> {
         if (internal_check_utf8(&bytes)) {
-            option::some(String{bytes})
+            option::some(
+                String {
+                    bytes
+                }
+            )
         } else {
             option::none()
         }
@@ -93,7 +102,9 @@ module std::string {
             j <= l && i <= j && internal_is_char_boundary(bytes, i) && internal_is_char_boundary(bytes, j),
             EINVALID_INDEX
         );
-        String{bytes: internal_sub_string(bytes, i, j)}
+        String {
+            bytes: internal_sub_string(bytes, i, j)
+        }
     }
 
     /// Computes the index of the first occurrence of a string. Returns `length(s)` if no occurrence found.
@@ -113,7 +124,9 @@ module std::string {
     // Test only API for the native function. Don't return a value so other
     // tests aren't tempted to use this function.
     #[test_only]
+    /// Returns the substring from `i` to `j` for testing purposes.
     public fun internal_sub_string_for_testing(v: &vector<u8>, i: u64, j: u64) {
         internal_sub_string(v, i, j);
     }
+
 }

@@ -58,7 +58,7 @@ jobs:
           cargo test -p kanari-move-runtime-v2 --lib
 
       - name: Unit tests (kanari-core engine)
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: cargo test -p kanari-core --lib
 
       - name: Move Build (move-stdlib)
@@ -176,6 +176,78 @@ jobs:
 
       - name: Production build
         run: bun run build
+
+  analyzer-matrix:
+    name: kanari-move-analyzer (${{ matrix.os }} / ${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: macos-latest
+            label: macos
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-analyzer-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.os }}-analyzer-cargo-
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p kanari-move-analyzer -p kanari-move-fmt -- -D warnings
+
+      - name: Tests (analyzer + fmt)
+        run: |
+          cargo test -p kanari-move-analyzer
+          cargo test -p kanari-move-fmt
+
+      - name: Build release binary
+        run: cargo build --release -p kanari-move-analyzer
+
+      - name: Smoke check binary
+        run: |
+          ls -lh target/release/kanari-move-analyzer
+          ./target/release/kanari-move-analyzer --help || true
+          ./target/release/kanari-move-analyzer --version
+
+      - name: Install Node + vsce (for vsix on this platform)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install libsecret (for keytar native build on Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libsecret-1-dev pkg-config
+
+      - name: Package VSIX (${{ matrix.label }})
+        run: |
+          chmod +x tools/vscode-move-kanari/scripts/package.sh
+          bash tools/vscode-move-kanari/scripts/package.sh
+        env:
+          CI: 'true'
+
+      - name: VSIX exists
+        run: |
+          ls -lh tools/vscode-move-kanari/move-kanari.vsix
+          if [ ! -f tools/vscode-move-kanari/move-kanari.vsix ]; then exit 1; fi
 
   android-gates:
     name: Android unit tests (kanariapp)

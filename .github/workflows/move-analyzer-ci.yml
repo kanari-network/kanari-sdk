@@ -1,0 +1,151 @@
+name: Move Analyzer CI (kanari-move-analyzer + extension)
+
+on:
+  pull_request:
+    paths:
+      - "crates/kanari-move-analyzer/**"
+      - "crates/kanari-move-fmt/**"
+      - "tools/vscode-move-kanari/**"
+      - "third_party/move/crates/move-analyzer/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/move-analyzer-ci.yml"
+  push:
+    branches:
+      - "kanari-sdk"
+      - "move-lang-2027"
+    paths:
+      - "crates/kanari-move-analyzer/**"
+      - "crates/kanari-move-fmt/**"
+      - "tools/vscode-move-kanari/**"
+      - "third_party/move/crates/move-analyzer/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/move-analyzer-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  analyzer:
+    name: Analyzer fmt/clippy/tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-analyzer-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-analyzer-cargo-
+
+      - name: rustfmt check (analyzer + formatter)
+        run: cargo fmt -p kanari-move-analyzer -p kanari-move-fmt -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p kanari-move-analyzer -p kanari-move-fmt --all-targets -- -D warnings
+
+      - name: Analyzer tests (unit + integration)
+        run: cargo test -p kanari-move-analyzer
+
+      - name: Formatter tests
+        run: cargo test -p kanari-move-fmt
+
+  extension:
+    name: Extension vsix (package + validate + LSP smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-analyzer-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-analyzer-cargo-
+
+      - name: Build analyzer (release)
+        run: cargo build --release -p kanari-move-analyzer
+
+      - name: Bundle the server binary into the extension
+        run: |
+          mkdir -p tools/vscode-move-kanari/language-server
+          cp target/release/kanari-move-analyzer tools/vscode-move-kanari/language-server/kanari-move-analyzer
+          chmod +x tools/vscode-move-kanari/language-server/kanari-move-analyzer
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tools/vscode-move-kanari/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: tools/vscode-move-kanari
+        run: npm ci
+
+      - name: Type check + package vsix
+        working-directory: tools/vscode-move-kanari
+        run: npm run package
+
+      - name: Validate the vsix
+        run: |
+          set -euo pipefail
+          VSIX=tools/vscode-move-kanari/move-kanari.vsix
+          test -s "$VSIX"
+          unzip -l "$VSIX" | grep -q "extension/language-server/kanari-move-analyzer"
+          unzip -l "$VSIX" | grep -q "extension/out/src/main.js"
+          unzip -l "$VSIX" | grep -q "extension/package.json"
+          vsix_version=$(unzip -p "$VSIX" extension/package.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).version))")
+          manifest_version=$(node -e "console.log(require('./tools/vscode-move-kanari/package.json').version)")
+          if [ "$vsix_version" != "$manifest_version" ]; then
+            echo "version mismatch: vsix=$vsix_version manifest=$manifest_version" >&2
+            exit 1
+          fi
+          echo "vsix ok: version $vsix_version"
+
+      - name: LSP smoke test (diagnostics + completion over stdio)
+        run: node tools/vscode-move-kanari/scripts/lsp-smoke.mjs target/release/kanari-move-analyzer
+
+      - name: Install the vsix (smoke, best effort)
+        # The `code` CLI is not usable on a headless runner (no user session),
+        # so this is a courtesy check - the vsix itself was already
+        # validated above and exercised by the LSP smoke test.
+        run: |
+          code --install-extension tools/vscode-move-kanari/move-kanari.vsix --force \
+            || echo "code CLI unavailable on the runner - skipping the install smoke test"
+
+      - name: Upload the vsix
+        uses: actions/upload-artifact@v4
+        with:
+          name: move-kanari-vsix
+          path: tools/vscode-move-kanari/move-kanari.vsix

@@ -403,7 +403,7 @@ not own.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new">new</a>&lt;T: key + store, W: drop&gt;(
     pub: &Publisher&lt;W&gt;,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;, <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;) {
     <a href="package.md#0x2_package_assert_governs_type">package::assert_governs_type</a>&lt;T, W&gt;(pub);
     <b>let</b> policy = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt; {
@@ -412,9 +412,11 @@ not own.
         amounts: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, u64&gt;(),
         owed: 0,
         collection_scoped: <b>false</b>,
-        collection_id: <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>(),
+        collection_id: <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>()
     };
-    <b>let</b> cap = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) };
+    <b>let</b> cap = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx)
+    };
     (policy, cap)
 }
 </code></pre>
@@ -445,7 +447,7 @@ which bind the result to a concrete item type and collection.
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_for_collection">new_for_collection</a>&lt;T: key + store&gt;(
     cap: &NftCap,
     collection_ref: &Collection,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ): (<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;, <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;) {
     <b>let</b> collection_id = <a href="collection.md#0x2_collection_collection_id">collection::collection_id</a>(collection_ref);
     <b>assert</b>!(<a href="collection.md#0x2_collection_cap_collection_id">collection::cap_collection_id</a>(cap) == collection_id, <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_CAP_MISMATCH">E_COLLECTION_CAP_MISMATCH</a>);
@@ -455,9 +457,11 @@ which bind the result to a concrete item type and collection.
         amounts: <a href="vec_map.md#0x2_vec_map_empty">vec_map::empty</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, u64&gt;(),
         owed: 0,
         collection_scoped: <b>true</b>,
-        collection_id: <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(collection_id),
+        collection_id: <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(collection_id)
     };
-    <b>let</b> policy_cap = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt; { id: <a href="object.md#0x2_object_new">object::new</a>(ctx) };
+    <b>let</b> policy_cap = <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt; {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx)
+    };
     (policy, policy_cap)
 }
 </code></pre>
@@ -650,7 +654,7 @@ transaction can end.
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     item: ID,
     paid: u64,
-    from: ID,
+    from: ID
 ): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt; {
     <b>assert</b>!(!policy.collection_scoped, <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_SCOPE_REQUIRED">E_COLLECTION_SCOPE_REQUIRED</a>);
     <a href="transfer_policy.md#0x2_transfer_policy_new_scoped_request">new_scoped_request</a>&lt;T&gt;(policy, item, paid, from)
@@ -683,14 +687,14 @@ invoke this path.
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     item: ID,
     paid: u64,
-    from: ID,
+    from: ID
 ): <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt; {
     <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt; {
         item,
         paid,
         from,
         policy_id: <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id),
-        receipts: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>(),
+        receipts: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>()
     }
 }
 </code></pre>
@@ -719,7 +723,7 @@ for the scoped request path.
 
 <pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_collection_binding">assert_collection_binding</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    collection_id: <b>address</b>,
+    collection_id: <b>address</b>
 ) {
     <b>assert</b>!(policy.collection_scoped, <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_SCOPE_REQUIRED">E_COLLECTION_SCOPE_REQUIRED</a>);
     <b>assert</b>!(<a href="dependencies/move-stdlib/option.md#0x1_option_is_some">option::is_some</a>(&policy.collection_id), <a href="transfer_policy.md#0x2_transfer_policy_E_COLLECTION_BINDING_MISMATCH">E_COLLECTION_BINDING_MISMATCH</a>);
@@ -753,7 +757,7 @@ reachable only while holding a request.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_confirm_request">confirm_request</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ): (ID, u64, ID) {
     <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>(policy, &request);
     <b>assert</b>!(<a href="transfer_policy.md#0x2_transfer_policy_are_receipts_complete">are_receipts_complete</a>(policy, &request), <a href="transfer_policy.md#0x2_transfer_policy_E_INCOMPLETE_RECEIPTS">E_INCOMPLETE_RECEIPTS</a>);
@@ -785,7 +789,7 @@ True iff every registered rule has reported on <code>request</code>.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_are_receipts_complete">are_receipts_complete</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ): bool {
     <b>let</b> keys = <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(&policy.rules);
     <b>let</b> i = 0;
@@ -822,7 +826,7 @@ Abort unless <code>request</code> was created by <code>policy</code>.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ) {
     <b>assert</b>!(
         request.policy_id == <a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id),
@@ -932,7 +936,7 @@ Requires the type owner's <code><a href="transfer_policy.md#0x2_transfer_policy_
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;,
-    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ) {
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(!<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_RULE_ALREADY_PRESENT">E_RULE_ALREADY_PRESENT</a>);
@@ -966,7 +970,7 @@ Removes first: <code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;,
-    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;,
+    config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
 ) {
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_RULE">E_NO_RULE</a>);
@@ -1001,7 +1005,7 @@ already resolved.
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_remove_rule">remove_rule</a>&lt;Rule: drop, T: key + store&gt;(
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;,
+    _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;
 ) {
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_RULE">E_NO_RULE</a>);
@@ -1112,7 +1116,7 @@ Build a fresh <code><a href="transfer_policy.md#0x2_transfer_policy_AnyRule">Any
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_new_rule_config">new_rule_config</a>(config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;): <a href="transfer_policy.md#0x2_transfer_policy_AnyRule">AnyRule</a> {
     <a href="transfer_policy.md#0x2_transfer_policy_AnyRule">AnyRule</a> {
         receipts: <a href="vec_set.md#0x2_vec_set_empty">vec_set::empty</a>(),
-        config,
+        config
     }
 }
 </code></pre>
@@ -1168,7 +1172,7 @@ witness, so a rule's module is the only thing that can declare it paid.
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_add_receipt">add_receipt</a>&lt;Rule: drop, T: key + store&gt;(
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ) {
     <a href="transfer_policy.md#0x2_transfer_policy_assert_request_policy">assert_request_policy</a>(policy, request);
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
@@ -1200,7 +1204,7 @@ Number of rules that have reported on <code>request</code>.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_receipts_count">receipts_count</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ): u64 {
     <b>let</b> keys = <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(&policy.rules);
     <b>let</b> i = 0;
@@ -1238,7 +1242,7 @@ True iff every registered rule has reported.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_are_receipts_done">are_receipts_done</a>&lt;T: key + store&gt;(
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;,
+    request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ): bool {
     <a href="transfer_policy.md#0x2_transfer_policy_receipts_count">receipts_count</a>(policy, request) == <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&policy.rules)
 }
@@ -1298,7 +1302,7 @@ because <code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a></code>
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_record_collection">record_collection</a>&lt;Rule: drop, T: key + store&gt;(
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    amount: u64,
+    amount: u64
 ) {
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>);
@@ -1331,7 +1335,7 @@ The caller pays the returned amount out.
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_take_collection">take_collection</a>&lt;Rule: drop, T: key + store&gt;(
     _rule: Rule,
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;,
+    _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;
 ): u64 {
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>);
@@ -1369,7 +1373,7 @@ nor <code>drop</code> and so cannot live in a shareable struct.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_record_payout">record_payout</a>&lt;T: key + store&gt;(
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
-    amount: u64,
+    amount: u64
 ) {
     policy.owed = policy.owed + amount;
 }

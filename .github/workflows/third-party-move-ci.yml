@@ -1,0 +1,55 @@
+name: Move Language CI (third_party/move)
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "move-lang-2027"
+      - "kanari-sdk"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  move-workspace:
+    name: Move toolchain (third_party/move) fmt/clippy/tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: third_party/move
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            third_party/move/target
+          key: ${{ runner.os }}-third-party-move-cargo-${{ hashFiles('third_party/move/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-third-party-move-cargo-
+
+      - name: rustfmt check
+        run: cargo fmt --all --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Ensure resolver scripts are executable
+        run: chmod +x crates/move-package/tests/test_sources/resolvers/*.sh
+
+      - name: Move workspace unit tests
+        run: cargo test --workspace

@@ -9,6 +9,7 @@
 /// the field name is wrapped to prevent key collisions with direct
 /// `dynamic_field` usage on the same object.
 module kanari_system::dynamic_object_field {
+
     use std::option::{Self, Option};
     use kanari_system::dynamic_field;
     use kanari_system::object::{Self, UID};
@@ -23,7 +24,7 @@ module kanari_system::dynamic_object_field {
     /// Internal wrapper for the field name. The separate type is necessary
     /// to prevent key collisions with direct usage of `dynamic_field`.
     struct Wrapper<Name> has copy, drop, store {
-        name: Name,
+        name: Name
     }
 
     /// Record a `(parent, name) -> child` link in the host child index.
@@ -32,13 +33,13 @@ module kanari_system::dynamic_object_field {
     native fun record_child<Name: copy + drop + store, Value: key + store>(
         object: &mut UID,
         name: Name,
-        child: &Value,
+        child: &Value
     );
 
     /// Drop the `(parent, name)` link from the host child index.
     native fun unrecord_child<Name: copy + drop + store>(
         object: &mut UID,
-        name: Name,
+        name: Name
     );
 
     /// Enumerate the live children of `object` in insertion order, merging
@@ -53,7 +54,7 @@ module kanari_system::dynamic_object_field {
     /// 32-byte UID.
     native fun field_id<Name: copy + drop + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): address;
 
     /// Adds a dynamic object field to `object` under `name`, binding the
@@ -61,62 +62,93 @@ module kanari_system::dynamic_object_field {
     public fun add<Name: copy + drop + store, Value: key + store>(
         object: &mut UID,
         name: Name,
-        value: Value,
+        value: Value
     ) {
         record_child(object, name, &value);
-        dynamic_field::add(object, Wrapper { name }, value);
+        dynamic_field::add(
+            object,
+            Wrapper {
+                name
+            },
+            value
+        );
     }
 
     /// Immutably borrows the dynamic object field `name` on `object`.
     /// Aborts if the field does not exist or has a different value type.
     public fun borrow<Name: copy + drop + store, Value: key + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): &Value {
-        dynamic_field::borrow(object, Wrapper { name })
+        dynamic_field::borrow(
+            object,
+            Wrapper {
+                name
+            }
+        )
     }
 
     /// Mutably borrows the dynamic object field `name` on `object`.
     /// Aborts if the field does not exist or has a different value type.
     public fun borrow_mut<Name: copy + drop + store, Value: key + store>(
         object: &mut UID,
-        name: Name,
+        name: Name
     ): &mut Value {
-        dynamic_field::borrow_mut(object, Wrapper { name })
+        dynamic_field::borrow_mut(
+            object,
+            Wrapper {
+                name
+            }
+        )
     }
 
     /// Removes the dynamic object field `name` on `object` and returns the
     /// bound object. Aborts if the field does not exist.
     public fun remove<Name: copy + drop + store, Value: key + store>(
         object: &mut UID,
-        name: Name,
+        name: Name
     ): Value {
         unrecord_child(object, name);
-        dynamic_field::remove(object, Wrapper { name })
+        dynamic_field::remove(
+            object,
+            Wrapper {
+                name
+            }
+        )
     }
 
     /// Returns true iff `object` has a dynamic object field `name`.
     public fun exists_<Name: copy + drop + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): bool {
-        dynamic_field::exists_(object, Wrapper { name })
+        dynamic_field::exists_(
+            object,
+            Wrapper {
+                name
+            }
+        )
     }
 
     /// Returns true iff `object` has a dynamic object field `name` whose
     /// bound value type is exactly `Value`.
     public fun exists_with_type<Name: copy + drop + store, Value: key + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): bool {
-        dynamic_field::exists_with_type<Wrapper<Name>, Value>(object, Wrapper { name })
+        dynamic_field::exists_with_type<Wrapper<Name>, Value>(
+            object,
+            Wrapper {
+                name
+            }
+        )
     }
 
     /// Returns the ID of the child object bound under `name`, or `none` if
     /// the field does not exist.
     public fun id<Name: copy + drop + store>(
         object: &UID,
-        name: Name,
+        name: Name
     ): Option<object::ID> {
         if (!exists_(object, name)) return option::none();
         option::some(object::id_from_address(field_id(object, name)))
@@ -126,4 +158,5 @@ module kanari_system::dynamic_object_field {
     public fun children(object: &UID): vector<address> {
         list_children(object)
     }
+
 }

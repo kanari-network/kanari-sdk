@@ -115,7 +115,7 @@ The maximum allowed bitvector size
 
     <a href="bit_vector.md#0x1_bit_vector_BitVector">BitVector</a> {
         length,
-        bit_field,
+        bit_field
     }
 }
 </code></pre>
@@ -197,19 +197,21 @@ bitvector's length the bitvector will be zeroed out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="bit_vector.md#0x1_bit_vector_shift_left">shift_left</a>(bitvector: &<b>mut</b> <a href="bit_vector.md#0x1_bit_vector_BitVector">BitVector</a>, amount: u64) {
     <b>if</b> (amount &gt;= bitvector.length) {
-       <b>let</b> len = <a href="vector.md#0x1_vector_length">vector::length</a>(&bitvector.bit_field);
-       <b>let</b> i = 0;
-       <b>while</b> (i &lt; len) {
-           <b>let</b> elem = <a href="vector.md#0x1_vector_borrow_mut">vector::borrow_mut</a>(&<b>mut</b> bitvector.bit_field, i);
-           *elem = <b>false</b>;
-           i = i + 1;
-       };
+        <b>let</b> len = <a href="vector.md#0x1_vector_length">vector::length</a>(&bitvector.bit_field);
+        <b>let</b> i = 0;
+        <b>while</b> (i &lt; len) {
+            <b>let</b> elem = <a href="vector.md#0x1_vector_borrow_mut">vector::borrow_mut</a>(&<b>mut</b> bitvector.bit_field, i);
+            *elem = <b>false</b>;
+            i = i + 1;
+        };
     } <b>else</b> {
         <b>let</b> i = amount;
 
         <b>while</b> (i &lt; bitvector.length) {
-            <b>if</b> (<a href="bit_vector.md#0x1_bit_vector_is_index_set">is_index_set</a>(bitvector, i)) <a href="bit_vector.md#0x1_bit_vector_set">set</a>(bitvector, i - amount)
-            <b>else</b> <a href="bit_vector.md#0x1_bit_vector_unset">unset</a>(bitvector, i - amount);
+            <b>if</b> (<a href="bit_vector.md#0x1_bit_vector_is_index_set">is_index_set</a>(bitvector, i)) <a href="bit_vector.md#0x1_bit_vector_set">set</a>(bitvector, i - amount) <b>else</b> <a href="bit_vector.md#0x1_bit_vector_unset">unset</a>(
+                bitvector,
+                i - amount
+            );
             i = i + 1;
         };
 

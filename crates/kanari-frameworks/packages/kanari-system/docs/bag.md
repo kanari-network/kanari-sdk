@@ -90,7 +90,10 @@ Creates a new, empty bag
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_new">new</a>(ctx: &<b>mut</b> TxContext): <a href="bag.md#0x2_bag_Bag">Bag</a> {
-    <a href="bag.md#0x2_bag_Bag">Bag</a> { id: <a href="object.md#0x2_object_new">object::new</a>(ctx), size: 0 }
+    <a href="bag.md#0x2_bag_Bag">Bag</a> {
+        id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
+        size: 0
+    }
 }
 </code></pre>
 

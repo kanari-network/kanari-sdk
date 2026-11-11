@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module std::bit_vector {
+
     use std::vector;
 
     /// The provided index is out of bounds
@@ -18,9 +19,10 @@ module std::bit_vector {
 
     struct BitVector has copy, drop, store {
         length: u64,
-        bit_field: vector<bool>,
+        bit_field: vector<bool>
     }
 
+    /// Creates a new `BitVector` of `length` bits, all initialized to `false`.
     public fun new(length: u64): BitVector {
         assert!(length > 0, ELENGTH);
         assert!(length < MAX_SIZE, ELENGTH);
@@ -33,7 +35,7 @@ module std::bit_vector {
 
         BitVector {
             length,
-            bit_field,
+            bit_field
         }
     }
 
@@ -55,19 +57,21 @@ module std::bit_vector {
     /// bitvector's length the bitvector will be zeroed out.
     public fun shift_left(bitvector: &mut BitVector, amount: u64) {
         if (amount >= bitvector.length) {
-           let len = vector::length(&bitvector.bit_field);
-           let i = 0;
-           while (i < len) {
-               let elem = vector::borrow_mut(&mut bitvector.bit_field, i);
-               *elem = false;
-               i = i + 1;
-           };
+            let len = vector::length(&bitvector.bit_field);
+            let i = 0;
+            while (i < len) {
+                let elem = vector::borrow_mut(&mut bitvector.bit_field, i);
+                *elem = false;
+                i = i + 1;
+            };
         } else {
             let i = amount;
 
             while (i < bitvector.length) {
-                if (is_index_set(bitvector, i)) set(bitvector, i - amount)
-                else unset(bitvector, i - amount);
+                if (is_index_set(bitvector, i)) set(bitvector, i - amount) else unset(
+                    bitvector,
+                    i - amount
+                );
                 i = i + 1;
             };
 
@@ -109,7 +113,9 @@ module std::bit_vector {
     }
 
     #[test_only]
+    /// Returns the word size used by the bitvector.
     public fun word_size(): u64 {
         WORD_SIZE
     }
+
 }

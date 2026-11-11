@@ -94,20 +94,19 @@ Base units per whole USD (6 decimals).
 
 
 <pre><code><b>fun</b> <a href="usd.md#0x2_usd_init">init</a>(witness: <a href="usd.md#0x2_usd_USD">USD</a>, ctx: &<b>mut</b> TxContext) {
-    <b>let</b> (treasury, metadata) =
-        <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
-            witness,
-            6,
-            b"<a href="usd.md#0x2_usd_USD">USD</a>",
-            b"Kanari <a href="usd.md#0x2_usd_USD">USD</a> Stablecoin",
-            b"Permissionless <a href="usd.md#0x2_usd_USD">USD</a>: anyone can mint via <a href="usd.md#0x2_usd_mint">usd::mint</a> <b>with</b> the shared TreasuryCap",
-            <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(
-                <a href="url.md#0x2_url_new_unsafe_from_bytes">url::new_unsafe_from_bytes</a>(
-                    b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
-                )
-            ),
-            ctx
-        );
+    <b>let</b> (treasury, metadata) = <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
+        witness,
+        6,
+        b"<a href="usd.md#0x2_usd_USD">USD</a>",
+        b"Kanari <a href="usd.md#0x2_usd_USD">USD</a> Stablecoin",
+        b"Permissionless <a href="usd.md#0x2_usd_USD">USD</a>: anyone can mint via <a href="usd.md#0x2_usd_mint">usd::mint</a> <b>with</b> the shared TreasuryCap",
+        <a href="dependencies/move-stdlib/option.md#0x1_option_some">option::some</a>(
+            <a href="url.md#0x2_url_new_unsafe_from_bytes">url::new_unsafe_from_bytes</a>(
+                b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4"
+            )
+        ),
+        ctx
+    );
     <a href="transfer.md#0x2_transfer_public_freeze_object">transfer::public_freeze_object</a>(metadata);
 
     // The mint authority is shared, not held: no key, no password.
@@ -140,7 +139,7 @@ Mint new USD to <code>recipient</code>. Permissionless: pass the shared
     cap: &<b>mut</b> TreasuryCap&lt;<a href="usd.md#0x2_usd_USD">USD</a>&gt;,
     amount: u64,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> minted = <a href="coin.md#0x2_coin_mint">coin::mint</a>(cap, amount, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(minted, recipient);
@@ -171,10 +170,12 @@ Transfer a specific <code>amount</code> of USD from a mutable Coin held by the c
     c: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="usd.md#0x2_usd_USD">USD</a>&gt;,
     amount: u64,
     recipient: <b>address</b>,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
-    <b>if</b> (sender == recipient) { <b>return</b> };
+    <b>if</b> (sender == recipient) {
+        <b>return</b>
+    };
     <b>let</b> split_coin = <a href="coin.md#0x2_coin_split">coin::split</a>(c, amount, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(split_coin, recipient);
 }
@@ -204,7 +205,7 @@ Burn a specific <code>amount</code> of USD from a mutable Coin held by the calle
     cap: &<b>mut</b> TreasuryCap&lt;<a href="usd.md#0x2_usd_USD">USD</a>&gt;,
     c: &<b>mut</b> Coin&lt;<a href="usd.md#0x2_usd_USD">USD</a>&gt;,
     amount: u64,
-    ctx: &<b>mut</b> TxContext,
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>let</b> to_burn = <a href="coin.md#0x2_coin_split">coin::split</a>(c, amount, ctx);
     <b>let</b> _burned = <a href="coin.md#0x2_coin_burn">coin::burn</a>(cap, to_burn);

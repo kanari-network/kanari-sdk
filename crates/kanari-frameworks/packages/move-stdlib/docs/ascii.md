@@ -122,7 +122,9 @@ Convert a <code>byte</code> into a <code><a href="ascii.md#0x1_ascii_Char">Char<
 
 <pre><code><b>public</b> <b>fun</b> <a href="ascii.md#0x1_ascii_char">char</a>(byte: u8): <a href="ascii.md#0x1_ascii_Char">Char</a> {
     <b>assert</b>!(<a href="ascii.md#0x1_ascii_is_valid_char">is_valid_char</a>(byte), <a href="ascii.md#0x1_ascii_EINVALID_ASCII_CHARACTER">EINVALID_ASCII_CHARACTER</a>);
-    <a href="ascii.md#0x1_ascii_Char">Char</a> { byte }
+    <a href="ascii.md#0x1_ascii_Char">Char</a> {
+        byte
+    }
 }
 </code></pre>
 
@@ -187,7 +189,11 @@ characters. Otherwise returns <code>None</code>.
         <b>if</b> (!<a href="ascii.md#0x1_ascii_is_valid_char">is_valid_char</a>(possible_byte)) <b>return</b> <a href="option.md#0x1_option_none">option::none</a>();
         i = i + 1;
     };
-    <a href="option.md#0x1_option_some">option::some</a>(<a href="ascii.md#0x1_ascii_String">String</a> { bytes })
+    <a href="option.md#0x1_option_some">option::some</a>(
+        <a href="ascii.md#0x1_ascii_String">String</a> {
+            bytes
+        }
+    )
 }
 </code></pre>
 
@@ -268,7 +274,9 @@ Returns <code><b>false</b></code> otherwise. Not all <code><a href="ascii.md#0x1
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ascii.md#0x1_ascii_pop_char">pop_char</a>(<a href="string.md#0x1_string">string</a>: &<b>mut</b> <a href="ascii.md#0x1_ascii_String">String</a>): <a href="ascii.md#0x1_ascii_Char">Char</a> {
-    <a href="ascii.md#0x1_ascii_Char">Char</a> { byte: <a href="vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> <a href="string.md#0x1_string">string</a>.bytes) }
+    <a href="ascii.md#0x1_ascii_Char">Char</a> {
+        byte: <a href="vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> <a href="string.md#0x1_string">string</a>.bytes)
+    }
 }
 </code></pre>
 

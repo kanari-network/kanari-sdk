@@ -878,7 +878,7 @@ Aborts E_DIVIDE_BY_ZERO when z == 0, E_OVERFLOW when result > MAX_U128.
     x: u128,
     y: u128,
     z: u128,
-    round_up: bool,
+    round_up: bool
 ): u128;
 </code></pre>
 
@@ -976,7 +976,7 @@ Aborts E_DIVIDE_BY_ZERO when z == 0, E_OVERFLOW when result > MAX_U256.
     x: u256,
     y: u256,
     z: u256,
-    round_up: bool,
+    round_up: bool
 ): u256;
 </code></pre>
 
@@ -1410,8 +1410,11 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u8">min_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (x &lt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &lt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -1435,8 +1438,11 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u8">max_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (x &gt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &gt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -1460,8 +1466,11 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u8">diff_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -1511,9 +1520,13 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u8">clamp_u8</a>(x: u8, lo: u8, hi: u8): u8 {
     <b>assert</b>!(lo &lt;= hi, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
-    <b>if</b> (x &lt; lo) { lo }
-    <b>else</b> <b>if</b> (x &gt; hi) { hi }
-    <b>else</b> { x }
+    <b>if</b> (x &lt; lo) {
+        lo
+    } <b>else</b> <b>if</b> (x &gt; hi) {
+        hi
+    } <b>else</b> {
+        x
+    }
 }
 </code></pre>
 
@@ -1713,8 +1726,9 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u8">ceil_div_u8</a>(x: u8, y: u8): u8 {
     <b>assert</b>!(y &gt; 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
-    <b>if</b> (x == 0) { 0 }
-    <b>else</b> {
+    <b>if</b> (x == 0) {
+        0
+    } <b>else</b> {
         ((x - 1) / y) + 1
     }
 }
@@ -1978,8 +1992,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u16">min_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (x &lt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &lt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -2003,8 +2020,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u16">max_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (x &gt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &gt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -2028,8 +2048,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u16">diff_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -2078,9 +2101,13 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u16">clamp_u16</a>(x: u16, lo: u16, hi: u16): u16 {
     <b>assert</b>!(lo &lt;= hi, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
-    <b>if</b> (x &lt; lo) { lo }
-    <b>else</b> <b>if</b> (x &gt; hi) { hi }
-    <b>else</b> { x }
+    <b>if</b> (x &lt; lo) {
+        lo
+    } <b>else</b> <b>if</b> (x &gt; hi) {
+        hi
+    } <b>else</b> {
+        x
+    }
 }
 </code></pre>
 
@@ -2280,8 +2307,9 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u16">ceil_div_u16</a>(x: u16, y: u16): u16 {
     <b>assert</b>!(y &gt; 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
-    <b>if</b> (x == 0) { 0 }
-    <b>else</b> {
+    <b>if</b> (x == 0) {
+        0
+    } <b>else</b> {
         ((x - 1) / y) + 1
     }
 }
@@ -2542,8 +2570,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u32">min_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (x &lt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &lt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -2567,8 +2598,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u32">max_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (x &gt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &gt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -2592,8 +2626,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u32">diff_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -2642,9 +2679,13 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u32">clamp_u32</a>(x: u32, lo: u32, hi: u32): u32 {
     <b>assert</b>!(lo &lt;= hi, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
-    <b>if</b> (x &lt; lo) { lo }
-    <b>else</b> <b>if</b> (x &gt; hi) { hi }
-    <b>else</b> { x }
+    <b>if</b> (x &lt; lo) {
+        lo
+    } <b>else</b> <b>if</b> (x &gt; hi) {
+        hi
+    } <b>else</b> {
+        x
+    }
 }
 </code></pre>
 
@@ -2844,8 +2885,9 @@ Overflow-safe average, floor. Result always fits u8.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u32">ceil_div_u32</a>(x: u32, y: u32): u32 {
     <b>assert</b>!(y &gt; 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
-    <b>if</b> (x == 0) { 0 }
-    <b>else</b> {
+    <b>if</b> (x == 0) {
+        0
+    } <b>else</b> {
         ((x - 1) / y) + 1
     }
 }
@@ -3106,8 +3148,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u64">min_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (x &lt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &lt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -3131,8 +3176,11 @@ Overflow-safe average, floor. Result always fits u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u64">max_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (x &gt; y) { x }
-    <b>else</b> { y }
+    <b>if</b> (x &gt; y) {
+        x
+    } <b>else</b> {
+        y
+    }
 }
 </code></pre>
 
@@ -3157,8 +3205,11 @@ Absolute difference. Useful for slippage / tolerance checks.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u64">diff_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -3182,8 +3233,11 @@ Absolute difference. Useful for slippage / tolerance checks.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u128">diff_u128</a>(x: u128, y: u128): u128 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -3207,8 +3261,11 @@ Absolute difference. Useful for slippage / tolerance checks.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u256">diff_u256</a>(x: u256, y: u256): u256 {
-    <b>if</b> (x &gt; y) { x - y }
-    <b>else</b> { y - x }
+    <b>if</b> (x &gt; y) {
+        x - y
+    } <b>else</b> {
+        y - x
+    }
 }
 </code></pre>
 
@@ -4394,7 +4451,7 @@ Floor rounding (favors pool). Aborts on zero reserves.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_quote_amount_out">quote_amount_out</a>(
     amount_in: u128,
     reserve_in: u128,
-    reserve_out: u128,
+    reserve_out: u128
 ): u128 {
     <b>assert</b>!(reserve_in &gt; 0 && reserve_out &gt; 0, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
     <a href="math.md#0x2_math_mul_div_u128">mul_div_u128</a>(amount_in, reserve_out, reserve_in + amount_in)
@@ -4424,7 +4481,7 @@ Same quote for u256 reserves (deep-liquidity pools).
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_quote_amount_out_u256">quote_amount_out_u256</a>(
     amount_in: u256,
     reserve_in: u256,
-    reserve_out: u256,
+    reserve_out: u256
 ): u256 {
     <b>assert</b>!(reserve_in &gt; 0 && reserve_out &gt; 0, <a href="math.md#0x2_math_E_INVALID_ARG">E_INVALID_ARG</a>);
     <a href="math.md#0x2_math_mul_div_u256">mul_div_u256</a>(amount_in, reserve_out, reserve_in + amount_in)
@@ -4479,7 +4536,7 @@ returns amount * price_num / price_den with floor rounding.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_apply_price_u256">apply_price_u256</a>(
     amount: u256,
     price_num: u256,
-    price_den: u256,
+    price_den: u256
 ): u256 {
     <a href="math.md#0x2_math_mul_div_u256">mul_div_u256</a>(amount, price_num, price_den)
 }
@@ -5486,8 +5543,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u8">saturating_add_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> - y) { <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> }
-    <b>else</b> { x + y }
+    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> - y) {
+        <a href="math.md#0x2_math_MAX_U8">MAX_U8</a>
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -5511,8 +5571,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u8">saturating_sub_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -5536,9 +5599,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u8">saturating_mul_u8</a>(x: u8, y: u8): u8 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> / y) { <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> }
-    <b>else</b> { x * y }
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> / y) {
+        <a href="math.md#0x2_math_MAX_U8">MAX_U8</a>
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -5563,8 +5630,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u8">saturating_pow_u8</a>(base: u8, exponent: u8): u8 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u8">try_pow_u8</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U8">MAX_U8</a>
+    }
 }
 </code></pre>
 
@@ -5590,8 +5660,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u8">saturating_mul_div_u8</a>(x: u8, y: u8, z: u8): u8 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u8">try_mul_div_u8</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U8">MAX_U8</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U8">MAX_U8</a>
+    }
 }
 </code></pre>
 
@@ -5615,8 +5688,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u16">saturating_add_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> - y) { <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> }
-    <b>else</b> { x + y }
+    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> - y) {
+        <a href="math.md#0x2_math_MAX_U16">MAX_U16</a>
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -5640,8 +5716,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u16">saturating_sub_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -5665,9 +5744,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u16">saturating_mul_u16</a>(x: u16, y: u16): u16 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> / y) { <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> }
-    <b>else</b> { x * y }
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> / y) {
+        <a href="math.md#0x2_math_MAX_U16">MAX_U16</a>
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -5692,8 +5775,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u16">saturating_pow_u16</a>(base: u16, exponent: u8): u16 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u16">try_pow_u16</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U16">MAX_U16</a>
+    }
 }
 </code></pre>
 
@@ -5719,8 +5805,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u16">saturating_mul_div_u16</a>(x: u16, y: u16, z: u16): u16 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u16">try_mul_div_u16</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U16">MAX_U16</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U16">MAX_U16</a>
+    }
 }
 </code></pre>
 
@@ -5744,8 +5833,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u32">saturating_add_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> - y) { <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> }
-    <b>else</b> { x + y }
+    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> - y) {
+        <a href="math.md#0x2_math_MAX_U32">MAX_U32</a>
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -5769,8 +5861,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u32">saturating_sub_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -5794,9 +5889,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u32">saturating_mul_u32</a>(x: u32, y: u32): u32 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> / y) { <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> }
-    <b>else</b> { x * y }
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> / y) {
+        <a href="math.md#0x2_math_MAX_U32">MAX_U32</a>
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -5821,8 +5920,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u32">saturating_pow_u32</a>(base: u32, exponent: u8): u32 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u32">try_pow_u32</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U32">MAX_U32</a>
+    }
 }
 </code></pre>
 
@@ -5848,8 +5950,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u32">saturating_mul_div_u32</a>(x: u32, y: u32, z: u32): u32 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u32">try_mul_div_u32</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U32">MAX_U32</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U32">MAX_U32</a>
+    }
 }
 </code></pre>
 
@@ -5873,8 +5978,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u64">saturating_add_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> - y) { <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> }
-    <b>else</b> { x + y }
+    <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> - y) {
+        <a href="math.md#0x2_math_MAX_U64">MAX_U64</a>
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -5898,8 +6006,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u64">saturating_sub_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -5923,9 +6034,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u64">saturating_mul_u64</a>(x: u64, y: u64): u64 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> / y) { <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> }
-    <b>else</b> { x * y }
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> / y) {
+        <a href="math.md#0x2_math_MAX_U64">MAX_U64</a>
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -5950,8 +6065,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u64">saturating_pow_u64</a>(base: u64, exponent: u8): u64 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u64">try_pow_u64</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U64">MAX_U64</a>
+    }
 }
 </code></pre>
 
@@ -5977,8 +6095,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u64">saturating_mul_div_u64</a>(x: u64, y: u64, z: u64): u64 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u64">try_mul_div_u64</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> { <a href="math.md#0x2_math_MAX_U64">MAX_U64</a> }
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
+        <a href="math.md#0x2_math_MAX_U64">MAX_U64</a>
+    }
 }
 </code></pre>
 
@@ -6004,7 +6125,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u128">saturating_add_u128</a>(x: u128, y: u128): u128 {
     <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U128">MAX_U128</a> - y) {
         <a href="math.md#0x2_math_MAX_U128">MAX_U128</a>
-    } <b>else</b> { x + y }
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -6028,8 +6151,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u128">saturating_sub_u128</a>(x: u128, y: u128): u128 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -6053,10 +6179,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u128">saturating_mul_u128</a>(x: u128, y: u128): u128 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U128">MAX_U128</a> / y) {
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U128">MAX_U128</a> / y) {
         <a href="math.md#0x2_math_MAX_U128">MAX_U128</a>
-    } <b>else</b> { x * y }
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -6081,8 +6210,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u128">saturating_pow_u128</a>(base: u128, exponent: u32): u128 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u128">try_pow_u128</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> {
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
         <a href="math.md#0x2_math_MAX_U128">MAX_U128</a>
     }
 }
@@ -6110,8 +6240,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u128">saturating_mul_div_u128</a>(x: u128, y: u128, z: u128): u128 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u128">try_mul_div_u128</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> {
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
         <a href="math.md#0x2_math_MAX_U128">MAX_U128</a>
     }
 }
@@ -6139,7 +6270,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u256">saturating_add_u256</a>(x: u256, y: u256): u256 {
     <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U256">MAX_U256</a> - y) {
         <a href="math.md#0x2_math_MAX_U256">MAX_U256</a>
-    } <b>else</b> { x + y }
+    } <b>else</b> {
+        x + y
+    }
 }
 </code></pre>
 
@@ -6163,8 +6296,11 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u256">saturating_sub_u256</a>(x: u256, y: u256): u256 {
-    <b>if</b> (y &gt; x) { 0 }
-    <b>else</b> { x - y }
+    <b>if</b> (y &gt; x) {
+        0
+    } <b>else</b> {
+        x - y
+    }
 }
 </code></pre>
 
@@ -6188,10 +6324,13 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u256">saturating_mul_u256</a>(x: u256, y: u256): u256 {
-    <b>if</b> (x == 0 || y == 0) { 0 }
-    <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U256">MAX_U256</a> / y) {
+    <b>if</b> (x == 0 || y == 0) {
+        0
+    } <b>else</b> <b>if</b> (x &gt; <a href="math.md#0x2_math_MAX_U256">MAX_U256</a> / y) {
         <a href="math.md#0x2_math_MAX_U256">MAX_U256</a>
-    } <b>else</b> { x * y }
+    } <b>else</b> {
+        x * y
+    }
 }
 </code></pre>
 
@@ -6216,8 +6355,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u256">saturating_pow_u256</a>(base: u256, exponent: u32): u256 {
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_pow_u256">try_pow_u256</a>(base, exponent);
-    <b>if</b> (ok) { v }
-    <b>else</b> {
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
         <a href="math.md#0x2_math_MAX_U256">MAX_U256</a>
     }
 }
@@ -6245,8 +6385,9 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u256">saturating_mul_div_u256</a>(x: u256, y: u256, z: u256): u256 {
     <b>assert</b>!(z != 0, <a href="math.md#0x2_math_E_DIVIDE_BY_ZERO">E_DIVIDE_BY_ZERO</a>);
     <b>let</b> (ok, v) = <a href="math.md#0x2_math_try_mul_div_u256">try_mul_div_u256</a>(x, y, z);
-    <b>if</b> (ok) { v }
-    <b>else</b> {
+    <b>if</b> (ok) {
+        v
+    } <b>else</b> {
         <a href="math.md#0x2_math_MAX_U256">MAX_U256</a>
     }
 }

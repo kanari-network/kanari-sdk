@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 module kanari_system::balance {
+
     // Minting/destroying entry points are friend-gated to `coin` (or
     // witness-gated for `new_supply`): an ungated public mint would let any
     // package forge `Balance<T>` of any coin and wrap it via
@@ -18,25 +19,29 @@ module kanari_system::balance {
     /// Balance resource - Stores the balance value (generic per token type)
     /// REMOVED `drop` ability to enforce explicit destruction via `destroy()`
     struct Balance<phantom T> has store {
-        value: u64,
+        value: u64
     }
 
     /// Supply: mutable minting handle consumed to create balances
     /// REMOVED `drop` ability to prevent accidental loss of minting authority
     struct Supply<phantom T> has store {
-        total: u64,
+        total: u64
     }
 
     /// Create a new zero-value Balance
     public fun zero<T>(): Balance<T> {
-        Balance<T> { value: 0 }
+        Balance<T> {
+            value: 0
+        }
     }
 
     /// Create a new Balance with an initial value.
     /// Friend-only: arbitrary public minting would forge value. `coin::mint`
     /// is the production path (backed by `TreasuryCap`).
     public(friend) fun create<T>(value: u64): Balance<T> {
-        Balance<T> { value }
+        Balance<T> {
+            value
+        }
     }
 
     /// Get the current balance value
@@ -70,7 +75,7 @@ module kanari_system::balance {
     public fun transfer<T>(
         from: &mut Balance<T>,
         to: &mut Balance<T>,
-        amount: u64,
+        amount: u64
     ) {
         assert!(amount > 0, ERR_ZERO_AMOUNT);
         decrease<T>(from, amount);
@@ -122,7 +127,9 @@ module kanari_system::balance {
     public fun new_supply<T: drop>(witness: T): Supply<T> {
         kanari_system::types::claim_witness(&witness);
         let _ = witness;
-        Supply<T> { total: 0 }
+        Supply<T> {
+            total: 0
+        }
     }
 
     /// Increase supply: add `amount` to `s` and return a `Balance` for the newly minted amount.
@@ -145,6 +152,7 @@ module kanari_system::balance {
 
     // Test-only supply cleanup: unpacks the handle explicitly.
     #[test_only]
+    /// Destroy supply for testing (burns remaining supply).
     public fun destroy_supply_for_testing<T>(s: Supply<T>) {
         let Supply { total: _ } = s;
     }
@@ -259,4 +267,5 @@ module kanari_system::balance {
         // Unreachable at runtime (aborts above), but satisfies the borrow checker.
         destroy_supply_for_testing(s);
     }
+
 }

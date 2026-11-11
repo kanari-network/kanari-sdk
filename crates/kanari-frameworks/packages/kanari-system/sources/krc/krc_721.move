@@ -6,6 +6,7 @@
 /// attributes live on the object, while ownership stays in the object runtime.
 /// Issuer modules may wrap `transfer` to enforce their own policies.
 module kanari_system::krc_721 {
+
     use std::string::{Self, String};
     use std::vector;
     use std::option::{Self, Option};
@@ -79,14 +80,14 @@ module kanari_system::krc_721 {
         image_url: Option<Url>,
         /// Per-token traits, keyed by name. Insertion order is preserved so a
         /// renderer shows them in the order the issuer chose.
-        attributes: VecMap<String, String>,
+        attributes: VecMap<String, String>
     }
 
     /// Mint index event: object id, original creator, then collection id.
     struct MintLog has copy, drop {
         object_id: address,
         creator: address,
-        collection_id: address,
+        collection_id: address
     }
 
     /// Collection-specific display fields for KRC-721 NFTs. The collection's
@@ -95,7 +96,7 @@ module kanari_system::krc_721 {
     struct CollectionDisplay has key, store {
         id: UID,
         collection_id: address,
-        fields: VecMap<String, String>,
+        fields: VecMap<String, String>
     }
 
     /// Shared binding between one KRC-721 collection and its transfer policy.
@@ -104,7 +105,7 @@ module kanari_system::krc_721 {
     struct CollectionPolicyScope has key, store {
         id: UID,
         policy_id: ID,
-        collection_id: address,
+        collection_id: address
     }
 
     /// Collection-owner authority for one KRC-721 transfer policy.
@@ -112,7 +113,7 @@ module kanari_system::krc_721 {
         id: UID,
         policy_id: ID,
         collection_id: address,
-        cap: TransferPolicyCap<Nft>,
+        cap: TransferPolicyCap<Nft>
     }
 
     /// Create metadata for a collection. The canonical KRC-721 type name is
@@ -121,7 +122,7 @@ module kanari_system::krc_721 {
         cap: &NftCap,
         keys: vector<vector<u8>>,
         values: vector<vector<u8>>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): CollectionDisplay {
         assert!(
             vector::length(&keys) == vector::length(&values),
@@ -136,14 +137,14 @@ module kanari_system::krc_721 {
             vec_map::insert(
                 &mut fields,
                 string::utf8(*vector::borrow(&keys, i)),
-                string::utf8(*vector::borrow(&values, i)),
+                string::utf8(*vector::borrow(&values, i))
             );
             i = i + 1;
         };
         CollectionDisplay {
             id: object::new(ctx),
             collection_id: collection::cap_collection_id(cap),
-            fields,
+            fields
         }
     }
 
@@ -155,7 +156,7 @@ module kanari_system::krc_721 {
     /// Read a collection display field, or `none` if it is absent.
     public fun collection_display_field(
         display: &CollectionDisplay,
-        name: vector<u8>,
+        name: vector<u8>
     ): Option<String> {
         let key = string::utf8(name);
         if (vec_map::contains(&display.fields, &key)) {
@@ -175,7 +176,7 @@ module kanari_system::krc_721 {
         display: &mut CollectionDisplay,
         cap: &NftCap,
         name: vector<u8>,
-        value: vector<u8>,
+        value: vector<u8>
     ) {
         assert!(
             display.collection_id == collection::cap_collection_id(cap),
@@ -193,7 +194,7 @@ module kanari_system::krc_721 {
     public fun remove_collection_display_field(
         display: &mut CollectionDisplay,
         cap: &NftCap,
-        name: vector<u8>,
+        name: vector<u8>
     ) {
         assert!(
             display.collection_id == collection::cap_collection_id(cap),
@@ -220,24 +221,26 @@ module kanari_system::krc_721 {
     public fun new_collection_policy(
         cap: &NftCap,
         collection_ref: &collection::Collection,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): (TransferPolicy<Nft>, CollectionPolicyScope, CollectionPolicyCap) {
         let collection_id = collection::collection_id(collection_ref);
         assert!(collection::cap_collection_id(cap) == collection_id, E_POLICY_COLLECTION_MISMATCH);
         let (policy, inner_cap) = transfer_policy::new_for_collection<Nft>(
-            cap, collection_ref, ctx
+            cap,
+            collection_ref,
+            ctx
         );
         let policy_id = transfer_policy::id(&policy);
         let scope = CollectionPolicyScope {
             id: object::new(ctx),
             policy_id,
-            collection_id,
+            collection_id
         };
         let policy_cap = CollectionPolicyCap {
             id: object::new(ctx),
             policy_id,
             collection_id,
-            cap: inner_cap,
+            cap: inner_cap
         };
         (policy, scope, policy_cap)
     }
@@ -267,7 +270,7 @@ module kanari_system::krc_721 {
         rule: Rule,
         policy: &mut TransferPolicy<Nft>,
         cap: &CollectionPolicyCap,
-        config: vector<u8>,
+        config: vector<u8>
     ) {
         assert_collection_policy_cap(policy, cap);
         transfer_policy::add_rule<Rule, Nft>(rule, policy, &cap.cap, config);
@@ -278,7 +281,7 @@ module kanari_system::krc_721 {
         rule: Rule,
         policy: &mut TransferPolicy<Nft>,
         cap: &CollectionPolicyCap,
-        config: vector<u8>,
+        config: vector<u8>
     ) {
         assert_collection_policy_cap(policy, cap);
         transfer_policy::replace_rule<Rule, Nft>(rule, policy, &cap.cap, config);
@@ -288,7 +291,7 @@ module kanari_system::krc_721 {
     public fun remove_collection_policy_rule<Rule: drop>(
         rule: Rule,
         policy: &mut TransferPolicy<Nft>,
-        cap: &CollectionPolicyCap,
+        cap: &CollectionPolicyCap
     ) {
         assert_collection_policy_cap(policy, cap);
         transfer_policy::remove_rule<Rule, Nft>(rule, policy, &cap.cap);
@@ -300,7 +303,7 @@ module kanari_system::krc_721 {
         scope: &CollectionPolicyScope,
         nft: &Nft,
         paid: u64,
-        from: ID,
+        from: ID
     ): TransferRequest<Nft> {
         assert!(scope.policy_id == transfer_policy::id(policy), E_POLICY_MISMATCH);
         transfer_policy::assert_collection_binding(policy, scope.collection_id);
@@ -328,7 +331,7 @@ module kanari_system::krc_721 {
         deny_list: &mut DenyList,
         cap: &NftCap,
         addr: address,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         deny_list::v1_add(
             deny_list,
@@ -343,7 +346,7 @@ module kanari_system::krc_721 {
     public fun deny_remove(
         deny_list: &mut DenyList,
         cap: &NftCap,
-        addr: address,
+        addr: address
     ) {
         deny_list::v1_remove(
             deny_list,
@@ -357,7 +360,7 @@ module kanari_system::krc_721 {
     public fun deny_pause(
         deny_list: &mut DenyList,
         cap: &NftCap,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ) {
         deny_list::v2_enable_global_pause(
             deny_list,
@@ -397,11 +400,12 @@ module kanari_system::krc_721 {
 
     // Construct an unindexed NFT fixture for unit tests only.
     #[test_only]
+    /// Creates a new NFT collection.
     public fun create(
         name: String,
         description: Option<String>,
         image_url: Option<Url>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         create_with_attributes(
             name,
@@ -415,13 +419,14 @@ module kanari_system::krc_721 {
 
     // Construct a test fixture from parallel key and value vectors.
     #[test_only]
+    /// Creates a new NFT collection with attributes.
     public fun create_with_attributes(
         name: String,
         description: Option<String>,
         image_url: Option<Url>,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
@@ -439,12 +444,13 @@ module kanari_system::krc_721 {
 
     // Construct a test fixture whose attributes are already a `VecMap`.
     #[test_only]
+    /// Converts a vec map to attributes.
     public fun from_vec_map(
         name: String,
         description: Option<String>,
         image_url: Option<Url>,
         attributes: VecMap<String, String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         assert!(vec_map::size(&attributes) <= MAX_ATTRIBUTES, E_TOO_MANY_ATTRIBUTES);
         Nft {
@@ -471,7 +477,7 @@ module kanari_system::krc_721 {
         nft: Nft,
         recipient: address,
         deny: &DenyList,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         let collection_id = nft.collection;
         let sender = tx_context::sender(ctx);
@@ -486,7 +492,7 @@ module kanari_system::krc_721 {
     public fun transfer_with_global_deny(
         nft: Nft,
         recipient: address,
-        ctx: &TxContext,
+        ctx: &TxContext
     ) {
         transfer_checked(nft, recipient, deny_list::borrow_singleton(), ctx)
     }
@@ -501,7 +507,7 @@ module kanari_system::krc_721 {
         nft: &mut Nft,
         name: String,
         description: Option<String>,
-        image_url: Option<Url>,
+        image_url: Option<Url>
     ) {
         nft.name = name;
         nft.description = description;
@@ -510,6 +516,7 @@ module kanari_system::krc_721 {
 
     // Test-only destruction for metadata and attribute unit tests.
     #[test_only]
+    /// Destroys an NFT for testing.
     public fun destroy_for_test(nft: Nft) {
         let Nft {
             id,
@@ -534,7 +541,7 @@ module kanari_system::krc_721 {
         image_url: Option<Url>,
         attribute_keys: vector<String>,
         attribute_values: vector<String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         let attributes = build_attributes(attribute_keys, attribute_values);
         collection::consume_for_mint(cap, collection_ref);
@@ -548,11 +555,13 @@ module kanari_system::krc_721 {
             image_url,
             attributes
         };
-        event::emit(MintLog {
-            object_id: object::uid_address(&nft.id),
-            creator: tx_context::sender(ctx),
-            collection_id: nft.collection
-        });
+        event::emit(
+            MintLog {
+                object_id: object::uid_address(&nft.id),
+                creator: tx_context::sender(ctx),
+                collection_id: nft.collection
+            }
+        );
         nft
     }
 
@@ -564,7 +573,7 @@ module kanari_system::krc_721 {
         description: Option<String>,
         image_url: Option<Url>,
         attributes: VecMap<String, String>,
-        ctx: &mut TxContext,
+        ctx: &mut TxContext
     ): Nft {
         assert!(vec_map::size(&attributes) <= MAX_ATTRIBUTES, E_TOO_MANY_ATTRIBUTES);
         collection::consume_for_mint(cap, collection_ref);
@@ -578,11 +587,13 @@ module kanari_system::krc_721 {
             image_url,
             attributes
         };
-        event::emit(MintLog {
-            object_id: object::uid_address(&nft.id),
-            creator: tx_context::sender(ctx),
-            collection_id: nft.collection
-        });
+        event::emit(
+            MintLog {
+                object_id: object::uid_address(&nft.id),
+                creator: tx_context::sender(ctx),
+                collection_id: nft.collection
+            }
+        );
         nft
     }
 
@@ -591,7 +602,7 @@ module kanari_system::krc_721 {
     public fun burn(
         cap: &mut NftCap,
         collection_ref: &collection::Collection,
-        nft: Nft,
+        nft: Nft
     ) {
         assert!(
             nft.collection == collection::collection_id(collection_ref),
@@ -620,6 +631,7 @@ module kanari_system::krc_721 {
         object::uid_address(&nft.id)
     }
 
+    /// Returns the collection address for an NFT.
     public fun collection_of(nft: &Nft): address {
         nft.collection
     }
@@ -683,7 +695,7 @@ module kanari_system::krc_721 {
     public fun set_attributes(
         nft: &mut Nft,
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
+        attribute_values: vector<String>
     ) {
         let attribute_keys = attribute_keys;
         let attribute_values = attribute_values;
@@ -717,7 +729,7 @@ module kanari_system::krc_721 {
     /// reimplementing (or forgetting) the guard.
     public fun build_attributes(
         attribute_keys: vector<String>,
-        attribute_values: vector<String>,
+        attribute_values: vector<String>
     ): VecMap<String, String> {
         assert!(
             vector::length(&attribute_keys) == vector::length(&attribute_values),
@@ -741,7 +753,7 @@ module kanari_system::krc_721 {
     /// The value under `key` in `attributes`, or `none`.
     public fun attribute_of(
         attributes: &VecMap<String, String>,
-        key: &String,
+        key: &String
     ): Option<String> {
         vec_map::try_get(attributes, key)
     }
@@ -749,7 +761,7 @@ module kanari_system::krc_721 {
     /// True iff `key` is present in `attributes`.
     public fun has_attribute_in(
         attributes: &VecMap<String, String>,
-        key: &String,
+        key: &String
     ): bool {
         vec_map::contains(attributes, key)
     }
@@ -766,7 +778,7 @@ module kanari_system::krc_721 {
 
     /// Every `(key, value)` pair in insertion order, index-aligned.
     public fun all_attributes_of(
-        attributes: &VecMap<String, String>,
+        attributes: &VecMap<String, String>
     ): (vector<String>, vector<String>) {
         let keys = vec_map::keys(attributes);
         let values = vector::empty<String>();
@@ -784,7 +796,7 @@ module kanari_system::krc_721 {
     public fun set_attribute_on(
         attributes: &mut VecMap<String, String>,
         key: String,
-        value: String,
+        value: String
     ) {
         if (vec_map::contains(attributes, &key)) {
             let (_removed_key, _removed_value) = vec_map::remove(attributes, &key);
@@ -800,7 +812,7 @@ module kanari_system::krc_721 {
     /// Remove `key` from `attributes`, returning its value. Aborts if absent.
     public fun remove_attribute_from(
         attributes: &mut VecMap<String, String>,
-        key: &String,
+        key: &String
     ): String {
         let (_removed_key, value) = vec_map::remove(attributes, key);
         value
@@ -826,13 +838,12 @@ module kanari_system::krc_721 {
     #[test]
     fun test_nft_lifecycle() {
         let ctx = tx_context::dummy();
-        let nft =
-            create(
-                string_alias::utf8(b"One"),
-                option_alias::some(string_alias::utf8(b"First")),
-                option_alias::none<Url>(),
-                &mut ctx
-            );
+        let nft = create(
+            string_alias::utf8(b"One"),
+            option_alias::some(string_alias::utf8(b"First")),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
 
         // The object id is the token id; there is no separate counter.
         assert!(id(&nft) != id_from(@0x9), 0);
@@ -866,15 +877,14 @@ module kanari_system::krc_721 {
         vector::push_back(&mut keys, string_alias::utf8(b"Rarity"));
         vector::push_back(&mut values, string_alias::utf8(b"Rare"));
 
-        let nft =
-            create_with_attributes(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                keys,
-                values,
-                &mut ctx
-            );
+        let nft = create_with_attributes(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            keys,
+            values,
+            &mut ctx
+        );
 
         assert!(attribute_count(&nft) == 3, 0);
         assert!(has_attribute(&nft, &string_alias::utf8(b"Attack")), 1);
@@ -910,13 +920,12 @@ module kanari_system::krc_721 {
     /// changed does not need a remove-then-insert dance.
     fun test_set_attribute_upserts() {
         let ctx = tx_context::dummy();
-        let nft =
-            create(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                &mut ctx
-            );
+        let nft = create(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
         assert!(attribute_count(&nft) == 0, 0);
 
         set_attribute(&mut nft, string_alias::utf8(b"Level"), string_alias::utf8(b"1"));
@@ -944,15 +953,14 @@ module kanari_system::krc_721 {
         let values = vector::empty<String>();
         vector::push_back(&mut keys, string_alias::utf8(b"Level"));
         vector::push_back(&mut values, string_alias::utf8(b"7"));
-        let nft =
-            create_with_attributes(
-                string_alias::utf8(b"Before"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                keys,
-                values,
-                &mut ctx
-            );
+        let nft = create_with_attributes(
+            string_alias::utf8(b"Before"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            keys,
+            values,
+            &mut ctx
+        );
 
         update(
             &mut nft,
@@ -977,13 +985,12 @@ module kanari_system::krc_721 {
     /// update path, and it swaps the whole set rather than merging.
     fun test_set_attributes_replaces_the_whole_set() {
         let ctx = tx_context::dummy();
-        let nft =
-            create(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                &mut ctx
-            );
+        let nft = create(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
         set_attribute(&mut nft, string_alias::utf8(b"Old"), string_alias::utf8(b"gone"));
 
         let keys = vector::empty<String>();
@@ -1011,15 +1018,14 @@ module kanari_system::krc_721 {
         vector::push_back(&mut keys, string_alias::utf8(b"Attack"));
         // One key, no values.
         vector::push_back(&mut values, string_alias::utf8(b"10"));
-        let nft =
-            create_with_attributes(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                keys,
-                values,
-                &mut ctx
-            );
+        let nft = create_with_attributes(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            keys,
+            values,
+            &mut ctx
+        );
         destroy_for_test(nft);
     }
 
@@ -1027,13 +1033,12 @@ module kanari_system::krc_721 {
     #[expected_failure(abort_code = E_TOO_MANY_ATTRIBUTES)]
     fun test_attribute_count_is_bounded() {
         let ctx = tx_context::dummy();
-        let nft =
-            create(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                &mut ctx
-            );
+        let nft = create(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
         let i = 0;
         while (i <= MAX_ATTRIBUTES) {
             // `MAX_ATTRIBUTES + 1` distinct keys trips the bound.
@@ -1049,13 +1054,12 @@ module kanari_system::krc_721 {
     /// checked before knowing whether the key already existed.
     fun test_updating_at_the_limit_is_allowed() {
         let ctx = tx_context::dummy();
-        let nft =
-            create(
-                string_alias::utf8(b"Kid"),
-                option_alias::none<String>(),
-                option_alias::none<Url>(),
-                &mut ctx
-            );
+        let nft = create(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
         let i = 0;
         while (i < MAX_ATTRIBUTES) {
             set_attribute(&mut nft, key_n(i), string_alias::utf8(b"v"));
@@ -1103,4 +1107,5 @@ module kanari_system::krc_721 {
     fun id_from(addr: address): ID {
         object::id_from_address(addr)
     }
+
 }

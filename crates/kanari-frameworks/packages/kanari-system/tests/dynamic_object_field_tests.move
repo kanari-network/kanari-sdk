@@ -1,5 +1,6 @@
 #[test_only]
 module kanari_system::dynamic_object_field_tests {
+
     use std::option;
     use kanari_system::dynamic_field;
     use kanari_system::dynamic_object_field as dof;
@@ -7,23 +8,25 @@ module kanari_system::dynamic_object_field_tests {
     use kanari_system::tx_context;
 
     struct Host has key, store {
-        id: UID,
+        id: UID
     }
 
     struct Child has key, store {
         id: UID,
-        value: u64,
+        value: u64
     }
 
     // `id` is required as the first field of a `key` struct but never read: this type only
     // exists to be attached and queried as a dynamic object field.
     #[allow(unused_field)]
     struct Other has key, store {
-        id: UID,
+        id: UID
     }
 
     fun new_host(ctx: &mut tx_context::TxContext): Host {
-        Host { id: object::new(ctx) }
+        Host {
+            id: object::new(ctx)
+        }
     }
 
     #[test]
@@ -36,7 +39,10 @@ module kanari_system::dynamic_object_field_tests {
         assert!(!dof::exists_with_type<u64, Child>(&host.id, 3), 1);
         assert!(option::is_none(&dof::id(&host.id, 3)), 2);
 
-        let child = Child { id: object::new(ctx), value: 500 };
+        let child = Child {
+            id: object::new(ctx),
+            value: 500
+        };
         let want = object::uid_address(&child.id);
         dof::add<u64, Child>(&mut host.id, 3, child);
 
@@ -88,4 +94,5 @@ module kanari_system::dynamic_object_field_tests {
         let Host { id } = host;
         object::delete(id);
     }
+
 }

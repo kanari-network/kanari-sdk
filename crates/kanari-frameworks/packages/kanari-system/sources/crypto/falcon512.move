@@ -3,13 +3,16 @@
 
 /// FIPS 206 FN-DSA-512 / Falcon-512 verification.
 module kanari_system::falcon512 {
+
     const PUBLIC_KEY_LENGTH: u64 = 897;
     const MAX_SIGNATURE_LENGTH: u64 = 1024;
 
+    /// Returns the public key length for Falcon-512.
     public fun public_key_length(): u64 {
         PUBLIC_KEY_LENGTH
     }
 
+    /// Returns the maximum signature length for Falcon-512.
     public fun max_signature_length(): u64 {
         MAX_SIGNATURE_LENGTH
     }
@@ -17,7 +20,7 @@ module kanari_system::falcon512 {
     public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -76,4 +79,5 @@ module kanari_system::falcon512 {
             1
         );
     }
+
 }

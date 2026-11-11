@@ -3,13 +3,16 @@
 
 /// NIST ML-DSA / Dilithium2 verification.
 module kanari_system::dilithium2 {
+
     const PUBLIC_KEY_LENGTH: u64 = 1312;
     const SIGNATURE_LENGTH: u64 = 2420;
 
+    /// Returns the public key length for Dilithium2.
     public fun public_key_length(): u64 {
         PUBLIC_KEY_LENGTH
     }
 
+    /// Returns the signature length for Dilithium2.
     public fun signature_length(): u64 {
         SIGNATURE_LENGTH
     }
@@ -17,7 +20,7 @@ module kanari_system::dilithium2 {
     public native fun verify(
         signature: &vector<u8>,
         public_key: &vector<u8>,
-        message: &vector<u8>,
+        message: &vector<u8>
     ): bool;
 
     #[test]
@@ -43,4 +46,5 @@ module kanari_system::dilithium2 {
             0
         );
     }
+
 }

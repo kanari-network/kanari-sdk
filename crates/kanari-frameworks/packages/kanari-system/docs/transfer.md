@@ -162,7 +162,11 @@ Validates: amount > 0 AND from != to
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_create_transfer">create_transfer</a>(from: <b>address</b>, <b>to</b>: <b>address</b>, amount: u64): <a href="transfer.md#0x2_transfer_Transfer">Transfer</a> {
     <b>assert</b>!(amount &gt; 0, <a href="transfer.md#0x2_transfer_ERR_INVALID_AMOUNT">ERR_INVALID_AMOUNT</a>);
     <b>assert</b>!(from != <b>to</b>, <a href="transfer.md#0x2_transfer_ERR_SAME_ADDRESS">ERR_SAME_ADDRESS</a>);
-    <a href="transfer.md#0x2_transfer_Transfer">Transfer</a> { from, <b>to</b>, amount }
+    <a href="transfer.md#0x2_transfer_Transfer">Transfer</a> {
+        from,
+        <b>to</b>,
+        amount
+    }
 }
 </code></pre>
 

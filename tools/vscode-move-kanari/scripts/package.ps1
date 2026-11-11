@@ -1,4 +1,6 @@
-# Builds move-analyzer, bundles it into the extension, packages a .vsix and installs it.
+# Builds kanari-move-analyzer (single binary, move-analyzer linked as lib),
+# bundles it into the extension, packages a .vsix and installs it.
+# kanari-move-analyzer repairs ~/.move caches before starting the LSP.
 # Usage (repo root): powershell -File tools\vscode-move-kanari\scripts\package.ps1
 $ErrorActionPreference = 'Stop'
 
@@ -6,15 +8,19 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 $extDir = Join-Path $repoRoot 'tools\vscode-move-kanari'
 $analyzerDir = Join-Path $repoRoot 'third_party\move'
 
-Write-Host '==> Building move-analyzer (release)...'
-cargo build --release -p move-analyzer --manifest-path (Join-Path $analyzerDir 'Cargo.toml')
+Write-Host '==> Building kanari-move-analyzer (release)...'
+cargo build --release -p kanari-move-analyzer --manifest-path (Join-Path $repoRoot 'Cargo.toml')
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 
-$exeName = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'move-analyzer.exe' } else { 'move-analyzer' }
 $serverDir = Join-Path $extDir 'language-server'
 New-Item -ItemType Directory -Force -Path $serverDir | Out-Null
-Copy-Item (Join-Path $analyzerDir "target\release\$exeName") (Join-Path $serverDir $exeName) -Force
-Write-Host "==> Bundled $exeName"
+# Single binary only — drop the old stock move-analyzer.exe if present.
+Remove-Item (Join-Path $serverDir 'move-analyzer.exe') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $serverDir 'move-analyzer') -Force -ErrorAction SilentlyContinue
+
+$wrapExe = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'kanari-move-analyzer.exe' } else { 'kanari-move-analyzer' }
+Copy-Item (Join-Path $repoRoot "target\release\$wrapExe") (Join-Path $serverDir $wrapExe) -Force
+Write-Host "==> Bundled $moveExe + $wrapExe"
 
 $pluginDir = Join-Path $analyzerDir 'crates\move-analyzer\prettier-plugin'
 Write-Host '==> Building prettier-plugin-move...'
