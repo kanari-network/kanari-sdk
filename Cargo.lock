@@ -3749,7 +3749,6 @@ name = "kanari-e2e-tests"
 version = "0.3.9"
 dependencies = [
  "anyhow",
- "bcs",
  "kanari-auth",
  "kanari-common",
  "kanari-core",
@@ -3770,9 +3769,7 @@ dependencies = [
  "move-binary-format",
  "move-core-types",
  "move-package",
- "serde_json",
  "smt",
- "tempfile",
  "tokio",
  "tracing",
 ]
@@ -3865,7 +3862,6 @@ dependencies = [
 name = "kanari-move-audit"
 version = "0.3.9"
 dependencies = [
- "anyhow",
  "serde",
  "tree-sitter",
  "tree-sitter-move",

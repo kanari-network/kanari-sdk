@@ -21,7 +21,6 @@ serde_json = { workspace = true }
 rocksdb = { workspace = true }
 hex = { workspace = true }
 sha3 = { workspace = true }
-arbitrary = { workspace = true }
 
 # Move VM dependencies (use workspace/local paths similar to other crates)
 move-core-types = { workspace = true }
@@ -46,6 +45,7 @@ kanari-frameworks = { workspace = true }
 tempfile = { workspace = true }
 kanari-types = { workspace = true }
 proptest = { workspace = true }
+arbitrary = { workspace = true }
 
 [build-dependencies]
 move-package = { workspace = true }

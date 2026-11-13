@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(unreachable_code)]
+
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p_core::{Multiaddr, PeerId, Transport, upgrade};

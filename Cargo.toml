@@ -312,6 +312,8 @@ kanari-db-common = { path = "crates/kanari-db-common" }
 kanari-open-rpc = { path = "crates/kanari-open-rpc" }
 kanari-open-rpc-macros = { path = "crates/kanari-open-rpc-macros" }
 kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
+kanari-open-rpc-spec-builder = { path = "crates/kanari-open-rpc-spec-builder" }
+kanari-indexer = { path = "crates/kanari-indexer" }
 
 # SMT Support
 smt = { path = "crates/smt" }
