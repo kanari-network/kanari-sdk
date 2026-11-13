@@ -25,7 +25,7 @@ enum class KanariEnvironment(
     val escrow: EscrowDeployment
 ) {
     local("http://10.0.2.2:6767/", "http://10.0.2.2:3000/", defaultDeepbookDeployment, defaultEscrowDeployment),
-    dev("http://192.168.1.104:19001/", "http://10.0.2.2:3000/", defaultDeepbookDeployment, defaultEscrowDeployment);
+    dev("http://192.168.1.100:19001/", "http://10.0.2.2:3000/", defaultDeepbookDeployment, defaultEscrowDeployment);
 
     val rpcUrl: String get() = "${url.removeSuffix("/")}/rpc"
     val baseUrl: String get() = url

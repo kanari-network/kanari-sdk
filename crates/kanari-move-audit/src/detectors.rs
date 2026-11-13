@@ -976,15 +976,12 @@ fn is_skipped_integer_overflow(text: &str, trimmed: &str) -> bool {
         return true;
     }
     // Arithmetic involving compile-time constants (uppercase identifiers).
-    let has_const = text.split(|c: char| !c.is_alphanumeric() && c != '_').any(|tok| {
+
+    text.split(|c: char| !c.is_alphanumeric() && c != '_').any(|tok| {
         !tok.is_empty()
             && tok.chars().any(|c| c.is_ascii_uppercase())
             && tok.chars().all(|c| c.is_ascii_uppercase() || c == '_')
-    });
-    if has_const {
-        return true;
-    }
-    false
+    })
 }
 
 /// Collect binary expressions involving `+` or `*` on integer types.
