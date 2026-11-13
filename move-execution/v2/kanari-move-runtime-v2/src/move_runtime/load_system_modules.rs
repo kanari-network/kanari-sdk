@@ -57,11 +57,7 @@ pub(crate) const KANARI_SYSTEM_BYTECODE_SEGMENTS: &[&str] = &[
 ];
 
 fn mv_filename(name: &str) -> String {
-    if name.ends_with(".mv") {
-        name.to_owned()
-    } else {
-        format!("{name}.mv")
-    }
+    if name.ends_with(".mv") { name.to_owned() } else { format!("{name}.mv") }
 }
 
 fn is_test_module_artifact(file_name: &str, module_name: &str) -> bool {
@@ -106,22 +102,12 @@ fn ensure_production_build_artifacts(modules_dir: &Path) -> Result<()> {
     );
 
     let mut sink = std::io::sink();
-    BuildConfig::default()
-        .compile_package(&package_root, &mut sink)
-        .map_err(|e| {
-            anyhow!(
-                "Failed to rebuild production Move package at {}: {}",
-                package_root.display(),
-                e
-            )
-        })?;
+    BuildConfig::default().compile_package(&package_root, &mut sink).map_err(|e| {
+        anyhow!("Failed to rebuild production Move package at {}: {}", package_root.display(), e)
+    })?;
 
     let refreshed = std::fs::read_to_string(&build_info).map_err(|e| {
-        anyhow!(
-            "Failed to re-read BuildInfo after rebuilding {}: {}",
-            build_info.display(),
-            e
-        )
+        anyhow!("Failed to re-read BuildInfo after rebuilding {}: {}", build_info.display(), e)
     })?;
     if refreshed.contains("test_mode: true") {
         return Err(anyhow!(
@@ -196,14 +182,7 @@ fn discover_modules_in_dir(
         }
 
         let deps = compiled.immediate_dependencies();
-        modules.push(DiscoveredModule {
-            module_id,
-            module_name,
-            file_name,
-            bytes,
-            compiled,
-            deps,
-        });
+        modules.push(DiscoveredModule { module_id, module_name, file_name, bytes, compiled, deps });
     }
 
     modules.sort_by(|a, b| a.file_name.cmp(&b.file_name));
@@ -320,11 +299,7 @@ fn compute_framework_manifest_and_hash(
     let mut manifest: Vec<(String, String)> = modules
         .iter()
         .map(|m| {
-            let id = format!(
-                "{}::{}",
-                m.module_id.address().to_hex_literal(),
-                m.module_id.name()
-            );
+            let id = format!("{}::{}", m.module_id.address().to_hex_literal(), m.module_id.name());
             let h = hex::encode(hash_data_blake3(&m.bytes));
             (id, h)
         })
@@ -354,12 +329,7 @@ fn verify_framework_hash(
     if let Some(prev) = state.try_get_framework_hash(framework_id)?
         && prev != hash_hex
     {
-        warn!(
-            "{}",
-            changed_warning
-                .replace("{prev}", &prev)
-                .replace("{hash}", &hash_hex)
-        );
+        warn!("{}", changed_warning.replace("{prev}", &prev).replace("{hash}", &hash_hex));
     }
     state.save_framework_manifest(framework_id, &manifest, &hash_hex)?;
     if let Ok(expected) = std::env::var(expected_env_var)
@@ -415,10 +385,7 @@ fn save_framework_modules(
             let old_norm = normalized::Module::new(&old_compiled);
             let new_norm = normalized::Module::new(&m.compiled);
             if let Err(e) = Compatibility::full_check().check(&old_norm, &new_norm) {
-                if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE")
-                    .ok()
-                    .as_deref()
-                    != Some("1")
+                if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE").ok().as_deref() != Some("1")
                 {
                     return Err(anyhow!(
                         "Incompatible {} upgrade for {} (set KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE=1 to override): {:?}",
@@ -505,10 +472,7 @@ impl super::MoveRuntime {
             warn!(
                 "Move stdlib artifacts not found on disk; using bytecode embedded in this binary"
             );
-            topo_sort_modules(discover_embedded_modules(
-                EMBEDDED_MOVE_STDLIB_MODULES,
-                std_addr,
-            ))?
+            topo_sort_modules(discover_embedded_modules(EMBEDDED_MOVE_STDLIB_MODULES, std_addr))?
         };
         if modules.is_empty() {
             return Err(anyhow::anyhow!(
@@ -586,10 +550,7 @@ impl super::MoveRuntime {
         let stdlib_modules = if !use_embedded && stdlib_dir.exists() {
             topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?
         } else {
-            topo_sort_modules(discover_embedded_modules(
-                EMBEDDED_MOVE_STDLIB_MODULES,
-                std_addr,
-            ))?
+            topo_sort_modules(discover_embedded_modules(EMBEDDED_MOVE_STDLIB_MODULES, std_addr))?
         };
         let all_deps: Vec<&CompiledModule> = stdlib_modules
             .iter()
@@ -616,10 +577,7 @@ impl super::MoveRuntime {
 
 pub(crate) fn load_embedded_kanari_system_modules() -> Result<Vec<DiscoveredModule>> {
     let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
-    topo_sort_modules(discover_embedded_modules(
-        EMBEDDED_KANARI_SYSTEM_MODULES,
-        system_addr,
-    ))
+    topo_sort_modules(discover_embedded_modules(EMBEDDED_KANARI_SYSTEM_MODULES, system_addr))
 }
 
 #[cfg(test)]
@@ -632,10 +590,6 @@ mod embedded_framework_tests {
         assert!(!modules.is_empty());
         let expected =
             AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
-        assert!(
-            modules
-                .iter()
-                .all(|module| *module.module_id.address() == expected)
-        );
+        assert!(modules.iter().all(|module| *module.module_id.address() == expected));
     }
 }

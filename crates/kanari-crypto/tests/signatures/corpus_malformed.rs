@@ -65,18 +65,7 @@ fn seeded_hybrid_signature_truncations_do_not_verify() {
         let message = b"hybrid truncation corpus";
         let signature = sign_message(&keypair.private_key, message, curve).unwrap();
 
-        for len in [
-            0,
-            1,
-            2,
-            3,
-            4,
-            8,
-            16,
-            32,
-            64,
-            signature.len().saturating_sub(1),
-        ] {
+        for len in [0, 1, 2, 3, 4, 8, 16, 32, 64, signature.len().saturating_sub(1)] {
             let truncated = &signature[..len.min(signature.len())];
             let result =
                 verify_signature_with_curve(&keypair.public_key, message, truncated, curve);

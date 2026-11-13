@@ -33,10 +33,8 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
 
     let sender_count = configured_sender_count(config);
     eprintln!("Deriving {sender_count} deterministic benchmark senders...");
-    let use_funded_owned_workload = matches!(
-        config.mode,
-        HarnessMode::OwnedFastPath | HarnessMode::Production
-    );
+    let use_funded_owned_workload =
+        matches!(config.mode, HarnessMode::OwnedFastPath | HarnessMode::Production);
     if use_funded_owned_workload {
         eprintln!("Using funded owned-object fanout workload for successful fastpath commits.");
     } else {
@@ -134,10 +132,7 @@ fn maybe_print_rocksdb_profile(engine: &kanari_core::BlockchainEngine) {
     if env_flag("KANARI_BENCH_ROCKSDB_COMPACT_PROFILE") {
         let started = Instant::now();
         store.compact();
-        eprintln!(
-            "RocksDB compact profile: compact_secs={:.6}",
-            started.elapsed().as_secs_f64()
-        );
+        eprintln!("RocksDB compact profile: compact_secs={:.6}", started.elapsed().as_secs_f64());
         print_rocksdb_profile(store, "post-compact");
     }
 }
@@ -181,27 +176,17 @@ fn print_rocksdb_profile(
 }
 
 pub fn run_many(config: &HarnessConfig) -> Result<Vec<HarnessReport>> {
-    (0..config.runs)
-        .map(|_| run_harness(config))
-        .collect::<Result<Vec<_>>>()
+    (0..config.runs).map(|_| run_harness(config)).collect::<Result<Vec<_>>>()
 }
 
 pub fn render_reports(config: &HarnessConfig, reports: &[HarnessReport]) -> String {
     if reports.len() == 1 {
-        return if config.json {
-            reports[0].render_json()
-        } else {
-            reports[0].render_text()
-        };
+        return if config.json { reports[0].render_json() } else { reports[0].render_text() };
     }
 
     let (min_tps, median_tps, max_tps) = tps_summary(reports);
     if config.json {
-        let runs = reports
-            .iter()
-            .map(HarnessReport::render_json)
-            .collect::<Vec<_>>()
-            .join(",");
+        let runs = reports.iter().map(HarnessReport::render_json).collect::<Vec<_>>().join(",");
         format!(
             "{{\"runs\":{},\"median_tps\":{:.6},\"min_tps\":{:.6},\"max_tps\":{:.6},\"results\":[{}]}}",
             config.runs, median_tps, min_tps, max_tps, runs
@@ -221,9 +206,7 @@ pub fn render_reports(config: &HarnessConfig, reports: &[HarnessReport]) -> Stri
 pub fn ensure_targets(reports: &[HarnessReport]) -> Result<()> {
     if reports.len() > 1
         && let Some(target_tps) = reports.first().and_then(|report| report.target_tps)
-        && reports
-            .iter()
-            .all(|report| report.target_tps == Some(target_tps))
+        && reports.iter().all(|report| report.target_tps == Some(target_tps))
     {
         let (_, median_tps, _) = tps_summary(reports);
         if median_tps < target_tps {
@@ -263,9 +246,7 @@ fn configured_sender_count(config: &HarnessConfig) -> usize {
     config
         .sender_count
         .or_else(|| {
-            std::env::var("KANARI_BENCH_SENDERS")
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
+            std::env::var("KANARI_BENCH_SENDERS").ok().and_then(|value| value.parse::<usize>().ok())
         })
         .unwrap_or(DEFAULT_SENDER_COUNT)
         .min(config.tx_count)

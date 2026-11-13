@@ -131,9 +131,7 @@ impl MoveRuntime {
             MoveValue::U64(epoch_timestamp_ms),
             MoveValue::U64(0),
         ]));
-        move_value
-            .simple_serialize()
-            .require("Failed to serialize TxContext MoveValue")
+        move_value.simple_serialize().require("Failed to serialize TxContext MoveValue")
     }
 
     pub(super) fn synthesize_otw_bytes_from_layout(layout: &MoveTypeLayout) -> Option<Vec<u8>> {

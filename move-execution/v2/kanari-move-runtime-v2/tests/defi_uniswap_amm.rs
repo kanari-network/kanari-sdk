@@ -81,11 +81,7 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         &module_id,
         "add_liquidity",
         type_tags(&[USD_TYPE, KAN_TYPE])?,
-        vec![
-            object_arg(&pool_id)?,
-            object_arg(&usd_coin)?,
-            object_arg(&kan_coin)?,
-        ],
+        vec![object_arg(&pool_id)?, object_arg(&usd_coin)?, object_arg(&kan_coin)?],
         vec![
             owned_input(&pool_id, sender, true),
             owned_input(&usd_coin, sender, true),
@@ -94,22 +90,11 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         &mut nonce,
     )?;
     let usd_drained = find_created(&add, |t| t.contains("coin::Coin") && t.contains("USD_MOCK"))?;
-    assert_eq!(
-        coin_balance(&usd_drained.data),
-        0,
-        "add_liquidity must drain the USD coin"
-    );
+    assert_eq!(coin_balance(&usd_drained.data), 0, "add_liquidity must drain the USD coin");
     let kan_drained = find_created(&add, |t| t.contains("coin::Coin") && t.contains("KAN_MOCK"))?;
-    assert_eq!(
-        coin_balance(&kan_drained.data),
-        0,
-        "add_liquidity must drain the KAN coin"
-    );
+    assert_eq!(coin_balance(&kan_drained.data), 0, "add_liquidity must drain the KAN coin");
     let receipt = find_created(&add, |t| t.contains("::uniswap_amm::Receipt"))?;
-    assert_eq!(
-        receipt.owner, sender,
-        "LP receipt must be owned by the sender"
-    );
+    assert_eq!(receipt.owner, sender, "LP receipt must be owned by the sender");
     let initial_shares = initial_lp_shares();
     let add_data = find_event_data(&add, "::AddLiquidityEvent")?;
     assert_eq!(add_data.len(), 40, "AddLiquidityEvent is address + u64");
@@ -129,10 +114,7 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
 
     let expected_out = expected_swap_out(SWAP_IN, USD_INITIAL, KAN_INITIAL);
     let quoted = quote_view(&reader, &pool_id, SWAP_IN)?;
-    assert_eq!(
-        quoted, expected_out,
-        "quote view must match the Rust-side formula"
-    );
+    assert_eq!(quoted, expected_out, "quote view must match the Rust-side formula");
 
     // Exact-in swap at the quoted rate.
     let swap_in_coin = mint(&writer, &module_id, USD_TYPE, SWAP_IN, &mut nonce)?;
@@ -141,28 +123,13 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         &module_id,
         "swap_exact_x_for_y",
         type_tags(&[USD_TYPE, KAN_TYPE])?,
-        vec![
-            object_arg(&pool_id)?,
-            object_arg(&swap_in_coin)?,
-            bcs::to_bytes(&expected_out)?,
-        ],
-        vec![
-            owned_input(&pool_id, sender, true),
-            owned_input(&swap_in_coin, sender, true),
-        ],
+        vec![object_arg(&pool_id)?, object_arg(&swap_in_coin)?, bcs::to_bytes(&expected_out)?],
+        vec![owned_input(&pool_id, sender, true), owned_input(&swap_in_coin, sender, true)],
         &mut nonce,
     )?;
-    let swap_drained = find_created(&swap, |t| {
-        t.contains("coin::Coin") && t.contains("USD_MOCK")
-    })?;
-    assert_eq!(
-        coin_balance(&swap_drained.data),
-        0,
-        "swap must drain the input coin"
-    );
-    let out_coin = find_created(&swap, |t| {
-        t.contains("coin::Coin") && t.contains("KAN_MOCK")
-    })?;
+    let swap_drained = find_created(&swap, |t| t.contains("coin::Coin") && t.contains("USD_MOCK"))?;
+    assert_eq!(coin_balance(&swap_drained.data), 0, "swap must drain the input coin");
+    let out_coin = find_created(&swap, |t| t.contains("coin::Coin") && t.contains("KAN_MOCK"))?;
     assert_eq!(
         coin_balance(&out_coin.data),
         expected_out,
@@ -173,20 +140,13 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     assert_eq!(swap_data.len(), 48, "SwapEvent is address + 2 u64");
     assert_eq!(event_address(swap_data), sender.to_vec());
     assert_eq!(event_u64(swap_data, 32), SWAP_IN);
-    assert_eq!(
-        event_u64(swap_data, 40),
-        expected_out,
-        "SwapEvent must report the executed output"
-    );
+    assert_eq!(event_u64(swap_data, 40), expected_out, "SwapEvent must report the executed output");
 
     let usd_after = USD_INITIAL + SWAP_IN;
     let kan_after = KAN_INITIAL - expected_out;
     let k_before = USD_INITIAL as u128 * KAN_INITIAL as u128;
     let k_after = usd_after as u128 * kan_after as u128;
-    assert!(
-        k_after >= k_before,
-        "collected fees must not shrink the x * k invariant"
-    );
+    assert!(k_after >= k_before, "collected fees must not shrink the x * k invariant");
 
     let reader2 = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
     assert_eq!(
@@ -203,15 +163,8 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         &module_id,
         "swap_exact_x_for_y",
         type_tags(&[USD_TYPE, KAN_TYPE])?,
-        vec![
-            object_arg(&pool_id)?,
-            object_arg(&fail_coin)?,
-            bcs::to_bytes(&too_much)?,
-        ],
-        vec![
-            owned_input(&pool_id, sender, true),
-            owned_input(&fail_coin, sender, true),
-        ],
+        vec![object_arg(&pool_id)?, object_arg(&fail_coin)?, bcs::to_bytes(&too_much)?],
+        vec![owned_input(&pool_id, sender, true), owned_input(&fail_coin, sender, true)],
         &mut nonce,
     )
     .expect_err("swap below min_out must abort");
@@ -233,22 +186,15 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         "remove_liquidity",
         type_tags(&[USD_TYPE, KAN_TYPE])?,
         vec![object_arg(&receipt.id)?, object_arg(&pool_id)?],
-        vec![
-            owned_input(&receipt.id, sender, true),
-            owned_input(&pool_id, sender, true),
-        ],
+        vec![owned_input(&receipt.id, sender, true), owned_input(&pool_id, sender, true)],
         &mut nonce,
     )?;
     assert!(
         remove.deleted_objects.contains(&receipt.id),
         "remove_liquidity must consume the receipt"
     );
-    let usd_back = find_created(&remove, |t| {
-        t.contains("coin::Coin") && t.contains("USD_MOCK")
-    })?;
-    let kan_back = find_created(&remove, |t| {
-        t.contains("coin::Coin") && t.contains("KAN_MOCK")
-    })?;
+    let usd_back = find_created(&remove, |t| t.contains("coin::Coin") && t.contains("USD_MOCK"))?;
+    let kan_back = find_created(&remove, |t| t.contains("coin::Coin") && t.contains("KAN_MOCK"))?;
     assert_ne!(usd_back.id, kan_back.id, "distinct output coins");
     assert_eq!(
         coin_balance(&usd_back.data),
@@ -261,11 +207,7 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
         "the only LP withdraws the full KAN reserve"
     );
     let remove_data = find_event_data(&remove, "::RemoveLiquidityEvent")?;
-    assert_eq!(
-        remove_data.len(),
-        56,
-        "RemoveLiquidityEvent is addr + 3 u64"
-    );
+    assert_eq!(remove_data.len(), 56, "RemoveLiquidityEvent is addr + 3 u64");
     assert_eq!(event_u64(remove_data, 32), initial_shares);
     assert_eq!(event_u64(remove_data, 40), usd_after);
     assert_eq!(event_u64(remove_data, 48), kan_after);
@@ -353,14 +295,8 @@ fn mint(
         nonce,
     )
     .with_context(|| format!("create_faucet ({token})"))?;
-    let faucet = find_created(&faucet_create, |t| {
-        t.contains("::Faucet") && t.contains(token)
-    })?;
-    assert_eq!(
-        faucet.owner,
-        *module_id.address(),
-        "faucet must be owned by the sender"
-    );
+    let faucet = find_created(&faucet_create, |t| t.contains("::Faucet") && t.contains(token))?;
+    assert_eq!(faucet.owner, *module_id.address(), "faucet must be owned by the sender");
 
     let changes = entry(
         runtime,
@@ -372,16 +308,8 @@ fn mint(
         nonce,
     )?;
     let coin = find_created(&changes, |t| t.contains("coin::Coin") && t.contains(token))?;
-    assert_eq!(
-        coin_balance(&coin.data),
-        amount,
-        "faucet must mint the requested amount"
-    );
-    assert_eq!(
-        coin.owner,
-        *module_id.address(),
-        "faucet must pay the sender"
-    );
+    assert_eq!(coin_balance(&coin.data), amount, "faucet must mint the requested amount");
+    assert_eq!(coin.owner, *module_id.address(), "faucet must pay the sender");
     Ok(coin.id)
 }
 
@@ -459,11 +387,7 @@ fn find_event_data<'a>(cs: &'a ChangeSet, type_suffix: &str) -> Result<&'a [u8]>
 }
 
 fn event_u64(data: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(
-        data[offset..offset + 8]
-            .try_into()
-            .expect("u64 event field in range"),
-    )
+    u64::from_le_bytes(data[offset..offset + 8].try_into().expect("u64 event field in range"))
 }
 
 fn event_address(data: &[u8]) -> Vec<u8> {
@@ -497,11 +421,7 @@ fn owned_input(id: &str, owner: AccountAddress, mutable: bool) -> ObjectInput {
 }
 
 fn immutable_pool_input(pool_id: &str) -> Result<ObjectInput> {
-    Ok(owned_input(
-        pool_id,
-        AccountAddress::from_hex_literal(TESTER_ADDR)?,
-        false,
-    ))
+    Ok(owned_input(pool_id, AccountAddress::from_hex_literal(TESTER_ADDR)?, false))
 }
 
 // ---------------------------------------------------------------------------
@@ -541,20 +461,15 @@ fn create_test_package() -> Result<PathBuf> {
         dependency_path, TESTER_ADDR,
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
-    fs::write(
-        package_dir.join("sources").join("uniswap_amm.move"),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join("uniswap_amm.move"), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

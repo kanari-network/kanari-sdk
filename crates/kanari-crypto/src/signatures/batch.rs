@@ -25,11 +25,7 @@ impl<'a> BatchVerificationItem<'a> {
         message: &'a [u8],
         signature: &'a [u8],
     ) -> Self {
-        Self {
-            public_key_or_address,
-            message,
-            signature,
-        }
+        Self { public_key_or_address, message, signature }
     }
 }
 
@@ -59,10 +55,7 @@ pub fn verify_batch_with_curve(
                 curve_type,
             )
         })
-        .try_reduce(
-            || true,
-            |all_verified, item_verified| Ok(all_verified && item_verified),
-        )
+        .try_reduce(|| true, |all_verified, item_verified| Ok(all_verified && item_verified))
 }
 
 /// Deterministic fail-closed batch verification for tagged addresses.
@@ -72,8 +65,5 @@ pub fn verify_batch_tagged(items: &[BatchVerificationItem<'_>]) -> Result<bool, 
     items
         .par_iter()
         .map(|item| verify_signature(item.public_key_or_address, item.message, item.signature))
-        .try_reduce(
-            || true,
-            |all_verified, item_verified| Ok(all_verified && item_verified),
-        )
+        .try_reduce(|| true, |all_verified, item_verified| Ok(all_verified && item_verified))
 }

@@ -191,10 +191,7 @@ pub fn normalize_path(path: impl AsRef<Path>, allow_cwd_parent: bool) -> Result<
 
     let normalized: PathBuf = stack.iter().collect();
     if !allow_cwd_parent && stack.first() == Some(&ParentDir) {
-        bail!(
-            "Path cannot access parent of current directory: {}",
-            normalized.to_string_lossy()
-        );
+        bail!("Path cannot access parent of current directory: {}", normalized.to_string_lossy());
     }
 
     Ok(normalized)

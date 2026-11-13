@@ -50,9 +50,7 @@ pub(crate) fn validate_signature_bytes(signature: &[u8]) -> Result<(), Signature
         return Err(SignatureError::InvalidFormat("Empty signature".to_string()));
     }
     if signature.len() > MAX_SIGNATURE_SIZE {
-        return Err(SignatureError::InvalidFormat(
-            "Signature too large".to_string(),
-        ));
+        return Err(SignatureError::InvalidFormat("Signature too large".to_string()));
     }
     Ok(())
 }
@@ -61,9 +59,7 @@ pub(crate) fn validate_verification_text(
     public_key_or_address: &str,
 ) -> Result<(), SignatureError> {
     if public_key_or_address.is_empty() {
-        return Err(SignatureError::InvalidPublicKey(
-            "Empty public key or address".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Empty public key or address".to_string()));
     }
     if public_key_or_address.len() > MAX_PUBLIC_KEY_OR_ADDRESS_SIZE {
         return Err(SignatureError::InvalidPublicKey(
@@ -75,9 +71,7 @@ pub(crate) fn validate_verification_text(
 
 pub(crate) fn validate_message_size(message: &[u8]) -> Result<(), SignatureError> {
     if message.len() > MAX_SIGNED_MESSAGE_SIZE {
-        return Err(SignatureError::InvalidFormat(
-            "Signed message too large".to_string(),
-        ));
+        return Err(SignatureError::InvalidFormat("Signed message too large".to_string()));
     }
     Ok(())
 }

@@ -24,10 +24,7 @@ fn bytecode_copyloc() {
     );
     assert_eq!(
         state2.local_get(0),
-        Some(&(
-            AbstractValue::new_primitive(SignatureToken::U64),
-            BorrowState::Available
-        )),
+        Some(&(AbstractValue::new_primitive(SignatureToken::U64), BorrowState::Available)),
         "locals signature postcondition not met"
     );
 }
@@ -67,10 +64,7 @@ fn bytecode_moveloc() {
     );
     assert_eq!(
         state2.local_get(0),
-        Some(&(
-            AbstractValue::new_primitive(SignatureToken::U64),
-            BorrowState::Unavailable
-        )),
+        Some(&(AbstractValue::new_primitive(SignatureToken::U64), BorrowState::Unavailable)),
         "locals signature postcondition not met"
     );
 }
@@ -113,10 +107,7 @@ fn bytecode_mutborrowloc() {
     );
     assert_eq!(
         state2.local_get(0),
-        Some(&(
-            AbstractValue::new_primitive(SignatureToken::U64),
-            BorrowState::Available
-        )),
+        Some(&(AbstractValue::new_primitive(SignatureToken::U64), BorrowState::Available)),
         "locals signature postcondition not met"
     );
 }
@@ -140,10 +131,7 @@ fn bytecode_immborrowloc() {
     );
     assert_eq!(
         state2.local_get(0),
-        Some(&(
-            AbstractValue::new_primitive(SignatureToken::U64),
-            BorrowState::Available
-        )),
+        Some(&(AbstractValue::new_primitive(SignatureToken::U64), BorrowState::Available)),
         "locals signature postcondition not met"
     );
 }

@@ -15,10 +15,7 @@ impl StateManager {
     pub fn supply_invariant_fail_fast_enabled() -> bool {
         std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
             .map(|value| {
-                !matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "0" | "false" | "no" | "off"
-                )
+                !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
             })
             .unwrap_or(true)
     }
@@ -28,11 +25,7 @@ impl StateManager {
         context: &str,
         error: &anyhow::Error,
     ) -> Result<()> {
-        log::error!(
-            "[StateManager] Supply invariant check failed {}: {}",
-            context,
-            error
-        );
+        log::error!("[StateManager] Supply invariant check failed {}: {}", context, error);
 
         if Self::supply_invariant_fail_fast_enabled() {
             anyhow::bail!("Supply invariant check failed {}: {}", context, error);
@@ -53,25 +46,15 @@ impl StateManager {
         tokens.extend(new_balances.keys().cloned());
 
         for token_type in tokens {
-            let old_amount = old_balances
-                .get(&token_type)
-                .map(|x| x.value())
-                .unwrap_or(0);
-            let new_amount = new_balances
-                .get(&token_type)
-                .map(|x| x.value())
-                .unwrap_or(0);
+            let old_amount = old_balances.get(&token_type).map(|x| x.value()).unwrap_or(0);
+            let new_amount = new_balances.get(&token_type).map(|x| x.value()).unwrap_or(0);
 
             if old_amount == new_amount {
                 continue;
             }
 
             changed = true;
-            let current_supply = self
-                .global_token_supplies
-                .get(&token_type)
-                .copied()
-                .unwrap_or(0);
+            let current_supply = self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
 
             let updated_supply = if new_amount >= old_amount {
                 current_supply
@@ -86,8 +69,7 @@ impl StateManager {
             if updated_supply == 0 {
                 self.global_token_supplies.remove(&token_type);
             } else {
-                self.global_token_supplies
-                    .insert(token_type, updated_supply);
+                self.global_token_supplies.insert(token_type, updated_supply);
             }
         }
 

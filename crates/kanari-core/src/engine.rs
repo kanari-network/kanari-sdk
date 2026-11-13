@@ -68,14 +68,8 @@ fn compatible_protocol_version(manifest: &str, local: &str) -> bool {
     let parse = |version: &str| -> Option<(u64, u64, u64)> {
         let mut parts = version.split('.');
         let major = parts.next()?.parse::<u64>().ok()?;
-        let minor = parts
-            .next()
-            .and_then(|p| p.parse::<u64>().ok())
-            .unwrap_or(0);
-        let patch = parts
-            .next()
-            .and_then(|p| p.parse::<u64>().ok())
-            .unwrap_or(0);
+        let minor = parts.next().and_then(|p| p.parse::<u64>().ok()).unwrap_or(0);
+        let patch = parts.next().and_then(|p| p.parse::<u64>().ok()).unwrap_or(0);
         Some((major, minor, patch))
     };
     match (parse(manifest), parse(local)) {
@@ -114,10 +108,7 @@ pub fn decode_hex_exact(label: &str, value: &str, expected_len: usize) -> Result
     let bytes =
         hex::decode(value).map_err(|error| anyhow::anyhow!("Invalid {label} hex: {error}"))?;
     if bytes.len() != expected_len {
-        anyhow::bail!(
-            "Invalid {label} length: expected {expected_len} bytes, got {}",
-            bytes.len()
-        );
+        anyhow::bail!("Invalid {label} length: expected {expected_len} bytes, got {}", bytes.len());
     }
     Ok(bytes)
 }
@@ -352,9 +343,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     fn snapshot_entries_hash(entries: &[SnapshotEntry]) -> Result<String> {
-        Ok(hex::encode(
-            blake3::hash(&bcs::to_bytes(entries)?).as_bytes(),
-        ))
+        Ok(hex::encode(blake3::hash(&bcs::to_bytes(entries)?).as_bytes()))
     }
 
     /// Exports the current blockchain state to a JSON snapshot file.
@@ -375,21 +364,14 @@ impl BlockchainEngine {
     ) -> Result<StateSnapshot> {
         let network = network.into();
         let genesis = self.genesis_manifest(network.clone())?;
-        let checkpoint = self
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .latest_checkpoint()
-            .clone();
+        let checkpoint =
+            self.blockchain.read().unwrap_or_else(|e| e.into_inner()).latest_checkpoint().clone();
         let state = self.state_read();
         ensure!(
             state.overlay.is_empty(),
             "Cannot export snapshot while state has uncommitted changes"
         );
-        state
-            .store
-            .flush()
-            .context("Failed to flush state before snapshot")?;
+        state.store.flush().context("Failed to flush state before snapshot")?;
         let current_state_root = state.try_compute_state_root()?;
         let state_root_migrated =
             checkpoint.sequence > 0 && checkpoint.state_root != current_state_root;
@@ -413,10 +395,7 @@ impl BlockchainEngine {
             .logical_entries()
             .context("Failed to read state entries for snapshot")?
             .into_iter()
-            .map(|(key, value)| SnapshotEntry {
-                key: hex::encode(key),
-                value: hex::encode(value),
-            })
+            .map(|(key, value)| SnapshotEntry { key: hex::encode(key), value: hex::encode(value) })
             .collect::<Vec<_>>();
         let snapshot = StateSnapshot {
             format_version: STATE_SNAPSHOT_FORMAT_VERSION,
@@ -523,15 +502,9 @@ impl BlockchainEngine {
         store.apply_raw_changes(&updates, &[])?;
         drop(store);
 
-        let imported = Self::new_dir(
-            target_dir
-                .to_str()
-                .context("Invalid target data directory")?,
-        )?;
-        let chain = imported
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let imported =
+            Self::new_dir(target_dir.to_str().context("Invalid target data directory")?)?;
+        let chain = imported.blockchain.read().unwrap_or_else(|e| e.into_inner());
         let checkpoint = chain.latest_checkpoint();
         ensure!(
             checkpoint.sequence == snapshot.checkpoint_height,
@@ -679,11 +652,7 @@ impl BlockchainEngine {
     /// `gas_price`, so the backend multiplies directly to stay deterministic
     /// without an on-chain price read in the hot path.
     fn gas_unit_price_for_coin(gas_price: u64, gas_coin: &str) -> u64 {
-        if gas_coin == GAS_COIN {
-            effective_gas_price(gas_price)
-        } else {
-            gas_price
-        }
+        if gas_coin == GAS_COIN { effective_gas_price(gas_price) } else { gas_price }
     }
 
     fn execute_backend_native_burn(
@@ -696,21 +665,14 @@ impl BlockchainEngine {
     ) -> Result<()> {
         ensure!(amount > 0, "Native burn amount must be non-zero");
         let gas_coin = Self::tx_gas_coin_type(tx);
-        let gas_payment = tx
-            .gas_payment()
-            .context("Native burn requires prepared gas payment")?;
+        let gas_payment = tx.gas_payment().context("Native burn requires prepared gas payment")?;
         let gas_object_ref = gas_payment
             .payment_objects
             .first()
             .context("Native burn requires one prepared gas payment object")?;
-        let gas_object = state
-            .get_object(&gas_object_ref.object_id)?
-            .with_context(|| {
-                format!(
-                    "Native burn gas object {} was not found in state",
-                    gas_object_ref.object_id
-                )
-            })?;
+        let gas_object = state.get_object(&gas_object_ref.object_id)?.with_context(|| {
+            format!("Native burn gas object {} was not found in state", gas_object_ref.object_id)
+        })?;
 
         ensure!(
             Self::is_gas_coin_type(&gas_object.type_, &gas_coin),
@@ -727,18 +689,13 @@ impl BlockchainEngine {
         );
 
         let object_balance = CoinModule::read_balance(&gas_object.data).with_context(|| {
-            format!(
-                "Native burn gas object {} has invalid coin bytes",
-                gas_object_ref.object_id
-            )
+            format!("Native burn gas object {} has invalid coin bytes", gas_object_ref.object_id)
         })?;
         // Legacy KANARI path: one object covers burn amount + gas. Multi-coin
         // path: the burn amount stays native-ledger denominated while gas
         // settles in the selected coin, so the gas object only needs gas_cost.
         let total_required = if gas_coin == GAS_COIN {
-            amount
-                .checked_add(gas_cost)
-                .context("Native burn amount + gas overflowed u64")?
+            amount.checked_add(gas_cost).context("Native burn amount + gas overflowed u64")?
         } else {
             gas_cost
         };
@@ -758,9 +715,7 @@ impl BlockchainEngine {
         // `gas_cost` from it via the gas-refs loop (emitting the remainder
         // here too would debit twice, because that loop reads overlay state).
         if object_balance == total_required {
-            changeset
-                .deleted_objects
-                .push(gas_object_ref.object_id.clone());
+            changeset.deleted_objects.push(gas_object_ref.object_id.clone());
         } else if gas_coin == GAS_COIN {
             let burned_coin_balance = object_balance
                 .checked_sub(amount)
@@ -792,11 +747,7 @@ impl BlockchainEngine {
         amount: u64,
     ) -> Result<Vec<u8>> {
         let mut data = existing_data.to_vec();
-        ensure!(
-            data.len() >= 40,
-            "Native coin object {} has invalid coin bytes",
-            object_id
-        );
+        ensure!(data.len() >= 40, "Native coin object {} has invalid coin bytes", object_id);
         data[32..40].copy_from_slice(&amount.to_le_bytes());
         Ok(data)
     }
@@ -804,9 +755,7 @@ impl BlockchainEngine {
     fn deterministic_native_transfer_output_id(tx: &Transaction) -> String {
         let mut seed = b"kanari:native_transfer_output:v1:".to_vec();
         seed.extend_from_slice(&tx.hash());
-        object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(
-            &seed,
-        )))
+        object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(&seed)))
     }
 
     fn execute_backend_native_transfer(
@@ -823,18 +772,14 @@ impl BlockchainEngine {
         // The transferred coin stays KANARI (`kanari::transfer` semantics) while
         // gas may settle in any selected coin.
         let gas_coin = Self::tx_gas_coin_type(tx);
-        let gas_payment = tx
-            .gas_payment()
-            .context("Native transfer requires prepared gas payment")?;
+        let gas_payment =
+            tx.gas_payment().context("Native transfer requires prepared gas payment")?;
         let gas_object_ref = gas_payment
             .payment_objects
             .first()
             .context("Native transfer requires one prepared gas payment object")?;
         let transfer_object = state.get_object(coin_object_id)?.with_context(|| {
-            format!(
-                "Native transfer coin object {} was not found",
-                coin_object_id
-            )
+            format!("Native transfer coin object {} was not found", coin_object_id)
         })?;
         ensure!(
             Self::is_native_gas_coin_type(&transfer_object.type_),
@@ -850,14 +795,9 @@ impl BlockchainEngine {
             sender_addr.to_hex_literal()
         );
 
-        let gas_object = state
-            .get_object(&gas_object_ref.object_id)?
-            .with_context(|| {
-                format!(
-                    "Native transfer gas object {} was not found",
-                    gas_object_ref.object_id
-                )
-            })?;
+        let gas_object = state.get_object(&gas_object_ref.object_id)?.with_context(|| {
+            format!("Native transfer gas object {} was not found", gas_object_ref.object_id)
+        })?;
         ensure!(
             Self::is_gas_coin_type(&gas_object.type_, &gas_coin),
             "Native transfer gas object {} must be Coin<{}>, found {}",
@@ -874,10 +814,7 @@ impl BlockchainEngine {
 
         let transfer_balance =
             CoinModule::read_balance(&transfer_object.data).with_context(|| {
-                format!(
-                    "Native transfer object {} has invalid coin bytes",
-                    coin_object_id
-                )
+                format!("Native transfer object {} has invalid coin bytes", coin_object_id)
             })?;
         let gas_balance = CoinModule::read_balance(&gas_object.data).with_context(|| {
             format!(
@@ -1325,10 +1262,7 @@ impl BlockchainEngine {
             .or_else(|| {
                 Self::load_checkpoint_transactions(store, location.checkpoint_sequence).and_then(
                     |transactions| {
-                        transactions
-                            .iter()
-                            .find(|tx| tx.transaction_hash() == tx_hash)
-                            .cloned()
+                        transactions.iter().find(|tx| tx.transaction_hash() == tx_hash).cloned()
                     },
                 )
             })?;
@@ -1380,9 +1314,7 @@ impl BlockchainEngine {
         if through == 0 {
             return Ok(());
         }
-        let previous = store
-            .load::<u64>(Self::history_pruned_through_key())?
-            .unwrap_or(0);
+        let previous = store.load::<u64>(Self::history_pruned_through_key())?.unwrap_or(0);
         if through <= previous {
             return Ok(());
         }
@@ -1464,11 +1396,7 @@ impl BlockchainEngine {
             }
             for tx in checkpoint.transactions.iter().rev() {
                 if tx.transaction_hash() == tx_hash {
-                    return Some((
-                        tx.clone(),
-                        checkpoint.sequence,
-                        checkpoint.state_root.clone(),
-                    ));
+                    return Some((tx.clone(), checkpoint.sequence, checkpoint.state_root.clone()));
                 }
             }
         }
@@ -1485,9 +1413,7 @@ impl BlockchainEngine {
             && let Some((_, location)) = Self::load_transaction_by_hash_from_index(store, tx_hash)
             && let Some(transactions) =
                 Self::load_checkpoint_transactions(store, location.checkpoint_sequence)
-            && let Some(index) = transactions
-                .iter()
-                .position(|tx| tx.transaction_hash() == tx_hash)
+            && let Some(index) = transactions.iter().position(|tx| tx.transaction_hash() == tx_hash)
             && let Some(checkpoint) =
                 Self::load_checkpoint_metadata(store, location.checkpoint_sequence)
             && let Some(effect) = checkpoint.transaction_effects.get(index)
@@ -1517,10 +1443,7 @@ impl BlockchainEngine {
         Ok(store
             .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
             .with_context(|| {
-                format!(
-                    "Failed to load committed transaction index for {}",
-                    hex::encode(tx_hash)
-                )
+                format!("Failed to load committed transaction index for {}", hex::encode(tx_hash))
             })?
             .is_some())
     }
@@ -1746,11 +1669,7 @@ impl BlockchainEngine {
     }
 
     fn pending_signed_transactions(&self) -> Vec<SignedTransaction> {
-        self.mempool_read()
-            .pending_txs
-            .iter()
-            .map(|record| record.signed_tx.clone())
-            .collect()
+        self.mempool_read().pending_txs.iter().map(|record| record.signed_tx.clone()).collect()
     }
 
     /// Selects a conflict-free subset of transactions for parallel execution.
@@ -1765,10 +1684,7 @@ impl BlockchainEngine {
             conflict_keys.sort();
             conflict_keys.dedup();
 
-            if conflict_keys
-                .iter()
-                .any(|conflict_key| reserved_keys.contains(conflict_key))
-            {
+            if conflict_keys.iter().any(|conflict_key| reserved_keys.contains(conflict_key)) {
                 continue;
             }
 
@@ -1800,10 +1716,7 @@ impl BlockchainEngine {
 
     fn transaction_lane_rank(tx: &SignedTransaction) -> u8 {
         let object_inputs = tx.transaction.object_inputs();
-        if object_inputs
-            .iter()
-            .any(|input| matches!(input.owner, Some(ObjectOwnerKind::Shared)))
-        {
+        if object_inputs.iter().any(|input| matches!(input.owner, Some(ObjectOwnerKind::Shared))) {
             return 2;
         }
         if object_inputs.is_empty() {
@@ -1822,9 +1735,8 @@ impl BlockchainEngine {
             return format!("object:{}", input.object_ref.object_id);
         }
 
-        if let Some(payment) = tx
-            .gas_payment()
-            .and_then(|gas_payment| gas_payment.payment_objects.into_iter().next())
+        if let Some(payment) =
+            tx.gas_payment().and_then(|gas_payment| gas_payment.payment_objects.into_iter().next())
         {
             return format!("object:{}", payment.object_id);
         }
@@ -1897,11 +1809,7 @@ impl BlockchainEngine {
             a.transaction
                 .primary_access_key()
                 .cmp(&b.transaction.primary_access_key())
-                .then_with(|| {
-                    a.transaction
-                        .sender_address()
-                        .cmp(b.transaction.sender_address())
-                })
+                .then_with(|| a.transaction.sender_address().cmp(b.transaction.sender_address()))
                 .then_with(|| a.transaction.nonce().cmp(&b.transaction.nonce()))
                 .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
         });
@@ -1925,9 +1833,7 @@ impl BlockchainEngine {
                     .primary_access_key()
                     .cmp(&b.transaction.primary_access_key())
                     .then_with(|| {
-                        a.transaction
-                            .sender_address()
-                            .cmp(b.transaction.sender_address())
+                        a.transaction.sender_address().cmp(b.transaction.sender_address())
                     })
                     .then_with(|| a.transaction.nonce().cmp(&b.transaction.nonce()))
                     .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
@@ -1943,11 +1849,7 @@ impl BlockchainEngine {
                 break;
             }
             let primary_access_key = signed_tx.transaction.primary_access_key();
-            if hot_object_counts
-                .get(&primary_access_key)
-                .copied()
-                .unwrap_or(0)
-                >= hot_object_tx_cap
+            if hot_object_counts.get(&primary_access_key).copied().unwrap_or(0) >= hot_object_tx_cap
             {
                 continue;
             }
@@ -1986,16 +1888,11 @@ impl BlockchainEngine {
             .and_then(|store| Self::load_sender_nonce_watermark(store).ok())
             .and_then(|watermark| {
                 use crate::engine::mempool::NormalizeAddr as _;
-                let v = watermark
-                    .get(&Self::normalize_addr(address_hex))
-                    .copied()
-                    .unwrap_or(0);
+                let v = watermark.get(&Self::normalize_addr(address_hex)).copied().unwrap_or(0);
                 (v < MAX_WATERMARK).then_some(v)
             })
             .unwrap_or(0);
-        self.pending_tx_count_for_sender(address_hex)
-            .saturating_add(committed)
-            .saturating_add(1)
+        self.pending_tx_count_for_sender(address_hex).saturating_add(committed).saturating_add(1)
     }
 
     fn resolve_account_objects(
@@ -2040,11 +1937,7 @@ impl BlockchainEngine {
 
         coins.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
         others.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(coins
-            .into_iter()
-            .map(|(_, info)| info)
-            .chain(others)
-            .collect())
+        Ok(coins.into_iter().map(|(_, info)| info).chain(others).collect())
     }
 
     #[cfg(test)]
@@ -2264,9 +2157,7 @@ impl BlockchainEngine {
             return Ok((0, 0, Vec::new()));
         }
         let (access_epoch, state_overlay) = {
-            let state = state_arc
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let state = state_arc.read().unwrap_or_else(|poisoned| poisoned.into_inner());
             (
                 state.access_epoch(),
                 (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
@@ -2314,10 +2205,7 @@ impl BlockchainEngine {
                     .writes
                     .iter()
                     .any(|key| reserved_reads.contains(key) || reserved_writes.contains(key))
-                    || access_set
-                        .reads
-                        .iter()
-                        .any(|key| reserved_writes.contains(key));
+                    || access_set.reads.iter().any(|key| reserved_writes.contains(key));
                 if has_conflict {
                     return self.execute_tx_waves_deterministic_parallel_with_effects(
                         transactions,
@@ -2332,9 +2220,7 @@ impl BlockchainEngine {
         }
         let access_checked_at = std::time::Instant::now();
 
-        let mut state_write = state_arc
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state_write = state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
         if state_write.access_epoch() != access_epoch {
             return self.execute_tx_waves_deterministic_parallel_with_effects(
                 transactions,
@@ -2364,10 +2250,7 @@ impl BlockchainEngine {
             )
         };
         let merged_applied_at = std::time::Instant::now();
-        let apply_batches = apply_result
-            .as_ref()
-            .map(|(batches, _)| *batches)
-            .unwrap_or(0);
+        let apply_batches = apply_result.as_ref().map(|(batches, _)| *batches).unwrap_or(0);
         let validate_result = if trusted_owned_native_conflict_keys {
             let validate_owned_fastpath =
                 Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
@@ -2419,12 +2302,8 @@ impl BlockchainEngine {
                 apply_batches,
                 executed_at.duration_since(started_at).as_secs_f64(),
                 access_checked_at.duration_since(executed_at).as_secs_f64(),
-                candidate_cloned_at
-                    .duration_since(apply_started_at)
-                    .as_secs_f64(),
-                merged_applied_at
-                    .duration_since(candidate_cloned_at)
-                    .as_secs_f64(),
+                candidate_cloned_at.duration_since(apply_started_at).as_secs_f64(),
+                merged_applied_at.duration_since(candidate_cloned_at).as_secs_f64(),
                 validated_at.duration_since(merged_applied_at).as_secs_f64(),
                 effects_at.duration_since(applied_at).as_secs_f64(),
                 effects_at.duration_since(started_at).as_secs_f64(),
@@ -2496,9 +2375,8 @@ impl BlockchainEngine {
                             state_arc,
                             error.to_string(),
                         )?;
-                        let mut state_write = state_arc
-                            .write()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let mut state_write =
+                            state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
                         if let Err(apply_error) = state_write.apply_changeset(&failed) {
                             return Err(apply_error)
                                 .context("Failed to apply deterministic failure gas changeset");
@@ -2618,26 +2496,16 @@ impl BlockchainEngine {
 
             let access_sets = results
                 .iter()
-                .map(|result| {
-                    result
-                        .as_ref()
-                        .ok()
-                        .map(ChangeSet::deterministic_access_set)
-                })
+                .map(|result| result.as_ref().ok().map(ChangeSet::deterministic_access_set))
                 .collect::<Vec<_>>();
-            let mut retry_reason = results
-                .iter()
-                .any(Result::is_err)
-                .then_some("execution_error");
+            let mut retry_reason = results.iter().any(Result::is_err).then_some("execution_error");
             let mut retry_serial = retry_reason.is_some();
             for i in 0..access_sets.len() {
                 let Some(left) = &access_sets[i] else {
                     continue;
                 };
-                let conflicts = access_sets[..i]
-                    .iter()
-                    .flatten()
-                    .any(|right| left.conflicts_with(right));
+                let conflicts =
+                    access_sets[..i].iter().flatten().any(|right| left.conflicts_with(right));
                 if conflicts {
                     retry_reason.get_or_insert("intra_wave_conflict");
                     retry_serial = true;
@@ -2727,9 +2595,7 @@ impl BlockchainEngine {
                     transaction_effects.push(enriched.effects(signed_tx.transaction.gas_payment()));
                     executed_count += 1;
                 }
-                effects_secs += std::time::Instant::now()
-                    .duration_since(applied_at)
-                    .as_secs_f64();
+                effects_secs += std::time::Instant::now().duration_since(applied_at).as_secs_f64();
                 continue;
             }
 
@@ -2769,9 +2635,8 @@ impl BlockchainEngine {
                             state_arc,
                             error.to_string(),
                         )?;
-                        let mut state_write = state_arc
-                            .write()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let mut state_write =
+                            state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
                         if let Err(apply_error) = state_write.apply_changeset(&failed) {
                             return Err(apply_error)
                                 .context("Failed to apply deterministic failure gas changeset");
@@ -2856,9 +2721,9 @@ impl BlockchainEngine {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let gas_op = match tx {
             Transaction::PublishModule { module_bytes, .. }
-            | Transaction::UpgradeModule { module_bytes, .. } => GasOperation::PublishModule {
-                module_size: module_bytes.len(),
-            },
+            | Transaction::UpgradeModule { module_bytes, .. } => {
+                GasOperation::PublishModule { module_size: module_bytes.len() }
+            }
             Transaction::PublishPackage { modules, .. }
             | Transaction::UpgradePackage { modules, .. } => GasOperation::PublishModule {
                 module_size: modules.iter().map(|module| module.module_bytes.len()).sum(),
@@ -2879,9 +2744,7 @@ impl BlockchainEngine {
 
         let (balance, object_cap) = {
             let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
-            let wallet = state
-                .resolve_owner_token_balance(sender_addr, &gas_coin)
-                .unwrap_or(0);
+            let wallet = state.resolve_owner_token_balance(sender_addr, &gas_coin).unwrap_or(0);
             // Non-native fees settle at the gas-object level, so a failed
             // transaction must never credit the DAO more than the designated
             // object can actually debit (otherwise fees mint from thin air).
@@ -2919,9 +2782,7 @@ impl BlockchainEngine {
             "Gas payment version mismatch for",
             "Gas payment digest mismatch for",
         ];
-        let is_race = RACE_MARKERS
-            .iter()
-            .any(|marker| error_message.contains(marker));
+        let is_race = RACE_MARKERS.iter().any(|marker| error_message.contains(marker));
         let (gas_cost, error_message) = if is_race {
             (
                 0,
@@ -3012,22 +2873,13 @@ impl BlockchainEngine {
         sender_owner_delta.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-        let dao_delta_before = changeset
-            .owner_deltas
-            .get(&dao_addr)
-            .map(|delta| delta.balance_delta)
-            .unwrap_or(0);
-        let dao_gas_credit_before = changeset
-            .native_gas_credits
-            .get(&dao_addr)
-            .copied()
-            .unwrap_or(0);
+        let dao_delta_before =
+            changeset.owner_deltas.get(&dao_addr).map(|delta| delta.balance_delta).unwrap_or(0);
+        let dao_gas_credit_before =
+            changeset.native_gas_credits.get(&dao_addr).copied().unwrap_or(0);
         changeset.collect_gas(dao_addr, gas_cost);
-        let dao_delta_after = changeset
-            .owner_deltas
-            .get(&dao_addr)
-            .map(|delta| delta.balance_delta)
-            .unwrap_or(0);
+        let dao_delta_after =
+            changeset.owner_deltas.get(&dao_addr).map(|delta| delta.balance_delta).unwrap_or(0);
         ensure!(
             dao_delta_after
                 .checked_sub(dao_delta_before)
@@ -3058,9 +2910,7 @@ impl BlockchainEngine {
             MAX_TRANSACTION_BYTES
         );
         let object_count = tx.object_inputs().len()
-            + tx.gas_payment()
-                .map(|payment| payment.payment_objects.len())
-                .unwrap_or(0);
+            + tx.gas_payment().map(|payment| payment.payment_objects.len()).unwrap_or(0);
         ensure!(
             object_count <= MAX_TRANSACTION_OBJECTS,
             "Transaction references {} objects, exceeding maximum {}",
@@ -3119,23 +2969,14 @@ impl BlockchainEngine {
         KanariAddress::parse_to_account_address(tx.sender_address())
             .context("Invalid transaction sender address")?;
 
-        if let Transaction::ExecuteFunction {
-            module, type_args, ..
-        } = tx
-        {
+        if let Transaction::ExecuteFunction { module, type_args, .. } = tx {
             let mut parts = module.split("::");
-            let address = parts
-                .next()
-                .filter(|part| !part.is_empty())
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Invalid module format. Expected: address::module")
-                })?;
-            let module_name = parts
-                .next()
-                .filter(|part| !part.is_empty())
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Invalid module format. Expected: address::module")
-                })?;
+            let address = parts.next().filter(|part| !part.is_empty()).ok_or_else(|| {
+                anyhow::anyhow!("Invalid module format. Expected: address::module")
+            })?;
+            let module_name = parts.next().filter(|part| !part.is_empty()).ok_or_else(|| {
+                anyhow::anyhow!("Invalid module format. Expected: address::module")
+            })?;
             anyhow::ensure!(
                 parts.next().is_none(),
                 "Invalid module format. Expected: address::module"
@@ -3220,9 +3061,9 @@ impl BlockchainEngine {
 
         let gas_op = match tx {
             Transaction::PublishModule { module_bytes, .. }
-            | Transaction::UpgradeModule { module_bytes, .. } => GasOperation::PublishModule {
-                module_size: module_bytes.len(),
-            },
+            | Transaction::UpgradeModule { module_bytes, .. } => {
+                GasOperation::PublishModule { module_size: module_bytes.len() }
+            }
             Transaction::PublishPackage { modules, .. }
             | Transaction::UpgradePackage { modules, .. } => GasOperation::PublishModule {
                 module_size: modules.iter().map(|module| module.module_bytes.len()).sum(),
@@ -3252,9 +3093,7 @@ impl BlockchainEngine {
         };
         Self::validate_transaction_object_access(&state, tx, sender_addr)?;
         if max_gas_cost > 0 {
-            let balance = state
-                .resolve_owner_token_balance(sender_addr, &gas_coin)
-                .unwrap_or(0);
+            let balance = state.resolve_owner_token_balance(sender_addr, &gas_coin).unwrap_or(0);
             if balance < max_gas_cost {
                 let msg = format!(
                     "Insufficient balance for maximum gas: need {}, have {}",
@@ -3298,11 +3137,7 @@ impl BlockchainEngine {
         }
 
         match tx {
-            Transaction::PublishModule {
-                sender,
-                module_bytes,
-                ..
-            } => {
+            Transaction::PublishModule { sender, module_bytes, .. } => {
                 match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
@@ -3317,11 +3152,7 @@ impl BlockchainEngine {
                     }
                 }
             }
-            Transaction::UpgradeModule {
-                sender,
-                module_bytes,
-                ..
-            } => {
+            Transaction::UpgradeModule { sender, module_bytes, .. } => {
                 match runtime.upgrade_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
@@ -3336,9 +3167,7 @@ impl BlockchainEngine {
                     }
                 }
             }
-            Transaction::PublishPackage {
-                sender, modules, ..
-            } => {
+            Transaction::PublishPackage { sender, modules, .. } => {
                 let package_modules = modules
                     .iter()
                     .map(|module| (module.module_name.clone(), module.module_bytes.clone()))
@@ -3357,9 +3186,7 @@ impl BlockchainEngine {
                     }
                 }
             }
-            Transaction::UpgradePackage {
-                sender, modules, ..
-            } => {
+            Transaction::UpgradePackage { sender, modules, .. } => {
                 let package_modules = modules
                     .iter()
                     .map(|module| (module.module_name.clone(), module.module_bytes.clone()))
@@ -3379,13 +3206,7 @@ impl BlockchainEngine {
                 }
             }
 
-            Transaction::ExecuteFunction {
-                module,
-                function,
-                type_args,
-                args,
-                ..
-            } => {
+            Transaction::ExecuteFunction { module, function, type_args, args, .. } => {
                 if let Some(kanari_types::transaction::NativeCall::Transfer {
                     coin_object_id,
                     recipient,
@@ -3501,9 +3322,8 @@ impl BlockchainEngine {
             charged_gas_units,
             tx.gas_limit()
         );
-        let charged_gas_cost = charged_gas_units
-            .checked_mul(unit_price)
-            .context("Transaction gas cost overflow")?;
+        let charged_gas_cost =
+            charged_gas_units.checked_mul(unit_price).context("Transaction gas cost overflow")?;
         Self::apply_gas_and_sequence(
             &mut changeset,
             sender_addr,
@@ -3530,11 +3350,8 @@ impl BlockchainEngine {
                 let next_owner = created.owner_kind();
                 let previous_ref = existing.object_ref(object_id);
                 let moved = existing.owner != created.owner;
-                let change_type = if moved {
-                    ObjectChangeKind::Transferred
-                } else {
-                    ObjectChangeKind::Mutated
-                };
+                let change_type =
+                    if moved { ObjectChangeKind::Transferred } else { ObjectChangeKind::Mutated };
                 // Amount = post-move balance = what the new owner holds.
                 // Set only when the coin actually changed hands; a Mutated
                 // remainder is not a transferred amount.
@@ -3630,14 +3447,9 @@ impl BlockchainEngine {
                 );
             }
 
-            let stored = state
-                .get_object(&input.object_ref.object_id)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Referenced object {} does not exist",
-                        input.object_ref.object_id
-                    )
-                })?;
+            let stored = state.get_object(&input.object_ref.object_id)?.ok_or_else(|| {
+                anyhow::anyhow!("Referenced object {} does not exist", input.object_ref.object_id)
+            })?;
 
             if let Some(version) = input.object_ref.version
                 && stored.version != version
@@ -3891,10 +3703,7 @@ impl BlockchainEngine {
             *dag_engine_guard = Some(engine);
         }
 
-        dag_engine_guard
-            .as_ref()
-            .cloned()
-            .require("Failed to initialize DAG engine")
+        dag_engine_guard.as_ref().cloned().require("Failed to initialize DAG engine")
     }
 
     /// Produces a checkpoint, using the fast path when only owned objects are involved.
@@ -3955,14 +3764,8 @@ impl BlockchainEngine {
                     .max(chain.height().saturating_add(1)),
             )
         };
-        let mut checkpoint = Checkpoint::new(
-            sequence,
-            Vec::new(),
-            transactions,
-            Vec::new(),
-            timestamp,
-            prev_hash,
-        );
+        let mut checkpoint =
+            Checkpoint::new(sequence, Vec::new(), transactions, Vec::new(), timestamp, prev_hash);
         let prepared = self.prepare_conflict_free_checkpoint_state(&checkpoint)?;
         let prepared_at = std::time::Instant::now();
         checkpoint.state_root = prepared.state_root;
@@ -3974,10 +3777,7 @@ impl BlockchainEngine {
             .iter()
             .filter(|effects| effects.status == "success")
             .count();
-        let failed = checkpoint
-            .transaction_effects
-            .len()
-            .saturating_sub(executed);
+        let failed = checkpoint.transaction_effects.len().saturating_sub(executed);
         let tx_count = checkpoint.transactions.len();
         let checkpoint_info = CheckpointInfo {
             sequence: checkpoint.sequence,
@@ -4031,9 +3831,7 @@ impl BlockchainEngine {
             .validate_cached_supply_invariants()
             .context("Owned-fastpath periodic cached supply audit failed")?;
         if Self::owned_fastpath_smt_audit_enabled() {
-            state
-                .validate_smt_consistency()
-                .context("Owned-fastpath periodic SMT audit failed")?;
+            state.validate_smt_consistency().context("Owned-fastpath periodic SMT audit failed")?;
         }
         Ok(())
     }
@@ -4055,15 +3853,12 @@ impl BlockchainEngine {
         target_round: u64,
         limit: usize,
     ) -> Result<Vec<DagVertex>> {
-        self.dag_engine_instance()?
-            .vertices_through_round_for_sync(target_round, limit)
+        self.dag_engine_instance()?.vertices_through_round_for_sync(target_round, limit)
     }
 
     /// Returns missing parent round numbers for the given vertices during sync.
     pub fn dag_missing_parent_rounds_for_sync(&self, vertices: &[DagVertex]) -> Result<Vec<u64>> {
-        Ok(self
-            .dag_engine_instance()?
-            .missing_parent_rounds_for_sync(vertices))
+        Ok(self.dag_engine_instance()?.missing_parent_rounds_for_sync(vertices))
     }
 
     /// Returns DAG vertices matching the given checkpoint vertex IDs for sync.
@@ -4072,8 +3867,7 @@ impl BlockchainEngine {
         checkpoint_vertices: &[[u8; 32]],
         limit: usize,
     ) -> Result<Vec<DagVertex>> {
-        self.dag_engine_instance()?
-            .checkpoint_vertices_for_sync(checkpoint_vertices, limit)
+        self.dag_engine_instance()?.checkpoint_vertices_for_sync(checkpoint_vertices, limit)
     }
 
     /// Adds a vertex received from the network to the DAG engine.
@@ -4101,10 +3895,7 @@ impl BlockchainEngine {
     /// Configures the authority ID and full validator set for DAG consensus.
     pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
         self.authority_id = normalize_consensus_authority_id(authority_id);
-        self.authorities = authorities
-            .into_iter()
-            .map(normalize_consensus_authority_id)
-            .collect();
+        self.authorities = authorities.into_iter().map(normalize_consensus_authority_id).collect();
         self.consensus_signing_key = None;
         self.consensus_public_keys.clear();
         match self.dag_engine.write() {
@@ -4138,14 +3929,12 @@ impl BlockchainEngine {
             .collect();
         let local_public_key = local_signing_key.verifying_key().to_bytes().to_vec();
         let expected_public_key =
-            authority_public_keys
-                .get(&self.authority_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Missing consensus public key for local authority {}",
-                        self.authority_id
-                    )
-                })?;
+            authority_public_keys.get(&self.authority_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing consensus public key for local authority {}",
+                    self.authority_id
+                )
+            })?;
         if *expected_public_key != local_public_key {
             anyhow::bail!("Consensus signing key does not match local authority public key");
         }
@@ -4205,8 +3994,7 @@ impl BlockchainEngine {
 
     /// Records the count of invalid pending transactions that were dropped.
     pub(crate) fn record_invalid_pending_drop(&self, removed: usize) {
-        self.invalid_pending_drop_count
-            .fetch_add(removed as u64, Ordering::Relaxed);
+        self.invalid_pending_drop_count.fetch_add(removed as u64, Ordering::Relaxed);
     }
 }
 

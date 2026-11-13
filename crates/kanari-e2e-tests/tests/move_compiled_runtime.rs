@@ -65,11 +65,8 @@ fn compile_e2e_package() -> anyhow::Result<(tempfile::TempDir, CompiledPackage)>
     let scratch = tempfile::tempdir()?;
     let install_dir = scratch.path().join("build");
 
-    let compiled = BuildConfig {
-        install_dir: Some(install_dir),
-        ..Default::default()
-    }
-    .compile_package(&root, &mut std::io::sink())?;
+    let compiled = BuildConfig { install_dir: Some(install_dir), ..Default::default() }
+        .compile_package(&root, &mut std::io::sink())?;
 
     Ok((scratch, compiled))
 }
@@ -81,10 +78,7 @@ fn root_module_bytes(compiled: &CompiledPackage) -> Vec<(String, Vec<u8>)> {
         .map(|unit| {
             let name = unit.unit.module.self_id().name().to_string();
             let mut bytes = Vec::new();
-            unit.unit
-                .module
-                .serialize(&mut bytes)
-                .expect("serialize compiled module");
+            unit.unit.module.serialize(&mut bytes).expect("serialize compiled module");
             (name, bytes)
         })
         .collect()
@@ -119,9 +113,7 @@ fn tx_context_arg_at(sender: MoveAccountAddress, epoch: u64, timestamp_ms: u64) 
     // let one transaction's object silently overwrite another's.
     let mut tx_hash = [0u8; 32];
     tx_hash[..8].copy_from_slice(
-        &TX_CONTEXT_NONCE
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            .to_le_bytes(),
+        &TX_CONTEXT_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed).to_le_bytes(),
     );
     let ctx = kanari_types::tx_context::TxContextRecord::from_address(
         sender,
@@ -140,21 +132,15 @@ fn vec_u8_arg(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn u64_arg(value: u64) -> Vec<u8> {
-    MoveValue::U64(value)
-        .simple_serialize()
-        .expect("serialize u64")
+    MoveValue::U64(value).simple_serialize().expect("serialize u64")
 }
 
 fn u8_arg(value: u8) -> Vec<u8> {
-    MoveValue::U8(value)
-        .simple_serialize()
-        .expect("serialize u8")
+    MoveValue::U8(value).simple_serialize().expect("serialize u8")
 }
 
 fn bool_arg(value: bool) -> Vec<u8> {
-    MoveValue::Bool(value)
-        .simple_serialize()
-        .expect("serialize bool")
+    MoveValue::Bool(value).simple_serialize().expect("serialize bool")
 }
 
 fn address_arg(value: &str) -> Vec<u8> {
@@ -268,10 +254,7 @@ fn only_created(cs: &kanari_move_runtime_v2::changeset::ChangeSet) -> (String, u
 }
 
 fn created_types(cs: &kanari_move_runtime_v2::changeset::ChangeSet) -> Vec<String> {
-    cs.created_objects
-        .iter()
-        .map(|(_, o)| o.type_.clone())
-        .collect()
+    cs.created_objects.iter().map(|(_, o)| o.type_.clone()).collect()
 }
 
 /// Id of the created object whose type ends with `suffix`.
@@ -280,10 +263,7 @@ fn find_created(cs: &kanari_move_runtime_v2::changeset::ChangeSet, suffix: &str)
         .iter()
         .find(|(_, o)| o.type_.ends_with(suffix))
         .unwrap_or_else(|| {
-            panic!(
-                "no created object whose type ends with `{suffix}`; got {:?}",
-                created_types(cs)
-            )
+            panic!("no created object whose type ends with `{suffix}`; got {:?}", created_types(cs))
         })
         .0
         .clone()
@@ -299,10 +279,7 @@ fn find_created_containing(
         .iter()
         .find(|(_, o)| o.type_.contains(needle))
         .unwrap_or_else(|| {
-            panic!(
-                "no created object whose type contains `{needle}`; got {:?}",
-                created_types(cs)
-            )
+            panic!("no created object whose type contains `{needle}`; got {:?}", created_types(cs))
         })
         .0
         .clone()
@@ -369,10 +346,7 @@ fn e2e_move_modules_publish_to_runtime() -> anyhow::Result<()> {
 
     assert_eq!(modules.len(), EXPECTED_MODULES.len());
     for name in EXPECTED_MODULES {
-        assert!(
-            modules.iter().any(|(n, _)| n == name),
-            "`{name}` was not published"
-        );
+        assert!(modules.iter().any(|(n, _)| n == name), "`{name}` was not published");
     }
 
     Ok(())
@@ -397,43 +371,19 @@ fn e2e_math_entry_functions_execute() -> anyhow::Result<()> {
         None,
         None,
     )?;
-    assert!(
-        cs.created_objects.is_empty(),
-        "pure computation must not create objects"
-    );
+    assert!(cs.created_objects.is_empty(), "pure computation must not create objects");
 
     // Exercise the `math` natives plus local logic.
     let cases: Vec<(&str, Vec<Vec<u8>>)> = vec![
-        (
-            "e2e_check_parity",
-            vec![u64_arg(4), bool_arg(true), bool_arg(false)],
-        ),
-        (
-            "e2e_check_clamp",
-            vec![u64_arg(500), u64_arg(0), u64_arg(100), u64_arg(100)],
-        ),
-        (
-            "e2e_check_percent_of",
-            vec![u64_arg(1000), u64_arg(25), u64_arg(250)],
-        ),
+        ("e2e_check_parity", vec![u64_arg(4), bool_arg(true), bool_arg(false)]),
+        ("e2e_check_clamp", vec![u64_arg(500), u64_arg(0), u64_arg(100), u64_arg(100)]),
+        ("e2e_check_percent_of", vec![u64_arg(1000), u64_arg(25), u64_arg(250)]),
         ("e2e_check_sqrt", vec![u64_arg(144), u64_arg(12)]),
-        (
-            "e2e_check_average",
-            vec![u64_arg(10), u64_arg(20), u64_arg(15)],
-        ),
-        (
-            "e2e_check_ceil_div",
-            vec![u64_arg(10), u64_arg(3), u64_arg(4)],
-        ),
+        ("e2e_check_average", vec![u64_arg(10), u64_arg(20), u64_arg(15)]),
+        ("e2e_check_ceil_div", vec![u64_arg(10), u64_arg(3), u64_arg(4)]),
         ("e2e_check_pow", vec![u64_arg(2), u8_arg(10), u64_arg(1024)]),
-        (
-            "e2e_check_multiply",
-            vec![u64_arg(6), u64_arg(7), u64_arg(42)],
-        ),
-        (
-            "e2e_check_add_overflow",
-            vec![u64_arg(u64::MAX), u64_arg(1)],
-        ),
+        ("e2e_check_multiply", vec![u64_arg(6), u64_arg(7), u64_arg(42)]),
+        ("e2e_check_add_overflow", vec![u64_arg(u64::MAX), u64_arg(1)]),
     ];
 
     for (fn_name, args) in cases {
@@ -471,15 +421,11 @@ fn e2e_events_entry_functions_emit_events() -> anyhow::Result<()> {
         cs.events.iter().map(|e| &e.type_tag).collect::<Vec<_>>()
     );
     assert!(
-        cs.events
-            .iter()
-            .any(|e| e.type_tag.contains("move_e2e_events::MessageEvent")),
+        cs.events.iter().any(|e| e.type_tag.contains("move_e2e_events::MessageEvent")),
         "expected a MessageEvent"
     );
     assert!(
-        cs.events
-            .iter()
-            .any(|e| e.type_tag.contains("move_e2e_events::BatchEvent")),
+        cs.events.iter().any(|e| e.type_tag.contains("move_e2e_events::BatchEvent")),
         "expected a BatchEvent"
     );
 
@@ -500,10 +446,7 @@ fn e2e_events_entry_functions_emit_events() -> anyhow::Result<()> {
             None,
             None,
         )?;
-        assert!(
-            !cs.events.is_empty(),
-            "move_e2e_events::{fn_name} must emit at least one event"
-        );
+        assert!(!cs.events.is_empty(), "move_e2e_events::{fn_name} must emit at least one event");
     }
 
     Ok(())
@@ -554,10 +497,7 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
         &module,
         "e2e_check_total_supply",
         vec![
-            Slot::Obj {
-                id: cap_id.clone(),
-                mutable: false,
-            },
+            Slot::Obj { id: cap_id.clone(), mutable: false },
             Slot::Raw(u64_arg(1_000_000_000_000)),
         ],
         sender,
@@ -571,10 +511,7 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
         &module,
         "mint_more",
         vec![
-            Slot::Obj {
-                id: cap_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: cap_id.clone(), mutable: true },
             Slot::Raw(u64_arg(42)),
             Slot::Raw(tx_context_arg(sender, 1)),
         ],
@@ -600,13 +537,7 @@ fn e2e_basic_coin_init_creates_objects() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_total_supply",
-        vec![
-            Slot::Obj {
-                id: cap_id,
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(1_000_000_000_042)),
-        ],
+        vec![Slot::Obj { id: cap_id, mutable: false }, Slot::Raw(u64_arg(1_000_000_000_042))],
         sender,
     )?;
 
@@ -631,10 +562,7 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
         None,
         None,
     )?;
-    assert!(
-        !init_cs.created_objects.is_empty(),
-        "init_comp_coin must create objects"
-    );
+    assert!(!init_cs.created_objects.is_empty(), "init_comp_coin must create objects");
     preload_created(&runtime, &init_cs);
     let payment_id = find_created_containing(&init_cs, "Coin<");
 
@@ -663,10 +591,7 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
         &module,
         "e2e_withdraw",
         vec![
-            Slot::Obj {
-                id: vault_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: vault_id.clone(), mutable: true },
             Slot::Raw(u64_arg(1)),
             Slot::Raw(tx_context_arg(sender, 2)),
         ],
@@ -681,14 +606,8 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
         &module,
         "deposit",
         vec![
-            Slot::Obj {
-                id: vault_id.to_string(),
-                mutable: true,
-            },
-            Slot::Obj {
-                id: payment_id,
-                mutable: true,
-            },
+            Slot::Obj { id: vault_id.to_string(), mutable: true },
+            Slot::Obj { id: payment_id, mutable: true },
             Slot::Raw(tx_context_arg(sender, 3)),
         ],
         sender,
@@ -700,11 +619,7 @@ fn e2e_comprehensive_vault_flow_executes() -> anyhow::Result<()> {
             .iter()
             .any(|ev| ev.type_tag.contains("move_e2e_comprehensive::DepositEvent")),
         "deposit must emit a DepositEvent, got {:?}",
-        deposit
-            .events
-            .iter()
-            .map(|ev| &ev.type_tag)
-            .collect::<Vec<_>>()
+        deposit.events.iter().map(|ev| &ev.type_tag).collect::<Vec<_>>()
     );
 
     Ok(())
@@ -727,12 +642,7 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         sender,
     )?;
     let (_store_id, _store_version) = only_created(&cs);
-    assert!(
-        cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_storage::KeyValueStore")
-    );
+    assert!(cs.created_objects[0].1.type_.contains("move_e2e_storage::KeyValueStore"));
     preload_created(&runtime, &cs);
 
     // Owner-gated write, delete and blob versioning all happen inside one
@@ -757,10 +667,7 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
     let roundtrip_blob_id = find_created_containing(&roundtrip, "DataBlob");
     preload_created(&runtime, &roundtrip);
 
-    let store = |mutable: bool| Slot::Obj {
-        id: store_id.clone(),
-        mutable,
-    };
+    let store = |mutable: bool| Slot::Obj { id: store_id.clone(), mutable };
 
     let _ = exec(
         &runtime,
@@ -773,11 +680,7 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_get_value",
-        vec![
-            store(false),
-            Slot::Raw(vec_u8_arg(b"beta")),
-            Slot::Raw(vec_u8_arg(b"two")),
-        ],
+        vec![store(false), Slot::Raw(vec_u8_arg(b"beta")), Slot::Raw(vec_u8_arg(b"two"))],
         sender,
     )?;
     let _ = exec(
@@ -791,13 +694,7 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_blob_version",
-        vec![
-            Slot::Obj {
-                id: roundtrip_blob_id,
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(3)),
-        ],
+        vec![Slot::Obj { id: roundtrip_blob_id, mutable: false }, Slot::Raw(u64_arg(3))],
         sender,
     )?;
 
@@ -806,11 +703,7 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "remove_value",
-        vec![
-            store(true),
-            Slot::Raw(vec_u8_arg(b"beta")),
-            Slot::Raw(tx_context_arg(sender, 2)),
-        ],
+        vec![store(true), Slot::Raw(vec_u8_arg(b"beta")), Slot::Raw(tx_context_arg(sender, 2))],
         sender,
     )?;
 
@@ -834,20 +727,13 @@ fn e2e_storage_store_flow_executes() -> anyhow::Result<()> {
         &module,
         "update_blob",
         vec![
-            Slot::Obj {
-                id: blob_id,
-                mutable: true,
-            },
+            Slot::Obj { id: blob_id, mutable: true },
             Slot::Raw(vec_u8_arg(b"payload2")),
             Slot::Raw(vec_u8_arg(b"hash1")),
         ],
         sender,
     );
-    assert!(
-        update.is_ok(),
-        "update_blob must succeed, got {:?}",
-        update.err()
-    );
+    assert!(update.is_ok(), "update_blob must succeed, got {:?}", update.err());
 
     Ok(())
 }
@@ -873,12 +759,7 @@ fn e2e_nft_collection_flow_executes() -> anyhow::Result<()> {
         sender,
     )?;
     let (collection_id, _collection_version) = only_created(&cs);
-    assert!(
-        cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_nft::NFTCollection")
-    );
+    assert!(cs.created_objects[0].1.type_.contains("move_e2e_nft::NFTCollection"));
     preload_created(&runtime, &cs);
 
     let mint_cs = exec(
@@ -886,10 +767,7 @@ fn e2e_nft_collection_flow_executes() -> anyhow::Result<()> {
         &module,
         "e2e_mint_nft",
         vec![
-            Slot::Obj {
-                id: collection_id,
-                mutable: true,
-            },
+            Slot::Obj { id: collection_id, mutable: true },
             Slot::Raw(vec_u8_arg(b"Genesis")),
             Slot::Raw(vec_u8_arg(b"first nft")),
             Slot::Raw(vec_u8_arg(b"https://kanari.example/1.png")),
@@ -920,19 +798,11 @@ fn e2e_access_control_flow_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_create_access_control",
-        vec![
-            Slot::Raw(bool_arg(true)),
-            Slot::Raw(tx_context_arg(sender, 0)),
-        ],
+        vec![Slot::Raw(bool_arg(true)), Slot::Raw(tx_context_arg(sender, 0))],
         sender,
     )?;
     let (control_id, _control_version) = only_created(&control_cs);
-    assert!(
-        control_cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_access::AccessControl")
-    );
+    assert!(control_cs.created_objects[0].1.type_.contains("move_e2e_access::AccessControl"));
     preload_created(&runtime, &control_cs);
 
     let resource_cs = exec(
@@ -947,12 +817,7 @@ fn e2e_access_control_flow_executes() -> anyhow::Result<()> {
         sender,
     )?;
     let (resource_id, _resource_version) = only_created(&resource_cs);
-    assert!(
-        resource_cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_access::Resource")
-    );
+    assert!(resource_cs.created_objects[0].1.type_.contains("move_e2e_access::Resource"));
     preload_created(&runtime, &resource_cs);
 
     // `update_resource` takes two object arguments. The runtime's declared
@@ -963,13 +828,7 @@ fn e2e_access_control_flow_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_resource_value",
-        vec![
-            Slot::Obj {
-                id: resource_id,
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(1)),
-        ],
+        vec![Slot::Obj { id: resource_id, mutable: false }, Slot::Raw(u64_arg(1))],
         sender,
     )?;
 
@@ -1010,19 +869,13 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         &runtime,
         &module,
         "e2e_create_control_with_admin",
-        vec![
-            Slot::Raw(address_arg(E2E_PUBLISHER)),
-            Slot::Raw(tx_context_arg(sender, 8)),
-        ],
+        vec![Slot::Raw(address_arg(E2E_PUBLISHER)), Slot::Raw(tx_context_arg(sender, 8))],
         sender,
     )?;
     let seeded_id = only_created(&seeded).0;
     preload_created(&runtime, &seeded);
 
-    let seeded_slot = |mutable: bool| Slot::Obj {
-        id: seeded_id.clone(),
-        mutable,
-    };
+    let seeded_slot = |mutable: bool| Slot::Obj { id: seeded_id.clone(), mutable };
 
     let _ = exec(
         &runtime,
@@ -1035,22 +888,14 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         &runtime,
         &module,
         "e2e_check_is_admin",
-        vec![
-            seeded_slot(false),
-            Slot::Raw(address_arg(E2E_PUBLISHER)),
-            Slot::Raw(bool_arg(true)),
-        ],
+        vec![seeded_slot(false), Slot::Raw(address_arg(E2E_PUBLISHER)), Slot::Raw(bool_arg(true))],
         sender,
     )?;
     let _ = exec(
         &runtime,
         &module,
         "e2e_check_is_admin",
-        vec![
-            seeded_slot(false),
-            Slot::Raw(address_arg("0x2")),
-            Slot::Raw(bool_arg(false)),
-        ],
+        vec![seeded_slot(false), Slot::Raw(address_arg("0x2")), Slot::Raw(bool_arg(false))],
         sender,
     )?;
 
@@ -1081,11 +926,7 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         &runtime,
         &module,
         "e2e_check_is_admin",
-        vec![
-            seeded_slot(false),
-            Slot::Raw(address_arg(E2E_PUBLISHER)),
-            Slot::Raw(bool_arg(false)),
-        ],
+        vec![seeded_slot(false), Slot::Raw(address_arg(E2E_PUBLISHER)), Slot::Raw(bool_arg(false))],
         sender,
     )?;
 
@@ -1099,10 +940,8 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         sender,
     )?;
     assert_eq!(closed.created_objects.len(), 2);
-    let (closed_id, guarded_id) = (
-        closed.created_objects[0].0.clone(),
-        closed.created_objects[1].0.clone(),
-    );
+    let (closed_id, guarded_id) =
+        (closed.created_objects[0].0.clone(), closed.created_objects[1].0.clone());
     preload_created(&runtime, &closed);
 
     let other = MoveAccountAddress::from_hex_literal("0x2").expect("valid address");
@@ -1112,10 +951,7 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         &module,
         "add_admin",
         vec![
-            Slot::Obj {
-                id: closed_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: closed_id.clone(), mutable: true },
             Slot::Raw(address_arg(E2E_PUBLISHER)),
             Slot::Raw(tx_context_arg(other, 2)),
         ],
@@ -1128,14 +964,8 @@ fn e2e_access_roundtrip_and_closed_control_reject_strangers() -> anyhow::Result<
         &module,
         "update_resource",
         vec![
-            Slot::Obj {
-                id: closed_id,
-                mutable: false,
-            },
-            Slot::Obj {
-                id: guarded_id,
-                mutable: true,
-            },
+            Slot::Obj { id: closed_id, mutable: false },
+            Slot::Obj { id: guarded_id, mutable: true },
             Slot::Raw(u64_arg(7)),
             Slot::Raw(vec_u8_arg(b"hijack")),
             Slot::Raw(tx_context_arg(other, 3)),
@@ -1164,12 +994,7 @@ fn e2e_registry_flow_executes() -> anyhow::Result<()> {
         sender,
     )?;
     let (registry_id, _registry_version) = only_created(&cs);
-    assert!(
-        cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_registry::Registry")
-    );
+    assert!(cs.created_objects[0].1.type_.contains("move_e2e_registry::Registry"));
     preload_created(&runtime, &cs);
 
     let _ = exec(
@@ -1177,10 +1002,7 @@ fn e2e_registry_flow_executes() -> anyhow::Result<()> {
         &module,
         "register_name",
         vec![
-            Slot::Obj {
-                id: registry_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: registry_id.clone(), mutable: true },
             Slot::Raw(vec_u8_arg(b"kanari")),
             Slot::Raw(address_arg(E2E_PUBLISHER)),
             Slot::Raw(tx_context_arg(sender, 1)),
@@ -1194,10 +1016,7 @@ fn e2e_registry_flow_executes() -> anyhow::Result<()> {
         &module,
         "register_name",
         vec![
-            Slot::Obj {
-                id: registry_id,
-                mutable: true,
-            },
+            Slot::Obj { id: registry_id, mutable: true },
             Slot::Raw(vec_u8_arg(b"kanari")),
             Slot::Raw(address_arg("0x3")),
             Slot::Raw(tx_context_arg(sender, 2)),
@@ -1224,10 +1043,7 @@ fn e2e_registry_flow_executes() -> anyhow::Result<()> {
         &module,
         "update_entry",
         vec![
-            Slot::Obj {
-                id: entry_id,
-                mutable: true,
-            },
+            Slot::Obj { id: entry_id, mutable: true },
             Slot::Raw(vec_u8_arg(b"value2")),
             Slot::Raw(tx_context_arg(sender, 4)),
         ],
@@ -1257,18 +1073,10 @@ fn e2e_time_flow_executes() -> anyhow::Result<()> {
         sender,
     )?;
     let (record_id, _record_version) = only_created(&cs);
-    assert!(
-        cs.created_objects[0]
-            .1
-            .type_
-            .contains("move_e2e_time::TimestampRecord")
-    );
+    assert!(cs.created_objects[0].1.type_.contains("move_e2e_time::TimestampRecord"));
     preload_created(&runtime, &cs);
 
-    let record = |mutable: bool| Slot::Obj {
-        id: record_id.clone(),
-        mutable,
-    };
+    let record = |mutable: bool| Slot::Obj { id: record_id.clone(), mutable };
 
     // The record was never touched since creation, so these read back exactly.
     let _ = exec(
@@ -1365,11 +1173,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_scaled_reserves",
-        vec![
-            Slot::Raw(u64_arg(12_345)),
-            Slot::Raw(u64_arg(67_890)),
-            Slot::Raw(u64_arg(83_810)),
-        ],
+        vec![Slot::Raw(u64_arg(12_345)), Slot::Raw(u64_arg(67_890)), Slot::Raw(u64_arg(83_810))],
         sender,
     )?;
 
@@ -1395,10 +1199,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &module,
         "e2e_check_simple_pool",
         vec![
-            Slot::Obj {
-                id: pool_id.clone(),
-                mutable: false,
-            },
+            Slot::Obj { id: pool_id.clone(), mutable: false },
             Slot::Raw(u64_arg(1000)),
             Slot::Raw(u64_arg(2000)),
             Slot::Raw(u64_arg(3000)),
@@ -1412,10 +1213,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &module,
         "add_simple_liquidity",
         vec![
-            Slot::Obj {
-                id: pool_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: pool_id.clone(), mutable: true },
             Slot::Raw(u64_arg(500)),
             Slot::Raw(u64_arg(1000)),
         ],
@@ -1426,10 +1224,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &module,
         "e2e_check_simple_pool",
         vec![
-            Slot::Obj {
-                id: pool_id.clone(),
-                mutable: false,
-            },
+            Slot::Obj { id: pool_id.clone(), mutable: false },
             Slot::Raw(u64_arg(1500)),
             Slot::Raw(u64_arg(3000)),
             Slot::Raw(u64_arg(4500)),
@@ -1442,10 +1237,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &module,
         "remove_simple_liquidity",
         vec![
-            Slot::Obj {
-                id: pool_id.clone(),
-                mutable: true,
-            },
+            Slot::Obj { id: pool_id.clone(), mutable: true },
             Slot::Raw(u64_arg(1500)),
             Slot::Raw(u64_arg(500)),
             Slot::Raw(u64_arg(1000)),
@@ -1457,10 +1249,7 @@ fn e2e_pool_module_is_published_and_verifiable() -> anyhow::Result<()> {
         &module,
         "e2e_check_simple_pool",
         vec![
-            Slot::Obj {
-                id: pool_id,
-                mutable: false,
-            },
+            Slot::Obj { id: pool_id, mutable: false },
             Slot::Raw(u64_arg(1000)),
             Slot::Raw(u64_arg(2000)),
             Slot::Raw(u64_arg(3000)),
@@ -1522,9 +1311,7 @@ fn e2e_vault_roundtrip_executes() -> anyhow::Result<()> {
 
     let types = created_types(&cs);
     assert!(
-        types
-            .iter()
-            .any(|t| t.contains("move_e2e_comprehensive::Vault")),
+        types.iter().any(|t| t.contains("move_e2e_comprehensive::Vault")),
         "e2e_vault_roundtrip must share a Vault, got {types:?}"
     );
     let vault_id = find_created(&cs, "::Vault");
@@ -1534,26 +1321,14 @@ fn e2e_vault_roundtrip_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_vault_balance",
-        vec![
-            Slot::Obj {
-                id: vault_id.clone(),
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(0)),
-        ],
+        vec![Slot::Obj { id: vault_id.clone(), mutable: false }, Slot::Raw(u64_arg(0))],
         sender,
     )?;
     let _ = exec(
         &runtime,
         &module,
         "e2e_check_vault_owner",
-        vec![
-            Slot::Obj {
-                id: vault_id,
-                mutable: false,
-            },
-            Slot::Raw(address_arg(E2E_PUBLISHER)),
-        ],
+        vec![Slot::Obj { id: vault_id, mutable: false }, Slot::Raw(address_arg(E2E_PUBLISHER))],
         sender,
     )?;
 
@@ -1587,13 +1362,7 @@ fn e2e_registry_roundtrip_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_registry_size",
-        vec![
-            Slot::Obj {
-                id: registry_id.clone(),
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(2)),
-        ],
+        vec![Slot::Obj { id: registry_id.clone(), mutable: false }, Slot::Raw(u64_arg(2))],
         sender,
     )?;
     let _ = exec(
@@ -1601,10 +1370,7 @@ fn e2e_registry_roundtrip_executes() -> anyhow::Result<()> {
         &module,
         "e2e_check_lookup",
         vec![
-            Slot::Obj {
-                id: registry_id.clone(),
-                mutable: false,
-            },
+            Slot::Obj { id: registry_id.clone(), mutable: false },
             Slot::Raw(vec_u8_arg(b"kanari")),
             Slot::Raw(address_arg("0x4")),
         ],
@@ -1614,26 +1380,14 @@ fn e2e_registry_roundtrip_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_lookup_absent",
-        vec![
-            Slot::Obj {
-                id: registry_id,
-                mutable: false,
-            },
-            Slot::Raw(vec_u8_arg(b"absent")),
-        ],
+        vec![Slot::Obj { id: registry_id, mutable: false }, Slot::Raw(vec_u8_arg(b"absent"))],
         sender,
     )?;
     let _ = exec(
         &runtime,
         &module,
         "e2e_check_entry_value",
-        vec![
-            Slot::Obj {
-                id: entry_id,
-                mutable: false,
-            },
-            Slot::Raw(vec_u8_arg(b"value2")),
-        ],
+        vec![Slot::Obj { id: entry_id, mutable: false }, Slot::Raw(vec_u8_arg(b"value2"))],
         sender,
     )?;
 
@@ -1666,11 +1420,7 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         .filter(|(_, o)| o.type_.ends_with("::NFT"))
         .map(|(id, _)| id.clone())
         .collect();
-    assert_eq!(
-        nft_ids.len(),
-        2,
-        "e2e_nft_roundtrip must mint two NFTs, got {types:?}"
-    );
+    assert_eq!(nft_ids.len(), 2, "e2e_nft_roundtrip must mint two NFTs, got {types:?}");
     let (first_nft, second_nft) = (nft_ids[0].clone(), nft_ids[1].clone());
 
     let collection_id = find_created(&cs, "::NFTCollection");
@@ -1680,13 +1430,7 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "e2e_check_collection_size",
-        vec![
-            Slot::Obj {
-                id: collection_id.clone(),
-                mutable: false,
-            },
-            Slot::Raw(u64_arg(2)),
-        ],
+        vec![Slot::Obj { id: collection_id.clone(), mutable: false }, Slot::Raw(u64_arg(2))],
         sender,
     )?;
     let _ = exec(
@@ -1694,10 +1438,7 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         &module,
         "e2e_check_collection_name",
         vec![
-            Slot::Obj {
-                id: collection_id,
-                mutable: false,
-            },
+            Slot::Obj { id: collection_id, mutable: false },
             Slot::Raw(vec_u8_arg(b"E2E Collection")),
         ],
         sender,
@@ -1709,10 +1450,7 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         &module,
         "e2e_check_nft_creator",
         vec![
-            Slot::Obj {
-                id: first_nft.clone(),
-                mutable: false,
-            },
+            Slot::Obj { id: first_nft.clone(), mutable: false },
             Slot::Raw(address_arg(E2E_PUBLISHER)),
         ],
         sender,
@@ -1723,36 +1461,21 @@ fn e2e_nft_roundtrip_executes() -> anyhow::Result<()> {
         &runtime,
         &module,
         "transfer_nft",
-        vec![
-            Slot::Obj {
-                id: first_nft,
-                mutable: true,
-            },
-            Slot::Raw(address_arg("0x2")),
-        ],
+        vec![Slot::Obj { id: first_nft, mutable: true }, Slot::Raw(address_arg("0x2"))],
         sender,
     );
-    assert!(
-        transfer.is_ok(),
-        "transfer_nft must succeed, got {:?}",
-        transfer.err()
-    );
+    assert!(transfer.is_ok(), "transfer_nft must succeed, got {:?}", transfer.err());
 
     // Burning consumes the second NFT and removes it from state.
     let burn = exec(
         &runtime,
         &module,
         "e2e_burn_nft",
-        vec![Slot::Obj {
-            id: second_nft.clone(),
-            mutable: true,
-        }],
+        vec![Slot::Obj { id: second_nft.clone(), mutable: true }],
         sender,
     )?;
     assert!(
-        burn.deleted_objects
-            .iter()
-            .any(|d| addr_literal(d) == addr_literal(&second_nft)),
+        burn.deleted_objects.iter().any(|d| addr_literal(d) == addr_literal(&second_nft)),
         "e2e_burn_nft must delete the NFT {second_nft}, got {:?}",
         burn.deleted_objects
     );
@@ -1789,10 +1512,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             &module,
             "set_value",
             vec![
-                Slot::Obj {
-                    id: store_id,
-                    mutable: true,
-                },
+                Slot::Obj { id: store_id, mutable: true },
                 Slot::Raw(vec_u8_arg(b"evil")),
                 Slot::Raw(vec_u8_arg(b"payload")),
                 Slot::Raw(tx_context_arg(other, 1)),
@@ -1822,10 +1542,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             &module,
             "register_name",
             vec![
-                Slot::Obj {
-                    id: registry_id,
-                    mutable: true,
-                },
+                Slot::Obj { id: registry_id, mutable: true },
                 Slot::Raw(vec_u8_arg(b"evil")),
                 Slot::Raw(address_arg("0x2")),
                 Slot::Raw(tx_context_arg(other, 1)),
@@ -1859,10 +1576,7 @@ fn e2e_non_owner_mutations_abort() -> anyhow::Result<()> {
             &module,
             "e2e_mint_nft",
             vec![
-                Slot::Obj {
-                    id: collection_id,
-                    mutable: true,
-                },
+                Slot::Obj { id: collection_id, mutable: true },
                 Slot::Raw(vec_u8_arg(b"Intruder")),
                 Slot::Raw(vec_u8_arg(b"not yours")),
                 Slot::Raw(vec_u8_arg(b"https://kanari.example/x.png")),

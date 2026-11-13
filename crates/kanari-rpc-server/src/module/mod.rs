@@ -80,10 +80,7 @@ pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> 
     };
 
     // Get module bytecode from Move storage
-    match state
-        .engine
-        .get_module_bytecode(&params.address, &params.name)
-    {
+    match state.engine.get_module_bytecode(&params.address, &params.name) {
         Some(bytecode) => {
             let functions = extract_module_functions(&bytecode);
             let module_info = ModuleInfo {
@@ -109,14 +106,10 @@ pub async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -
         .iter()
         .map(|(address, name)| {
             let bytecode_opt = state.engine.get_module_bytecode(address, name);
-            let functions = bytecode_opt
-                .as_deref()
-                .map(extract_module_functions)
-                .unwrap_or_default();
-            let dependencies = bytecode_opt
-                .as_deref()
-                .map(extract_module_dependencies)
-                .unwrap_or_default();
+            let functions =
+                bytecode_opt.as_deref().map(extract_module_functions).unwrap_or_default();
+            let dependencies =
+                bytecode_opt.as_deref().map(extract_module_dependencies).unwrap_or_default();
             ModuleInfo {
                 address: address.clone(),
                 name: name.clone(),
@@ -274,10 +267,7 @@ pub async fn handle_get_objects_by_type(
 
     respond_with_serialize(
         request.id,
-        kanari_rpc_api::OwnedObjectsResponse {
-            objects,
-            summary: None,
-        },
+        kanari_rpc_api::OwnedObjectsResponse { objects, summary: None },
     )
 }
 

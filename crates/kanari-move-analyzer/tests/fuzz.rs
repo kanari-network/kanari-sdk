@@ -13,9 +13,7 @@ use lsp_types::{DocumentFormattingParams, Position, Range, TextDocumentIdentifie
 /// panic — callers must not require noop there.
 fn formatting_noop(text: &str) -> bool {
     let params = DocumentFormattingParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse::<Uri>().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse::<Uri>().unwrap() },
         options: lsp_types::FormattingOptions {
             tab_size: 4,
             insert_spaces: true,
@@ -35,9 +33,7 @@ fn fuzz_binary_garbage_is_inert() {
     // input is fine; only non-UTF8/invalid fmt results are unacceptable).
     let garbage = "\u{0}\u{1}\u{7f}\u{feff}module fake::x { fun 永遠() {} }";
     let params = DocumentFormattingParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse::<Uri>().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse::<Uri>().unwrap() },
         options: lsp_types::FormattingOptions {
             tab_size: 4,
             insert_spaces: true,
@@ -59,9 +55,7 @@ fn fuzz_unicode_and_emoji_never_panic() {
         "module a::b {\n    fun f() { let x = \"😴\"; }\n}\n",
     ] {
         let params = DocumentFormattingParams {
-            text_document: TextDocumentIdentifier {
-                uri: "file:///x.move".parse::<Uri>().unwrap(),
-            },
+            text_document: TextDocumentIdentifier { uri: "file:///x.move".parse::<Uri>().unwrap() },
             options: lsp_types::FormattingOptions {
                 tab_size: 4,
                 insert_spaces: true,
@@ -94,9 +88,7 @@ fn fuzz_crlf_and_tab_mixes() {
         "module a::b {\n    fun f() {}\n\n\n}\n",
     ] {
         let params = DocumentFormattingParams {
-            text_document: TextDocumentIdentifier {
-                uri: "file:///x.move".parse::<Uri>().unwrap(),
-            },
+            text_document: TextDocumentIdentifier { uri: "file:///x.move".parse::<Uri>().unwrap() },
             options: lsp_types::FormattingOptions {
                 tab_size: 4,
                 insert_spaces: true,

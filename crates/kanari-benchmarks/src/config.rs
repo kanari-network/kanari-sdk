@@ -204,14 +204,8 @@ mod tests {
 
     #[test]
     fn parse_args_accepts_sender_count() {
-        let config = parse_args(args(&[
-            "kanari-benchmarks",
-            "--txs",
-            "128",
-            "--senders",
-            "32",
-        ]))
-        .unwrap();
+        let config =
+            parse_args(args(&["kanari-benchmarks", "--txs", "128", "--senders", "32"])).unwrap();
         assert_eq!(config.sender_count, Some(32));
     }
 

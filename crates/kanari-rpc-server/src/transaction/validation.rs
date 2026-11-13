@@ -78,10 +78,7 @@ pub(crate) fn validate_object_inputs_and_gas(
             if !gas_object_ids.insert(canonical_payment_id.clone()) {
                 return Err(Box::new(invalid_params_response(
                     id,
-                    format!(
-                        "Duplicate gas payment object {} is not allowed",
-                        payment.object_id
-                    ),
+                    format!("Duplicate gas payment object {} is not allowed", payment.object_id),
                 )));
             }
             if mutable_object_ids.contains(&canonical_payment_id) {

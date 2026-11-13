@@ -144,10 +144,8 @@ impl GasMeter {
 
     /// Charge for storage bytes written
     pub fn charge_storage(&mut self, bytes: u64, _config: &GasConfig) -> Result<(), GasError> {
-        self.storage_bytes_written = self
-            .storage_bytes_written
-            .checked_add(bytes)
-            .ok_or(GasError::Overflow)?;
+        self.storage_bytes_written =
+            self.storage_bytes_written.checked_add(bytes).ok_or(GasError::Overflow)?;
         Ok(())
     }
 
@@ -163,16 +161,10 @@ impl GasMeter {
 
     /// Consume gas for an operation
     pub fn consume(&mut self, gas_units: u64) -> Result<(), GasError> {
-        let new_usage = self
-            .gas_used
-            .checked_add(gas_units)
-            .ok_or(GasError::Overflow)?;
+        let new_usage = self.gas_used.checked_add(gas_units).ok_or(GasError::Overflow)?;
 
         if new_usage > self.gas_limit {
-            return Err(GasError::OutOfGas {
-                required: new_usage,
-                limit: self.gas_limit,
-            });
+            return Err(GasError::OutOfGas { required: new_usage, limit: self.gas_limit });
         }
 
         self.gas_used = new_usage;
@@ -214,12 +206,7 @@ pub struct GasEstimate {
 
 impl GasEstimate {
     pub fn new(gas_units: u64, _gas_price: u64) -> Self {
-        Self {
-            gas_units,
-            gas_price: ZERO_GAS_PRICE,
-            total_cost_mist: 0,
-            total_cost_kanari: 0.0,
-        }
+        Self { gas_units, gas_price: ZERO_GAS_PRICE, total_cost_mist: 0, total_cost_kanari: 0.0 }
     }
 
     pub fn from_operation(operation: GasOperation, gas_price: u64) -> Self {
@@ -240,16 +227,9 @@ impl std::fmt::Display for GasError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GasError::OutOfGas { required, limit } => {
-                write!(
-                    f,
-                    "Out of gas: required {} but limit is {}",
-                    required, limit
-                )
+                write!(f, "Out of gas: required {} but limit is {}", required, limit)
             }
-            GasError::InsufficientBalance {
-                required,
-                available,
-            } => {
+            GasError::InsufficientBalance { required, available } => {
                 write!(
                     f,
                     "Insufficient balance for gas: required {} Mist but only {} available",
@@ -257,11 +237,7 @@ impl std::fmt::Display for GasError {
                 )
             }
             GasError::PriceTooLow { provided, minimum } => {
-                write!(
-                    f,
-                    "Gas price too low: provided {} but minimum is {}",
-                    provided, minimum
-                )
+                write!(f, "Gas price too low: provided {} but minimum is {}", provided, minimum)
             }
             GasError::Overflow => write!(f, "Gas calculation overflow"),
         }
@@ -281,12 +257,7 @@ pub struct TransactionGas {
 
 impl TransactionGas {
     pub fn new(gas_limit: u64, _gas_price: u64) -> Self {
-        Self {
-            gas_limit,
-            gas_price: ZERO_GAS_PRICE,
-            gas_used: 0,
-            gas_refund: 0,
-        }
+        Self { gas_limit, gas_price: ZERO_GAS_PRICE, gas_used: 0, gas_refund: 0 }
     }
 
     pub fn total_cost(&self) -> u64 {
@@ -318,10 +289,7 @@ mod tests {
     fn gas_config_provides_valid_transaction_defaults() {
         let config = GasConfig::default();
 
-        assert_eq!(
-            config.default_transaction_gas_limit(),
-            config.max_gas_per_tx
-        );
+        assert_eq!(config.default_transaction_gas_limit(), config.max_gas_per_tx);
         assert_eq!(config.default_transaction_gas_price(), ZERO_GAS_PRICE);
     }
 

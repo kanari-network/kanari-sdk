@@ -73,10 +73,7 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         ),
         Err(error) => {
             error!("View function execution failed: {error}");
-            internal_error_response(
-                request.id,
-                format!("View function execution failed: {error}"),
-            )
+            internal_error_response(request.id, format!("View function execution failed: {error}"))
         }
     }
 }

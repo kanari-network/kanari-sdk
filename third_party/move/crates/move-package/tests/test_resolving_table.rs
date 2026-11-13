@@ -25,10 +25,7 @@ fn definitions() {
     table.define((p0, n0), Some(a0)).expect("Redefinition");
     table.define((p0, n1), Some(a1)).expect("Prev declaration");
 
-    assert!(
-        table.define((p0, n0), Some(a1)).is_err(),
-        "Conflicting definition",
-    );
+    assert!(table.define((p0, n0), Some(a1)).is_err(), "Conflicting definition",);
 
     assert_eq!(Some(&a0), table.get((p0, n0)));
     assert_eq!(Some(&a1), table.get((p0, n1)));
@@ -63,9 +60,7 @@ fn unification() {
     assert_eq!(Some(&a1), table.get((p0, n3)));
     assert_eq!(Some(&a1), table.get((p0, n4)));
 
-    table
-        .unify((p0, n2), (p0, n3))
-        .expect("Unify already unified");
+    table.unify((p0, n2), (p0, n3)).expect("Unify already unified");
 
     assert!(
         table.unify((p0, n3), (p0, n1)).is_err(),
@@ -95,10 +90,7 @@ fn bindings() {
         "Bindings include unassigned addresses",
     );
 
-    assert_eq!(
-        table.bindings(p1).collect::<HashSet<_>>(),
-        HashSet::from([(n2, &Some(a1))]),
-    );
+    assert_eq!(table.bindings(p1).collect::<HashSet<_>>(), HashSet::from([(n2, &Some(a1))]),);
 
     table.unify((p0, n1), (p1, n2)).unwrap();
     table.unify((p0, n0), (p1, n0)).unwrap();

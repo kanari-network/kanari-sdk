@@ -80,12 +80,7 @@ fn base_type_depth(ty: &BaseType) -> u64 {
         BaseType::Primitive(_) => 1,
         BaseType::Vector(elem) => 1 + base_type_depth(elem),
         BaseType::Struct(inst) => {
-            1 + inst
-                .fields
-                .iter()
-                .map(|field| base_type_depth(&field.ty))
-                .max()
-                .unwrap_or(0)
+            1 + inst.fields.iter().map(|field| base_type_depth(&field.ty)).max().unwrap_or(0)
         }
     }
 }
@@ -125,13 +120,7 @@ impl<'env> FunctionContext<'env> {
         level: usize,
     ) -> Self {
         let label_offsets = Bytecode::label_offsets(target.get_bytecode());
-        Self {
-            holder,
-            target,
-            ty_args,
-            label_offsets,
-            level,
-        }
+        Self { holder, target, ty_args, label_offsets, level }
     }
 
     //
@@ -140,10 +129,7 @@ impl<'env> FunctionContext<'env> {
 
     /// Retrieve the `InterpreterSettings` from the global environment
     pub fn get_settings(&self) -> Rc<InterpreterSettings> {
-        self.target
-            .global_env()
-            .get_extension::<InterpreterSettings>()
-            .unwrap_or_default()
+        self.target.global_env().get_extension::<InterpreterSettings>().unwrap_or_default()
     }
 
     //
@@ -218,9 +204,7 @@ impl<'env> FunctionContext<'env> {
         // locate
         let env = self.target.global_env();
         let addr = *self.target.module_env().self_address();
-        let module_name = env
-            .symbol_pool()
-            .string(self.target.module_env().get_name().name());
+        let module_name = env.symbol_pool().string(self.target.module_env().get_name().name());
         let function_name = env.symbol_pool().string(self.target.get_name());
 
         // dispatch
@@ -400,8 +384,7 @@ impl<'env> FunctionContext<'env> {
                 let bytes_val = dummy_state.del_value(0);
                 let i_val = dummy_state.del_value(1);
                 let j_val = dummy_state.del_value(2);
-                self.native_string_internal_sub_string(bytes_val, i_val, j_val)
-                    .map(|res| vec![res])
+                self.native_string_internal_sub_string(bytes_val, i_val, j_val).map(|res| vec![res])
             }
             (CORE_CODE_ADDRESS, "string", "internal_index_of") => {
                 if cfg!(debug_assertions) {
@@ -424,8 +407,7 @@ impl<'env> FunctionContext<'env> {
                 if cfg!(debug_assertions) {
                     assert_eq!(srcs.len(), 1);
                 }
-                self.native_bcs_to_bytes(dummy_state.del_value(0))
-                    .map(|res| vec![res])
+                self.native_bcs_to_bytes(dummy_state.del_value(0)).map(|res| vec![res])
             }
             (CORE_CODE_ADDRESS, "event", "write_to_event_store") => {
                 if cfg!(debug_assertions) {
@@ -566,10 +548,7 @@ impl<'env> FunctionContext<'env> {
                     BaseType::Vector(elem_ty) => (**elem_ty).clone(),
                     _ => unreachable!("Load of a vector constant into a non-vector local"),
                 };
-                let elems = v
-                    .iter()
-                    .map(|e| self.constant_to_typed_value(e, &elem_ty))
-                    .collect();
+                let elems = v.iter().map(|e| self.constant_to_typed_value(e, &elem_ty)).collect();
                 TypedValue::mk_vector(elem_ty, elems)
             }
         };
@@ -625,10 +604,7 @@ impl<'env> FunctionContext<'env> {
                     BaseType::Vector(elem_ty) => (**elem_ty).clone(),
                     _ => unreachable!("Vector constant with a non-vector element type"),
                 };
-                let elems = v
-                    .iter()
-                    .map(|e| self.constant_to_typed_value(e, &elem_ty))
-                    .collect();
+                let elems = v.iter().map(|e| self.constant_to_typed_value(e, &elem_ty)).collect();
                 TypedValue::mk_vector(elem_ty, elems)
             }
         }
@@ -650,11 +626,7 @@ impl<'env> FunctionContext<'env> {
                 None => (),
                 Some(action) => {
                     assert!(op.can_abort());
-                    assert!(
-                        local_state
-                            .get_type(action.1)
-                            .is_compatible_for_abort_code()
-                    );
+                    assert!(local_state.get_type(action.1).is_compatible_for_abort_code());
                 }
             }
         }
@@ -1155,11 +1127,7 @@ impl<'env> FunctionContext<'env> {
             .into_iter()
             .enumerate()
             .map(|(idx, arg)| {
-                if mut_args.contains_key(&idx) {
-                    arg.box_into_mut_ref_arg(srcs[idx])
-                } else {
-                    arg
-                }
+                if mut_args.contains_key(&idx) { arg.box_into_mut_ref_arg(srcs[idx]) } else { arg }
             })
             .collect();
 
@@ -1680,8 +1648,7 @@ impl<'env> FunctionContext<'env> {
                             }
                             path.push(cur.clone());
                             // NOTE: the local_idx argument can be any dummy value here
-                            cur.borrow_ref_vector_element(*elem_num, true, *callee_idx)
-                                .unwrap()
+                            cur.borrow_ref_vector_element(*elem_num, true, *callee_idx).unwrap()
                         }
                         _ => unreachable!(),
                     };
@@ -2234,11 +2201,7 @@ impl<'env> FunctionContext<'env> {
         if cfg!(debug_assertions) {
             assert!(cond_val.get_ty().is_bool());
         }
-        let label = if cond_val.into_bool() {
-            then_label
-        } else {
-            else_label
-        };
+        let label = if cond_val.into_bool() { then_label } else { else_label };
         local_state.set_pc(self.code_offset_by_label(label));
     }
 
@@ -2247,11 +2210,8 @@ impl<'env> FunctionContext<'env> {
         if cfg!(debug_assertions) {
             assert!(val.get_ty().is_compatible_for_abort_code());
         }
-        let abort_code = if val.get_ty().is_u64() {
-            val.into_u64()
-        } else {
-            val.into_num().to_u64().unwrap()
-        };
+        let abort_code =
+            if val.get_ty().is_u64() { val.into_u64() } else { val.into_num().to_u64().unwrap() };
         local_state.terminate_with_abort(self.usr_abort(abort_code));
     }
 
@@ -2272,11 +2232,7 @@ impl<'env> FunctionContext<'env> {
             .map(|index| {
                 let val = local_state.get_value(*index);
                 // mark mut_ref returns with the pointer trace
-                if val.get_ty().is_ref(Some(true)) {
-                    val.box_into_mut_ref_ret(&ptrs)
-                } else {
-                    val
-                }
+                if val.get_ty().is_ref(Some(true)) { val.box_into_mut_ref_ret(&ptrs) } else { val }
             })
             .collect();
         local_state.terminate_with_return(ret_vals);
@@ -2298,10 +2254,7 @@ impl<'env> FunctionContext<'env> {
             assert_eq!(self.ty_args.len(), 1);
             // NOTE: this function accepts a value instead of a reference!
             // This is different from the Move native implementation.
-            assert_eq!(
-                vec_val.get_ty().get_vector_elem(),
-                self.ty_args.first().unwrap()
-            );
+            assert_eq!(vec_val.get_ty().get_vector_elem(), self.ty_args.first().unwrap());
         }
         TypedValue::mk_u64(vec_val.into_vector().len() as u64)
     }
@@ -2315,15 +2268,10 @@ impl<'env> FunctionContext<'env> {
             assert_eq!(self.ty_args.len(), 1);
             // NOTE: this function accepts a value instead of a reference!
             // This is different from the Move native implementation.
-            assert_eq!(
-                vec_val.get_ty().get_vector_elem(),
-                self.ty_args.first().unwrap()
-            );
+            assert_eq!(vec_val.get_ty().get_vector_elem(), self.ty_args.first().unwrap());
         }
         let elem_num = elem_val.into_u64() as usize;
-        vec_val
-            .get_vector_element(elem_num)
-            .ok_or_else(|| self.usr_abort(INDEX_OUT_OF_BOUNDS))
+        vec_val.get_vector_element(elem_num).ok_or_else(|| self.usr_abort(INDEX_OUT_OF_BOUNDS))
     }
 
     fn native_vector_borrow_mut(
@@ -2378,18 +2326,13 @@ impl<'env> FunctionContext<'env> {
                 self.ty_args.first().unwrap()
             );
         }
-        vec_val
-            .update_ref_vector_pop_back()
-            .ok_or_else(|| self.usr_abort(POP_EMPTY_VEC))
+        vec_val.update_ref_vector_pop_back().ok_or_else(|| self.usr_abort(POP_EMPTY_VEC))
     }
 
     fn native_vector_destroy_empty(&self, vec_val: TypedValue) -> Result<(), AbortInfo> {
         if cfg!(debug_assertions) {
             assert_eq!(self.ty_args.len(), 1);
-            assert_eq!(
-                vec_val.get_ty().get_vector_elem(),
-                self.ty_args.first().unwrap()
-            );
+            assert_eq!(vec_val.get_ty().get_vector_elem(), self.ty_args.first().unwrap());
         }
         if !vec_val.into_vector().is_empty() {
             return Err(self.usr_abort(DESTROY_NON_EMPTY_VEC));
@@ -2431,11 +2374,7 @@ impl<'env> FunctionContext<'env> {
             assert_eq!(self.ty_args.len(), 0);
             assert!(bytes_val.get_ty().is_vector_of(&elem_ty));
         }
-        let bytes: Vec<_> = bytes_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let bytes: Vec<_> = bytes_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let digest = sha2_256_of(&bytes);
         let hashed = digest.into_iter().map(TypedValue::mk_u8).collect();
         TypedValue::mk_vector(elem_ty, hashed)
@@ -2447,11 +2386,7 @@ impl<'env> FunctionContext<'env> {
             assert_eq!(self.ty_args.len(), 0);
             assert!(bytes_val.get_ty().is_vector_of(&elem_ty));
         }
-        let bytes: Vec<_> = bytes_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let bytes: Vec<_> = bytes_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let digest = sha3_256_of(&bytes);
         let hashed = digest.into_iter().map(TypedValue::mk_u8).collect();
         TypedValue::mk_vector(elem_ty, hashed)
@@ -2463,11 +2398,7 @@ impl<'env> FunctionContext<'env> {
         if cfg!(debug_assertions) {
             assert!(bytes_val.get_ty().is_vector_of(&elem_ty));
         }
-        bytes_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect()
+        bytes_val.into_vector().into_iter().map(|e| e.into_u8()).collect()
     }
 
     /// Pack bytes into a `vector<u8>` value
@@ -2599,10 +2530,7 @@ impl<'env> FunctionContext<'env> {
         // std::ascii::String
         let string_inst = StructInstantiation {
             ident: StructIdent {
-                module: ModuleIdent {
-                    address: CORE_CODE_ADDRESS,
-                    name: "ascii".to_string(),
-                },
+                module: ModuleIdent { address: CORE_CODE_ADDRESS, name: "ascii".to_string() },
                 name: "String".to_string(),
             },
             insts: vec![],
@@ -2619,10 +2547,7 @@ impl<'env> FunctionContext<'env> {
         // std::type_name::TypeName
         let type_name_inst = StructInstantiation {
             ident: StructIdent {
-                module: ModuleIdent {
-                    address: CORE_CODE_ADDRESS,
-                    name: "type_name".to_string(),
-                },
+                module: ModuleIdent { address: CORE_CODE_ADDRESS, name: "type_name".to_string() },
                 name: "TypeName".to_string(),
             },
             insts: vec![],
@@ -2637,9 +2562,7 @@ impl<'env> FunctionContext<'env> {
     fn native_bcs_to_bytes(&self, object: TypedValue) -> Result<TypedValue, AbortInfo> {
         if cfg!(debug_assertions) {
             assert_eq!(self.ty_args.len(), 1);
-            object
-                .get_ty()
-                .is_ref_of(self.ty_args.first().unwrap(), Some(false));
+            object.get_ty().is_ref_of(self.ty_args.first().unwrap(), Some(false));
         }
         // The Move VM builds a type layout before serializing and aborts with
         // `VM_MAX_VALUE_DEPTH_REACHED` when the type nesting exceeds `VALUE_DEPTH_MAX`
@@ -2666,16 +2589,9 @@ impl<'env> FunctionContext<'env> {
     ) {
         if cfg!(debug_assertions) {
             assert_eq!(self.ty_args.len(), 1);
-            assert_eq!(
-                msg_val.get_ty().get_base_type(),
-                self.ty_args.first().unwrap()
-            );
+            assert_eq!(msg_val.get_ty().get_base_type(), self.ty_args.first().unwrap());
         }
-        let guid = guid_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let guid = guid_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let seq = seq_val.into_u64();
         global_state.emit_event(guid, seq, msg_val);
     }
@@ -2699,11 +2615,7 @@ impl<'env> FunctionContext<'env> {
             assert_eq!(self.ty_args.len(), 0);
         }
 
-        let sig_bytes: Vec<_> = sig_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let sig_bytes: Vec<_> = sig_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let sig = match ed25519_deserialize_signature(sig_bytes.as_slice()) {
             Ok(sig) => sig,
             Err(_) => {
@@ -2711,11 +2623,7 @@ impl<'env> FunctionContext<'env> {
             }
         };
 
-        let key_bytes: Vec<_> = key_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let key_bytes: Vec<_> = key_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let key = match ed25519_deserialize_public_key(key_bytes.as_slice()) {
             Ok(key) => key,
             Err(_) => {
@@ -2723,11 +2631,7 @@ impl<'env> FunctionContext<'env> {
             }
         };
 
-        let msg_bytes: Vec<_> = msg_val
-            .into_vector()
-            .into_iter()
-            .map(|e| e.into_u8())
-            .collect();
+        let msg_bytes: Vec<_> = msg_val.into_vector().into_iter().map(|e| e.into_u8()).collect();
         let verified = ed25519_verify_signature(&key, &sig, &msg_bytes).is_ok();
         TypedValue::mk_bool(verified)
     }
@@ -2789,10 +2693,7 @@ impl<'env> FunctionContext<'env> {
 
         let mut local_slots = vec![];
         for (i, typed_arg) in typed_args.into_iter().enumerate() {
-            let name = env
-                .symbol_pool()
-                .string(target.get_local_name(i))
-                .to_string();
+            let name = env.symbol_pool().string(target.get_local_name(i)).to_string();
 
             // check that types for local slots is compatible with the declared parameter type
             if cfg!(debug_assertions) {
@@ -2812,10 +2713,7 @@ impl<'env> FunctionContext<'env> {
             local_slots.push(slot);
         }
         for i in param_decls.len()..target.get_local_count() {
-            let name = env
-                .symbol_pool()
-                .string(target.get_local_name(i))
-                .to_string();
+            let name = env.symbol_pool().string(target.get_local_name(i)).to_string();
             let ty = convert_model_local_type(env, target.get_local_type(i), &self.ty_args);
             let slot = LocalSlot::new_tmp(name, ty);
             local_slots.push(slot);

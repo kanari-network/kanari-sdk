@@ -67,11 +67,7 @@ impl ErrorBitsetField {
 
 impl ErrorBitsetBuilder {
     pub fn new(line_number: u16) -> Self {
-        Self {
-            line_number,
-            identifier_index: None,
-            constant_index: None,
-        }
+        Self { line_number, identifier_index: None, constant_index: None }
     }
 
     pub fn with_identifier_index(&mut self, identifier_index: u16) {
@@ -103,11 +99,7 @@ impl ErrorBitset {
     }
 
     pub const fn from_u64(bits: u64) -> Option<Self> {
-        if Self::is_tagged_error(bits) {
-            Some(Self { bits })
-        } else {
-            None
-        }
+        if Self::is_tagged_error(bits) { Some(Self { bits }) } else { None }
     }
 
     pub const fn is_tagged_error(bits: u64) -> bool {
@@ -115,11 +107,7 @@ impl ErrorBitset {
     }
 
     const fn sentinel(v: u16) -> Option<u16> {
-        if v == BITSET_VALUE_UNAVAILABLE {
-            None
-        } else {
-            Some(v)
-        }
+        if v == BITSET_VALUE_UNAVAILABLE { None } else { Some(v) }
     }
 
     pub const fn line_number(&self) -> Option<u16> {

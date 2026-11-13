@@ -26,10 +26,7 @@ pub struct FormatOptions {
 
 impl Default for FormatOptions {
     fn default() -> Self {
-        Self {
-            tab_width: DEFAULT_TAB_WIDTH,
-            print_width: DEFAULT_PRINT_WIDTH,
-        }
+        Self { tab_width: DEFAULT_TAB_WIDTH, print_width: DEFAULT_PRINT_WIDTH }
     }
 }
 
@@ -43,9 +40,8 @@ pub fn format_source(source: &str, options: &FormatOptions) -> anyhow::Result<St
     parser
         .set_language(&language)
         .map_err(|e| anyhow::anyhow!("failed to load Move grammar: {e:?}"))?;
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| anyhow::anyhow!("failed to parse Move source"))?;
+    let tree =
+        parser.parse(source, None).ok_or_else(|| anyhow::anyhow!("failed to parse Move source"))?;
     let root = tree.root_node();
     let doc = printer::print_node(&root, source, options);
     let mut rendered = String::new();
@@ -54,10 +50,7 @@ pub fn format_source(source: &str, options: &FormatOptions) -> anyhow::Result<St
     // The `pretty` renderer keeps indentation on otherwise blank lines;
     // strip it so blank lines are truly empty (matching prettier output).
     let cleaned: Vec<&str> = rendered.split('\n').map(str::trim_end).collect();
-    let trimmed = cleaned
-        .join("\n")
-        .trim_end_matches(['\n', '\r'])
-        .to_string();
+    let trimmed = cleaned.join("\n").trim_end_matches(['\n', '\r']).to_string();
     Ok(format!("{trimmed}\n"))
 }
 
@@ -79,12 +72,8 @@ mod tests {
                 eprintln!("== type_parameter ==");
                 let mut c = node.walk();
                 for child in node.children(&mut c) {
-                    let txt: String = child
-                        .utf8_text(src.as_bytes())
-                        .unwrap_or("")
-                        .chars()
-                        .take(16)
-                        .collect();
+                    let txt: String =
+                        child.utf8_text(src.as_bytes()).unwrap_or("").chars().take(16).collect();
                     eprintln!(
                         "tparamchild: kind={} named={} text={:?}",
                         child.kind(),
@@ -110,25 +99,16 @@ mod tests {
         let input = std::fs::read_to_string(format!("{dir}{name}/test.move"))
             .unwrap_or_else(|_| panic!("missing fixture {name}/test.move"));
         let expected_path = format!("{dir}{name}/test.exp");
-        let out = format_source(
-            &input,
-            &FormatOptions {
-                print_width: 80,
-                ..FormatOptions::default()
-            },
-        )
-        .unwrap();
+        let out =
+            format_source(&input, &FormatOptions { print_width: 80, ..FormatOptions::default() })
+                .unwrap();
         if std::env::var_os("KANARI_FMT_UPDATE").is_some() {
             std::fs::write(&expected_path, &out).expect("failed to rewrite test.exp");
             return;
         }
         let expected = std::fs::read_to_string(&expected_path)
             .unwrap_or_else(|_| panic!("missing fixture {name}/test.exp"));
-        assert_eq!(
-            out,
-            expected.replace("\r\n", "\n"),
-            "fixture {name} mismatch"
-        );
+        assert_eq!(out, expected.replace("\r\n", "\n"), "fixture {name} mismatch");
     }
 
     #[test]
@@ -178,10 +158,7 @@ mod tests {
     /// output).
     #[test]
     fn vendored_grammar_samples() {
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../third_party/tree-sitter-move/tests/"
-        );
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../third_party/tree-sitter-move/tests/");
         let mut names: Vec<String> = std::fs::read_dir(dir)
             .expect("grammar tests dir missing")
             .flatten()
@@ -195,10 +172,7 @@ mod tests {
             let mut parser = tree_sitter::Parser::new();
             parser.set_language(&tree_sitter_move::language()).unwrap();
             let tree = parser.parse(&source, None).expect("parse failed");
-            assert!(
-                !tree.root_node().has_error(),
-                "sample {name} has parse errors"
-            );
+            assert!(!tree.root_node().has_error(), "sample {name} has parse errors");
             let once = format_source(&source, &FormatOptions::default()).unwrap();
             let twice = format_source(&once, &FormatOptions::default()).unwrap();
             assert_eq!(once, twice, "sample {name} is not idempotent");

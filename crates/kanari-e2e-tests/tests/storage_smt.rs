@@ -10,10 +10,7 @@ fn rocksdb_shared_handle_and_read_write() {
 
     let db1 = open_or_get_db(Some(path.clone())).unwrap();
     let db2 = open_or_get_db(Some(path.clone())).unwrap();
-    assert!(
-        std::sync::Arc::ptr_eq(&db1, &db2),
-        "reopening same path should return same Arc"
-    );
+    assert!(std::sync::Arc::ptr_eq(&db1, &db2), "reopening same path should return same Arc");
 
     db1.put(b"e2e:key", b"e2e:value").unwrap();
     let got = db2.get(b"e2e:key").unwrap().unwrap();
@@ -25,8 +22,7 @@ fn smt_insert_get_prove_verify() {
     let dir = tempfile::tempdir().unwrap();
     let tree = SparseMerkleTree::open(Some(dir.path().join("smt"))).unwrap();
 
-    tree.insert(&[(b"alice".to_vec(), b"100".to_vec())])
-        .unwrap();
+    tree.insert(&[(b"alice".to_vec(), b"100".to_vec())]).unwrap();
     assert_eq!(tree.get(b"alice").unwrap(), Some(b"100".to_vec()));
 
     let (exists, leaf, proof) = tree.proof(b"alice").unwrap();
@@ -46,11 +42,7 @@ fn smt_delete_removes_key_but_keeps_others() {
     let dir = tempfile::tempdir().unwrap();
     let tree = SparseMerkleTree::open(Some(dir.path().join("smt"))).unwrap();
 
-    tree.insert(&[
-        (b"keep".to_vec(), b"1".to_vec()),
-        (b"drop".to_vec(), b"2".to_vec()),
-    ])
-    .unwrap();
+    tree.insert(&[(b"keep".to_vec(), b"1".to_vec()), (b"drop".to_vec(), b"2".to_vec())]).unwrap();
     tree.delete(&[b"drop".to_vec()]).unwrap();
 
     assert_eq!(tree.get(b"keep").unwrap(), Some(b"1".to_vec()));

@@ -66,9 +66,7 @@ impl StateManager {
         &self,
         address: AccountAddress,
     ) -> Result<OwnerState> {
-        Ok(self
-            .load_owner_state(&address)?
-            .unwrap_or_else(|| OwnerState::new(address)))
+        Ok(self.load_owner_state(&address)?.unwrap_or_else(|| OwnerState::new(address)))
     }
 
     /// Load the persisted owner state for the given address.
@@ -81,8 +79,7 @@ impl StateManager {
         owner_state: &OwnerState,
     ) -> Result<()> {
         if owner_state.is_empty() {
-            self.overlay
-                .insert(Self::owner_state_key(&owner_state.address), None);
+            self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
             self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())
         } else {
             self.save_owner_record(owner_state)?;
@@ -97,16 +94,9 @@ impl StateManager {
             .map(|state| state.token_balances)
             .unwrap_or_default();
         self.save_owner_state_without_supply_index(owner_state)?;
-        let old_native = old_balances
-            .get(GAS_COIN)
-            .map(|balance| balance.value())
-            .unwrap_or(0);
+        let old_native = old_balances.get(GAS_COIN).map(|balance| balance.value()).unwrap_or(0);
         let new_native = owner_state.native_balance();
-        let cached_native = self
-            .global_token_supplies
-            .get(GAS_COIN)
-            .copied()
-            .unwrap_or(0);
+        let cached_native = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
         let projected_native =
             u128::from(cached_native.saturating_sub(old_native)) + u128::from(new_native);
         let update_supply_index =

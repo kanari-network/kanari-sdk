@@ -20,11 +20,7 @@ pub struct Pad {
 impl Pad {
     pub fn pad(table_size: usize, module: &mut CompiledModule, options: ModuleGeneratorOptions) {
         let seed: [u8; 32] = [1; 32];
-        let mut slf = Self {
-            r#gen: StdRng::from_seed(seed),
-            table_size,
-            options,
-        };
+        let mut slf = Self { r#gen: StdRng::from_seed(seed), table_size, options };
         slf.pad_cosntant_table(module);
         slf.pad_identifier_table(module);
         slf.pad_address_identifier_table(module);

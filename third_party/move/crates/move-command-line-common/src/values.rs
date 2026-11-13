@@ -193,10 +193,7 @@ impl Token for ValueToken {
                     }
                 }
                 if s[..len].chars().any(|c| c == '\\') {
-                    bail!(
-                        "Escape characters not yet supported in byte string: {}",
-                        &s[..len]
-                    )
+                    bail!("Escape characters not yet supported in byte string: {}", &s[..len])
                 }
                 (ValueToken::ByteString, len)
             }
@@ -220,10 +217,7 @@ impl Token for ValueToken {
                 assert!(len >= 3);
                 let num_digits = len - 3;
                 if num_digits % 2 != 0 {
-                    bail!(
-                        "Expected an even number of hex digits in hex string: {}",
-                        &s[..len]
-                    )
+                    bail!("Expected an even number of hex digits in hex string: {}", &s[..len])
                 }
                 (ValueToken::HexString, len)
             }
@@ -243,18 +237,13 @@ impl Token for ValueToken {
                 // ending double quote (in the whole string) plus 1
                 let len = s[..1].len() + end_quote_byte_offset + 1;
                 if s[..len].chars().any(|c| c == '\\') {
-                    bail!(
-                        "Escape characters not yet supported in utf8 string: {}",
-                        &s[..len]
-                    )
+                    bail!("Escape characters not yet supported in utf8 string: {}", &s[..len])
                 }
                 (ValueToken::Utf8String, len)
             }
             c if c.is_ascii_digit() => {
                 // c + remaining
-                let len = 1 + chars
-                    .take_while(|c| char::is_ascii_digit(c) || *c == '_')
-                    .count();
+                let len = 1 + chars.take_while(|c| char::is_ascii_digit(c) || *c == '_').count();
                 number_maybe_with_suffix(s, len)
             }
             c if c.is_ascii_whitespace() => {
@@ -265,9 +254,8 @@ impl Token for ValueToken {
             c if c.is_ascii_alphabetic() => {
                 // c + remaining
                 // TODO be more permissive
-                let len = 1 + chars
-                    .take_while(|c| identifier::is_valid_identifier_char(*c))
-                    .count();
+                let len =
+                    1 + chars.take_while(|c| identifier::is_valid_identifier_char(*c)).count();
                 (Self::Ident, len)
             }
             _ => bail!("unrecognized token: {}", s),

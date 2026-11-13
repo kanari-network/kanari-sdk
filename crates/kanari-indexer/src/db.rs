@@ -180,11 +180,7 @@ impl IndexerDB {
             }
         }
 
-        debug!(
-            "Inserted {} transactions for block {}",
-            transactions.len(),
-            block_height
-        );
+        debug!("Inserted {} transactions for block {}", transactions.len(), block_height);
 
         Ok(())
     }
@@ -877,11 +873,9 @@ impl IndexerDB {
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
         let value: Option<String> = self
             .conn
-            .query_row(
-                "SELECT value FROM indexer_metadata WHERE key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
+            .query_row("SELECT value FROM indexer_metadata WHERE key = ?1", params![key], |row| {
+                row.get(0)
+            })
             .optional()?;
 
         Ok(value)
@@ -927,12 +921,8 @@ impl IndexerDB {
 
     /// Get last indexed height
     pub fn get_last_indexed_height(&self) -> Result<u64> {
-        let value = self
-            .get_metadata("last_indexed_height")?
-            .unwrap_or_else(|| "0".to_string());
-        value
-            .parse::<u64>()
-            .map_err(|e| anyhow::anyhow!("Failed to parse height: {}", e))
+        let value = self.get_metadata("last_indexed_height")?.unwrap_or_else(|| "0".to_string());
+        value.parse::<u64>().map_err(|e| anyhow::anyhow!("Failed to parse height: {}", e))
     }
 
     // =========================================================================
@@ -941,25 +931,22 @@ impl IndexerDB {
 
     /// Get total number of blocks
     pub fn get_block_count(&self) -> Result<u64> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM blocks", [], |row| row.get(0))?;
+        let count: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM blocks", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
     /// Get total number of transactions
     pub fn get_transaction_count(&self) -> Result<u64> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM transactions", [], |row| row.get(0))?;
+        let count: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM transactions", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
     /// Get total number of events
     pub fn get_event_count(&self) -> Result<u64> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
+        let count: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
@@ -983,9 +970,7 @@ impl IndexerDB {
         )?;
 
         let addresses = stmt
-            .query_map(params![limit], |row| {
-                Ok((row.get(0)?, row.get::<_, i64>(1)? as u64))
-            })?
+            .query_map(params![limit], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(addresses)
@@ -1034,10 +1019,7 @@ mod tests {
         updated_coin.updated_at = Utc::now();
         db.upsert_coin(&updated_coin).unwrap();
 
-        let owner_balance = db
-            .get_owner_balance("0x1", "0x2::kanari::KANARI")
-            .unwrap()
-            .unwrap();
+        let owner_balance = db.get_owner_balance("0x1", "0x2::kanari::KANARI").unwrap().unwrap();
         assert_eq!(owner_balance.total_balance, 25);
         assert_eq!(owner_balance.coin_count, 1);
     }
@@ -1074,9 +1056,7 @@ mod tests {
         assert_eq!(by_tx.len(), 0);
 
         // Query by object id
-        let by_obj = db
-            .get_object_locked_supply_events_by_object("0xbbbb", 10)
-            .unwrap();
+        let by_obj = db.get_object_locked_supply_events_by_object("0xbbbb", 10).unwrap();
         assert_eq!(by_obj.len(), 1);
         assert_eq!(by_obj[0].tx_hash, None);
         assert_eq!(by_obj[0].amount, 100);
@@ -1133,8 +1113,7 @@ mod tests {
             timestamp: 2000,
             created_at: Utc::now(),
         };
-        db.upsert_object_locked_supply_event(&release_event)
-            .unwrap();
+        db.upsert_object_locked_supply_event(&release_event).unwrap();
 
         // Insert a refund event
         let refund_event = IndexedObjectLockedSupplyEvent {
@@ -1160,16 +1139,12 @@ mod tests {
         assert_eq!(summary[0].2, 150); // released + refunded
 
         // Check events by object
-        let bbbb_events = db
-            .get_object_locked_supply_events_by_object("0xbbbb", 10)
-            .unwrap();
+        let bbbb_events = db.get_object_locked_supply_events_by_object("0xbbbb", 10).unwrap();
         assert_eq!(bbbb_events.len(), 2);
         assert_eq!(bbbb_events[0].action, 2); // most recent first (release)
         assert_eq!(bbbb_events[1].action, 1); // lock
 
-        let cccc_events = db
-            .get_object_locked_supply_events_by_object("0xcccc", 10)
-            .unwrap();
+        let cccc_events = db.get_object_locked_supply_events_by_object("0xcccc", 10).unwrap();
         assert_eq!(cccc_events.len(), 1);
         assert_eq!(cccc_events[0].action, 3); // refunded
     }

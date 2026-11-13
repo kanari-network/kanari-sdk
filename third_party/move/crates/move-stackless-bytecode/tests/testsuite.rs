@@ -100,10 +100,7 @@ fn get_tested_transformation_pipeline(
             pipeline.add_processor(CleanAndOptimizeProcessor::new());
             Ok(Some(pipeline))
         }
-        _ => Err(anyhow!(
-            "the sub-directory `{}` has no associated pipeline to test",
-            dir_name
-        )),
+        _ => Err(anyhow!("the sub-directory `{}` has no associated pipeline to test", dir_name)),
     }
 }
 
@@ -125,10 +122,7 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
         env.report_diag(&mut error_writer, Severity::Error);
         String::from_utf8_lossy(&error_writer.into_inner()).to_string()
     } else {
-        let options = ProverOptions {
-            stable_test_output: true,
-            ..Default::default()
-        };
+        let options = ProverOptions { stable_test_output: true, ..Default::default() };
         env.set_extension(options);
         let dir_name = path
             .parent()
@@ -158,12 +152,7 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
                     &targets,
                 );
             }
-            text += &ProcessorResultDisplay {
-                env: &env,
-                targets: &targets,
-                processor,
-            }
-            .to_string();
+            text += &ProcessorResultDisplay { env: &env, targets: &targets, processor }.to_string();
         }
         // add Warning and Error diagnostics to output
         let mut error_writer = Buffer::no_color();

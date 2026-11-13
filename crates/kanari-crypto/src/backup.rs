@@ -119,21 +119,15 @@ impl BackupManager {
             hmac_salt_b64,
         );
 
-        let metadata = if let Some(desc) = description {
-            metadata.with_description(desc)
-        } else {
-            metadata
-        };
+        let metadata =
+            if let Some(desc) = description { metadata.with_description(desc) } else { metadata };
 
         // Encrypt keystore data
         let encrypted_data = encrypt_data(&keystore_json, password)
             .map_err(|e| BackupError::EncryptionError(e.to_string()))?;
 
         // Create backup structure
-        let backup = EncryptedBackup {
-            metadata: metadata.clone(),
-            encrypted_data,
-        };
+        let backup = EncryptedBackup { metadata: metadata.clone(), encrypted_data };
 
         // Generate backup filename with timestamp from metadata (ensures consistency)
         // Sanitize to prevent path traversal attacks
@@ -148,18 +142,14 @@ impl BackupManager {
             || filename.chars().any(|c| c.is_control())
             || filename.contains("..")
         {
-            return Err(BackupError::SerializationError(
-                "Invalid backup filename".to_string(),
-            ));
+            return Err(BackupError::SerializationError("Invalid backup filename".to_string()));
         }
 
         let backup_path = self.backup_dir.join(&filename);
 
         // Ensure the resolved path is still within backup_dir (prevent traversal)
         if !backup_path.starts_with(&self.backup_dir) {
-            return Err(BackupError::SerializationError(
-                "Path traversal detected".to_string(),
-            ));
+            return Err(BackupError::SerializationError("Path traversal detected".to_string()));
         }
 
         // Write backup to file
@@ -246,10 +236,7 @@ impl BackupManager {
             let hmac_result = mac.finalize();
             let calculated_hmac = hex::encode(hmac_result.into_bytes());
 
-            if calculated_hmac
-                .as_bytes()
-                .ct_eq(backup.metadata.checksum.as_bytes())
-                .unwrap_u8()
+            if calculated_hmac.as_bytes().ct_eq(backup.metadata.checksum.as_bytes()).unwrap_u8()
                 == 0
             {
                 return Err(BackupError::VerificationFailed(
@@ -280,9 +267,7 @@ impl BackupManager {
         }
 
         // Save restored keystore
-        keystore
-            .save()
-            .map_err(|e| BackupError::KeystoreError(e.to_string()))?;
+        keystore.save().map_err(|e| BackupError::KeystoreError(e.to_string()))?;
 
         Ok(())
     }
@@ -299,10 +284,7 @@ impl BackupManager {
         const MAX_BACKUP_READ_SIZE: u64 = 50 * 1024 * 1024; // 50MB
 
         // Get canonical backup directory path for security validation
-        let canonical_backup_dir = self
-            .backup_dir
-            .canonicalize()
-            .map_err(BackupError::IoError)?;
+        let canonical_backup_dir = self.backup_dir.canonicalize().map_err(BackupError::IoError)?;
 
         for entry in fs::read_dir(&self.backup_dir)? {
             let entry = entry?;

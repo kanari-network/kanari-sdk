@@ -81,10 +81,8 @@ pub fn find_filenames<Predicate: FnMut(&Path) -> bool>(
         if !path.is_dir() {
             continue;
         }
-        for entry in walkdir::WalkDir::new(path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
+        for entry in
+            walkdir::WalkDir::new(path).follow_links(true).into_iter().filter_map(|e| e.ok())
         {
             let entry_path = entry.path();
             if !entry.file_type().is_file() || !is_file_desired(entry_path) {
@@ -108,13 +106,9 @@ pub fn find_move_filenames(
     if keep_specified_files {
         let (file_paths, other_paths): (Vec<&Path>, Vec<&Path>) =
             paths.iter().map(|p| p.as_ref()).partition(|s| s.is_file());
-        let mut files = file_paths
-            .into_iter()
-            .map(path_to_string)
-            .collect::<anyhow::Result<Vec<String>>>()?;
-        files.extend(find_filenames(&other_paths, |path| {
-            extension_equals(path, MOVE_EXTENSION)
-        })?);
+        let mut files =
+            file_paths.into_iter().map(path_to_string).collect::<anyhow::Result<Vec<String>>>()?;
+        files.extend(find_filenames(&other_paths, |path| extension_equals(path, MOVE_EXTENSION))?);
         Ok(files)
     } else {
         find_filenames(paths, |path| extension_equals(path, MOVE_EXTENSION))
@@ -128,10 +122,8 @@ pub fn find_filenames_and_keep_specified<Predicate: FnMut(&Path) -> bool>(
 ) -> anyhow::Result<Vec<String>> {
     let (file_paths, other_paths): (Vec<&Path>, Vec<&Path>) =
         paths.iter().map(|p| p.as_ref()).partition(|s| s.is_file());
-    let mut files = file_paths
-        .into_iter()
-        .map(path_to_string)
-        .collect::<anyhow::Result<Vec<String>>>()?;
+    let mut files =
+        file_paths.into_iter().map(path_to_string).collect::<anyhow::Result<Vec<String>>>()?;
     files.extend(find_filenames(&other_paths, is_file_desired)?);
     Ok(files)
 }
@@ -158,10 +150,7 @@ pub fn verify_and_create_named_address_mapping<T: Copy + std::fmt::Display + Eq>
     for (name, addr_bytes) in named_addresses {
         match mapping.insert(name.clone(), addr_bytes) {
             Some(other_addr) if other_addr != addr_bytes => {
-                invalid_mappings
-                    .entry(name)
-                    .or_insert_with(Vec::new)
-                    .push(other_addr);
+                invalid_mappings.entry(name).or_insert_with(Vec::new).push(other_addr);
             }
             None | Some(_) => (),
         }
@@ -174,11 +163,7 @@ pub fn verify_and_create_named_address_mapping<T: Copy + std::fmt::Display + Eq>
                 format!(
                     "{} is assigned differing values {} and {}",
                     name,
-                    addr_bytes
-                        .iter()
-                        .map(|x| format!("{}", x))
-                        .collect::<Vec<_>>()
-                        .join(","),
+                    addr_bytes.iter().map(|x| format!("{}", x)).collect::<Vec<_>>().join(","),
                     mapping[&name]
                 )
             })
@@ -262,16 +247,12 @@ pub fn find_move_filenames_vfs(
             }
         }
         file_paths.extend(find_filenames_vfs(&other_paths, |path| {
-            path.extension()
-                .map(|e| e.as_str() == MOVE_EXTENSION)
-                .unwrap_or(false)
+            path.extension().map(|e| e.as_str() == MOVE_EXTENSION).unwrap_or(false)
         })?);
         Ok(file_paths)
     } else {
         find_filenames_vfs(paths, |path| {
-            path.extension()
-                .map(|e| e.as_str() == MOVE_EXTENSION)
-                .unwrap_or(false)
+            path.extension().map(|e| e.as_str() == MOVE_EXTENSION).unwrap_or(false)
         })
     }
 }

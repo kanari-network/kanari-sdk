@@ -19,11 +19,7 @@ pub type FileCommentMap = BTreeMap<(u32, u32), String>;
 // character--\r--,--\n--or a tab--\t.
 pub fn verify_string(file_hash: FileHash, string: &str) -> Result<(), Diagnostics> {
     let chars: Vec<char> = string.chars().collect();
-    match chars
-        .iter()
-        .enumerate()
-        .find(|(idx, _)| !is_permitted_chars(&chars, *idx))
-    {
+    match chars.iter().enumerate().find(|(idx, _)| !is_permitted_chars(&chars, *idx)) {
         None => Ok(()),
         Some((idx, c)) => {
             let loc = Loc::new(file_hash, idx as u32, idx as u32);
@@ -34,10 +30,7 @@ pub fn verify_string(file_hash: FileHash, string: &str) -> Result<(), Diagnostic
                 excluding certain control characters.",
                 DisplayChar(*c),
             );
-            Err(Diagnostics::from(vec![diag!(
-                Syntax::InvalidCharacter,
-                (loc, msg)
-            )]))
+            Err(Diagnostics::from(vec![diag!(Syntax::InvalidCharacter, (loc, msg))]))
         }
     }
 }

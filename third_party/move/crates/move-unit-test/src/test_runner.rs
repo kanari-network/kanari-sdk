@@ -75,10 +75,7 @@ fn setup_test_storage<'a>(
 ) -> Result<InMemoryStorage> {
     let mut storage = InMemoryStorage::new();
     let modules = Modules::new(modules);
-    for module in modules
-        .compute_dependency_graph()
-        .compute_topological_order()?
-    {
+    for module in modules.compute_dependency_graph().compute_topological_order()? {
         let module_id = module.self_id();
         let mut module_bytes = Vec::new();
         module.serialize(&mut module_bytes)?;
@@ -130,11 +127,7 @@ impl TestRunner {
         cost_table: Option<CostTable>,
         named_address_values: BTreeMap<String, NumericalAddress>,
     ) -> Result<Self> {
-        let source_files = tests
-            .files
-            .values()
-            .map(|(filepath, _)| filepath.to_string())
-            .collect();
+        let source_files = tests.files.values().map(|(filepath, _)| filepath.to_string()).collect();
         let modules = tests.module_info.values().map(|info| &info.module);
         let starting_storage_state = setup_test_storage(modules)?;
         let native_function_table = native_function_table.unwrap_or_else(|| {
@@ -166,11 +159,8 @@ impl TestRunner {
     }
 
     pub fn run<W: Write + Send>(self, writer: &Mutex<W>) -> Result<TestResults> {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(self.num_threads)
-            .build()
-            .unwrap()
-            .install(|| {
+        rayon::ThreadPoolBuilder::new().num_threads(self.num_threads).build().unwrap().install(
+            || {
                 let final_statistics = self
                     .tests
                     .module_tests
@@ -185,7 +175,8 @@ impl TestRunner {
                     .reduce(TestStatistics::new, |acc, stats| acc.combine(stats));
 
                 Ok(TestResults::new(final_statistics, self.tests))
-            })
+            },
+        )
     }
 
     pub fn filter(&mut self, test_name_slice: &str) {
@@ -284,12 +275,8 @@ impl SharedTestingConfig {
             serialize_values(test_info.arguments.iter()),
             &mut gas_meter,
         );
-        let mut return_result = serialized_return_values_result.map(|res| {
-            res.return_values
-                .into_iter()
-                .map(|(bytes, _layout)| bytes)
-                .collect()
-        });
+        let mut return_result = serialized_return_values_result
+            .map(|res| res.return_values.into_iter().map(|(bytes, _layout)| bytes).collect());
         if !self.report_stacktrace_on_abort
             && let Err(err) = &mut return_result
         {
@@ -300,10 +287,7 @@ impl SharedTestingConfig {
             now.elapsed(),
             // TODO(Gas): This doesn't look quite right...
             //            We're not computing the number of instructions executed even with a unit gas schedule.
-            Gas::new(self.execution_bound)
-                .checked_sub(gas_meter.remaining_gas())
-                .unwrap()
-                .into(),
+            Gas::new(self.execution_bound).checked_sub(gas_meter.remaining_gas()).unwrap().into(),
         );
         match session.finish_with_extensions().0 {
             Ok((cs, _, extensions)) => (Ok(cs), Ok(extensions), return_result, test_run_info),
@@ -376,11 +360,7 @@ impl SharedTestingConfig {
         let filtered_sources: Vec<String> = filtered_sources
             .into_iter()
             .filter(|s| {
-                if let Ok(bytes) = std::fs::read(s) {
-                    seen_contents.insert(bytes)
-                } else {
-                    true
-                }
+                if let Ok(bytes) = std::fs::read(s) { seen_contents.insert(bytes) } else { true }
             })
             .collect();
 

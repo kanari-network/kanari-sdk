@@ -83,10 +83,7 @@ impl Adapter {
             ),
         ];
         let config = VMConfig {
-            verifier: VerifierConfig {
-                max_dependency_depth: Some(100),
-                ..Default::default()
-            },
+            verifier: VerifierConfig { max_dependency_depth: Some(100), ..Default::default() },
             ..Default::default()
         };
         Self {
@@ -98,10 +95,7 @@ impl Adapter {
 
     fn fresh(self) -> Self {
         let config = VMConfig {
-            verifier: VerifierConfig {
-                max_dependency_depth: Some(100),
-                ..Default::default()
-            },
+            verifier: VerifierConfig { max_dependency_depth: Some(100), ..Default::default() },
             ..Default::default()
         };
         Self {
@@ -137,9 +131,7 @@ impl Adapter {
                 .unwrap_or_else(|e| panic!("failure publishing module: {e:?}\n{:#?}", module));
         }
         let (changeset, _) = session.finish().0.expect("failure getting write set");
-        self.store
-            .apply(changeset)
-            .expect("failure applying write set");
+        self.store.apply(changeset).expect("failure applying write set");
     }
 
     fn publish_modules_with_error(&mut self, modules: Vec<CompiledModule>) {
@@ -174,9 +166,7 @@ impl Adapter {
             .unwrap_or_else(|e| panic!("failure publishing module bundle: {e:?}"));
 
         let (changeset, _) = session.finish().0.expect("failure getting write set");
-        self.store
-            .apply(changeset)
-            .expect("failure applying write set");
+        self.store.apply(changeset).expect("failure applying write set");
     }
 
     fn publish_module_bundle_with_error(&mut self, modules: Vec<CompiledModule>) {
@@ -199,24 +189,17 @@ impl Adapter {
 
     fn load_type(&self, type_tag: &TypeTag) -> Type {
         let session = self.vm.new_session(&self.store);
-        session
-            .load_type(type_tag)
-            .expect("Loading type should succeed")
+        session.load_type(type_tag).expect("Loading type should succeed")
     }
 
     fn load_struct(&self, module_id: &ModuleId, struct_name: &IdentStr) -> Arc<StructType> {
         let session = self.vm.new_session(&self.store);
-        session
-            .load_struct(module_id, struct_name)
-            .expect("Loading struct should succeed")
-            .1
+        session.load_struct(module_id, struct_name).expect("Loading struct should succeed").1
     }
 
     fn get_type_tag(&self, ty: &Type) -> TypeTag {
         let session = self.vm.new_session(&self.store);
-        session
-            .get_type_tag(ty)
-            .expect("Converting to type tag should succeed")
+        session.get_type_tag(ty).expect("Converting to type tag should succeed")
     }
 
     fn call_functions(&self) {
@@ -307,12 +290,7 @@ impl RelinkingStore {
         type_origin: BTreeMap<(ModuleId, Identifier), ModuleId>,
     ) -> Self {
         let Self { store, .. } = self;
-        Self {
-            store,
-            context,
-            linkage,
-            type_origin,
-        }
+        Self { store, context, linkage, type_origin }
     }
 
     fn apply(&mut self, changeset: ChangeSet) -> anyhow::Result<()> {
@@ -388,10 +366,7 @@ fn get_relinker_tests_modules_with_deps<'s>(
     deps: impl IntoIterator<Item = &'s str>,
 ) -> anyhow::Result<Vec<CompiledModule>> {
     fn fixture_string_path(module: &str) -> String {
-        get_fixture(&format!("relinking_tests_{module}.move"))
-            .to_str()
-            .unwrap()
-            .to_string()
+        get_fixture(&format!("relinking_tests_{module}.move")).to_str().unwrap().to_string()
     }
 
     let (_, units) = Compiler::from_files(
@@ -421,200 +396,36 @@ fn test_depth() {
     let mut adapter = Adapter::new(data_store);
     let modules = get_depth_tests_modules();
     let structs = vec![
-        (
-            "A",
-            "Box",
-            Some(DepthFormula {
-                terms: vec![(0, 1)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box3",
-            Some(DepthFormula {
-                terms: vec![(0, 3)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box7",
-            Some(DepthFormula {
-                terms: vec![(0, 7)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box15",
-            Some(DepthFormula {
-                terms: vec![(0, 15)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box31",
-            Some(DepthFormula {
-                terms: vec![(0, 31)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box63",
-            Some(DepthFormula {
-                terms: vec![(0, 63)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "Box127",
-            Some(DepthFormula {
-                terms: vec![(0, 127)],
-                constant: None,
-            }),
-        ),
-        (
-            "A",
-            "S",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(3),
-            }),
-        ),
-        (
-            "B",
-            "S",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(2),
-            }),
-        ),
-        (
-            "C",
-            "S",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(2),
-            }),
-        ),
-        (
-            "D",
-            "S",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(3),
-            }),
-        ),
-        (
-            "E",
-            "S",
-            Some(DepthFormula {
-                terms: vec![(0, 2)],
-                constant: Some(3),
-            }),
-        ),
-        (
-            "F",
-            "S",
-            Some(DepthFormula {
-                terms: vec![(0, 1)],
-                constant: Some(2),
-            }),
-        ),
-        (
-            "G",
-            "S",
-            Some(DepthFormula {
-                terms: vec![(0, 5), (1, 3)],
-                constant: Some(6),
-            }),
-        ),
-        (
-            "H",
-            "S",
-            Some(DepthFormula {
-                terms: vec![(0, 2), (1, 4)],
-                constant: Some(5),
-            }),
-        ),
-        (
-            "I",
-            "L",
-            Some(DepthFormula {
-                terms: vec![(0, 2)],
-                constant: Some(4),
-            }),
-        ),
-        (
-            "I",
-            "G",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(3),
-            }),
-        ),
-        (
-            "I",
-            "H",
-            Some(DepthFormula {
-                terms: vec![(0, 1)],
-                constant: Some(2),
-            }),
-        ),
-        (
-            "I",
-            "E",
-            Some(DepthFormula {
-                terms: vec![(0, 2)],
-                constant: Some(3),
-            }),
-        ),
-        (
-            "I",
-            "F",
-            Some(DepthFormula {
-                terms: vec![(0, 1)],
-                constant: Some(2),
-            }),
-        ),
-        (
-            "I",
-            "S",
-            Some(DepthFormula {
-                terms: vec![(0, 2), (1, 7)],
-                constant: Some(9),
-            }),
-        ),
-        (
-            "I",
-            "LL",
-            Some(DepthFormula {
-                terms: vec![(1, 2)],
-                constant: Some(4),
-            }),
-        ),
-        (
-            "I",
-            "N",
-            Some(DepthFormula {
-                terms: vec![],
-                constant: Some(2),
-            }),
-        ),
+        ("A", "Box", Some(DepthFormula { terms: vec![(0, 1)], constant: None })),
+        ("A", "Box3", Some(DepthFormula { terms: vec![(0, 3)], constant: None })),
+        ("A", "Box7", Some(DepthFormula { terms: vec![(0, 7)], constant: None })),
+        ("A", "Box15", Some(DepthFormula { terms: vec![(0, 15)], constant: None })),
+        ("A", "Box31", Some(DepthFormula { terms: vec![(0, 31)], constant: None })),
+        ("A", "Box63", Some(DepthFormula { terms: vec![(0, 63)], constant: None })),
+        ("A", "Box127", Some(DepthFormula { terms: vec![(0, 127)], constant: None })),
+        ("A", "S", Some(DepthFormula { terms: vec![], constant: Some(3) })),
+        ("B", "S", Some(DepthFormula { terms: vec![], constant: Some(2) })),
+        ("C", "S", Some(DepthFormula { terms: vec![], constant: Some(2) })),
+        ("D", "S", Some(DepthFormula { terms: vec![], constant: Some(3) })),
+        ("E", "S", Some(DepthFormula { terms: vec![(0, 2)], constant: Some(3) })),
+        ("F", "S", Some(DepthFormula { terms: vec![(0, 1)], constant: Some(2) })),
+        ("G", "S", Some(DepthFormula { terms: vec![(0, 5), (1, 3)], constant: Some(6) })),
+        ("H", "S", Some(DepthFormula { terms: vec![(0, 2), (1, 4)], constant: Some(5) })),
+        ("I", "L", Some(DepthFormula { terms: vec![(0, 2)], constant: Some(4) })),
+        ("I", "G", Some(DepthFormula { terms: vec![], constant: Some(3) })),
+        ("I", "H", Some(DepthFormula { terms: vec![(0, 1)], constant: Some(2) })),
+        ("I", "E", Some(DepthFormula { terms: vec![(0, 2)], constant: Some(3) })),
+        ("I", "F", Some(DepthFormula { terms: vec![(0, 1)], constant: Some(2) })),
+        ("I", "S", Some(DepthFormula { terms: vec![(0, 2), (1, 7)], constant: Some(9) })),
+        ("I", "LL", Some(DepthFormula { terms: vec![(1, 2)], constant: Some(4) })),
+        ("I", "N", Some(DepthFormula { terms: vec![], constant: Some(2) })),
     ];
     adapter.publish_modules(modules);
     // loads all structs sequentially
     for (module_name, struct_name, expected_depth) in structs.iter() {
         let computed_depth = &adapter
             .load_struct(
-                &ModuleId::new(
-                    DEFAULT_ACCOUNT,
-                    Identifier::new(module_name.to_string()).unwrap(),
-                ),
+                &ModuleId::new(DEFAULT_ACCOUNT, Identifier::new(module_name.to_string()).unwrap()),
                 ident_str!(struct_name),
             )
             .depth;
@@ -846,24 +657,18 @@ fn relink_defining_module_successive() {
     let c2_q = adapter.load_type(&TypeTag::from_str("0x2::c::Q").unwrap());
 
     for s in &[c0_s, c1_s, c2_s] {
-        let TypeTag::Struct(st) = adapter.get_type_tag(s) else {
-            panic!("Not a struct: {s:?}")
-        };
+        let TypeTag::Struct(st) = adapter.get_type_tag(s) else { panic!("Not a struct: {s:?}") };
 
         assert_eq!(st.module_id(), c0);
     }
 
     for r in &[c1_r, c2_r] {
-        let TypeTag::Struct(st) = adapter.get_type_tag(r) else {
-            panic!("Not a struct: {r:?}")
-        };
+        let TypeTag::Struct(st) = adapter.get_type_tag(r) else { panic!("Not a struct: {r:?}") };
 
         assert_eq!(st.module_id(), c1);
     }
 
-    let TypeTag::Struct(st) = adapter.get_type_tag(&c2_q) else {
-        panic!("Not a struct: {c2_q:?}")
-    };
+    let TypeTag::Struct(st) = adapter.get_type_tag(&c2_q) else { panic!("Not a struct: {c2_q:?}") };
 
     assert_eq!(st.module_id(), c2);
 }
@@ -899,17 +704,11 @@ fn relink_defining_module_oneshot() {
     let r = adapter.load_type(&TypeTag::from_str("0x2::c::R").unwrap());
     let q = adapter.load_type(&TypeTag::from_str("0x2::c::Q").unwrap());
 
-    let TypeTag::Struct(s) = adapter.get_type_tag(&s) else {
-        panic!("Not a struct: {s:?}")
-    };
+    let TypeTag::Struct(s) = adapter.get_type_tag(&s) else { panic!("Not a struct: {s:?}") };
 
-    let TypeTag::Struct(r) = adapter.get_type_tag(&r) else {
-        panic!("Not a struct: {r:?}")
-    };
+    let TypeTag::Struct(r) = adapter.get_type_tag(&r) else { panic!("Not a struct: {r:?}") };
 
-    let TypeTag::Struct(q) = adapter.get_type_tag(&q) else {
-        panic!("Not a struct: {q:?}")
-    };
+    let TypeTag::Struct(q) = adapter.get_type_tag(&q) else { panic!("Not a struct: {q:?}") };
 
     assert_eq!(s.module_id(), c0);
     assert_eq!(r.module_id(), c1);

@@ -78,13 +78,7 @@ impl CurrencyMetadata {
         decimals: u8,
         icon_url: Option<Vec<u8>>,
     ) -> Self {
-        Self {
-            symbol,
-            name,
-            description,
-            decimals,
-            icon_url,
-        }
+        Self { symbol, name, description, decimals, icon_url }
     }
 
     /// Get symbol as string
@@ -202,32 +196,18 @@ impl CoinModule {
 
     /// Fully qualified `Coin<T>` object type for a token type.
     pub fn coin_type(token_type: &str) -> String {
-        format!(
-            "{}::{}<{}>",
-            Self::module_path(),
-            Self::COIN_STRUCT,
-            token_type
-        )
+        format!("{}::{}<{}>", Self::module_path(), Self::COIN_STRUCT, token_type)
     }
 
     /// Fully qualified `TreasuryCap<T>` object type.
     pub fn treasury_cap_type(token_type: &str) -> String {
-        format!(
-            "{}::{}<{}>",
-            Self::module_path(),
-            Self::TREASURY_CAP_STRUCT,
-            token_type
-        )
+        format!("{}::{}<{}>", Self::module_path(), Self::TREASURY_CAP_STRUCT, token_type)
     }
 
     /// Whether a type name is a `CoinMetadata<T>` object type, matching the
     /// module and struct name regardless of the publishing address.
     pub fn is_coin_metadata_type(type_name: &str) -> bool {
-        type_name.contains(&format!(
-            "::{}::{}<",
-            Self::COIN_MODULE,
-            Self::COIN_METADATA_STRUCT
-        ))
+        type_name.contains(&format!("::{}::{}<", Self::COIN_MODULE, Self::COIN_METADATA_STRUCT))
     }
 
     /// Whether an object type is a `Coin<T>` object type. Also matches the
@@ -492,10 +472,7 @@ mod tests {
 
     #[test]
     fn token_type_normalization_is_canonical_and_legacy_safe() {
-        assert_eq!(
-            CoinModule::normalize_token_type("0x2::kanari::KANARI"),
-            "0x2::kanari::KANARI"
-        );
+        assert_eq!(CoinModule::normalize_token_type("0x2::kanari::KANARI"), "0x2::kanari::KANARI");
         assert_eq!(CoinModule::normalize_token_type("not-a-type"), "not-a-type");
     }
 
@@ -509,18 +486,9 @@ mod tests {
 
     #[test]
     fn settlement_token_decimals_cover_kanari_and_usd() {
-        assert_eq!(
-            CoinModule::settlement_token_decimals("0x2::kanari::KANARI"),
-            Some(9)
-        );
-        assert_eq!(
-            CoinModule::settlement_token_decimals("0x02::usd::USD"),
-            Some(6)
-        );
-        assert_eq!(
-            CoinModule::settlement_token_decimals("0xabc::thb::THB"),
-            None
-        );
+        assert_eq!(CoinModule::settlement_token_decimals("0x2::kanari::KANARI"), Some(9));
+        assert_eq!(CoinModule::settlement_token_decimals("0x02::usd::USD"), Some(6));
+        assert_eq!(CoinModule::settlement_token_decimals("0xabc::thb::THB"), None);
         assert_eq!(CoinModule::settlement_token_decimals("not-a-type"), None);
     }
 }

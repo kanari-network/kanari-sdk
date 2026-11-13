@@ -27,10 +27,7 @@ pub fn verify(
     verify_fallthrough(current_function, &code.code)?;
 
     // check jumps
-    let context = &ControlFlowVerifier {
-        current_function,
-        code: &code.code,
-    };
+    let context = &ControlFlowVerifier { current_function, code: &code.code };
     let labels = instruction_labels(context);
     check_jumps(verifier_config, context, labels)
 }
@@ -63,19 +60,14 @@ struct ControlFlowVerifier<'a> {
 
 impl<'a> ControlFlowVerifier<'a> {
     fn code(&self) -> impl Iterator<Item = (CodeOffset, &'a Bytecode)> {
-        self.code
-            .iter()
-            .enumerate()
-            .map(|(idx, instr)| (idx.try_into().unwrap(), instr))
+        self.code.iter().enumerate().map(|(idx, instr)| (idx.try_into().unwrap(), instr))
     }
 
     fn labeled_code<'b: 'a>(
         &self,
         labels: &'b [Label],
     ) -> impl Iterator<Item = (CodeOffset, &'a Bytecode, &'b Label)> {
-        self.code()
-            .zip(labels)
-            .map(|((i, instr), lbl)| (i, instr, lbl))
+        self.code().zip(labels).map(|((i, instr), lbl)| (i, instr, lbl))
     }
 
     fn error(&self, status: StatusCode, offset: CodeOffset) -> PartialVMError {

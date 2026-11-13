@@ -11,14 +11,8 @@ mod common;
 #[test]
 fn extract_unicode_and_empty() {
     assert_eq!(extract_unresolved_name("Unbound type '💥'"), None);
-    assert_eq!(
-        extract_unresolved_name("Unbound type 'TxContext'"),
-        Some("TxContext".to_string())
-    );
-    assert_eq!(
-        extract_unresolved_name("Unbound variable '_x1'"),
-        Some("_x1".to_string())
-    );
+    assert_eq!(extract_unresolved_name("Unbound type 'TxContext'"), Some("TxContext".to_string()));
+    assert_eq!(extract_unresolved_name("Unbound variable '_x1'"), Some("_x1".to_string()));
 }
 
 #[test]
@@ -32,17 +26,11 @@ fn extract_no_substring_false_match() {
 #[test]
 fn module_used_with_crlf_and_string_literal() {
     // CRLF line endings should not break detection
-    assert!(module_used_as_alias(
-        "fun f() {\r\n tx_context::sender(ctx); \r\n}",
-        "tx_context"
-    ));
+    assert!(module_used_as_alias("fun f() {\r\n tx_context::sender(ctx); \r\n}", "tx_context"));
     // `b"tx_context::"` inside a byte string literal — our simple contains check
     // FP but acceptable; just document behavior.
     let s = "let x = b\"tx_context::\";";
-    assert!(
-        module_used_as_alias(s, "tx_context"),
-        "string literal should count (known FP)"
-    );
+    assert!(module_used_as_alias(s, "tx_context"), "string literal should count (known FP)");
 }
 
 #[test]
@@ -57,10 +45,7 @@ fn insert_import_empty_lines() {
 fn parse_edition_case_insensitive_value() {
     // upper-case values are not valid Move.toml — treat as legacy (sane default)
     assert_eq!(parse_edition("edition = \"LEGACY\""), MoveEdition::Legacy);
-    assert_eq!(
-        parse_edition("edition = \"2024\"\n"),
-        MoveEdition::Edition2024
-    );
+    assert_eq!(parse_edition("edition = \"2024\"\n"), MoveEdition::Edition2024);
     // leading BOM must be stripped (Windows editors add it)
     assert_eq!(
         parse_edition("\u{FEFF}edition = \"2024\""),
@@ -81,10 +66,7 @@ fn scan_does_not_pick_up_non_public_funs_as_importable() {
     )
     .unwrap();
     let (members, _) = scan_package_members_and_modules(&pkg);
-    assert!(
-        members.contains_key("pub1"),
-        "public should be found: {members:?}"
-    );
+    assert!(members.contains_key("pub1"), "public should be found: {members:?}");
     // secret is private — our scanner still records it (member scan is best-effort).
     // Document that behavior here.
     assert!(members.contains_key("secret") || !members.contains_key("secret"));

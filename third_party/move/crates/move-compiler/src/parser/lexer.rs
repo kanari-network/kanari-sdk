@@ -356,8 +356,7 @@ impl<'input> Lexer<'input> {
                     let mut comment = &self.text[(start + 3)..end];
                     comment = comment.trim_end_matches('\r');
 
-                    self.doc_comments
-                        .insert((start as u32, end as u32), comment.to_string());
+                    self.doc_comments.insert((start as u32, end as u32), comment.to_string());
                 }
 
                 // Continue the loop on the following line, which may contain leading
@@ -391,13 +390,8 @@ impl<'input> Lexer<'input> {
     pub fn lookahead(&mut self) -> Result<Tok, Box<Diagnostic>> {
         let text = self.trim_whitespace_and_comments(self.cur_end)?;
         let next_start = self.text.len() - text.len();
-        let (result, _) = find_token(
-            /* panic_mode */ false,
-            self.file_hash,
-            self.edition,
-            text,
-            next_start,
-        );
+        let (result, _) =
+            find_token(/* panic_mode */ false, self.file_hash, self.edition, text, next_start);
         // unwrap safe because panic_mode is false
         result.map_err(|diag_opt| diag_opt.unwrap())
     }
@@ -407,23 +401,13 @@ impl<'input> Lexer<'input> {
     pub fn lookahead2(&mut self) -> Result<(Tok, Tok), Box<Diagnostic>> {
         let text = self.trim_whitespace_and_comments(self.cur_end)?;
         let offset = self.text.len() - text.len();
-        let (result, length) = find_token(
-            /* panic_mode */ false,
-            self.file_hash,
-            self.edition,
-            text,
-            offset,
-        );
+        let (result, length) =
+            find_token(/* panic_mode */ false, self.file_hash, self.edition, text, offset);
         let first = result.map_err(|diag_opt| diag_opt.unwrap())?;
         let text2 = self.trim_whitespace_and_comments(offset + length)?;
         let offset2 = self.text.len() - text2.len();
-        let (result2, _) = find_token(
-            /* panic_mode */ false,
-            self.file_hash,
-            self.edition,
-            text2,
-            offset2,
-        );
+        let (result2, _) =
+            find_token(/* panic_mode */ false, self.file_hash, self.edition, text2, offset2);
         let second = result2.map_err(|diag_opt| diag_opt.unwrap())?;
         Ok((first, second))
     }
@@ -524,11 +508,7 @@ impl<'input> Lexer<'input> {
         // regardless of whether an error was encountered (and diagnostic recorded) or not, the
         // token is advanced
         self.token = token;
-        if let Some(err) = err {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        if let Some(err) = err { Err(err) } else { Ok(()) }
     }
 
     // Replace the current token. The lexer will always match the longest token,
@@ -830,18 +810,15 @@ fn get_name_len(text: &str) -> usize {
 }
 
 fn get_decimal_number(text: &str) -> (Tok, usize) {
-    let num_text_len = text
-        .chars()
-        .position(|c| !matches!(c, '0'..='9' | '_'))
-        .unwrap_or(text.len());
+    let num_text_len =
+        text.chars().position(|c| !matches!(c, '0'..='9' | '_')).unwrap_or(text.len());
     get_number_maybe_with_suffix(text, num_text_len)
 }
 
 // Return the length of the substring containing characters in [0-9a-fA-F].
 fn get_hex_number(text: &str) -> (Tok, usize) {
-    let num_text_len = text
-        .find(|c| !matches!(c, 'a'..='f' | 'A'..='F' | '0'..='9'| '_'))
-        .unwrap_or(text.len());
+    let num_text_len =
+        text.find(|c| !matches!(c, 'a'..='f' | 'A'..='F' | '0'..='9'| '_')).unwrap_or(text.len());
     get_number_maybe_with_suffix(text, num_text_len)
 }
 

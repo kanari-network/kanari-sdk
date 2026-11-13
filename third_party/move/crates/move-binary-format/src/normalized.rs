@@ -207,10 +207,7 @@ pub enum Bytecode {
 
 impl Constant {
     pub fn new(m: &CompiledModule, constant: &crate::file_format::Constant) -> Self {
-        Self {
-            type_: Type::new(m, &constant.type_),
-            data: constant.data.clone(),
-        }
+        Self { type_: Type::new(m, &constant.type_), data: constant.data.clone() }
     }
 }
 
@@ -236,16 +233,10 @@ impl Module {
         let friends = m.immediate_friends();
         let structs = m.struct_defs().iter().map(|d| Struct::new(m, d)).collect();
         let dependencies = m.immediate_dependencies();
-        let constants = m
-            .constant_pool()
-            .iter()
-            .map(|constant| Constant::new(m, constant))
-            .collect();
-        let functions = m
-            .function_defs()
-            .iter()
-            .map(|func_def| Function::new(m, func_def))
-            .collect();
+        let constants =
+            m.constant_pool().iter().map(|constant| Constant::new(m, constant)).collect();
+        let functions =
+            m.function_defs().iter().map(|func_def| Function::new(m, func_def)).collect();
         Self {
             file_format_version: m.version(),
             address: *m.address(),
@@ -346,24 +337,21 @@ impl Type {
                     t.into_type_tag()
                         .expect("Invariant violation: vector type argument contains reference"),
                 )),
-                Struct {
-                    address,
-                    module,
-                    name,
-                    type_arguments,
-                } => TypeTag::Struct(Box::new(StructTag {
-                    address,
-                    module,
-                    name,
-                    type_params: type_arguments
-                        .into_iter()
-                        .map(|t| {
-                            t.into_type_tag().expect(
-                                "Invariant violation: struct type argument contains reference",
-                            )
-                        })
-                        .collect(),
-                })),
+                Struct { address, module, name, type_arguments } => {
+                    TypeTag::Struct(Box::new(StructTag {
+                        address,
+                        module,
+                        name,
+                        type_params: type_arguments
+                            .into_iter()
+                            .map(|t| {
+                                t.into_type_tag().expect(
+                                    "Invariant violation: struct type argument contains reference",
+                                )
+                            })
+                            .collect(),
+                    }))
+                }
                 TypeParameter(_) => unreachable!(),
             }
         } else {
@@ -385,12 +373,7 @@ impl Type {
             Reference(ty) => Reference(Box::new(ty.subst(type_args))),
             MutableReference(ty) => MutableReference(Box::new(ty.subst(type_args))),
             Vector(t) => Vector(Box::new(t.subst(type_args))),
-            Struct {
-                address,
-                module,
-                name,
-                type_arguments,
-            } => Struct {
+            Struct { address, module, name, type_arguments } => Struct {
                 address: *address,
                 module: module.clone(),
                 name: name.clone(),
@@ -399,10 +382,9 @@ impl Type {
                     .map(|t| t.subst(type_args))
                     .collect::<Vec<_>>(),
             },
-            TypeParameter(i) => type_args
-                .get(*i as usize)
-                .expect("Type parameter index out of bound")
-                .clone(),
+            TypeParameter(i) => {
+                type_args.get(*i as usize).expect("Type parameter index out of bound").clone()
+            }
         }
     }
 }
@@ -410,10 +392,7 @@ impl Type {
 impl Field {
     /// Create a `Field` for `FieldDefinition` `f` in module `m`.
     pub fn new(m: &CompiledModule, f: &FieldDefinition) -> Self {
-        Field {
-            name: m.identifier_at(f.name).to_owned(),
-            type_: Type::new(m, &f.signature.0),
-        }
+        Field { name: m.identifier_at(f.name).to_owned(), type_: Type::new(m, &f.signature.0) }
     }
 }
 
@@ -457,12 +436,7 @@ impl Function {
         let code: Vec<_> = def
             .code
             .as_ref()
-            .map(|code| {
-                code.code
-                    .iter()
-                    .map(|bytecode| Bytecode::new(m, bytecode))
-                    .collect()
-            })
+            .map(|code| code.code.iter().map(|bytecode| Bytecode::new(m, bytecode)).collect())
             .unwrap_or_default();
 
         let f = Function {
@@ -475,12 +449,7 @@ impl Function {
                 .iter()
                 .map(|s| Type::new(m, s))
                 .collect(),
-            return_: m
-                .signature_at(fhandle.return_)
-                .0
-                .iter()
-                .map(|s| Type::new(m, s))
-                .collect(),
+            return_: m.signature_at(fhandle.return_).0.iter().map(|s| Type::new(m, s)).collect(),
             code,
         };
         (name, f)
@@ -601,10 +570,8 @@ impl Bytecode {
             FB::LdConst(const_idx) => B::LdConst(Constant::new(m, m.constant_at(*const_idx))),
             FB::Call(fh_idx) => B::Call(FunctionRef::from_idx(m, fh_idx)),
             FB::CallGeneric(fhi_idx) => {
-                let FunctionInstantiation {
-                    handle,
-                    type_parameters,
-                } = m.function_instantiation_at(*fhi_idx);
+                let FunctionInstantiation { handle, type_parameters } =
+                    m.function_instantiation_at(*fhi_idx);
                 let type_params = m.signature_at(*type_parameters);
                 B::CallGeneric((
                     FunctionRef::from_idx(m, handle),
@@ -666,19 +633,8 @@ impl Bytecode {
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Type::Struct {
-                address,
-                module,
-                name,
-                type_arguments,
-            } => {
-                write!(
-                    f,
-                    "0x{}::{}::{}",
-                    address.short_str_lossless(),
-                    module,
-                    name
-                )?;
+            Type::Struct { address, module, name, type_arguments } => {
+                write!(f, "0x{}::{}::{}", address.short_str_lossless(), module, name)?;
                 if let Some(first_ty) = type_arguments.first() {
                     write!(f, "<")?;
                     write!(f, "{}", first_ty)?;
@@ -710,32 +666,16 @@ fn struct_instantiation(
     m: &CompiledModule,
     si_idx: &StructDefInstantiationIndex,
 ) -> (Identifier, Vec<Type>) {
-    let StructDefInstantiation {
-        def,
-        type_parameters,
-    } = m.struct_instantiation_at(*si_idx);
+    let StructDefInstantiation { def, type_parameters } = m.struct_instantiation_at(*si_idx);
     let (name, _) = Struct::new(m, m.struct_def_at(*def));
-    let types = m
-        .signature_at(*type_parameters)
-        .0
-        .iter()
-        .map(|tok| Type::new(m, tok))
-        .collect();
+    let types = m.signature_at(*type_parameters).0.iter().map(|tok| Type::new(m, tok)).collect();
     (name, types)
 }
 
 fn field_instantiation(m: &CompiledModule, idx: &FieldInstantiationIndex) -> (FieldRef, Vec<Type>) {
-    let FieldInstantiation {
-        handle,
-        type_parameters,
-    } = m.field_instantiation_at(*idx);
+    let FieldInstantiation { handle, type_parameters } = m.field_instantiation_at(*idx);
     let field_ref = FieldRef::new(m, m.field_handle_at(*handle));
-    let types = m
-        .signature_at(*type_parameters)
-        .0
-        .iter()
-        .map(|tok| Type::new(m, tok))
-        .collect();
+    let types = m.signature_at(*type_parameters).0.iter().map(|tok| Type::new(m, tok)).collect();
     (field_ref, types)
 }
 

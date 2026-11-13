@@ -87,11 +87,7 @@ impl<'env> FunctionTarget<'env> {
         func_env: &'env FunctionEnv<'env>,
         data: &'env FunctionData,
     ) -> FunctionTarget<'env> {
-        FunctionTarget {
-            func_env,
-            data,
-            annotation_formatters: RefCell::new(vec![]),
-        }
+        FunctionTarget { func_env, data, annotation_formatters: RefCell::new(vec![]) }
     }
 
     /// Returns the name of this function.
@@ -310,19 +306,11 @@ impl<'env> FunctionTarget<'env> {
                 .get(&attr_id)
                 .cloned()
                 .unwrap_or_else(|| self.global_env().unknown_loc());
-            texts.push(format!(
-                "     # VC: {} {}",
-                msg,
-                loc.display(self.global_env())
-            ));
+            texts.push(format!("     # VC: {} {}", msg, loc.display(self.global_env())));
         }
 
         // add the instruction itself with offset
-        texts.push(format!(
-            "{:>3}: {}",
-            offset,
-            code.display(self, label_offsets)
-        ));
+        texts.push(format!("{:>3}: {}", offset, code.display(self, label_offsets)));
 
         texts.join("\n")
     }
@@ -361,25 +349,14 @@ impl FunctionData {
 
     /// Computes the next available index for AttrId.
     pub fn next_free_attr_index(&self) -> usize {
-        self.code
-            .iter()
-            .map(|b| b.get_attr_id().as_usize())
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.code.iter().map(|b| b.get_attr_id().as_usize()).max().unwrap_or(0) + 1
     }
 
     /// Computes the next available index for Label.
     pub fn next_free_label_index(&self) -> usize {
         self.code
             .iter()
-            .filter_map(|b| {
-                if let Bytecode::Label(_, l) = b {
-                    Some(l.as_usize())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|b| if let Bytecode::Label(_, l) = b { Some(l.as_usize()) } else { None })
             .max()
             .unwrap_or(0)
             + 1
@@ -397,10 +374,7 @@ impl FunctionData {
     /// variant.
     pub fn fork(&self, new_variant: FunctionVariant) -> Self {
         assert_ne!(self.variant, new_variant);
-        FunctionData {
-            variant: new_variant,
-            ..self.clone()
-        }
+        FunctionData { variant: new_variant, ..self.clone() }
     }
 
     /// Fork this function data with (potentially partial) instantiations.
@@ -421,21 +395,10 @@ impl FunctionData {
         // fix types
         let local_types = Type::instantiate_slice(&self.local_types, inst);
         let return_types = Type::instantiate_slice(&self.return_types, inst);
-        let code = self
-            .code
-            .iter()
-            .map(|bc| bc.instantiate(env, inst))
-            .collect();
+        let code = self.code.iter().map(|bc| bc.instantiate(env, inst)).collect();
 
         // construct the new data
-        Self {
-            variant: new_variant,
-            type_args,
-            code,
-            local_types,
-            return_types,
-            ..self.clone()
-        }
+        Self { variant: new_variant, type_args, code, local_types, return_types, ..self.clone() }
     }
 
     /// Get the instantiation of this function as a vector of types.
@@ -468,20 +431,13 @@ impl<'env> FunctionTarget<'env> {
 
 impl<'env> fmt::Display for FunctionTarget<'env> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let modifier = if self.func_env.is_native() {
-            "native "
-        } else {
-            ""
-        };
+        let modifier = if self.func_env.is_native() { "native " } else { "" };
         write!(
             f,
             "{}{}fun {}::{}",
             self.func_env.visibility_str(),
             modifier,
-            self.func_env
-                .module_env
-                .get_name()
-                .display(self.symbol_pool()),
+            self.func_env.module_env.get_name().display(self.symbol_pool()),
             self.get_name().display(self.symbol_pool())
         )?;
         let tparams_count_all = self.get_type_parameter_count();
@@ -499,10 +455,7 @@ impl<'env> fmt::Display for FunctionTarget<'env> {
             }
             write!(f, ">")?;
         }
-        let tctx = TypeDisplayContext::WithEnv {
-            env: self.global_env(),
-            type_param_names: None,
-        };
+        let tctx = TypeDisplayContext::WithEnv { env: self.global_env(), type_param_names: None };
         let write_decl = |f: &mut fmt::Formatter<'_>, i: TempIndex| {
             let ty = self.get_local_type(i).display(&tctx);
             if self.has_local_user_name(i) {
@@ -510,8 +463,7 @@ impl<'env> fmt::Display for FunctionTarget<'env> {
                     f,
                     "$t{}|{}: {}",
                     i,
-                    self.get_local_name(i)
-                        .display(self.global_env().symbol_pool()),
+                    self.get_local_name(i).display(self.global_env().symbol_pool()),
                     ty
                 )
             } else {
@@ -552,11 +504,7 @@ impl<'env> fmt::Display for FunctionTarget<'env> {
             }
             let label_offsets = Bytecode::label_offsets(self.get_bytecode());
             for (offset, code) in self.get_bytecode().iter().enumerate() {
-                writeln!(
-                    f,
-                    "{}",
-                    self.pretty_print_bytecode(&label_offsets, offset, code)
-                )?;
+                writeln!(f, "{}", self.pretty_print_bytecode(&label_offsets, offset, code))?;
             }
             writeln!(f, "}}")?;
         }

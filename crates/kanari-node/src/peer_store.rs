@@ -30,10 +30,7 @@ pub struct PeerStore {
 impl PeerStore {
     /// Create a new peer store with specified file path
     pub fn new(file_path: PathBuf) -> Self {
-        Self {
-            peers: BTreeMap::new(),
-            file_path,
-        }
+        Self { peers: BTreeMap::new(), file_path }
     }
 
     fn current_timestamp() -> u64 {
@@ -98,11 +95,7 @@ impl PeerStore {
             // New peer
             self.peers.insert(
                 peer_id_str.clone(),
-                PeerInfo {
-                    peer_id: peer_id_str,
-                    addresses: addr_strs,
-                    last_seen: timestamp,
-                },
+                PeerInfo { peer_id: peer_id_str, addresses: addr_strs, last_seen: timestamp },
             );
         }
     }
@@ -112,8 +105,7 @@ impl PeerStore {
         let now = Self::current_timestamp();
 
         let before_count = self.peers.len();
-        self.peers
-            .retain(|_, peer| now.saturating_sub(peer.last_seen) < max_age_secs);
+        self.peers.retain(|_, peer| now.saturating_sub(peer.last_seen) < max_age_secs);
         let removed = before_count - self.peers.len();
 
         if removed > 0 {

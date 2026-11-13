@@ -22,10 +22,8 @@ use kanari_crypto::keys::{
 };
 use std::str::FromStr;
 
-const FIXTURE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/pqc_mnemonic_kat.json"
-);
+const FIXTURE_PATH: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pqc_mnemonic_kat.json");
 
 const KAT_MNEMONICS: &[&str] = &[
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
@@ -84,49 +82,25 @@ fn check_vector(v: &KatVector) {
     // Entry point 1: mnemonic derivation reproduces the frozen vector.
     let kp = keypair_from_mnemonic(&v.mnemonic, curve).expect("mnemonic derivation");
     assert_eq!(kp.address, v.address, "address mismatch for {}", v.curve);
-    assert_eq!(
-        kp.public_key, v.public_key,
-        "public key mismatch for {}",
-        v.curve
-    );
+    assert_eq!(kp.public_key, v.public_key, "public key mismatch for {}", v.curve);
     assert_eq!(
         kp.export_private_key_secure().to_string(),
         v.private_key,
         "private key mismatch for {}",
         v.curve
     );
-    assert_eq!(
-        kp.pqc_public_key, v.pqc_public_key,
-        "pqc key mismatch for {}",
-        v.curve
-    );
+    assert_eq!(kp.pqc_public_key, v.pqc_public_key, "pqc key mismatch for {}", v.curve);
 
     // Entry point 2: raw-seed derivation (independent seed via bip39 crate
     // in this test target) agrees with mnemonic derivation.
     let kp_seed = keypair_from_seed(&seed, curve).expect("seed derivation");
-    assert_eq!(
-        kp_seed.address, v.address,
-        "seed address mismatch for {}",
-        v.curve
-    );
-    assert_eq!(
-        kp_seed.public_key, v.public_key,
-        "seed public key mismatch for {}",
-        v.curve
-    );
+    assert_eq!(kp_seed.address, v.address, "seed address mismatch for {}", v.curve);
+    assert_eq!(kp_seed.public_key, v.public_key, "seed public key mismatch for {}", v.curve);
 
     // Entry point 3: private-key import reproduces the frozen vector.
     let kp_imported = keypair_from_private_key(&v.private_key, curve).expect("private-key import");
-    assert_eq!(
-        kp_imported.address, v.address,
-        "import address mismatch for {}",
-        v.curve
-    );
-    assert_eq!(
-        kp_imported.public_key, v.public_key,
-        "import public key mismatch for {}",
-        v.curve
-    );
+    assert_eq!(kp_imported.address, v.address, "import address mismatch for {}", v.curve);
+    assert_eq!(kp_imported.public_key, v.public_key, "import public key mismatch for {}", v.curve);
 }
 
 #[test]

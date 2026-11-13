@@ -17,10 +17,7 @@ fn malformed_simple_versioned_test(version: u32) {
     binary.push(150); // table count (high bit 1)
     binary.push(1);
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected bad uleb").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected bad uleb").major_status(), StatusCode::MALFORMED);
 
     // bad uleb (too big)
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
@@ -38,30 +35,21 @@ fn malformed_simple_versioned_test(version: u32) {
     binary.push(150); // table count again (high bit 1)
     binary.push(0); // table count again
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected bad uleb").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected bad uleb").major_status(), StatusCode::MALFORMED);
 
     // no tables
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
     binary.extend(version.to_le_bytes()); // version
     binary.push(0); // table count
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected no table count").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected no table count").major_status(), StatusCode::MALFORMED);
 
     // missing tables
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
     binary.extend(version.to_le_bytes()); // version
     binary.push(10); // table count
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected no table header").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected no table header").major_status(), StatusCode::MALFORMED);
 
     // missing table content
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
@@ -71,10 +59,7 @@ fn malformed_simple_versioned_test(version: u32) {
     binary.push(0); // table offset
     binary.push(10); // table length
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected no table content").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected no table content").major_status(), StatusCode::MALFORMED);
 
     // bad table header (bad offset)
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
@@ -115,10 +100,7 @@ fn malformed_simple_versioned_test(version: u32) {
     binary.push(10); // table length
     binary.resize(binary.len() + 5, 0);
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected bad table content").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected bad table content").major_status(), StatusCode::MALFORMED);
 
     // unknown table
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
@@ -150,8 +132,7 @@ fn malformed_simple_versioned_test(version: u32) {
     binary.resize(binary.len() + 5000, 0);
     let res = CompiledModule::deserialize_with_defaults(&binary);
     assert_eq!(
-        res.expect_err("Expected table offset overflow")
-            .major_status(),
+        res.expect_err("Expected table offset overflow").major_status(),
         StatusCode::DUPLICATE_TABLE
     );
 }
@@ -162,34 +143,22 @@ fn malformed_simple() {
     // empty binary
     let binary = vec![];
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected malformed binary").major_status(),
-        StatusCode::BAD_MAGIC
-    );
+    assert_eq!(res.expect_err("Expected malformed binary").major_status(), StatusCode::BAD_MAGIC);
 
     // under-sized binary
     let binary = vec![0u8, 0u8, 0u8];
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected malformed binary").major_status(),
-        StatusCode::BAD_MAGIC
-    );
+    assert_eq!(res.expect_err("Expected malformed binary").major_status(), StatusCode::BAD_MAGIC);
 
     // bad magic
     let binary = vec![0u8; 4];
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected bad magic").major_status(),
-        StatusCode::BAD_MAGIC
-    );
+    assert_eq!(res.expect_err("Expected bad magic").major_status(), StatusCode::BAD_MAGIC);
 
     // only magic
     let binary = BinaryConstants::MOVE_MAGIC.to_vec();
     let res = CompiledModule::deserialize_with_defaults(&binary);
-    assert_eq!(
-        res.expect_err("Expected malformed binary").major_status(),
-        StatusCode::MALFORMED
-    );
+    assert_eq!(res.expect_err("Expected malformed binary").major_status(), StatusCode::MALFORMED);
 
     // bad version
     let mut binary = BinaryConstants::MOVE_MAGIC.to_vec();
@@ -297,10 +266,7 @@ fn no_metadata() {
     };
     // empty metadata
     let mut module = basic_test_module();
-    module.metadata.push(Metadata {
-        key: vec![],
-        value: vec![],
-    });
+    module.metadata.push(Metadata { key: vec![], value: vec![] });
     let test2 = {
         let mut v = vec![];
         module.serialize(&mut v).unwrap();
@@ -316,14 +282,8 @@ fn no_metadata() {
         v
     };
     let mut module = basic_test_module();
-    module.metadata.push(Metadata {
-        key: metadata_bytes.clone(),
-        value: metadata_bytes.clone(),
-    });
-    module.metadata.push(Metadata {
-        key: metadata_bytes.clone(),
-        value: metadata_bytes.clone(),
-    });
+    module.metadata.push(Metadata { key: metadata_bytes.clone(), value: metadata_bytes.clone() });
+    module.metadata.push(Metadata { key: metadata_bytes.clone(), value: metadata_bytes.clone() });
     let test2 = {
         let mut v = vec![];
         module.serialize(&mut v).unwrap();

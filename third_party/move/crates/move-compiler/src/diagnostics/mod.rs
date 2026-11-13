@@ -149,17 +149,11 @@ impl MappedFiles {
             let id = simple_files.add(fname, source);
             file_mapping.insert(fhash, id);
         }
-        Self {
-            files: simple_files,
-            file_mapping,
-        }
+        Self { files: simple_files, file_mapping }
     }
 
     pub fn empty() -> Self {
-        Self {
-            files: SimpleFiles::new(),
-            file_mapping: HashMap::new(),
-        }
+        Self { files: SimpleFiles::new(), file_mapping: HashMap::new() }
     }
 
     pub fn file_hash_to_file_id(&self, fhash: &FileHash) -> Option<FileId> {
@@ -197,10 +191,7 @@ impl MappedFiles {
         let start = loc.start() as usize;
         let end = loc.end() as usize;
         let file_id = *self.file_mapping.get(&loc.file_hash()).unwrap();
-        FileByteSpan {
-            byte_span: ByteSpan { start, end },
-            file_id,
-        }
+        FileByteSpan { byte_span: ByteSpan { start, end }, file_id }
     }
 }
 
@@ -270,11 +261,7 @@ pub fn report_diagnostics_to_buffer(
     diags: Diagnostics,
     ansi_color: bool,
 ) -> Vec<u8> {
-    let mut writer = if ansi_color {
-        Buffer::ansi()
-    } else {
-        Buffer::no_color()
-    };
+    let mut writer = if ansi_color { Buffer::ansi() } else { Buffer::no_color() };
     output_diagnostics(&mut writer, files, diags);
     writer.into_inner()
 }
@@ -339,22 +326,14 @@ fn render_diagnostic(
         let (id, range) = convert_loc(mapped_files, msg.0);
         csr::diagnostic::Label::new(style, id, range).with_message(msg.1)
     };
-    let Diagnostic {
-        info,
-        primary_label,
-        secondary_labels,
-        notes,
-    } = diag;
+    let Diagnostic { info, primary_label, secondary_labels, notes } = diag;
     let mut diag = csr::diagnostic::Diagnostic::new(info.severity().into_codespan_severity());
     let (code, message) = info.render();
     diag = diag.with_code(code);
     diag = diag.with_message(message.to_string());
     diag = diag.with_labels(vec![mk_lbl(LabelStyle::Primary, primary_label)]);
     diag = diag.with_labels(
-        secondary_labels
-            .into_iter()
-            .map(|msg| mk_lbl(LabelStyle::Secondary, msg))
-            .collect(),
+        secondary_labels.into_iter().map(|msg| mk_lbl(LabelStyle::Secondary, msg)).collect(),
     );
     diag = diag.with_notes(notes);
     diag
@@ -411,11 +390,7 @@ impl Diagnostics {
         let Self(Some(inner)) = self else { return None };
         // map would be empty at the severity, so it should never be zero
         debug_assert!(inner.severity_count.values().all(|count| *count > 0));
-        inner
-            .severity_count
-            .iter()
-            .max_by_key(|(sev, _count)| **sev)
-            .map(|(sev, _count)| *sev)
+        inner.severity_count.iter().max_by_key(|(sev, _count)| **sev).map(|(sev, _count)| *sev)
     }
 
     pub fn count_diags_at_or_above_severity(&self, threshold: Severity) -> usize {
@@ -445,10 +420,7 @@ impl Diagnostics {
             self.0 = Some(Diagnostics_::default())
         }
         let inner = self.0.as_mut().unwrap();
-        *inner
-            .severity_count
-            .entry(diag.info.severity())
-            .or_insert(0) += 1;
+        *inner.severity_count.entry(diag.info.severity()).or_insert(0) += 1;
         inner.diagnostics.push(diag)
     }
 
@@ -500,12 +472,7 @@ impl Diagnostics {
     )> {
         let mut v = vec![];
         for diag in self.into_vec() {
-            let Diagnostic {
-                info,
-                primary_label,
-                secondary_labels,
-                notes,
-            } = diag;
+            let Diagnostic { info, primary_label, secondary_labels, notes } = diag;
             let csr_diag = (
                 info.severity().into_codespan_severity(),
                 info.message(),
@@ -530,10 +497,7 @@ impl Diagnostics {
         let Self(Some(inner)) = self else {
             return false;
         };
-        inner
-            .diagnostics
-            .iter()
-            .any(|d| d.info.external_prefix() == Some(prefix))
+        inner.diagnostics.iter().any(|d| d.info.external_prefix() == Some(prefix))
     }
 
     /// Returns true if any diagnostic in the Syntax category have already been recorded.
@@ -599,11 +563,8 @@ impl Diagnostic {
         &mut self,
         additional_labels: impl IntoIterator<Item = (Loc, impl ToString)>,
     ) {
-        self.secondary_labels.extend(
-            additional_labels
-                .into_iter()
-                .map(|(loc, msg)| (loc, msg.to_string())),
-        )
+        self.secondary_labels
+            .extend(additional_labels.into_iter().map(|(loc, msg)| (loc, msg.to_string())))
     }
 
     pub fn add_secondary_label(&mut self, (loc, msg): (Loc, impl ToString)) {
@@ -616,8 +577,7 @@ impl Diagnostic {
 
     #[allow(unused)]
     pub fn add_notes(&mut self, additional_notes: impl IntoIterator<Item = impl ToString>) {
-        self.notes
-            .extend(additional_notes.into_iter().map(|msg| msg.to_string()))
+        self.notes.extend(additional_notes.into_iter().map(|msg| msg.to_string()))
     }
 
     pub fn add_note(&mut self, msg: impl ToString) {
@@ -712,17 +672,11 @@ pub fn print_stack_trace() {
 
 impl WarningFilters {
     pub fn new_for_source() -> Self {
-        Self {
-            filters: BTreeMap::new(),
-            for_dependency: false,
-        }
+        Self { filters: BTreeMap::new(), for_dependency: false }
     }
 
     pub fn new_for_dependency() -> Self {
-        Self {
-            filters: BTreeMap::new(),
-            for_dependency: true,
-        }
+        Self { filters: BTreeMap::new(), for_dependency: true }
     }
 
     pub fn is_filtered(&self, diag: &Diagnostic) -> bool {
@@ -731,9 +685,7 @@ impl WarningFilters {
 
     fn is_filtered_by_info(&self, info: &DiagnosticInfo) -> bool {
         let prefix = info.external_prefix();
-        self.filters
-            .get(&prefix)
-            .is_some_and(|filters| filters.is_filtered_by_info(info))
+        self.filters.get(&prefix).is_some_and(|filters| filters.is_filtered_by_info(info))
     }
 
     pub fn union(&mut self, other: &Self) {
@@ -755,17 +707,10 @@ impl WarningFilters {
                 self.filters.insert(prefix, UnprefixedWarningFilters::All);
                 return;
             }
-            WarningFilter::Category {
-                prefix,
-                category,
-                name,
-            } => (prefix, category, None, name),
-            WarningFilter::Code {
-                prefix,
-                category,
-                code,
-                name,
-            } => (prefix, category, Some(code), name),
+            WarningFilter::Category { prefix, category, name } => (prefix, category, None, name),
+            WarningFilter::Code { prefix, category, code, name } => {
+                (prefix, category, Some(code), name)
+            }
         };
         self.filters
             .entry(prefix)
@@ -817,10 +762,7 @@ impl UnprefixedWarningFilters {
             // category and code level union
             (
                 Self::Specified { categories, codes },
-                Self::Specified {
-                    categories: other_categories,
-                    codes: other_codes,
-                },
+                Self::Specified { categories: other_categories, codes: other_codes },
             ) => {
                 categories.extend(other_categories);
                 // remove any codes covered by the category level filter
@@ -844,10 +786,7 @@ impl UnprefixedWarningFilters {
         match self {
             Self::All => (),
             Self::Empty => {
-                *self = Self::Specified {
-                    categories: BTreeMap::new(),
-                    codes: BTreeMap::new(),
-                };
+                *self = Self::Specified { categories: BTreeMap::new(), codes: BTreeMap::new() };
                 self.add(filter_category, filter_code, filter_name)
             }
             Self::Specified { categories, .. } if categories.contains_key(&filter_category) => (),
@@ -877,10 +816,7 @@ impl UnprefixedWarningFilters {
             ((info.category(), info.code()), Some(filter))
         })
         .collect();
-        Self::Specified {
-            categories: BTreeMap::new(),
-            codes: filtered_codes,
-        }
+        Self::Specified { categories: BTreeMap::new(), codes: filtered_codes }
     }
 }
 
@@ -890,10 +826,7 @@ impl Migration {
         diags: Vec<Diagnostic>,
     ) -> (Migration, /* Migration errors */ Diagnostics) {
         let mapped_files = MappedFiles::new(sources);
-        let mut mig = Migration {
-            changes: BTreeMap::new(),
-            mapped_files,
-        };
+        let mut mig = Migration { changes: BTreeMap::new(), mapped_files };
 
         let migration_errors = Diagnostics::new();
         for diag in diags {
@@ -972,12 +905,8 @@ impl Migration {
                 }
                 MigrationChange::RemoveFriend => {
                     let rest = &source_prefix[loc.end..];
-                    output = format!(
-                        "/* {} */{}{}",
-                        &source_prefix[loc.start..loc.end],
-                        rest,
-                        output
-                    );
+                    output =
+                        format!("/* {} */{}{}", &source_prefix[loc.start..loc.end], rest, output);
                 }
                 MigrationChange::MakePubPackage => {
                     let rest = &source_prefix[loc.end..];
@@ -985,12 +914,8 @@ impl Migration {
                 }
                 MigrationChange::AddressRemove => {
                     let rest = &source_prefix[loc.end..];
-                    output = format!(
-                        "/* {} */{}{}",
-                        &source_prefix[loc.start..loc.end],
-                        rest,
-                        output
-                    );
+                    output =
+                        format!("/* {} */{}{}", &source_prefix[loc.start..loc.end], rest, output);
                 }
                 MigrationChange::AddressAdd(insertion) => {
                     let rest = &source_prefix[loc.start..];
@@ -1019,12 +944,7 @@ impl Migration {
             Self::ensure_unique_changes(file_changes);
             let migrated = Self::render_changes(original.clone(), file_changes);
             let diff = similar::TextDiff::from_lines(&original, &migrated);
-            output.push(
-                diff.unified_diff()
-                    .context_radius(0)
-                    .header(&name, &name)
-                    .to_string(),
-            );
+            output.push(diff.unified_diff().context_radius(0).header(&name, &name).to_string());
         }
 
         output.join("")

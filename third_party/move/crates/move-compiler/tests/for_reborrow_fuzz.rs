@@ -39,13 +39,7 @@ impl Gen {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
         let state = z ^ (z >> 31);
-        Self {
-            state: if state == 0 {
-                0x853c49e6748fea9b
-            } else {
-                state
-            },
-        }
+        Self { state: if state == 0 { 0x853c49e6748fea9b } else { state } }
     }
 
     fn next(&mut self) -> u64 {
@@ -173,9 +167,7 @@ fn gen_valid(g: &mut Gen) -> String {
         let idx = g.below(pool.len() as u64) as usize;
         let (iter, ty) = pool[idx];
         let body = gen_body(g, "x", ty, 0);
-        src.push_str(&format!(
-            "        for x in {iter} {{\n            {body}\n        }};\n"
-        ));
+        src.push_str(&format!("        for x in {iter} {{\n            {body}\n        }};\n"));
         match iter {
             // By value consumes the owned local.
             "v" | "make_u64s()" => {
@@ -234,15 +226,9 @@ fn gen_case(seed: u64) -> Case {
     let mut g = Gen::new(seed);
     // Roughly 3 in 4 cases are valid; the rest must fail gracefully.
     if g.one_in(4) {
-        Case {
-            source: gen_invalid(&mut g),
-            expect_ok: false,
-        }
+        Case { source: gen_invalid(&mut g), expect_ok: false }
     } else {
-        Case {
-            source: gen_valid(&mut g),
-            expect_ok: true,
-        }
+        Case { source: gen_valid(&mut g), expect_ok: true }
     }
 }
 
@@ -259,14 +245,8 @@ fn compile(source: &str, seed: u64) -> Result<bool, String> {
     std::fs::write(&path, source).map_err(|e| e.to_string())?;
 
     let named_address_map = BTreeMap::from([
-        (
-            "std".to_string(),
-            NumericalAddress::parse_str("0x1").unwrap(),
-        ),
-        (
-            "M".to_string(),
-            NumericalAddress::parse_str("0x40").unwrap(),
-        ),
+        ("std".to_string(), NumericalAddress::parse_str("0x1").unwrap()),
+        ("M".to_string(), NumericalAddress::parse_str("0x40").unwrap()),
     ]);
     let deps = vec![PackagePaths {
         name: Some(("stdlib".into(), PackageConfig::default())),
@@ -278,10 +258,7 @@ fn compile(source: &str, seed: u64) -> Result<bool, String> {
         paths: vec![path.to_string_lossy().replace('\\', "/")],
         named_address_map,
     }];
-    let config = PackageConfig {
-        edition: Edition::E2024,
-        ..PackageConfig::default()
-    };
+    let config = PackageConfig { edition: Edition::E2024, ..PackageConfig::default() };
 
     let compiler = Compiler::from_package_paths(None, targets, deps)
         .map_err(|e| format!("setup: {e:#}"))?
@@ -299,10 +276,7 @@ fn compile(source: &str, seed: u64) -> Result<bool, String> {
 }
 
 fn seed_count() -> u64 {
-    std::env::var("FOR_REBORROW_FUZZ_SEEDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(300)
+    std::env::var("FOR_REBORROW_FUZZ_SEEDS").ok().and_then(|s| s.parse().ok()).unwrap_or(300)
 }
 
 #[test]
@@ -313,10 +287,7 @@ fn for_reborrow_fuzz() {
     for seed in 0..n {
         let case = gen_case(seed);
         if dump {
-            eprintln!(
-                "=== seed {seed} expect_ok={} ===\n{}",
-                case.expect_ok, case.source
-            );
+            eprintln!("=== seed {seed} expect_ok={} ===\n{}", case.expect_ok, case.source);
         }
         let result = catch_unwind(AssertUnwindSafe(|| compile(&case.source, seed)));
         match result {

@@ -34,19 +34,11 @@ fn speculative_transferred_objects_do_not_mutate_object_storage() {
     assert_eq!(speculative.created_objects.len(), 1);
 
     let mut canonical = ChangeSet::new();
-    runtime
-        .add_transferred_objects_to_changeset(&mut canonical, vec![object], true, None)
-        .unwrap();
+    runtime.add_transferred_objects_to_changeset(&mut canonical, vec![object], true, None).unwrap();
 
     assert_eq!(runtime.object_storage.count(), baseline_count + 1);
     let canonical_id = canonical_object_id(&object_id).invariant("canonical object id");
-    assert!(
-        runtime
-            .object_storage
-            .get_object(&canonical_id)
-            .unwrap()
-            .is_some()
-    );
+    assert!(runtime.object_storage.get_object(&canonical_id).unwrap().is_some());
 }
 
 #[test]
@@ -89,10 +81,7 @@ fn transferred_object_version_and_owner_kind_are_read_from_speculative_overlay()
         )
         .unwrap();
 
-    let (_, created) = changeset
-        .created_objects
-        .first()
-        .invariant("created object");
+    let (_, created) = changeset.created_objects.first().invariant("created object");
     assert_eq!(created.version, 10);
     assert_eq!(created.owner_kind, ObjectOwnerKind::Shared);
     assert_eq!(created.owner, new_owner);
@@ -121,11 +110,6 @@ fn preload_resolves_zero_stripped_object_ids() {
         .preload_object_ids_from_args(&mut session, &[stripped], Some(owner), None)
         .invariant("preload succeeds");
 
-    let loaded = session
-        .get_native_extensions()
-        .get_mut::<LoadedObjectsExt>();
-    assert!(
-        loaded.get(canonical_id).is_some(),
-        "stripped id must resolve to the stored object"
-    );
+    let loaded = session.get_native_extensions().get_mut::<LoadedObjectsExt>();
+    assert!(loaded.get(canonical_id).is_some(), "stripped id must resolve to the stored object");
 }

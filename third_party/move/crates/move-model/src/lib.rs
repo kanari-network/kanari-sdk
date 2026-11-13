@@ -134,17 +134,10 @@ pub fn run_model_builder_with_options_and_compilation_flags<
     let (compiler, parsed_prog) = compiler.into_ast();
 
     // Add source files for targets and dependencies
-    let dep_files: BTreeSet<_> = parsed_prog
-        .lib_definitions
-        .iter()
-        .map(|p| p.def.file_hash())
-        .collect();
+    let dep_files: BTreeSet<_> =
+        parsed_prog.lib_definitions.iter().map(|p| p.def.file_hash()).collect();
 
-    for member in parsed_prog
-        .source_definitions
-        .iter()
-        .chain(parsed_prog.lib_definitions.iter())
-    {
+    for member in parsed_prog.source_definitions.iter().chain(parsed_prog.lib_definitions.iter()) {
         let fhash = member.def.file_hash();
         let (fname, fsrc) = files.get(&fhash).unwrap();
         let is_dep = dep_files.contains(&fhash);
@@ -162,13 +155,7 @@ pub fn run_model_builder_with_options_and_compilation_flags<
         if env.get_file_id(*fhash).is_none() {
             let (fname, fsrc) = files.get(fhash).unwrap();
             let is_dep = dep_files.contains(fhash);
-            env.add_source(
-                *fhash,
-                Rc::new(BTreeMap::new()),
-                fname.as_str(),
-                fsrc,
-                is_dep,
-            );
+            env.add_source(*fhash, Rc::new(BTreeMap::new()), fname.as_str(), fsrc, is_dep);
         }
     }
 
@@ -177,26 +164,16 @@ pub fn run_model_builder_with_options_and_compilation_flags<
         let file_id = env.get_file_id(fhash).expect("file name defined");
         env.add_documentation(
             file_id,
-            documentation
-                .into_iter()
-                .map(|(idx, s)| (ByteIndex(idx), s))
-                .collect(),
+            documentation.into_iter().map(|(idx, s)| (ByteIndex(idx), s)).collect(),
         )
     }
 
     // Step 2: run the compiler up to expansion
     let parsed_prog = {
-        let P::Program {
-            named_address_maps,
-            mut source_definitions,
-            lib_definitions,
-        } = parsed_prog;
+        let P::Program { named_address_maps, mut source_definitions, lib_definitions } =
+            parsed_prog;
         source_definitions.extend(lib_definitions);
-        P::Program {
-            named_address_maps,
-            source_definitions,
-            lib_definitions: vec![],
-        }
+        P::Program { named_address_maps, source_definitions, lib_definitions: vec![] }
     };
     let (compiler, expansion_ast) = match compiler.at_parser(parsed_prog).run::<PASS_EXPANSION>() {
         Err((_pass, diags)) => {
@@ -205,16 +182,14 @@ pub fn run_model_builder_with_options_and_compilation_flags<
         }
         Ok(compiler) => compiler.into_ast(),
     };
-    let (compiler, typing_ast) = match compiler
-        .at_expansion(expansion_ast.clone())
-        .run::<PASS_TYPING>()
-    {
-        Err((_pass, diags)) => {
-            add_move_lang_diagnostics(&mut env, diags);
-            return Ok(env);
-        }
-        Ok(compiler) => compiler.into_ast(),
-    };
+    let (compiler, typing_ast) =
+        match compiler.at_expansion(expansion_ast.clone()).run::<PASS_TYPING>() {
+            Err((_pass, diags)) => {
+                add_move_lang_diagnostics(&mut env, diags);
+                return Ok(env);
+            }
+            Ok(compiler) => compiler.into_ast(),
+        };
 
     // Extract the module/script closure
     let mut visited_modules = BTreeSet::new();
@@ -343,11 +318,7 @@ pub fn run_bytecode_model_builder<'a>(
 
 fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
     let mk_label = |is_primary: bool, (loc, msg): (move_ir_types::location::Loc, String)| {
-        let style = if is_primary {
-            LabelStyle::Primary
-        } else {
-            LabelStyle::Secondary
-        };
+        let style = if is_primary { LabelStyle::Primary } else { LabelStyle::Secondary };
         let loc = env.to_loc(&loc);
         Label::new(style, loc.file_id(), loc.span()).with_message(msg)
     };
@@ -355,12 +326,7 @@ fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
         let diag = Diagnostic::new(severity)
             .with_labels(vec![mk_label(true, primary_label)])
             .with_message(msg.to_string())
-            .with_labels(
-                secondary_labels
-                    .into_iter()
-                    .map(|e| mk_label(false, e))
-                    .collect(),
-            )
+            .with_labels(secondary_labels.into_iter().map(|e| mk_label(false, e)).collect())
             .with_notes(notes);
         env.add_diag(diag);
     }
@@ -398,10 +364,7 @@ fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut 
         let addr_bytes = builder.resolve_address(&loc, &module_id.value.address);
         let module_name = ModuleName::from_address_bytes_and_name(
             addr_bytes,
-            builder
-                .env
-                .symbol_pool()
-                .make(&module_id.value.module.0.value),
+            builder.env.symbol_pool().make(&module_id.value.module.0.value),
         );
         let module_id = ModuleId::new(module_count);
         let mut module_translator = ModuleBuilder::new(&mut builder, module_id, module_name);
@@ -427,10 +390,7 @@ pub fn big_uint_to_addr(i: &BigUint) -> AccountAddress {
 pub fn parse_addresses_from_options(
     named_addr_strings: Vec<String>,
 ) -> anyhow::Result<BTreeMap<String, NumericalAddress>> {
-    named_addr_strings
-        .iter()
-        .map(|x| parse_named_address(x))
-        .collect()
+    named_addr_strings.iter().map(|x| parse_named_address(x)).collect()
 }
 
 // =================================================================================================

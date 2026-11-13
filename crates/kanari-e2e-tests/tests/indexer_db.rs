@@ -11,10 +11,7 @@ fn index_genesis_block_and_read_back() {
 
     db.insert_block(&genesis).unwrap();
 
-    let back = db
-        .get_block_by_height(0)
-        .unwrap()
-        .expect("genesis block should be retrieved");
+    let back = db.get_block_by_height(0).unwrap().expect("genesis block should be retrieved");
     assert_eq!(back.height, 0);
     assert_eq!(back.tx_count, 0);
 }

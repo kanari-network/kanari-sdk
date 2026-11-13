@@ -43,19 +43,13 @@ fn main() {
             summary.info_count(),
         );
         for f in &summary.findings {
-            eprintln!(
-                "  [{}] {}:{} -- {} ({})",
-                f.severity, f.file, f.line, f.title, f.rule
-            );
+            eprintln!("  [{}] {}:{} -- {} ({})", f.severity, f.file, f.line, f.title, f.rule);
             if let Some(snippet) = &f.code_snippet {
                 eprintln!("      {snippet}");
             }
         }
         std::process::exit(1);
     } else {
-        eprintln!(
-            "Audit clean: {} file(s), no findings.",
-            summary.files_scanned
-        );
+        eprintln!("Audit clean: {} file(s), no findings.", summary.files_scanned);
     }
 }

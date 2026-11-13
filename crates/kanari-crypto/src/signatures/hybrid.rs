@@ -74,9 +74,7 @@ pub fn sign_message_hybrid_k256(
 
     // Validate classical signature length before encoding into u16 and combining
     if classical_sig.len() > MAX_CLASSICAL_SIG_LEN || classical_sig.len() > u16::MAX as usize {
-        return Err(SignatureError::InvalidFormat(
-            "Classical signature too large".to_string(),
-        ));
+        return Err(SignatureError::InvalidFormat("Classical signature too large".to_string()));
     }
     // Combine as: [2-byte classical_sig_len BE] || classical_sig || pqc_sig
     // Use checked_add to prevent overflow in capacity calculation
@@ -117,9 +115,7 @@ pub fn sign_message_hybrid_ed25519(
 
     // Validate classical signature length fits in u16 and within configured limits (prevent overflow / DoS)
     if classical_sig.len() > MAX_CLASSICAL_SIG_LEN || classical_sig.len() > u16::MAX as usize {
-        return Err(SignatureError::InvalidFormat(
-            "Classical signature too large".to_string(),
-        ));
+        return Err(SignatureError::InvalidFormat("Classical signature too large".to_string()));
     }
 
     // Combine as: [2-byte classical_sig_len BE] || classical_sig || pqc_sig

@@ -94,10 +94,7 @@ impl View {
         }
         let object_inputs = self.parse_object_inputs()?;
         if !object_inputs.is_empty() {
-            eprintln!(
-                "   Object Inputs: {} explicit object ref(s)",
-                object_inputs.len()
-            );
+            eprintln!("   Object Inputs: {} explicit object ref(s)", object_inputs.len());
         }
 
         eprintln!("   RPC: {}\n", rpc);
@@ -117,10 +114,8 @@ impl View {
             .collect();
 
         // Convert bytes to hex strings for RPC (more compact than array of numbers)
-        let args_hex: Vec<String> = args_bytes
-            .iter()
-            .map(|bytes| format!("0x{}", hex::encode(bytes)))
-            .collect();
+        let args_hex: Vec<String> =
+            args_bytes.iter().map(|bytes| format!("0x{}", hex::encode(bytes))).collect();
 
         let mut request_data = serde_json::json!({
             "package": self.package,
@@ -151,10 +146,8 @@ impl View {
             .await
             .context("Failed to send RPC request")?;
 
-        let rpc_response: RpcResponse = response
-            .json()
-            .await
-            .context("Failed to parse RPC response")?;
+        let rpc_response: RpcResponse =
+            response.json().await.context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.error {
             eprintln!("❌ Error: {} (code: {})", error.message, error.code);

@@ -70,12 +70,7 @@ pub fn generate_struct_layouts(
             };
             let mut layout_builder = SerdeLayoutBuilder::new_with_config(
                 &state,
-                SerdeLayoutConfig {
-                    separator,
-                    omit_addresses,
-                    ignore_phantom_types,
-                    shallow,
-                },
+                SerdeLayoutConfig { separator, omit_addresses, ignore_phantom_types, shallow },
             );
             layout_builder.build_struct_layout(&struct_tag)?;
             let layout = serde_yaml::to_string(&registry_to_yaml(layout_builder.registry())?)?;
@@ -100,10 +95,7 @@ fn named_value<T>(
     named: &Named<T>,
     convert: impl FnOnce(&T) -> Result<YamlValue>,
 ) -> Result<YamlValue> {
-    Ok(YamlValue::Mapping(vec![(
-        YamlValue::String(named.name.clone()),
-        convert(&named.value)?,
-    )]))
+    Ok(YamlValue::Mapping(vec![(YamlValue::String(named.name.clone()), convert(&named.value)?)]))
 }
 
 fn format_to_yaml(format: &Format) -> Result<YamlValue> {
@@ -134,32 +126,18 @@ fn format_to_yaml(format: &Format) -> Result<YamlValue> {
             "MAP",
             YamlValue::Mapping(vec![
                 (YamlValue::String("KEY".to_owned()), format_to_yaml(key)?),
-                (
-                    YamlValue::String("VALUE".to_owned()),
-                    format_to_yaml(value)?,
-                ),
+                (YamlValue::String("VALUE".to_owned()), format_to_yaml(value)?),
             ]),
         )),
         Format::Tuple(values) => Ok(tagged_value(
             "TUPLE",
-            YamlValue::Sequence(
-                values
-                    .iter()
-                    .map(format_to_yaml)
-                    .collect::<Result<Vec<_>>>()?,
-            ),
+            YamlValue::Sequence(values.iter().map(format_to_yaml).collect::<Result<Vec<_>>>()?),
         )),
         Format::TupleArray { content, size } => Ok(tagged_value(
             "TUPLEARRAY",
             YamlValue::Mapping(vec![
-                (
-                    YamlValue::String("CONTENT".to_owned()),
-                    format_to_yaml(content)?,
-                ),
-                (
-                    YamlValue::String("SIZE".to_owned()),
-                    YamlValue::Number(*size as u64),
-                ),
+                (YamlValue::String("CONTENT".to_owned()), format_to_yaml(content)?),
+                (YamlValue::String("SIZE".to_owned()), YamlValue::Number(*size as u64)),
             ]),
         )),
     }
@@ -172,12 +150,7 @@ fn variant_to_yaml(variant: &VariantFormat) -> Result<YamlValue> {
         VariantFormat::NewType(value) => Ok(tagged_value("NEWTYPE", format_to_yaml(value)?)),
         VariantFormat::Tuple(values) => Ok(tagged_value(
             "TUPLE",
-            YamlValue::Sequence(
-                values
-                    .iter()
-                    .map(format_to_yaml)
-                    .collect::<Result<Vec<_>>>()?,
-            ),
+            YamlValue::Sequence(values.iter().map(format_to_yaml).collect::<Result<Vec<_>>>()?),
         )),
         VariantFormat::Struct(fields) => Ok(tagged_value(
             "STRUCT",
@@ -199,12 +172,7 @@ fn container_to_yaml(container: &ContainerFormat) -> Result<YamlValue> {
         }
         ContainerFormat::TupleStruct(values) => Ok(tagged_value(
             "TUPLESTRUCT",
-            YamlValue::Sequence(
-                values
-                    .iter()
-                    .map(format_to_yaml)
-                    .collect::<Result<Vec<_>>>()?,
-            ),
+            YamlValue::Sequence(values.iter().map(format_to_yaml).collect::<Result<Vec<_>>>()?),
         )),
         ContainerFormat::Struct(fields) => Ok(tagged_value(
             "STRUCT",
@@ -237,10 +205,7 @@ fn registry_to_yaml(registry: &Registry) -> Result<YamlValue> {
         registry
             .iter()
             .map(|(name, container)| {
-                Ok((
-                    YamlValue::String(name.clone()),
-                    container_to_yaml(container)?,
-                ))
+                Ok((YamlValue::String(name.clone()), container_to_yaml(container)?))
             })
             .collect::<Result<Vec<_>>>()?,
     ))

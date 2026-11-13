@@ -53,12 +53,7 @@ pub struct Test {
     #[clap(name = "list", short = 'l', long = "list")]
     pub list: bool,
     /// Number of threads to use for running tests.
-    #[clap(
-        name = "num-threads",
-        default_value = "8",
-        short = 't',
-        long = "threads"
-    )]
+    #[clap(name = "num-threads", default_value = "8", short = 't', long = "threads")]
     pub num_threads: usize,
     /// Report test statistics at the end of testing. CSV report generated if 'csv' passed
     #[clap(name = "report-statistics", short = 's', long = "statistics")]
@@ -157,10 +152,7 @@ pub fn run_move_unit_tests<W: Write + Send>(
     unit_test_config.named_address_values = resolution_graph
         .extract_named_address_mapping()
         .map(|(name, addr)| {
-            (
-                name.to_string(),
-                NumericalAddress::new(addr.into_bytes(), NumberFormat::Hex),
-            )
+            (name.to_string(), NumericalAddress::new(addr.into_bytes(), NumberFormat::Hex))
         })
         .collect();
 
@@ -190,9 +182,8 @@ pub fn run_move_unit_tests<W: Write + Send>(
     // control back to the Move package system.
     let mut warning_diags = None;
     build_plan.compile_with_driver(writer, |compiler| {
-        let (files, comments_and_compiler_res) = compiler
-            .run::<PASS_CFGIR>()
-            .require("Move compiler PASS_CFGIR failed")?;
+        let (files, comments_and_compiler_res) =
+            compiler.run::<PASS_CFGIR>().require("Move compiler PASS_CFGIR failed")?;
         let (_, compiler) =
             diagnostics::unwrap_or_report_pass_diagnostics(&files, comments_and_compiler_res);
         let (mut compiler, cfgir) = compiler.into_ast();
@@ -203,11 +194,7 @@ pub fn run_move_unit_tests<W: Write + Send>(
         let (units, warnings) =
             diagnostics::unwrap_or_report_pass_diagnostics(&files, compilation_result);
         diagnostics::report_warnings(&files, warnings.clone());
-        let named_units: Vec<_> = units
-            .clone()
-            .into_iter()
-            .map(|unit| unit.named_module)
-            .collect();
+        let named_units: Vec<_> = units.clone().into_iter().map(|unit| unit.named_module).collect();
         test_plan = Some((built_test_plan, files.clone(), named_units));
         warning_diags = Some(warnings);
         Ok((files, units))
@@ -220,9 +207,8 @@ pub fn run_move_unit_tests<W: Write + Send>(
     let test_plan = TestPlan::new(test_plan, files, units);
 
     let trace_path = pkg_path.join(".trace");
-    let coverage_map_path = pkg_path
-        .join(".coverage_map")
-        .with_extension(MOVE_COVERAGE_MAP_EXTENSION);
+    let coverage_map_path =
+        pkg_path.join(".coverage_map").with_extension(MOVE_COVERAGE_MAP_EXTENSION);
     let cleanup_trace = || {
         if compute_coverage && trace_path.exists() {
             std::fs::remove_file(&trace_path).invariant("remove trace file");

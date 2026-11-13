@@ -99,11 +99,7 @@ fn does_not_flag_immutable_borrow() {
 #[test]
 fn detects_borrow_global_without_exists() {
     let findings = detect_all(SAMPLE, "test.move");
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::BorrowGlobalWithoutCheck)
-    );
+    assert!(findings.iter().any(|f| f.rule == RuleId::BorrowGlobalWithoutCheck));
 }
 
 #[test]
@@ -139,9 +135,7 @@ fn detects_integer_overflow_risk() {
     let src = include_str!("../move_package/cases/integer_overflow.move");
     let findings = detect_all(src, "test.move");
     assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::IntegerOverflowRisk),
+        findings.iter().any(|f| f.rule == RuleId::IntegerOverflowRisk),
         "expected integer overflow risk finding"
     );
 }
@@ -151,9 +145,7 @@ fn does_not_flag_arithmetic_with_assert() {
     let src = include_str!("../move_package/cases/arithmetic_with_assert.move");
     let findings = detect_all(src, "test.move");
     assert!(
-        findings
-            .iter()
-            .all(|f| f.rule != RuleId::IntegerOverflowRisk),
+        findings.iter().all(|f| f.rule != RuleId::IntegerOverflowRisk),
         "unexpected integer overflow finding: {:?}",
         findings
     );
@@ -164,9 +156,7 @@ fn detects_public_entry_without_signer() {
     let src = include_str!("../move_package/public_entry_no_signer.move");
     let findings = detect_all(src, "test.move");
     assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::PublicEntryWithoutSigner),
+        findings.iter().any(|f| f.rule == RuleId::PublicEntryWithoutSigner),
         "expected PublicEntryWithoutSigner finding"
     );
 }
@@ -176,9 +166,7 @@ fn does_not_flag_public_entry_with_signer() {
     let src = include_str!("../move_package/public_entry_with_signer.move");
     let findings = detect_all(src, "test.move");
     assert!(
-        findings
-            .iter()
-            .all(|f| f.rule != RuleId::PublicEntryWithoutSigner),
+        findings.iter().all(|f| f.rule != RuleId::PublicEntryWithoutSigner),
         "unexpected PublicEntryWithoutSigner finding: {:?}",
         findings
     );
@@ -202,22 +190,14 @@ fn empty_source_no_panic() {
 fn division_by_zero_detected() {
     let src = include_str!("../move_package/division_by_zero.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::DivisionByZeroRisk)
-    );
+    assert!(findings.iter().any(|f| f.rule == RuleId::DivisionByZeroRisk));
 }
 
 #[test]
 fn division_by_const_not_flagged() {
     let src = include_str!("../move_package/division_by_const.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .all(|f| f.rule != RuleId::DivisionByZeroRisk)
-    );
+    assert!(findings.iter().all(|f| f.rule != RuleId::DivisionByZeroRisk));
 }
 
 #[test]
@@ -236,22 +216,14 @@ fn multiple_findings_count() {
 fn borrow_global_without_exists_detected() {
     let src = include_str!("../move_package/borrow_global_no_exists.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::BorrowGlobalWithoutCheck)
-    );
+    assert!(findings.iter().any(|f| f.rule == RuleId::BorrowGlobalWithoutCheck));
 }
 
 #[test]
 fn borrow_global_with_exists_not_flagged() {
     let src = include_str!("../move_package/borrow_global_with_exists.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .all(|f| f.rule != RuleId::BorrowGlobalWithoutCheck)
-    );
+    assert!(findings.iter().all(|f| f.rule != RuleId::BorrowGlobalWithoutCheck));
 }
 
 #[test]
@@ -264,31 +236,19 @@ fn missing_doc_on_public_fn() {
 fn division_by_const_not_flagged2() {
     let src = include_str!("../move_package/division_by_const2.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .all(|f| f.rule != RuleId::DivisionByZeroRisk)
-    );
+    assert!(findings.iter().all(|f| f.rule != RuleId::DivisionByZeroRisk));
 }
 
 #[test]
 fn share_object_without_auth_detected() {
     let src = include_str!("../move_package/share_object_no_auth.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::ShareObjectWithoutAuth)
-    );
+    assert!(findings.iter().any(|f| f.rule == RuleId::ShareObjectWithoutAuth));
 }
 
 #[test]
 fn unsafe_public_transfer_detected() {
     let src = include_str!("../move_package/unsafe_transfer.move");
     let findings = detect_all(src, "test.move");
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.rule == RuleId::UnsafePublicTransfer)
-    );
+    assert!(findings.iter().any(|f| f.rule == RuleId::UnsafePublicTransfer));
 }

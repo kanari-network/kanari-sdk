@@ -51,26 +51,18 @@ fn native_sha2_256(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     // Charge before doing work
     native_charge_gas_early_exit!(context, cost);
 
     let hash_vec = Sha256::digest(hash_arg.as_slice()).to_vec();
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(hash_vec)],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(hash_vec)]))
 }
 
 pub fn make_native_sha2_256(gas_params: Sha2_256GasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_sha2_256(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_sha2_256(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************
@@ -114,26 +106,18 @@ fn native_sha3_256(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     // Charge before doing work
     native_charge_gas_early_exit!(context, cost);
 
     let hash_vec = Sha3_256::digest(hash_arg.as_slice()).to_vec();
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(hash_vec)],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(hash_vec)]))
 }
 
 pub fn make_native_sha3_256(gas_params: Sha3_256GasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_sha3_256(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_sha3_256(&gas_params, context, ty_args, args)
+    })
 }
 
 // keccak256 native
@@ -153,25 +137,17 @@ fn native_keccak256(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     native_charge_gas_early_exit!(context, cost);
 
     let hash_vec = Keccak256::digest(hash_arg.as_slice()).to_vec();
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(hash_vec)],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(hash_vec)]))
 }
 
 pub fn make_native_keccak256(gas_params: KeccakLikeGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_keccak256(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_keccak256(&gas_params, context, ty_args, args)
+    })
 }
 
 // blake2b-256 native
@@ -191,25 +167,17 @@ fn native_blake2b256(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     native_charge_gas_early_exit!(context, cost);
 
     let hash = Blake2bParams::new().hash_length(32).hash(&hash_arg);
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(hash.as_bytes().to_vec())],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(hash.as_bytes().to_vec())]))
 }
 
 pub fn make_native_blake2b256(gas_params: KeccakLikeGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_blake2b256(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_blake2b256(&gas_params, context, ty_args, args)
+    })
 }
 
 // blake3 native
@@ -229,25 +197,17 @@ fn native_blake3_256(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     native_charge_gas_early_exit!(context, cost);
 
     let hash = blake3::hash(&hash_arg);
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(hash.as_bytes().to_vec())],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(hash.as_bytes().to_vec())]))
 }
 
 pub fn make_native_blake3_256(gas_params: KeccakLikeGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_blake3_256(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_blake3_256(&gas_params, context, ty_args, args)
+    })
 }
 
 // ripemd160 native
@@ -267,25 +227,17 @@ fn native_ripemd160(
 
     let cost = gas_params.base
         + gas_params.per_byte
-            * std::cmp::max(
-                NumBytes::new(hash_arg.len() as u64),
-                gas_params.legacy_min_input_len,
-            );
+            * std::cmp::max(NumBytes::new(hash_arg.len() as u64), gas_params.legacy_min_input_len);
     native_charge_gas_early_exit!(context, cost);
 
     let result = <Ripemd160 as ripemd::Digest>::digest(&hash_arg);
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(result.to_vec())],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(result.to_vec())]))
 }
 
 pub fn make_native_ripemd160(gas_params: Ripemd160GasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_ripemd160(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_ripemd160(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************
@@ -321,9 +273,6 @@ mod tests {
     #[test]
     fn ripemd160_matches_known_answer() {
         let result = <Ripemd160 as ripemd::Digest>::digest([]);
-        assert_eq!(
-            &result[..],
-            &hex::decode("9c1185a5c5e9fc54612808977ee8f548b2258d31").unwrap()
-        );
+        assert_eq!(&result[..], &hex::decode("9c1185a5c5e9fc54612808977ee8f548b2258d31").unwrap());
     }
 }

@@ -12,10 +12,7 @@ pub enum KanariError {
     MissingValue(&'static str),
 
     #[error("Operation failed: {context}: {details}")]
-    OperationFailed {
-        context: &'static str,
-        details: String,
-    },
+    OperationFailed { context: &'static str, details: String },
 
     #[error("Kanari invariant violated: {0}")]
     InvariantViolation(&'static str),
@@ -73,10 +70,7 @@ where
             Ok(value) => value,
             Err(error) => panic!(
                 "{}",
-                KanariError::OperationFailed {
-                    context: message,
-                    details: error.to_string()
-                }
+                KanariError::OperationFailed { context: message, details: error.to_string() }
             ),
         }
     }

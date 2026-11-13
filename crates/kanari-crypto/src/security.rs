@@ -43,14 +43,11 @@ const COMMON_WEAK_PASSWORDS: &[&str] = &[
 /// Callers should treat timestamps near epoch (< 1000000000 = year 2001) as suspicious.
 #[must_use]
 pub fn get_current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_else(|_| {
-            // System time is before UNIX epoch - this should never happen in practice.
-            // Return 1 to avoid 0 edge cases while signaling error.
-            1
-        })
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_else(|_| {
+        // System time is before UNIX epoch - this should never happen in practice.
+        // Return 1 to avoid 0 edge cases while signaling error.
+        1
+    })
 }
 
 /// Check if a password meets strong security requirements.
@@ -73,10 +70,7 @@ pub fn is_password_strong(password: &str) -> bool {
     }
 
     let password_lower = password.to_lowercase();
-    if COMMON_WEAK_PASSWORDS
-        .iter()
-        .any(|weak| password_lower == weak.to_lowercase())
-    {
+    if COMMON_WEAK_PASSWORDS.iter().any(|weak| password_lower == weak.to_lowercase()) {
         return false;
     }
 
@@ -98,11 +92,8 @@ fn has_repetitive_pattern(password: &str) -> bool {
 
     let mut pw = password;
     while pw.chars().count() > MAX_PATTERN_CHECK_LEN {
-        let truncate_pos = pw
-            .char_indices()
-            .nth(MAX_PATTERN_CHECK_LEN)
-            .map(|(idx, _)| idx)
-            .unwrap_or(pw.len());
+        let truncate_pos =
+            pw.char_indices().nth(MAX_PATTERN_CHECK_LEN).map(|(idx, _)| idx).unwrap_or(pw.len());
         pw = &pw[..truncate_pos];
     }
 
@@ -145,11 +136,7 @@ impl RateLimiter {
     /// Create a new rate limiter.
     #[must_use]
     pub fn new(max_attempts: u32, lockout_duration_secs: u64) -> Self {
-        Self {
-            attempts: HashMap::new(),
-            max_attempts,
-            lockout_duration_secs,
-        }
+        Self { attempts: HashMap::new(), max_attempts, lockout_duration_secs }
     }
 
     /// Check if an operation is allowed for the given identifier.
@@ -157,8 +144,7 @@ impl RateLimiter {
         let now = get_current_timestamp();
 
         if self.attempts.len() > MAX_RATE_LIMITER_ENTRIES {
-            self.attempts
-                .retain(|_, (_, locked_until)| now < *locked_until);
+            self.attempts.retain(|_, (_, locked_until)| now < *locked_until);
         }
 
         if let Some((_, locked_until)) = self.attempts.get(identifier)
@@ -177,8 +163,7 @@ impl RateLimiter {
         let new_count = count + 1;
         let lockout = std::cmp::min(2u64.pow(new_count), self.lockout_duration_secs);
 
-        self.attempts
-            .insert(identifier.to_string(), (new_count, now + lockout));
+        self.attempts.insert(identifier.to_string(), (new_count, now + lockout));
     }
 
     /// Record a successful attempt (resets the counter).

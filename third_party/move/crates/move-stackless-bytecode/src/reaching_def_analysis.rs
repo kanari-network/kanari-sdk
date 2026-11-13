@@ -138,10 +138,7 @@ impl FunctionTargetProcessor for ReachingDefProcessor {
                 borrowed_locals: self.borrowed_locals(&data.code),
             };
             let block_state_map = analyzer.analyze_function(
-                ReachingDefState {
-                    map: BTreeMap::new(),
-                    havoced: BTreeSet::new(),
-                },
+                ReachingDefState { map: BTreeMap::new(), havoced: BTreeSet::new() },
                 &data.code,
                 &cfg,
             );

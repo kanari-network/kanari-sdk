@@ -7,14 +7,8 @@ fn while_call_body_has_space() {
     let src = include_str!("../move_package/while_call_body.move");
     let out = format_source(src, &FormatOptions::default()).unwrap();
     eprintln!("{out}");
-    assert!(
-        out.contains("while (i < len) swap("),
-        "expected space after while: {out}"
-    );
-    assert!(
-        !out.contains(")swap("),
-        "body must not be glued to condition: {out}"
-    );
+    assert!(out.contains("while (i < len) swap("), "expected space after while: {out}");
+    assert!(!out.contains(")swap("), "body must not be glued to condition: {out}");
 }
 
 #[test]
@@ -22,14 +16,8 @@ fn while_block_body_no_double_space() {
     let src = include_str!("../move_package/while_block_body.move");
     let out = format_source(src, &FormatOptions::default()).unwrap();
     eprintln!("{out}");
-    assert!(
-        out.contains("while (true) {"),
-        "block body keeps one space: {out}"
-    );
-    assert!(
-        !out.contains("while (true)  {"),
-        "must not double-space block: {out}"
-    );
+    assert!(out.contains("while (true) {"), "block body keeps one space: {out}");
+    assert!(!out.contains("while (true)  {"), "must not double-space block: {out}");
 }
 
 #[test]

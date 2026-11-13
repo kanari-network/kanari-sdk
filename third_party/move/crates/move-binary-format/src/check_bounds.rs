@@ -29,10 +29,7 @@ pub struct BoundsChecker<'a> {
 
 impl<'a> BoundsChecker<'a> {
     pub fn verify_module(module: &'a CompiledModule) -> PartialVMResult<()> {
-        let mut bounds_check = Self {
-            module,
-            context: BoundsCheckingContext::Module,
-        };
+        let mut bounds_check = Self { module, context: BoundsCheckingContext::Module };
         if bounds_check.module.module_handles().is_empty() {
             let status =
                 verification_error(StatusCode::NO_MODULE_HANDLES, IndexKind::ModuleHandle, 0);
@@ -162,20 +159,12 @@ impl<'a> BoundsChecker<'a> {
         check_bounds_impl(self.module.signatures(), function_handle.return_)?;
         // function signature type paramters must be in bounds to the function type parameters
         let type_param_count = function_handle.type_parameters.len();
-        if let Some(sig) = self
-            .module
-            .signatures()
-            .get(function_handle.parameters.into_index())
-        {
+        if let Some(sig) = self.module.signatures().get(function_handle.parameters.into_index()) {
             for ty in &sig.0 {
                 self.check_type_parameter(ty, type_param_count)?
             }
         }
-        if let Some(sig) = self
-            .module
-            .signatures()
-            .get(function_handle.return_.into_index())
-        {
+        if let Some(sig) = self.module.signatures().get(function_handle.return_.into_index()) {
             for ty in &sig.0 {
                 self.check_type_parameter(ty, type_param_count)?
             }
@@ -186,11 +175,7 @@ impl<'a> BoundsChecker<'a> {
     fn check_field_handle(&self, field_handle: &FieldHandle) -> PartialVMResult<()> {
         check_bounds_impl(self.module.struct_defs(), field_handle.owner)?;
         // field offset must be in bounds, struct def just checked above must exist
-        if let Some(struct_def) = &self
-            .module
-            .struct_defs()
-            .get(field_handle.owner.into_index())
-        {
+        if let Some(struct_def) = &self.module.struct_defs().get(field_handle.owner.into_index()) {
             let fields_count = match &struct_def.field_information {
                 StructFieldInformation::Native => 0,
                 StructFieldInformation::Declared(fields) => fields.len(),
@@ -212,24 +197,15 @@ impl<'a> BoundsChecker<'a> {
         struct_instantiation: &StructDefInstantiation,
     ) -> PartialVMResult<()> {
         check_bounds_impl(self.module.struct_defs(), struct_instantiation.def)?;
-        check_bounds_impl(
-            self.module.signatures(),
-            struct_instantiation.type_parameters,
-        )
+        check_bounds_impl(self.module.signatures(), struct_instantiation.type_parameters)
     }
 
     fn check_function_instantiation(
         &self,
         function_instantiation: &FunctionInstantiation,
     ) -> PartialVMResult<()> {
-        check_bounds_impl(
-            self.module.function_handles(),
-            function_instantiation.handle,
-        )?;
-        check_bounds_impl(
-            self.module.signatures(),
-            function_instantiation.type_parameters,
-        )
+        check_bounds_impl(self.module.function_handles(), function_instantiation.handle)?;
+        check_bounds_impl(self.module.signatures(), function_instantiation.type_parameters)
     }
 
     fn check_field_instantiation(
@@ -237,10 +213,7 @@ impl<'a> BoundsChecker<'a> {
         field_instantiation: &FieldInstantiation,
     ) -> PartialVMResult<()> {
         check_bounds_impl(self.module.field_handles(), field_instantiation.handle)?;
-        check_bounds_impl(
-            self.module.signatures(),
-            field_instantiation.type_parameters,
-        )
+        check_bounds_impl(self.module.signatures(), field_instantiation.type_parameters)
     }
 
     fn check_signature(&self, signature: &Signature) -> PartialVMResult<()> {
@@ -308,12 +281,7 @@ impl<'a> BoundsChecker<'a> {
         }
         let parameters = &self.module.signatures()[function_handle.parameters.into_index()];
 
-        self.check_code(
-            code_unit,
-            &function_handle.type_parameters,
-            parameters,
-            function_def_idx,
-        )
+        self.check_code(code_unit, &function_handle.type_parameters, parameters, function_def_idx)
     }
 
     fn check_code(
@@ -368,10 +336,8 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in borrow are bound to the function type parameters
                     if let Some(field_inst) =
                         self.module.field_instantiations().get(idx.into_index())
-                        && let Some(sig) = self
-                            .module
-                            .signatures()
-                            .get(field_inst.type_parameters.into_index())
+                        && let Some(sig) =
+                            self.module.signatures().get(field_inst.type_parameters.into_index())
                     {
                         for ty in &sig.0 {
                             self.check_type_parameter(ty, type_param_count)?
@@ -392,10 +358,8 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in call are bound to the function type parameters
                     if let Some(func_inst) =
                         self.module.function_instantiations().get(idx.into_index())
-                        && let Some(sig) = self
-                            .module
-                            .signatures()
-                            .get(func_inst.type_parameters.into_index())
+                        && let Some(sig) =
+                            self.module.signatures().get(func_inst.type_parameters.into_index())
                     {
                         for ty in &sig.0 {
                             self.check_type_parameter(ty, type_param_count)?
@@ -428,10 +392,8 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in type operations are bound to the function type parameters
                     if let Some(struct_inst) =
                         self.module.struct_instantiations().get(idx.into_index())
-                        && let Some(sig) = self
-                            .module
-                            .signatures()
-                            .get(struct_inst.type_parameters.into_index())
+                        && let Some(sig) =
+                            self.module.signatures().get(struct_inst.type_parameters.into_index())
                     {
                         for ty in &sig.0 {
                             self.check_type_parameter(ty, type_param_count)?
@@ -653,12 +615,7 @@ where
     let idx = idx.into_index();
     let len = pool.len();
     if idx >= len {
-        Err(bounds_error(
-            StatusCode::INDEX_OUT_OF_BOUNDS,
-            I::KIND,
-            idx as TableIndex,
-            len,
-        ))
+        Err(bounds_error(StatusCode::INDEX_OUT_OF_BOUNDS, I::KIND, idx as TableIndex, len))
     } else {
         Ok(())
     }

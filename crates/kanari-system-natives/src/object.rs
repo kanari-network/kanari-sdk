@@ -56,15 +56,9 @@ pub struct BorrowGlobalMutGasParameters {
 impl GasParameters {
     pub fn zeros() -> Self {
         Self {
-            save_object: SaveObjectGasParameters {
-                base: 0.into(),
-                per_byte_serialized: 0.into(),
-            },
+            save_object: SaveObjectGasParameters { base: 0.into(), per_byte_serialized: 0.into() },
             delete_object: DeleteObjectGasParameters { base: 0.into() },
-            borrow_global: BorrowGlobalGasParameters {
-                base: 0.into(),
-                per_byte_loaded: 0.into(),
-            },
+            borrow_global: BorrowGlobalGasParameters { base: 0.into(), per_byte_loaded: 0.into() },
             borrow_global_mut: BorrowGlobalMutGasParameters {
                 base: 0.into(),
                 per_byte_loaded: 0.into(),
@@ -105,9 +99,7 @@ pub(crate) fn uid_address_bytes(uid_val: &move_vm_types::values::Value) -> Optio
     )]));
     let flat = MoveTypeLayout::Struct(MoveStructLayout::new(vec![MoveTypeLayout::Address]));
 
-    uid_val
-        .simple_serialize(&nested)
-        .or_else(|| uid_val.simple_serialize(&flat))
+    uid_val.simple_serialize(&nested).or_else(|| uid_val.simple_serialize(&flat))
 }
 
 #[derive(Clone, Debug)]
@@ -178,14 +170,7 @@ impl LoadedObjectsExt {
         data: Vec<u8>,
         can_mutably_borrow: bool,
     ) {
-        self.objects.insert(
-            object_id,
-            LoadedObject {
-                type_str,
-                data,
-                can_mutably_borrow,
-            },
-        );
+        self.objects.insert(object_id, LoadedObject { type_str, data, can_mutably_borrow });
     }
     pub fn get(&self, object_id: &str) -> Option<&LoadedObject> {
         self.objects.get(object_id)
@@ -193,9 +178,7 @@ impl LoadedObjectsExt {
 }
 
 fn canonical_type_string(type_str: &str) -> String {
-    TypeTag::from_str(type_str)
-        .map(|tag| tag.to_string())
-        .unwrap_or_else(|_| type_str.to_string())
+    TypeTag::from_str(type_str).map(|tag| tag.to_string()).unwrap_or_else(|_| type_str.to_string())
 }
 
 /// Extension for tracking borrowed mutable objects
@@ -206,11 +189,7 @@ pub struct BorrowedObjectsExt {
 
 impl BorrowedObjectsExt {
     pub fn record(&mut self, object_id: String, type_str: String, data: Vec<u8>) {
-        self.objects.push(BorrowedObject {
-            object_id,
-            object_type: type_str,
-            data,
-        });
+        self.objects.push(BorrowedObject { object_id, object_type: type_str, data });
     }
     pub fn take_all(&mut self) -> Vec<BorrowedObject> {
         std::mem::take(&mut self.objects)
@@ -477,11 +456,7 @@ fn native_save_object(
     };
 
     if !object_id_hex.is_empty() {
-        let saved = SavedObject {
-            object_id: object_id_hex,
-            object_type: type_str,
-            data: obj_data,
-        };
+        let saved = SavedObject { object_id: object_id_hex, object_type: type_str, data: obj_data };
 
         // Record the saved object
         crate::native_ext::with_ext_mut_or_default::<SavedObjectsExt, _>(context, |ext| {
@@ -511,9 +486,8 @@ mod tests {
         assert_eq!(uid_address_bytes(&flat_uid).unwrap(), expected);
 
         // UID { id: ID }, ID { bytes: address }
-        let nested_uid = Value::struct_(Struct::pack([Value::struct_(Struct::pack([
-            Value::address(addr),
-        ]))]));
+        let nested_uid =
+            Value::struct_(Struct::pack([Value::struct_(Struct::pack([Value::address(addr)]))]));
         assert_eq!(uid_address_bytes(&nested_uid).unwrap(), expected);
     }
 
@@ -608,10 +582,7 @@ mod tests {
     #[test]
     fn test_gas_parameters_for_borrow_global_mut() {
         // Test gas parameter initialization
-        let params = BorrowGlobalMutGasParameters {
-            base: 100.into(),
-            per_byte_loaded: 1.into(),
-        };
+        let params = BorrowGlobalMutGasParameters { base: 100.into(), per_byte_loaded: 1.into() };
 
         assert_eq!(params.base, 100.into());
         assert_eq!(params.per_byte_loaded, 1.into());

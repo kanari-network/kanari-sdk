@@ -68,9 +68,7 @@ pub struct SyncManager {
 
 impl SyncManager {
     fn local_checkpoint_identity(&self, sequence: u64) -> Option<(String, String)> {
-        self.engine
-            .get_block(sequence)
-            .map(|block| (block.hash, block.state_root))
+        self.engine.get_block(sequence).map(|block| (block.hash, block.state_root))
     }
 
     fn divergence_kind(
@@ -93,9 +91,7 @@ impl SyncManager {
     fn checkpoint_buffer_guard(
         &self,
     ) -> std::sync::MutexGuard<'_, BTreeMap<u64, VecDeque<BufferedCheckpointCandidate>>> {
-        self.checkpoint_buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.checkpoint_buffer.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn peer_heights_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, u64>> {
@@ -105,34 +101,23 @@ impl SyncManager {
     fn divergent_peers_guard(
         &self,
     ) -> std::sync::MutexGuard<'_, BTreeMap<String, DivergentPeerInfo>> {
-        self.divergent_peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.divergent_peers.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn pending_checkpoint_requests_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, u64>> {
-        self.pending_checkpoint_requests
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.pending_checkpoint_requests.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn pending_dag_vertex_requests_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, u64>> {
-        self.pending_dag_vertex_requests
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.pending_dag_vertex_requests.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn dag_vertex_buffer_guard(&self) -> std::sync::MutexGuard<'_, VecDeque<DagVertex>> {
-        self.dag_vertex_buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.dag_vertex_buffer.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn should_rebroadcast_dag_vertex(&self, id: [u8; 32], now: u64) -> bool {
-        let mut attempts = self
-            .dag_vertex_rebroadcasts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut attempts = self.dag_vertex_rebroadcasts.lock().unwrap_or_else(|e| e.into_inner());
         if attempts
             .get(&id)
             .is_some_and(|last| now.saturating_sub(*last) < DAG_REBROADCAST_COOLDOWN_MS)
@@ -143,10 +128,8 @@ impl SyncManager {
             let cutoff = now.saturating_sub(DAG_REBROADCAST_COOLDOWN_MS);
             attempts.retain(|_, timestamp| *timestamp >= cutoff);
             if attempts.len() >= MAX_TRACKED_DAG_REBROADCASTS
-                && let Some(oldest) = attempts
-                    .iter()
-                    .min_by_key(|(_, timestamp)| **timestamp)
-                    .map(|(id, _)| *id)
+                && let Some(oldest) =
+                    attempts.iter().min_by_key(|(_, timestamp)| **timestamp).map(|(id, _)| *id)
             {
                 attempts.remove(&oldest);
             }
@@ -201,8 +184,7 @@ impl SyncManager {
                 "[SYNC] Behind network P2P (current: {}, max seen: {}, target: {:?}). Requesting checkpoints via P2P...",
                 stats.height, max_seen, target_peer
             );
-            self.request_checkpoints(stats.height + 1, max_seen, target_peer.as_deref())
-                .await;
+            self.request_checkpoints(stats.height + 1, max_seen, target_peer.as_deref()).await;
         }
     }
 
@@ -231,10 +213,7 @@ impl SyncManager {
                 if msg.sender_peer_id == self.local_peer_id {
                     return;
                 }
-                debug!(
-                    "[P2P] Received DagVertexRebroadcast from {}",
-                    msg.sender_peer_id
-                );
+                debug!("[P2P] Received DagVertexRebroadcast from {}", msg.sender_peer_id);
                 self.handle_new_dag_vertex(msg.vertex_data).await;
             }
             P2PMessage::DagVertexRequest(req) => {
@@ -268,8 +247,7 @@ impl SyncManager {
             }
             P2PMessage::CheckpointRequest(sequence, timestamp) => {
                 info!("[P2P] Received CheckpointRequest for sequence {}", sequence);
-                self.handle_checkpoint_request(sequence, timestamp, None, None)
-                    .await;
+                self.handle_checkpoint_request(sequence, timestamp, None, None).await;
             }
             P2PMessage::TargetedCheckpointRequest(req) => {
                 if req.requester_peer_id != authenticated_peer_id {
@@ -350,10 +328,7 @@ impl SyncManager {
         match self.network_tx.try_send(QueuedP2PMessage::new(msg)) {
             Ok(_) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
-                debug!(
-                    "{}: outbound queue is full; bounded retry will handle it",
-                    context
-                );
+                debug!("{}: outbound queue is full; bounded retry will handle it", context);
                 false
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -430,10 +405,7 @@ impl SyncManager {
                 continue;
             }
             let Ok(vertex_data) = serde_json::to_string(&vertex) else {
-                warn!(
-                    "Failed to serialize DAG vertex {} for rebroadcast",
-                    hex::encode(vertex.id)
-                );
+                warn!("Failed to serialize DAG vertex {} for rebroadcast", hex::encode(vertex.id));
                 continue;
             };
 
@@ -457,10 +429,7 @@ impl SyncManager {
         let policy = match self.engine.dag_production_policy() {
             Ok(policy) => policy,
             Err(e) => {
-                warn!(
-                    "[DAG SYNC] Failed to read production policy for vertex request: {}",
-                    e
-                );
+                warn!("[DAG SYNC] Failed to read production policy for vertex request: {}", e);
                 return;
             }
         };
@@ -485,19 +454,14 @@ impl SyncManager {
     fn handle_dag_vertex_request(&self, request: DagVertexRequestMsg) {
         let limit =
             (request.limit as usize).clamp(1, NodeRuntimeConfig::dag_vertices_max_response());
-        let vertices = match self
-            .engine
-            .dag_vertices_through_round_for_sync(request.parent_round, limit)
-        {
-            Ok(vertices) => vertices,
-            Err(e) => {
-                warn!(
-                    "[DAG SYNC] Failed to load vertices for request response: {}",
-                    e
-                );
-                return;
-            }
-        };
+        let vertices =
+            match self.engine.dag_vertices_through_round_for_sync(request.parent_round, limit) {
+                Ok(vertices) => vertices,
+                Err(e) => {
+                    warn!("[DAG SYNC] Failed to load vertices for request response: {}", e);
+                    return;
+                }
+            };
 
         if vertices.is_empty() {
             return;
@@ -543,11 +507,7 @@ impl SyncManager {
     }
 
     fn request_missing_buffered_dag_parents(&self) {
-        let buffered = self
-            .dag_vertex_buffer_guard()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let buffered = self.dag_vertex_buffer_guard().iter().cloned().collect::<Vec<_>>();
         self.request_missing_dag_parent_rounds(&buffered);
     }
 
@@ -603,10 +563,7 @@ impl SyncManager {
             timestamp,
             "[DAG SYNC] Failed to queue checkpoint commit-proof request",
         ) {
-            info!(
-                "[DAG SYNC] Requested checkpoint commit proof through round {}",
-                proof_round
-            );
+            info!("[DAG SYNC] Requested checkpoint commit proof through round {}", proof_round);
         }
     }
 
@@ -638,10 +595,7 @@ impl SyncManager {
         if candidates.iter().any(|candidate| {
             candidate.checkpoint.checkpoint.hash().ok() == checkpoint.checkpoint.hash().ok()
         }) {
-            info!(
-                "[SYNC] Duplicate {} #{} already buffered, ignoring",
-                label, sequence
-            );
+            info!("[SYNC] Duplicate {} #{} already buffered, ignoring", label, sequence);
             return Some(candidate_count);
         }
 
@@ -668,13 +622,10 @@ impl SyncManager {
 
     fn pop_next_buffer_candidate(&self, next_sequence: u64) -> Option<BufferedCheckpointCandidate> {
         let mut buffer = self.checkpoint_buffer_guard();
-        let next_candidate = buffer
-            .get_mut(&next_sequence)
-            .and_then(|candidates| candidates.pop_front());
-        let should_remove = buffer
-            .get(&next_sequence)
-            .map(|candidates| candidates.is_empty())
-            .unwrap_or(false);
+        let next_candidate =
+            buffer.get_mut(&next_sequence).and_then(|candidates| candidates.pop_front());
+        let should_remove =
+            buffer.get(&next_sequence).map(|candidates| candidates.is_empty()).unwrap_or(false);
         if should_remove {
             buffer.remove(&next_sequence);
         }
@@ -688,9 +639,7 @@ impl SyncManager {
     }
 
     fn checkpoint_waits_for_dag_evidence(error: &anyhow::Error) -> bool {
-        error
-            .to_string()
-            .contains("has not been committed by the local Mysticeti DAG")
+        error.to_string().contains("has not been committed by the local Mysticeti DAG")
     }
 
     fn best_peer_for_height(&self, height: u64) -> Option<String> {
@@ -767,10 +716,7 @@ impl SyncManager {
         local_checkpoint_hash: &str,
         local_state_root: &str,
     ) {
-        let recorded = self
-            .divergent_peers_guard()
-            .get(&peer_info.peer_id)
-            .cloned();
+        let recorded = self.divergent_peers_guard().get(&peer_info.peer_id).cloned();
         let exact_tip_match = peer_info.height == local_height
             && peer_info.latest_checkpoint_hash == local_checkpoint_hash
             && peer_info.latest_state_root == local_state_root;
@@ -939,8 +885,7 @@ impl SyncManager {
             "[SYNC] Requesting checkpoints from {} to {} from peer {}",
             start_height, peer_height, peer_id
         );
-        self.request_checkpoints(start_height, peer_height, Some(peer_id))
-            .await;
+        self.request_checkpoints(start_height, peer_height, Some(peer_id)).await;
     }
 
     async fn process_incoming_checkpoint(
@@ -979,19 +924,13 @@ impl SyncManager {
                 Ok(Some(local_hash)) => match checkpoint.hash() {
                     Ok(remote_hash) => local_hash == remote_hash,
                     Err(error) => {
-                        warn!(
-                            "Failed to hash checkpoint during sync comparison: {}",
-                            error
-                        );
+                        warn!("Failed to hash checkpoint during sync comparison: {}", error);
                         false
                     }
                 },
                 Ok(None) => false,
                 Err(error) => {
-                    warn!(
-                        "Failed to load local checkpoint during sync comparison: {}",
-                        error
-                    );
+                    warn!("Failed to load local checkpoint during sync comparison: {}", error);
                     false
                 }
             };
@@ -1010,10 +949,7 @@ impl SyncManager {
         }
 
         let sequence = checkpoint.sequence;
-        if self
-            .buffer_checkpoint(checkpoint_data, source_peer_id, buffered_label)
-            .is_none()
-        {
+        if self.buffer_checkpoint(checkpoint_data, source_peer_id, buffered_label).is_none() {
             return;
         }
 
@@ -1040,15 +976,9 @@ impl SyncManager {
 
     async fn handle_new_transaction(&self, tx_data: String) {
         if let Some(signed_tx) = Self::parse_message::<SignedTransaction>(&tx_data, "transaction") {
-            match self
-                .engine
-                .submit_transactions_batch(vec![signed_tx.clone()])
-            {
+            match self.engine.submit_transactions_batch(vec![signed_tx.clone()]) {
                 Ok(tx_hashes) => {
-                    debug!(
-                        "Received transaction from network: 0x{}",
-                        hex::encode(&tx_hashes[0])
-                    );
+                    debug!("Received transaction from network: 0x{}", hex::encode(&tx_hashes[0]));
                 }
                 Err(e) => {
                     warn!("Failed to submit transaction from network: {}", e);
@@ -1259,10 +1189,7 @@ impl SyncManager {
         requester_peer_id: Option<&str>,
         responder_peer_id: Option<&str>,
     ) {
-        info!(
-            "[SYNC] Received checkpoint request for sequence {}",
-            sequence
-        );
+        info!("[SYNC] Received checkpoint request for sequence {}", sequence);
         match self.engine.get_checkpoint_sync(sequence) {
             Ok(Some(checkpoint_sync)) => {
                 info!(
@@ -1294,10 +1221,7 @@ impl SyncManager {
                 }
             }
             Ok(None) => {
-                warn!(
-                    "[SYNC] Checkpoint #{} not found in our engine for request",
-                    sequence
-                )
+                warn!("[SYNC] Checkpoint #{} not found in our engine for request", sequence)
             }
             Err(error) => warn!("[SYNC] Unable to serve checkpoint #{}: {}", sequence, error),
         }
@@ -1324,9 +1248,8 @@ impl SyncManager {
 
     async fn handle_peer_info(&self, peer_info: PeerInfoMsg) {
         let stats = self.engine.get_stats();
-        let (local_checkpoint_hash, local_state_root) = self
-            .local_checkpoint_identity(stats.height)
-            .unwrap_or_else(|| {
+        let (local_checkpoint_hash, local_state_root) =
+            self.local_checkpoint_identity(stats.height).unwrap_or_else(|| {
                 (
                     self.engine.latest_checkpoint_hash_hex(),
                     self.engine.latest_checkpoint_state_root_hex(),
@@ -1376,11 +1299,7 @@ impl SyncManager {
             self.record_peer_height(peer_info.peer_id.clone(), peer_info.height);
         }
 
-        if let Some(divergence) = self
-            .divergent_peers_guard()
-            .get(&peer_info.peer_id)
-            .cloned()
-        {
+        if let Some(divergence) = self.divergent_peers_guard().get(&peer_info.peer_id).cloned() {
             warn!(
                 "[SYNC] Peer {} remains quarantined due to divergent history at height {} (peer_checkpoint={}, peer_state_root={}). Local checkpoint={}, local_state_root={}.",
                 peer_info.peer_id,
@@ -1449,10 +1368,7 @@ impl SyncManager {
 
             if !self.send_network_message(
                 msg,
-                &format!(
-                    "[SYNC] Failed to send checkpoint request for sequence {}",
-                    sequence
-                ),
+                &format!("[SYNC] Failed to send checkpoint request for sequence {}", sequence),
             ) {
                 break;
             }
@@ -1493,9 +1409,8 @@ impl SyncManager {
         materialized_block_view: &kanari_core::FullBlockData,
     ) -> anyhow::Result<()> {
         let materialized_block = BlockchainEngine::block_from_full_data(materialized_block_view);
-        let idx = indexer
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
+        let idx =
+            indexer.lock().map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
         idx.index_block(&materialized_block)?;
 
         Ok(())

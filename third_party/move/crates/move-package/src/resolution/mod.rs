@@ -29,11 +29,8 @@ pub fn download_dependency_repos<Progress: Write>(
     root_path: &Path,
     progress_output: &mut Progress,
 ) -> Result<()> {
-    let install_dir = build_options
-        .install_dir
-        .as_ref()
-        .unwrap_or(&root_path.to_path_buf())
-        .to_owned();
+    let install_dir =
+        build_options.install_dir.as_ref().unwrap_or(&root_path.to_path_buf()).to_owned();
     let mut dep_graph_builder = DependencyGraphBuilder::new(
         build_options.skip_fetch_latest_git_deps,
         progress_output,
@@ -55,16 +52,10 @@ pub fn download_dependency_repos<Progress: Write>(
             continue;
         }
 
-        let package = graph
-            .package_table
-            .get(&pkg_id)
-            .expect("Metadata for package");
+        let package = graph.package_table.get(&pkg_id).expect("Metadata for package");
 
-        let DependencyGraphBuilder {
-            ref mut dependency_cache,
-            ref mut progress_output,
-            ..
-        } = dep_graph_builder;
+        let DependencyGraphBuilder { ref mut dependency_cache, ref mut progress_output, .. } =
+            dep_graph_builder;
         dependency_cache.download_and_update_if_remote(pkg_id, &package.kind, progress_output)?;
     }
 
@@ -78,17 +69,9 @@ fn repository_path(kind: &DependencyKind) -> PathBuf {
         DependencyKind::Local(path) => path.clone(),
 
         // Downloaded packages are of the form <sanitized_git_url>_<rev_name>
-        DependencyKind::Git(GitInfo {
-            git_url,
-            git_rev,
-            subdir: _,
-        }) => [
+        DependencyKind::Git(GitInfo { git_url, git_rev, subdir: _ }) => [
             &*MOVE_HOME,
-            &format!(
-                "{}_{}",
-                url_to_file_name(git_url.as_str()),
-                git_rev.replace('/', "__"),
-            ),
+            &format!("{}_{}", url_to_file_name(git_url.as_str()), git_rev.replace('/', "__"),),
         ]
         .iter()
         .collect(),
@@ -127,8 +110,5 @@ fn local_path(kind: &DependencyKind) -> PathBuf {
 }
 
 fn url_to_file_name(url: &str) -> String {
-    regex::Regex::new(r"/|:|\.|@")
-        .unwrap()
-        .replace_all(url, "_")
-        .to_string()
+    regex::Regex::new(r"/|:|\.|@").unwrap().replace_all(url, "_").to_string()
 }

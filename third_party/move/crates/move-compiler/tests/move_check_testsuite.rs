@@ -54,11 +54,7 @@ fn default_testing_addresses(flavor: Flavor) -> BTreeMap<String, NumericalAddres
 fn move_check_testsuite(path: &Path) -> datatest_stable::Result<()> {
     let path_contains = |s| path.components().any(|c| c.as_os_str() == s);
     let lint = path_contains(LINTER_DIR);
-    let flavor = if path_contains(SUI_MODE_DIR) {
-        Flavor::Sui
-    } else {
-        Flavor::default()
-    };
+    let flavor = if path_contains(SUI_MODE_DIR) { Flavor::Sui } else { Flavor::default() };
     let edition = if path_contains(MOVE_2024_DIR) {
         Edition::E2024_ALPHA
     } else if path_contains(DEV_DIR) {
@@ -66,11 +62,7 @@ fn move_check_testsuite(path: &Path) -> datatest_stable::Result<()> {
     } else {
         Edition::default()
     };
-    let config = PackageConfig {
-        flavor,
-        edition,
-        ..PackageConfig::default()
-    };
+    let config = PackageConfig { flavor, edition, ..PackageConfig::default() };
     testsuite(path, config, lint)
 }
 
@@ -78,20 +70,12 @@ fn testsuite(path: &Path, mut config: PackageConfig, lint: bool) -> datatest_sta
     // A test is marked that it should also be compiled in test mode by having a `path.unit_test`
     // file.
     if path.with_extension(TEST_EXT).exists() {
-        let test_exp_path = format!(
-            "{}.unit_test.{}",
-            path.with_extension("").to_string_lossy(),
-            EXP_EXT
-        );
-        let test_out_path = format!(
-            "{}.unit_test.{}",
-            path.with_extension("").to_string_lossy(),
-            OUT_EXT
-        );
+        let test_exp_path =
+            format!("{}.unit_test.{}", path.with_extension("").to_string_lossy(), EXP_EXT);
+        let test_out_path =
+            format!("{}.unit_test.{}", path.with_extension("").to_string_lossy(), OUT_EXT);
         let mut config = config.clone();
-        config
-            .warning_filter
-            .union(&WarningFilters::unused_warnings_filter_for_test());
+        config.warning_filter.union(&WarningFilters::unused_warnings_filter_for_test());
         run_test(
             path,
             Path::new(&test_exp_path),
@@ -105,22 +89,12 @@ fn testsuite(path: &Path, mut config: PackageConfig, lint: bool) -> datatest_sta
     // A test is marked that it should also be compiled in migration mode by having a
     // `path.migration` file.
     if path.with_extension(MIGRATION_EXT).exists() {
-        let migration_exp_path = format!(
-            "{}.{}.{}",
-            path.with_extension("").to_string_lossy(),
-            MIGRATION_EXT,
-            EXP_EXT
-        );
-        let migration_out_path = format!(
-            "{}.{}.{}",
-            path.with_extension("").to_string_lossy(),
-            MIGRATION_EXT,
-            OUT_EXT
-        );
+        let migration_exp_path =
+            format!("{}.{}.{}", path.with_extension("").to_string_lossy(), MIGRATION_EXT, EXP_EXT);
+        let migration_out_path =
+            format!("{}.{}.{}", path.with_extension("").to_string_lossy(), MIGRATION_EXT, OUT_EXT);
         let mut config = config.clone();
-        config
-            .warning_filter
-            .union(&WarningFilters::unused_warnings_filter_for_test());
+        config.warning_filter.union(&WarningFilters::unused_warnings_filter_for_test());
         run_test_inner(
             path,
             Path::new(&migration_exp_path),
@@ -134,16 +108,10 @@ fn testsuite(path: &Path, mut config: PackageConfig, lint: bool) -> datatest_sta
 
     // A cross-module unused case that should run without unused warnings suppression
     if path.with_extension(UNUSED_EXT).exists() {
-        let unused_exp_path = format!(
-            "{}.unused.{}",
-            path.with_extension("").to_string_lossy(),
-            EXP_EXT
-        );
-        let unused_out_path = format!(
-            "{}.unused.{}",
-            path.with_extension("").to_string_lossy(),
-            OUT_EXT
-        );
+        let unused_exp_path =
+            format!("{}.unused.{}", path.with_extension("").to_string_lossy(), EXP_EXT);
+        let unused_out_path =
+            format!("{}.unused.{}", path.with_extension("").to_string_lossy(), OUT_EXT);
         run_test(
             path,
             Path::new(&unused_exp_path),
@@ -159,9 +127,7 @@ fn testsuite(path: &Path, mut config: PackageConfig, lint: bool) -> datatest_sta
 
     let flags = Flags::empty();
 
-    config
-        .warning_filter
-        .union(&WarningFilters::unused_warnings_filter_for_test());
+    config.warning_filter.union(&WarningFilters::unused_warnings_filter_for_test());
     run_test(path, &exp_path, &out_path, flags, config, lint)?;
     Ok(())
 }
@@ -203,11 +169,7 @@ pub fn run_test_inner(
     } else {
         None
     };
-    let targets = vec![PackagePaths {
-        name,
-        paths: targets,
-        named_address_map,
-    }];
+    let targets = vec![PackagePaths { name, paths: targets, named_address_map }];
 
     let flags = flags.set_sources_shadow_deps(true);
 
@@ -264,10 +226,7 @@ pub fn run_test_inner(
     match (has_diags, exp_exists) {
         (false, false) => Ok(()),
         (true, false) => {
-            let msg = format!(
-                "Expected success. Unexpected diagnostics:\n{}",
-                rendered_diags
-            );
+            let msg = format!("Expected success. Unexpected diagnostics:\n{}", rendered_diags);
             anyhow::bail!(add_update_baseline_fix(msg))
         }
         (false, true) => {

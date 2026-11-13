@@ -36,13 +36,7 @@ pub(super) fn derive_mnemonic_seed(
     out_len: usize,
 ) -> Zeroizing<Vec<u8>> {
     let out = hash_data_shake256_custom_chunks(
-        &[
-            MNEMONIC_PQC_DOMAIN.as_bytes(),
-            &[0u8],
-            label.as_bytes(),
-            &[0u8],
-            bip39_seed,
-        ],
+        &[MNEMONIC_PQC_DOMAIN.as_bytes(), &[0u8], label.as_bytes(), &[0u8], bip39_seed],
         out_len,
     );
     Zeroizing::new(out)

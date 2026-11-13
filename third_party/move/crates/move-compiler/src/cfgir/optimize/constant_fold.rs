@@ -100,9 +100,7 @@ fn optimize_exp(consts: &UniqueMap<ConstantName, Value>, e: &mut Exp) -> bool {
         | E::Unreachable => false,
 
         e_ @ E::Constant(_) => {
-            let E::Constant(name) = e_ else {
-                unreachable!()
-            };
+            let E::Constant(name) = e_ else { unreachable!() };
             if let Some(value) = consts.get(name) {
                 *e_ = E::Value(value.clone());
                 true
@@ -372,10 +370,7 @@ fn fold_binary_op(
         (B::Neq, v1, v2) => V::Bool(v1 != v2),
 
         (op_, v1, v2) => {
-            panic!(
-                "ICE unknown binary op. combo while folding: {:?} {} {:?}",
-                v1, op_, v2
-            )
+            panic!("ICE unknown binary op. combo while folding: {:?} {} {:?}", v1, op_, v2)
         }
     };
     Some(evalue_(loc, v))

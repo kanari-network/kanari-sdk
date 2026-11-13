@@ -60,11 +60,7 @@ impl StateManager {
         let accounted_supply = wallet_visible_supply
             .checked_add(object_locked_supply)
             .require("Accounted token supply overflow")?;
-        let label = if token_type == GAS_COIN {
-            "native"
-        } else {
-            "fungible token"
-        };
+        let label = if token_type == GAS_COIN { "native" } else { "fungible token" };
         ensure!(
             wallet_visible_supply <= total_supply && accounted_supply <= total_supply,
             "{} supply overcount: token_type={} total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
@@ -86,9 +82,7 @@ impl StateManager {
         let canonical_index = self.compute_wallet_supply_index()?;
         let mut token_types = self.tracked_fungible_token_types()?;
         token_types.extend(
-            canonical_index
-                .keys()
-                .map(|token_type| CoinModule::normalize_token_type(token_type)),
+            canonical_index.keys().map(|token_type| CoinModule::normalize_token_type(token_type)),
         );
 
         for token_type in token_types {
@@ -136,18 +130,13 @@ impl StateManager {
         let canonical_index = self.compute_wallet_supply_index()?;
         let mut token_types = self.tracked_fungible_token_types()?;
         token_types.extend(
-            canonical_index
-                .keys()
-                .map(|token_type| CoinModule::normalize_token_type(token_type)),
+            canonical_index.keys().map(|token_type| CoinModule::normalize_token_type(token_type)),
         );
 
         for token_type in token_types {
             let total_supply = self.issued_supply_for_token(&token_type)?;
-            let wallet_visible_supply = self
-                .global_token_supplies
-                .get(&token_type)
-                .copied()
-                .unwrap_or(0);
+            let wallet_visible_supply =
+                self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
             let object_locked_supply = self.object_locked_supply_for_token(&token_type)?;
             Self::validate_token_supply_bound(
                 &token_type,

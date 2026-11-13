@@ -60,10 +60,7 @@ fn native_to_bytes(
             // If we run out of gas when charging for failure, we don't want the `OUT_OF_GAS` error
             // to mask the actual error `NFE_BCS_SERIALIZATION_FAILURE`, so we saturate deduction at 0
             context.charge_gas(gas_params.failure);
-            return Ok(NativeResult::err(
-                context.gas_used(),
-                NFE_BCS_SERIALIZATION_FAILURE,
-            ));
+            return Ok(NativeResult::err(context.gas_used(), NFE_BCS_SERIALIZATION_FAILURE));
         }
     };
     // serialize value
@@ -74,10 +71,7 @@ fn native_to_bytes(
             // If we run out of gas when charging for failure, we don't want the `OUT_OF_GAS` error
             // to mask the actual error `NFE_BCS_SERIALIZATION_FAILURE`, so we saturate deduction at 0
             context.charge_gas(gas_params.failure);
-            return Ok(NativeResult::err(
-                context.gas_used(),
-                NFE_BCS_SERIALIZATION_FAILURE,
-            ));
+            return Ok(NativeResult::err(context.gas_used(), NFE_BCS_SERIALIZATION_FAILURE));
         }
     };
     native_charge_gas_early_exit!(
@@ -89,18 +83,13 @@ fn native_to_bytes(
             )
     );
 
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(serialized_value)],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(serialized_value)]))
 }
 
 pub fn make_native_to_bytes(gas_params: ToBytesGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_to_bytes(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_to_bytes(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************

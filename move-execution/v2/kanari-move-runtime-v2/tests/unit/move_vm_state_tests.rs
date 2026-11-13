@@ -53,14 +53,8 @@ fn corrupted_module_bytes_are_reported_as_storage_error() -> Result<()> {
         AccountAddress::from_hex_literal("0x42")?,
         move_core_types::identifier::Identifier::new("broken")?,
     );
-    let key = format!(
-        "module:{}:{}",
-        module_id.address().to_hex_literal(),
-        module_id.name()
-    );
-    state
-        .store
-        .apply_raw_changes(&[(key.into_bytes(), vec![0x80])], &[])?;
+    let key = format!("module:{}:{}", module_id.address().to_hex_literal(), module_id.name());
+    state.store.apply_raw_changes(&[(key.into_bytes(), vec![0x80])], &[])?;
 
     assert!(state.try_get_module(&module_id).is_err());
     Ok(())

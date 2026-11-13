@@ -27,12 +27,8 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     let mut args = vec!["mvp_test".to_string()];
     args.extend(FLAGS.iter().map(|s| (*s).to_string()).collect_vec());
 
-    let is_root_template = path
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string()
-        .ends_with("_template.md");
+    let is_root_template =
+        path.file_name().unwrap().to_string_lossy().to_string().ends_with("_template.md");
     if !is_root_template {
         args.push(path.to_string_lossy().to_string());
     } else {
@@ -75,14 +71,8 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
 fn test_docgen(path: &Path, mut options: Options, suffix: &str) -> anyhow::Result<()> {
     let mut temp_path = PathBuf::from(TempDir::new()?.path());
     options.docgen.output_directory = temp_path.to_string_lossy().to_string();
-    let base_name = format!(
-        "{}.md",
-        path.file_stem()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .replace("_template", "")
-    );
+    let base_name =
+        format!("{}.md", path.file_stem().unwrap().to_str().unwrap().replace("_template", ""));
     temp_path.push(&base_name);
 
     let mut error_writer = Buffer::no_color();

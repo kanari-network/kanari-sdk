@@ -40,11 +40,7 @@ pub struct LoopAnnotation {
 
 impl LoopAnnotation {
     fn back_edges_locations(&self) -> BTreeSet<CodeOffset> {
-        self.fat_loops
-            .values()
-            .flat_map(|l| l.back_edges.iter())
-            .copied()
-            .collect()
+        self.fat_loops.values().flat_map(|l| l.back_edges.iter()).copied().collect()
     }
 }
 
@@ -104,9 +100,7 @@ impl LoopAnalysisProcessor {
         let mut builder = FunctionDataBuilder::new_with_options(
             func_env,
             data,
-            FunctionDataBuilderOptions {
-                no_fallthrough_jump_removal: true,
-            },
+            FunctionDataBuilderOptions { no_fallthrough_jump_removal: true },
         );
         let mut goto_fixes = vec![];
         let code = std::mem::take(&mut builder.data.code);
@@ -206,11 +200,8 @@ impl LoopAnalysisProcessor {
         }
 
         // create one invariant-checking block for each fat loop
-        let invariant_checker_labels: BTreeMap<_, _> = loop_annotation
-            .fat_loops
-            .keys()
-            .map(|label| (*label, builder.new_label()))
-            .collect();
+        let invariant_checker_labels: BTreeMap<_, _> =
+            loop_annotation.fat_loops.keys().map(|label| (*label, builder.new_label())).collect();
 
         for label in loop_annotation.fat_loops.keys() {
             let checker_label = invariant_checker_labels.get(label).unwrap();
@@ -239,9 +230,8 @@ impl LoopAnalysisProcessor {
                 }
                 Bytecode::Branch(attr_id, if_label, else_label, idx) => {
                     let new_if_label = *invariant_checker_labels.get(if_label).unwrap_or(if_label);
-                    let new_else_label = *invariant_checker_labels
-                        .get(else_label)
-                        .unwrap_or(else_label);
+                    let new_else_label =
+                        *invariant_checker_labels.get(else_label).unwrap_or(else_label);
                     Bytecode::Branch(*attr_id, new_if_label, new_else_label, *idx)
                 }
                 _ => panic!("Expect a branch statement"),
@@ -268,15 +258,11 @@ impl LoopAnalysisProcessor {
         let code = func_target.get_bytecode();
         let mut val_targets = BTreeSet::new();
         let mut mut_targets = BTreeMap::new();
-        let fat_loop_body: BTreeSet<_> = sub_loops
-            .iter()
-            .flat_map(|l| l.loop_body.iter())
-            .copied()
-            .collect();
+        let fat_loop_body: BTreeSet<_> =
+            sub_loops.iter().flat_map(|l| l.loop_body.iter()).copied().collect();
         for block_id in fat_loop_body {
-            for code_offset in cfg
-                .instr_indexes(block_id)
-                .expect("A loop body should never contain a dummy block")
+            for code_offset in
+                cfg.instr_indexes(block_id).expect("A loop body should never contain a dummy block")
             {
                 let bytecode = &code[code_offset as usize];
                 let (bc_val_targets, bc_mut_targets) = bytecode.modifies(func_target);
@@ -336,10 +322,7 @@ impl LoopAnalysisProcessor {
         let edges: Vec<(BlockId, BlockId)> = nodes
             .iter()
             .flat_map(|x| {
-                cfg.successors(*x)
-                    .iter()
-                    .map(|y| (*x, *y))
-                    .collect::<Vec<(BlockId, BlockId)>>()
+                cfg.successors(*x).iter().map(|y| (*x, *y)).collect::<Vec<(BlockId, BlockId)>>()
             })
             .collect();
         let graph = Graph::new(entry, nodes, edges);
@@ -350,10 +333,7 @@ impl LoopAnalysisProcessor {
         // collect shared headers from loops
         let mut fat_headers = BTreeMap::new();
         for single_loop in natural_loops {
-            fat_headers
-                .entry(single_loop.loop_header)
-                .or_insert_with(Vec::new)
-                .push(single_loop);
+            fat_headers.entry(single_loop.loop_header).or_insert_with(Vec::new).push(single_loop);
         }
 
         // build fat loops by label
@@ -373,14 +353,7 @@ impl LoopAnalysisProcessor {
             let back_edges = Self::collect_loop_back_edges(code, &cfg, label, &sub_loops);
 
             // done with all information collection.
-            fat_loops.insert(
-                label,
-                FatLoop {
-                    val_targets,
-                    mut_targets,
-                    back_edges,
-                },
-            );
+            fat_loops.insert(label, FatLoop { val_targets, mut_targets, back_edges });
         }
 
         LoopAnnotation { fat_loops }

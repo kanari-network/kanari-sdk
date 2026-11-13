@@ -126,10 +126,7 @@ impl AccountChangeSet {
     }
 
     pub fn new() -> Self {
-        Self {
-            modules: BTreeMap::new(),
-            resources: BTreeMap::new(),
-        }
+        Self { modules: BTreeMap::new(), resources: BTreeMap::new() }
     }
 
     pub fn add_module_op(&mut self, name: Identifier, op: Op<Vec<u8>>) -> Result<()> {
@@ -160,10 +157,7 @@ impl AccountChangeSet {
 
     pub fn into_inner(
         self,
-    ) -> (
-        BTreeMap<Identifier, Op<Vec<u8>>>,
-        BTreeMap<StructTag, Op<Vec<u8>>>,
-    ) {
+    ) -> (BTreeMap<Identifier, Op<Vec<u8>>>, BTreeMap<StructTag, Op<Vec<u8>>>) {
         (self.modules, self.resources)
     }
 
@@ -210,9 +204,7 @@ impl Default for ChangeSet {
 
 impl ChangeSet {
     pub fn new() -> Self {
-        Self {
-            accounts: BTreeMap::new(),
-        }
+        Self { accounts: BTreeMap::new() }
     }
 
     pub fn add_account_changeset(
@@ -222,10 +214,7 @@ impl ChangeSet {
     ) -> Result<()> {
         match self.accounts.entry(addr) {
             btree_map::Entry::Occupied(_) => {
-                bail!(
-                    "Failed to add account change set. Account {} already exists.",
-                    addr
-                )
+                bail!("Failed to add account change set. Account {} already exists.", addr)
             }
             btree_map::Entry::Vacant(entry) => {
                 entry.insert(account_changeset);

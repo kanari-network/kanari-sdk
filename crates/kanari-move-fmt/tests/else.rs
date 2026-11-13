@@ -13,8 +13,5 @@ fn indents_if_body() {
     let src = include_str!("../move_package/indents_if_body.move");
     let out =
         kanari_move_fmt::format_source(src, &kanari_move_fmt::FormatOptions::default()).unwrap();
-    assert!(
-        out.contains("            y = 1;"),
-        "missing if-body indent:\n{out}"
-    );
+    assert!(out.contains("            y = 1;"), "missing if-body indent:\n{out}");
 }

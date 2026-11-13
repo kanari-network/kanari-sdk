@@ -52,12 +52,8 @@ fn k256_and_p256_parallel_batch_verify_valid_and_reject_invalid_items() {
             generate_keypair(curve).unwrap(),
             generate_keypair(curve).unwrap(),
         ];
-        let messages: [&[u8]; 4] = [
-            b"ecdsa-batch-0",
-            b"ecdsa-batch-1",
-            b"ecdsa-batch-2",
-            b"ecdsa-batch-3",
-        ];
+        let messages: [&[u8]; 4] =
+            [b"ecdsa-batch-0", b"ecdsa-batch-1", b"ecdsa-batch-2", b"ecdsa-batch-3"];
         let signatures: Vec<Vec<u8>> = keypairs
             .iter()
             .zip(messages)

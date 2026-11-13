@@ -25,19 +25,14 @@ fn start_accepts_complete_authority_config() {
 
 #[test]
 fn existing_consensus_seed_encrypts_without_key_rotation() {
-    let _guard = crate::app::TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _guard = crate::app::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let input = temp.path().join("private.hex");
     let output = temp.path().join("private.key");
     let seed = "42".repeat(32);
     std::fs::write(&input, &seed).unwrap();
     unsafe {
-        std::env::set_var(
-            "KANARI_CONSENSUS_KEY_PASSWORD",
-            "migration regression password",
-        );
+        std::env::set_var("KANARI_CONSENSUS_KEY_PASSWORD", "migration regression password");
     }
 
     encrypt_existing_consensus_key(&input, &output, false).unwrap();

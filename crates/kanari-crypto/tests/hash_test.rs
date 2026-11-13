@@ -25,26 +25,11 @@ fn default_hash_is_sha3_256_and_has_stable_length() {
 fn named_hash_wrappers_match_explicit_algorithm_dispatch() {
     let data = b"kanari flutter bridge uses these public wrappers";
 
-    assert_eq!(
-        hash_data_sha3_512(data),
-        hash_data_with_algorithm(data, HashAlgorithm::Sha3_512)
-    );
-    assert_eq!(
-        hash_data_sha2_256(data),
-        hash_data_with_algorithm(data, HashAlgorithm::Sha2_256)
-    );
-    assert_eq!(
-        hash_data_sha2_512(data),
-        hash_data_with_algorithm(data, HashAlgorithm::Sha2_512)
-    );
-    assert_eq!(
-        hash_data_blake3(data),
-        hash_data_with_algorithm(data, HashAlgorithm::Blake3)
-    );
-    assert_eq!(
-        hash_data_shake256(data),
-        hash_data_with_algorithm(data, HashAlgorithm::Shake256)
-    );
+    assert_eq!(hash_data_sha3_512(data), hash_data_with_algorithm(data, HashAlgorithm::Sha3_512));
+    assert_eq!(hash_data_sha2_256(data), hash_data_with_algorithm(data, HashAlgorithm::Sha2_256));
+    assert_eq!(hash_data_sha2_512(data), hash_data_with_algorithm(data, HashAlgorithm::Sha2_512));
+    assert_eq!(hash_data_blake3(data), hash_data_with_algorithm(data, HashAlgorithm::Blake3));
+    assert_eq!(hash_data_shake256(data), hash_data_with_algorithm(data, HashAlgorithm::Shake256));
 }
 
 #[test]
@@ -97,18 +82,9 @@ fn blake3_chunked_hash_matches_materialized_input() {
         materialized.extend_from_slice(chunk);
     }
 
-    assert_eq!(
-        hash_data_blake3_chunks(&chunks),
-        hash_data_blake3(&materialized)
-    );
-    assert_eq!(
-        hash_data_blake3_chunks_array(&chunks),
-        hash_data_blake3_array(&materialized)
-    );
-    assert_eq!(
-        hash_data_blake3_chunks_array(&chunks).to_vec(),
-        hash_data_blake3(&materialized)
-    );
+    assert_eq!(hash_data_blake3_chunks(&chunks), hash_data_blake3(&materialized));
+    assert_eq!(hash_data_blake3_chunks_array(&chunks), hash_data_blake3_array(&materialized));
+    assert_eq!(hash_data_blake3_chunks_array(&chunks).to_vec(), hash_data_blake3(&materialized));
 }
 
 #[test]
@@ -119,23 +95,11 @@ fn chunked_hashes_match_materialized_input_for_all_algorithms() {
         materialized.extend_from_slice(chunk);
     }
 
-    assert_eq!(
-        hash_data_sha2_256_chunks(&chunks),
-        hash_data_sha2_256(&materialized)
-    );
-    assert_eq!(
-        hash_data_sha2_512_chunks(&chunks),
-        hash_data_sha2_512(&materialized)
-    );
+    assert_eq!(hash_data_sha2_256_chunks(&chunks), hash_data_sha2_256(&materialized));
+    assert_eq!(hash_data_sha2_512_chunks(&chunks), hash_data_sha2_512(&materialized));
     assert_eq!(hash_data_sha3_256_chunks(&chunks), hash_data(&materialized));
-    assert_eq!(
-        hash_data_sha3_512_chunks(&chunks),
-        hash_data_sha3_512(&materialized)
-    );
-    assert_eq!(
-        hash_data_shake256_chunks(&chunks),
-        hash_data_shake256(&materialized)
-    );
+    assert_eq!(hash_data_sha3_512_chunks(&chunks), hash_data_sha3_512(&materialized));
+    assert_eq!(hash_data_shake256_chunks(&chunks), hash_data_shake256(&materialized));
     assert_eq!(
         hash_data_shake256_custom_chunks(&chunks, 64),
         hash_data_shake256_custom(&materialized, 64)

@@ -180,11 +180,8 @@ impl fmt::Display for PrimitiveType {
 impl fmt::Display for StructInstantiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let inst_tokens: Vec<_> = self.insts.iter().map(|t| t.to_string()).collect();
-        let field_tokens: Vec<_> = self
-            .fields
-            .iter()
-            .map(|f| format!("{}: {}", f.name, f.ty))
-            .collect();
+        let field_tokens: Vec<_> =
+            self.fields.iter().map(|f| format!("{}: {}", f.name, f.ty)).collect();
         write!(
             f,
             "struct {}<{}> {{{}}}",
@@ -229,11 +226,8 @@ impl fmt::Display for PartialBaseType {
 impl fmt::Display for PartialStructInstantiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let inst_tokens: Vec<_> = self.insts.iter().map(|t| t.to_string()).collect();
-        let field_tokens: Vec<_> = self
-            .fields
-            .iter()
-            .map(|f| format!("{}: {}", f.name, f.ty))
-            .collect();
+        let field_tokens: Vec<_> =
+            self.fields.iter().map(|f| format!("{}: {}", f.name, f.ty)).collect();
         write!(
             f,
             "struct {}<{}> {{{}}}",
@@ -260,12 +254,7 @@ impl StructInstantiation {
     }
 
     pub fn to_move_struct_layout(&self) -> MoveStructLayout {
-        MoveStructLayout::new(
-            self.fields
-                .iter()
-                .map(|e| e.ty.to_move_type_layout())
-                .collect(),
-        )
+        MoveStructLayout::new(self.fields.iter().map(|e| e.ty.to_move_type_layout()).collect())
     }
 }
 
@@ -319,11 +308,9 @@ impl BaseType {
     }
 
     pub fn mk_struct(inst: StructInstantiation) -> Self {
-        BaseType::Struct(Self::intern_struct_instantiation(
-            inst.ident,
-            inst.insts,
-            move |_| inst.fields,
-        ))
+        BaseType::Struct(Self::intern_struct_instantiation(inst.ident, inst.insts, move |_| {
+            inst.fields
+        }))
     }
 
     /// Intern a struct instantiation so that structurally identical instantiations share the
@@ -375,16 +362,9 @@ impl BaseType {
             if let Some(hit) = intern.get(&key) {
                 return hit.clone();
             }
-            let inst = Arc::new(StructInstantiation {
-                ident: key.0,
-                insts,
-                fields,
-            });
+            let inst = Arc::new(StructInstantiation { ident: key.0, insts, fields });
             intern.insert(
-                (
-                    inst.ident.clone(),
-                    inst.insts.iter().map(key_of_base).collect::<Vec<_>>(),
-                ),
+                (inst.ident.clone(), inst.insts.iter().map(key_of_base).collect::<Vec<_>>()),
                 inst.clone(),
             );
             inst
@@ -957,10 +937,8 @@ pub fn convert_model_struct_type(
     }
 
     // convert type arguments
-    let insts: Vec<_> = ty_args
-        .iter()
-        .map(|ty_arg| convert_model_base_type(env, ty_arg, subst))
-        .collect();
+    let insts: Vec<_> =
+        ty_args.iter().map(|ty_arg| convert_model_base_type(env, ty_arg, subst)).collect();
 
     // Intern by (struct identity, type-argument identity) BEFORE building the substituted
     // field types: on an intern hit, the (potentially exponentially deep) field conversion
@@ -972,10 +950,7 @@ pub fn convert_model_struct_type(
             .map(|field_env| {
                 let field_name = env.symbol_pool().string(field_env.get_name()).to_string();
                 let field_ty = convert_model_base_type(env, &field_env.get_type(), insts);
-                StructField {
-                    name: field_name,
-                    ty: field_ty,
-                }
+                StructField { name: field_name, ty: field_ty }
             })
             .collect()
     });
@@ -1019,10 +994,8 @@ pub fn convert_model_partial_struct_type(
     }
 
     // convert instantiations
-    let insts: Vec<_> = ty_args
-        .iter()
-        .map(|ty_arg| convert_model_partial_base_type(env, ty_arg))
-        .collect();
+    let insts: Vec<_> =
+        ty_args.iter().map(|ty_arg| convert_model_partial_base_type(env, ty_arg)).collect();
 
     // collect fields
     let fields = struct_env
@@ -1030,17 +1003,10 @@ pub fn convert_model_partial_struct_type(
         .map(|field_env| {
             let field_name = env.symbol_pool().string(field_env.get_name()).to_string();
             let field_ty = convert_model_partial_base_type(env, &field_env.get_type());
-            PartialStructField {
-                name: field_name,
-                ty: field_ty,
-            }
+            PartialStructField { name: field_name, ty: field_ty }
         })
         .collect();
 
     // return the information for constructing the struct type
-    PartialStructInstantiation {
-        ident,
-        insts,
-        fields,
-    }
+    PartialStructInstantiation { ident, insts, fields }
 }

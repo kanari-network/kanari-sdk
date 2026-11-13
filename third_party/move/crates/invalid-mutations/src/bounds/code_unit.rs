@@ -27,13 +27,8 @@ pub struct CodeUnitBoundsMutation {
 
 impl CodeUnitBoundsMutation {
     pub fn strategy() -> impl Strategy<Value = Self> {
-        (any::<PropIndex>(), any::<PropIndex>(), 0..16_usize).prop_map(
-            |(function_def, bytecode, offset)| Self {
-                function_def,
-                bytecode,
-                offset,
-            },
-        )
+        (any::<PropIndex>(), any::<PropIndex>(), 0..16_usize)
+            .prop_map(|(function_def, bytecode, offset)| Self { function_def, bytecode, offset })
     }
 }
 
@@ -140,26 +135,16 @@ macro_rules! locals_bytecode {
 
 impl<'a> ApplyCodeUnitBoundsContext<'a> {
     pub fn new(module: &'a mut CompiledModule, mutations: Vec<CodeUnitBoundsMutation>) -> Self {
-        Self {
-            module,
-            mutations: Some(mutations),
-        }
+        Self { module, mutations: Some(mutations) }
     }
 
     pub fn apply(mut self) -> Vec<PartialVMError> {
         let function_def_len = self.module.function_defs.len();
 
         let mut mutation_map = BTreeMap::new();
-        for mutation in self
-            .mutations
-            .take()
-            .expect("mutations should always be present")
-        {
+        for mutation in self.mutations.take().expect("mutations should always be present") {
             let picked_idx = mutation.function_def.index(function_def_len);
-            mutation_map
-                .entry(picked_idx)
-                .or_insert_with(Vec::new)
-                .push(mutation);
+            mutation_map.entry(picked_idx).or_insert_with(Vec::new).push(mutation);
         }
 
         let mut results = vec![];
@@ -185,9 +170,8 @@ impl<'a> ApplyCodeUnitBoundsContext<'a> {
         let code = &mut code.code;
         let code_len = code.len();
 
-        let interesting_offsets: Vec<usize> = (0..code.len())
-            .filter(|bytecode_idx| is_interesting(&code[*bytecode_idx]))
-            .collect();
+        let interesting_offsets: Vec<usize> =
+            (0..code.len()).filter(|bytecode_idx| is_interesting(&code[*bytecode_idx])).collect();
         let to_mutate = crate::helpers::pick_slice_idxs(interesting_offsets.len(), &mutations);
 
         // These have to be computed upfront because self.module is being mutated below.

@@ -61,10 +61,8 @@ pub struct CompiledState {
 
 impl CompiledState {
     pub fn resolve_named_address(&self, s: &str) -> AccountAddress {
-        if let Some(addr) = self
-            .named_address_mapping
-            .get(s)
-            .or(self.default_named_address_mapping.as_ref())
+        if let Some(addr) =
+            self.named_address_mapping.get(s).or(self.default_named_address_mapping.as_ref())
         {
             return AccountAddress::new(addr.into_bytes());
         }
@@ -163,15 +161,8 @@ pub trait MoveTestAdapter<'a>: Sized + Send {
     where
         'a: 'async_trait,
     {
-        let TaskInput {
-            command,
-            name,
-            number,
-            start_line,
-            command_lines_stop,
-            stop_line,
-            data,
-        } = task;
+        let TaskInput { command, name, number, start_line, command_lines_stop, stop_line, data } =
+            task;
         match command {
             TaskCommand::Init { .. } => {
                 panic!("The 'init' command is optional. But if used, it must be the first command")
@@ -193,9 +184,7 @@ pub trait MoveTestAdapter<'a>: Sized + Send {
                 .await?;
                 let output = merge_output(output, warnings_opt);
                 let output = modules.into_iter().fold(output, |output, m| {
-                    let MaybeNamedCompiledModule {
-                        module, source_map, ..
-                    } = m;
+                    let MaybeNamedCompiledModule { module, source_map, .. } = m;
                     let source_mapping = match source_map {
                         Some(m) => SourceMapping::new(m, &module),
                         None => SourceMapping::new_without_source_map(
@@ -229,14 +218,7 @@ pub trait MoveTestAdapter<'a>: Sized + Send {
                 Ok(merge_output(warnings_opt, output))
             }
             TaskCommand::Run(
-                RunCommand {
-                    signers,
-                    args,
-                    type_args,
-                    gas_budget,
-                    syntax,
-                    name: None,
-                },
+                RunCommand { signers, args, type_args, gas_budget, syntax, name: None },
                 extra_args,
             ) => {
                 let syntax = syntax.unwrap_or_else(|| self.default_syntax());
@@ -289,10 +271,7 @@ pub trait MoveTestAdapter<'a>: Sized + Send {
                 },
                 extra_args,
             ) => {
-                assert!(
-                    syntax.is_none(),
-                    "syntax flag meaningless with function execution"
-                );
+                assert!(syntax.is_none(), "syntax flag meaningless with function execution");
                 let addr = self.compiled_state().resolve_address(&raw_addr);
                 let module_id = ModuleId::new(addr, module_name);
                 let type_args = self.compiled_state().resolve_type_args(type_args)?;
@@ -332,11 +311,7 @@ fn single_entry_function(
 ) -> anyhow::Result<(ModuleId, Identifier)> {
     anyhow::ensure!(modules.len() == 1, "Expected exactly one module");
     let module = &modules[0].module;
-    let entry_funs: Vec<_> = module
-        .function_defs()
-        .iter()
-        .filter(|def| def.is_entry)
-        .collect();
+    let entry_funs: Vec<_> = module.function_defs().iter().filter(|def| def.is_entry).collect();
     let function = if entry_funs.len() == 1 {
         entry_funs[0]
     } else if module.function_defs.len() == 1 {
@@ -350,10 +325,7 @@ fn single_entry_function(
 }
 
 fn display_return_values(return_values: SerializedReturnValues) -> Option<String> {
-    let SerializedReturnValues {
-        mutable_reference_outputs,
-        return_values,
-    } = return_values;
+    let SerializedReturnValues { mutable_reference_outputs, return_values } = return_values;
     let mut output = vec![];
     if !mutable_reference_outputs.is_empty() {
         let values = mutable_reference_outputs
@@ -393,11 +365,7 @@ fn display_return_values(return_values: SerializedReturnValues) -> Option<String
             .join(", ");
         output.push(format!("return values: {}", printed))
     };
-    if output.is_empty() {
-        None
-    } else {
-        Some(output.join("\n"))
-    }
+    if output.is_empty() { None } else { Some(output.join("\n")) }
 }
 
 impl CompiledState {
@@ -461,16 +429,11 @@ impl CompiledState {
         let prev = self.temp_files.insert(path, tempfile);
         assert!(prev.is_none());
         for m in modules {
-            let MaybeNamedCompiledModule {
-                named_address: named_addr_opt,
-                module,
-                ..
-            } = m;
+            let MaybeNamedCompiledModule { named_address: named_addr_opt, module, .. } = m;
             let id = module.self_id();
             self.check_not_precompiled(&id);
             if let Some(named_addr) = named_addr_opt {
-                self.compiled_module_named_address_mapping
-                    .insert(id.clone(), named_addr);
+                self.compiled_module_named_address_mapping.insert(id.clone(), named_addr);
             }
             self.modules.insert(id, module);
         }
@@ -486,11 +449,7 @@ impl CompiledState {
             &module,
         )
         .unwrap();
-        interface_file
-            .reopen()
-            .unwrap()
-            .write_all(interface_text.as_bytes())
-            .unwrap();
+        interface_file.reopen().unwrap().write_all(interface_text.as_bytes()).unwrap();
         let prev = self.temp_files.insert(path, interface_file);
         assert!(prev.is_none());
         self.modules.insert(id, module);
@@ -499,8 +458,7 @@ impl CompiledState {
     fn add_precompiled(&mut self, named_addr_opt: Option<Symbol>, module: CompiledModule) {
         let id = module.self_id();
         if let Some(named_addr) = named_addr_opt {
-            self.compiled_module_named_address_mapping
-                .insert(id.clone(), named_addr);
+            self.compiled_module_named_address_mapping.insert(id.clone(), named_addr);
         }
         self.modules.insert(id, module);
     }
@@ -538,12 +496,7 @@ pub async fn compile_any<'state, 'adapter: 'result, 'result, F, A, R>(
     _stop_line: usize,
     data: Option<NamedTempFile>,
     handler: F,
-) -> Result<(
-    Option<String>,
-    Option<String>,
-    NamedTempFile,
-    Vec<MaybeNamedCompiledModule>,
-)>
+) -> Result<(Option<String>, Option<String>, NamedTempFile, Vec<MaybeNamedCompiledModule>)>
 where
     A: MoveTestAdapter<'state> + 'adapter,
     F: FnOnce(&'adapter mut A, Vec<MaybeNamedCompiledModule>) -> R,
@@ -567,25 +520,14 @@ where
                     let named_addr_opt = named_addr_opt.map(|n| n.value);
                     let module = unit.named_module.module;
                     let source_map = Some(unit.named_module.source_map);
-                    MaybeNamedCompiledModule {
-                        named_address: named_addr_opt,
-                        module,
-                        source_map,
-                    }
+                    MaybeNamedCompiledModule { named_address: named_addr_opt, module, source_map }
                 })
                 .collect();
             (modules, warnings_opt)
         }
         SyntaxChoice::IR => {
             let module = compile_ir_module(state, data.path())?;
-            (
-                vec![MaybeNamedCompiledModule {
-                    named_address: None,
-                    module,
-                    source_map: None,
-                }],
-                None,
-            )
+            (vec![MaybeNamedCompiledModule { named_address: None, module, source_map: None }], None)
         }
     };
     let (output, modules) = handler(test_adapter, modules).await?;
@@ -601,15 +543,11 @@ pub fn store_modules<'a, A: MoveTestAdapter<'a>>(
     match syntax {
         SyntaxChoice::Source => {
             let path = data.path().to_str().unwrap().to_owned();
-            test_adapter
-                .compiled_state()
-                .add_with_source_file(modules, (path, data))
+            test_adapter.compiled_state().add_with_source_file(modules, (path, data))
         }
         SyntaxChoice::IR => {
             let module = modules.pop().unwrap().module;
-            test_adapter
-                .compiled_state()
-                .add_and_generate_interface_file(module);
+            test_adapter.compiled_state().add_and_generate_interface_file(module);
         }
     }
 }
@@ -712,13 +650,8 @@ where
     .collect::<VecDeque<_>>();
     assert!(!tasks.is_empty());
     let num_tasks = tasks.len();
-    writeln!(
-        &mut output,
-        "processed {} task{}",
-        num_tasks,
-        if num_tasks > 1 { "s" } else { "" }
-    )
-    .unwrap();
+    writeln!(&mut output, "processed {} task{}", num_tasks, if num_tasks > 1 { "s" } else { "" })
+        .unwrap();
 
     let first_task = tasks.pop_front().unwrap();
     let init_opt = match &first_task.command {
@@ -811,10 +744,8 @@ fn handle_expected_output(test_path: &Path, output: impl AsRef<str>) -> Result<(
     if !exp_path.exists() {
         std::fs::write(&exp_path, "").unwrap();
     }
-    let expected_output = std::fs::read_to_string(&exp_path)
-        .unwrap()
-        .replace("\r\n", "\n")
-        .replace('\r', "\n");
+    let expected_output =
+        std::fs::read_to_string(&exp_path).unwrap().replace("\r\n", "\n").replace('\r', "\n");
     if output != expected_output {
         let msg = format!(
             "Expected errors differ from actual errors:\n{}",

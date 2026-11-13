@@ -53,18 +53,9 @@ pub struct ShareObjectGasParameters {
 impl GasParameters {
     pub fn zeros() -> Self {
         Self {
-            transfer_with_uid: TransferWithUidGasParameters {
-                base: 0.into(),
-                per_byte: 0.into(),
-            },
-            freeze_object: FreezeObjectGasParameters {
-                base: 0.into(),
-                per_byte: 0.into(),
-            },
-            share_object: ShareObjectGasParameters {
-                base: 0.into(),
-                per_byte: 0.into(),
-            },
+            transfer_with_uid: TransferWithUidGasParameters { base: 0.into(), per_byte: 0.into() },
+            freeze_object: FreezeObjectGasParameters { base: 0.into(), per_byte: 0.into() },
+            share_object: ShareObjectGasParameters { base: 0.into(), per_byte: 0.into() },
         }
     }
 
@@ -76,14 +67,8 @@ impl GasParameters {
                 base: 8_000.into(),
                 per_byte: 50.into(),
             },
-            freeze_object: FreezeObjectGasParameters {
-                base: 8_000.into(),
-                per_byte: 50.into(),
-            },
-            share_object: ShareObjectGasParameters {
-                base: 8_000.into(),
-                per_byte: 50.into(),
-            },
+            freeze_object: FreezeObjectGasParameters { base: 8_000.into(), per_byte: 50.into() },
+            share_object: ShareObjectGasParameters { base: 8_000.into(), per_byte: 50.into() },
         }
     }
 }
@@ -116,10 +101,7 @@ fn object_id_hex_from_data(obj_data: &[u8]) -> PartialVMResult<String> {
         ));
     }
 
-    Ok(format!(
-        "0x{}",
-        hex::encode(&obj_data[..AccountAddress::LENGTH])
-    ))
+    Ok(format!("0x{}", hex::encode(&obj_data[..AccountAddress::LENGTH])))
 }
 
 fn record_transferred_object(context: &mut NativeContext, obj: TransferredObject) {

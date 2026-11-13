@@ -130,10 +130,7 @@ impl CFG {
         debug!("Edges: {:?}", edges);
 
         // Build the CFG
-        let mut cfg = CFG {
-            basic_blocks,
-            edges,
-        };
+        let mut cfg = CFG { basic_blocks, edges };
         // Assign locals to basic blocks
         debug_assert!(target_blocks == 0 || !cfg.basic_blocks.is_empty());
         CFG::add_locals(&mut cfg, rng, locals, parameters.0.len());
@@ -190,10 +187,7 @@ impl CFG {
 
     /// Merge the outgoing locals of a set of blocks
     fn merge_locals(&self, block_ids: Vec<BlockIDSize>) -> BlockLocals {
-        assert!(
-            !block_ids.is_empty(),
-            "Cannot merge locals of empty block list"
-        );
+        assert!(!block_ids.is_empty(), "Cannot merge locals of empty block list");
         let first_basic_block = self.basic_blocks.get(&block_ids[0]);
         // Implication of preconditon
         debug_assert!(first_basic_block.is_some());
@@ -240,17 +234,11 @@ impl CFG {
     /// Add the incoming and outgoing locals for each basic block in the control flow graph.
     /// Currently the incoming and outgoing locals are the same for each block.
     fn add_locals(cfg: &mut CFG, rng: &mut StdRng, locals: &[SignatureToken], args_len: usize) {
-        debug_assert!(
-            !cfg.basic_blocks.is_empty(),
-            "Cannot add locals to empty cfg"
-        );
+        debug_assert!(!cfg.basic_blocks.is_empty(), "Cannot add locals to empty cfg");
         debug!("add locals: {:#?}", locals);
         for block_id in 0..cfg.basic_blocks.len() {
             let cfg_copy = cfg.clone();
-            let basic_block = cfg
-                .basic_blocks
-                .get_mut(&(block_id as BlockIDSize))
-                .unwrap();
+            let basic_block = cfg.basic_blocks.get_mut(&(block_id as BlockIDSize)).unwrap();
             if cfg_copy.num_parents(block_id as BlockIDSize) == 0 {
                 basic_block.locals_in = locals
                     .iter()
@@ -299,10 +287,7 @@ impl CFG {
             } else if !child_ids.is_empty() {
                 // We construct the CFG such that blocks have either 0, 1, or 2
                 // children.
-                unreachable!(
-                    "Invalid number of children for basic block {:?}",
-                    child_ids.len()
-                );
+                unreachable!("Invalid number of children for basic block {:?}", child_ids.len());
             }
             // This operation is expensive but is performed just when
             // serializing the module.
@@ -336,10 +321,7 @@ impl CFG {
     /// Serialize the control flow graph into a sequence of instructions. Set the offsets of branch
     /// instructions appropriately.
     pub fn serialize(&mut self) -> Vec<Bytecode> {
-        assert!(
-            !self.basic_blocks.is_empty(),
-            "Error: CFG has no basic blocks"
-        );
+        assert!(!self.basic_blocks.is_empty(), "Error: CFG has no basic blocks");
         let cfg_copy = self.clone();
         let mut bytecode: Vec<Bytecode> = Vec::new();
         let block_order = self.serialize_block_order();
@@ -349,10 +331,7 @@ impl CFG {
             debug_assert!(block.is_some());
             let block = block.unwrap();
             // All basic blocks should have instructions filled in at this point
-            assert!(
-                !block.instructions.is_empty(),
-                "Error: block created with no instructions",
-            );
+            assert!(!block.instructions.is_empty(), "Error: block created with no instructions",);
             let last_instruction_index = block.instructions.len() - 1;
             let child_ids = cfg_copy.get_children_ids(*block_id);
             if child_ids.len() == 2 {

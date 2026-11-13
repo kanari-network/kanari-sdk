@@ -45,9 +45,7 @@ impl VMRuntime {
         natives: impl IntoIterator<Item = (AccountAddress, Identifier, Identifier, NativeFunction)>,
         vm_config: VMConfig,
     ) -> PartialVMResult<Self> {
-        Ok(VMRuntime {
-            loader: Loader::new(NativeFunctions::new(natives)?, vm_config),
-        })
+        Ok(VMRuntime { loader: Loader::new(NativeFunctions::new(natives)?, vm_config) })
     }
 
     pub fn new_session<'r, S: MoveResolver>(&self, remote: S) -> Session<'r, '_, S> {
@@ -116,8 +114,7 @@ impl VMRuntime {
         }
 
         // Perform bytecode and loading verification. Modules must be sorted in topological order.
-        self.loader
-            .verify_module_bundle_for_publication(&compiled_modules, data_store)?;
+        self.loader.verify_module_bundle_for_publication(&compiled_modules, data_store)?;
 
         // NOTE: we want to (informally) argue that all modules pass the linking check before being
         // published to the data store.
@@ -198,9 +195,7 @@ impl VMRuntime {
             Some(val) => Ok(val),
             None => {
                 warn!("[VM] failed to deserialize argument");
-                Err(PartialVMError::new(
-                    StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
-                ))
+                Err(PartialVMError::new(StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT))
             }
         }
     }
@@ -211,15 +206,12 @@ impl VMRuntime {
         serialized_args: Vec<impl Borrow<[u8]>>,
     ) -> PartialVMResult<(Locals, Vec<Value>)> {
         if arg_tys.len() != serialized_args.len() {
-            return Err(
-                PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH).with_message(
-                    format!(
-                        "argument length mismatch: expected {} got {}",
-                        arg_tys.len(),
-                        serialized_args.len()
-                    ),
-                ),
-            );
+            return Err(PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+                .with_message(format!(
+                    "argument length mismatch: expected {} got {}",
+                    arg_tys.len(),
+                    serialized_args.len()
+                )));
         }
 
         // Create a list of dummy locals. Each value stored will be used be borrowed and passed
@@ -235,9 +227,7 @@ impl VMRuntime {
                     dummy_locals.store_loc(
                         idx,
                         self.deserialize_value(inner_t, arg_bytes)?,
-                        self.loader
-                            .vm_config()
-                            .enable_invariant_violation_check_in_swap_loc,
+                        self.loader.vm_config().enable_invariant_violation_check_in_swap_loc,
                     )?;
                     dummy_locals.borrow_loc(idx)
                 }
@@ -283,15 +273,12 @@ impl VMRuntime {
         return_values: Vec<Value>,
     ) -> PartialVMResult<Vec<(Vec<u8>, MoveTypeLayout)>> {
         if return_types.len() != return_values.len() {
-            return Err(
-                PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR).with_message(
-                    format!(
-                        "declared {} return types, but got {} return values",
-                        return_types.len(),
-                        return_values.len()
-                    ),
-                ),
-            );
+            return Err(PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                .with_message(format!(
+                    "declared {} return types, but got {} return values",
+                    return_types.len(),
+                    return_values.len()
+                )));
         }
 
         return_types
@@ -353,9 +340,7 @@ impl VMRuntime {
                 // serialize return values first in the case that a value points into this local
                 let local_val = dummy_locals.move_loc(
                     idx,
-                    self.loader
-                        .vm_config()
-                        .enable_invariant_violation_check_in_swap_loc,
+                    self.loader.vm_config().enable_invariant_violation_check_in_swap_loc,
                 )?;
                 let (bytes, layout) = self.serialize_return_value(&ty, local_val)?;
                 Ok((idx as LocalIndex, bytes, layout))
@@ -405,17 +390,8 @@ impl VMRuntime {
             check_is_entry
         };
         // load the function
-        let (
-            compiled,
-            _,
-            func,
-            LoadedFunctionInstantiation {
-                parameters,
-                return_,
-            },
-        ) = self
-            .loader
-            .load_function(module, function_name, &type_arguments, data_store)?;
+        let (compiled, _, func, LoadedFunctionInstantiation { parameters, return_ }) =
+            self.loader.load_function(module, function_name, &type_arguments, data_store)?;
 
         script_signature::verify_module_function_signature_by_name(
             compiled.as_ref(),
@@ -441,15 +417,11 @@ impl VMRuntime {
     }
 
     pub fn get_type_abilities(&self, ty: &Type) -> VMResult<AbilitySet> {
-        self.loader
-            .abilities(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.loader.abilities(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     pub fn get_type_tag(&self, ty: &Type) -> VMResult<TypeTag> {
-        self.loader
-            .type_to_type_tag(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.loader.type_to_type_tag(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     pub fn get_struct_type(&self, index: CachedStructIndex) -> Option<Arc<StructType>> {
@@ -457,9 +429,7 @@ impl VMRuntime {
     }
 
     pub fn type_to_type_layout(&self, ty: &Type) -> VMResult<MoveTypeLayout> {
-        self.loader
-            .type_to_type_layout(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.loader.type_to_type_layout(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     pub fn load_struct(
@@ -468,8 +438,7 @@ impl VMRuntime {
         struct_name: &IdentStr,
         data_store: &impl DataStore,
     ) -> VMResult<(CachedStructIndex, Arc<StructType>)> {
-        self.loader
-            .load_struct_by_name(struct_name, module_id, data_store)
+        self.loader.load_struct_by_name(struct_name, module_id, data_store)
     }
 
     pub fn execute_function_bypass_visibility(
@@ -506,9 +475,7 @@ impl VMRuntime {
     }
 
     pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<A::MoveTypeLayout> {
-        self.loader
-            .type_to_fully_annotated_layout(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.loader.type_to_fully_annotated_layout(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     pub fn load_function(
@@ -519,8 +486,7 @@ impl VMRuntime {
         data_store: &mut impl DataStore,
     ) -> VMResult<LoadedFunctionInstantiation> {
         let (_, _, _, instantiation) =
-            self.loader
-                .load_function(module_id, function_name, type_arguments, data_store)?;
+            self.loader.load_function(module_id, function_name, type_arguments, data_store)?;
         Ok(instantiation)
     }
 
@@ -529,8 +495,6 @@ impl VMRuntime {
         module_id: &ModuleId,
         data_store: &impl DataStore,
     ) -> VMResult<Arc<CompiledModule>> {
-        self.loader
-            .load_module(module_id, data_store)
-            .map(|(compiled, _)| compiled)
+        self.loader.load_module(module_id, data_store).map(|(compiled, _)| compiled)
     }
 }

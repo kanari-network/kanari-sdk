@@ -31,10 +31,8 @@ pub fn compute_digest(paths: &[PathBuf]) -> Result<PackageDigest> {
         if path.is_file() {
             maybe_hash_file(path)?;
         } else {
-            for entry in walkdir::WalkDir::new(path)
-                .follow_links(true)
-                .into_iter()
-                .filter_map(|e| e.ok())
+            for entry in
+                walkdir::WalkDir::new(path).follow_links(true).into_iter().filter_map(|e| e.ok())
             {
                 if entry.file_type().is_file() {
                     maybe_hash_file(entry.path())?

@@ -43,11 +43,7 @@ pub fn keccak256_of(bytes: &[u8]) -> Vec<u8> {
 }
 
 pub fn blake2b256_of(bytes: &[u8]) -> Vec<u8> {
-    Blake2bParams::new()
-        .hash_length(32)
-        .hash(bytes)
-        .as_bytes()
-        .to_vec()
+    Blake2bParams::new().hash_length(32).hash(bytes).as_bytes().to_vec()
 }
 
 pub fn blake3_256_of(bytes: &[u8]) -> Vec<u8> {

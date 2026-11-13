@@ -60,11 +60,7 @@ fn git(cwd: &Path, args: &[&str]) -> GitResult {
             stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
         },
-        Err(e) => GitResult {
-            ok: false,
-            stdout: String::new(),
-            stderr: e.to_string(),
-        },
+        Err(e) => GitResult { ok: false, stdout: String::new(), stderr: e.to_string() },
     }
 }
 

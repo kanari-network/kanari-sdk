@@ -58,12 +58,7 @@ struct WrappingFieldInfo {
 
 impl WrappingFieldInfo {
     fn new(fname: Symbol, ftype_loc: Loc, wrapped_type_loc: Loc, direct: bool) -> Self {
-        Self {
-            fname,
-            ftype_loc,
-            wrapped_type_loc,
-            direct,
-        }
+        Self { fname, ftype_loc, wrapped_type_loc, direct }
     }
 }
 
@@ -88,11 +83,7 @@ impl TypingVisitorConstructor for FreezeWrappedVisitor {
         program_info: &'a TypingProgramInfo,
         _program: &T::Program_,
     ) -> Self::Context<'a> {
-        Context {
-            env,
-            program_info,
-            wrapping_fields: WrappingFields::new(),
-        }
+        Context { env, program_info, wrapping_fields: WrappingFields::new() }
     }
 }
 
@@ -136,12 +127,7 @@ impl<'a> TypingVisitorContext for Context<'a> {
                 return false;
             };
             if let Some(wrapping_field_info) = self.find_wrapping_field_loc(mident, sname) {
-                add_diag(
-                    self.env,
-                    fun.arguments.exp.loc,
-                    sname.value(),
-                    wrapping_field_info,
-                );
+                add_diag(self.env, fun.arguments.exp.loc, sname.value(), wrapping_field_info);
             }
         }
         // always return false to process arguments of the call
@@ -203,22 +189,12 @@ impl<'a> Context<'a> {
         mident: E::ModuleIdent,
         sname: P::DatatypeName,
     ) -> Option<WrappingFieldInfo> {
-        let memoized_info = self
-            .wrapping_fields
-            .get(&mident)
-            .and_then(|m| m.get(&sname));
+        let memoized_info = self.wrapping_fields.get(&mident).and_then(|m| m.get(&sname));
         if memoized_info.is_none() {
             let info = self.find_wrapping_field_loc_impl(mident, sname);
-            self.wrapping_fields
-                .entry(mident)
-                .or_default()
-                .insert(sname, info);
+            self.wrapping_fields.entry(mident).or_default().insert(sname, info);
         }
-        *self
-            .wrapping_fields
-            .get(&mident)
-            .and_then(|m| m.get(&sname))
-            .unwrap()
+        *self.wrapping_fields.get(&mident).and_then(|m| m.get(&sname)).unwrap()
     }
 
     fn find_wrapping_field_loc_impl(
@@ -259,11 +235,7 @@ fn add_diag(
         "The field of this type {} a wrapped object",
         if !direct { "indirectly contains" } else { "is" }
     );
-    let mut d = diag!(
-        FREEZE_WRAPPING_DIAG,
-        (freeze_arg_loc, msg),
-        (frozen_field_tloc, uid_msg)
-    );
+    let mut d = diag!(FREEZE_WRAPPING_DIAG, (freeze_arg_loc, msg), (frozen_field_tloc, uid_msg));
 
     if !direct {
         d.add_secondary_label((wrapped_tloc, "Indirectly wrapped object is of this type"));

@@ -23,11 +23,7 @@ struct Context {
 
 impl Context {
     fn new(current_module: ModuleIdent) -> Self {
-        Context {
-            current_module,
-            datatype_neighbors: BTreeMap::new(),
-            current_datatype: None,
-        }
+        Context { current_module, datatype_neighbors: BTreeMap::new(), current_datatype: None }
     }
 
     fn add_usage(&mut self, loc: Loc, module: &ModuleIdent, sname: &DatatypeName) {
@@ -57,21 +53,13 @@ pub fn modules(
     compilation_env: &mut CompilationEnv,
     modules: &UniqueMap<ModuleIdent, T::ModuleDefinition>,
 ) {
-    modules
-        .key_cloned_iter()
-        .for_each(|(mname, m)| module(compilation_env, mname, m))
+    modules.key_cloned_iter().for_each(|(mname, m)| module(compilation_env, mname, m))
 }
 
 fn module(compilation_env: &mut CompilationEnv, mname: ModuleIdent, module: &T::ModuleDefinition) {
     let context = &mut Context::new(mname);
-    module
-        .structs
-        .key_cloned_iter()
-        .for_each(|(sname, sdef)| struct_def(context, sname, sdef));
-    module
-        .enums
-        .key_cloned_iter()
-        .for_each(|(ename, edef)| enum_def(context, ename, edef));
+    module.structs.key_cloned_iter().for_each(|(sname, sdef)| struct_def(context, sname, sdef));
+    module.enums.key_cloned_iter().for_each(|(ename, edef)| enum_def(context, ename, edef));
     let graph = context.datatype_graph();
     // - get the strongly connected components
     // - filter out single nodes that do not connect to themselves
@@ -83,10 +71,7 @@ fn module(compilation_env: &mut CompilationEnv, mname: ModuleIdent, module: &T::
 }
 
 fn struct_def(context: &mut Context, sname: DatatypeName, sdef: &N::StructDefinition) {
-    assert!(
-        context.current_datatype.is_none(),
-        "ICE datatype name not unset"
-    );
+    assert!(context.current_datatype.is_none(), "ICE datatype name not unset");
     context.current_datatype = Some(sname);
     match &sdef.fields {
         N::StructFields::Native(_) => (),
@@ -98,10 +83,7 @@ fn struct_def(context: &mut Context, sname: DatatypeName, sdef: &N::StructDefini
 }
 
 fn enum_def(context: &mut Context, ename: DatatypeName, edef: &N::EnumDefinition) {
-    assert!(
-        context.current_datatype.is_none(),
-        "ICE datatype name not unset"
-    );
+    assert!(context.current_datatype.is_none(), "ICE datatype name not unset");
     context.current_datatype = Some(ename);
     for (_, _, vdef) in &edef.variants {
         match &vdef.fields {
@@ -141,21 +123,14 @@ fn cycle_error(
     let cycle = shortest_cycle(graph, cycle_node);
 
     // For printing uses, sort the cycle by location (earliest first)
-    let cycle_strings = cycle
-        .iter()
-        .map(|m| format!("'{}'", m))
-        .collect::<Vec<_>>()
-        .join(" contains ");
+    let cycle_strings =
+        cycle.iter().map(|m| format!("'{}'", m)).collect::<Vec<_>>().join(" contains ");
 
     let (used_loc, user, used) = best_cycle_loc(context, cycle);
 
     let use_msg = format!("Invalid field containing '{}' in struct '{}'.", used, user);
     let cycle_msg = format!("Using this struct creates a cycle: {}", cycle_strings);
-    diag!(
-        TypeSafety::CyclicData,
-        (used_loc, use_msg),
-        (used_loc, cycle_msg)
-    )
+    diag!(TypeSafety::CyclicData, (used_loc, use_msg), (used_loc, cycle_msg))
 }
 
 fn best_cycle_loc<'a>(

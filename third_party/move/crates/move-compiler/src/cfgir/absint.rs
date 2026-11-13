@@ -91,12 +91,10 @@ pub trait AbstractInterpreter: TransferFunctions {
         let mut next_block = Some(start);
 
         while let Some(block_label) = next_block {
-            let block_invariant = inv_map
-                .entry(block_label)
-                .or_insert_with(|| BlockInvariant {
-                    pre: initial_state.clone(),
-                    post: BlockPostcondition::Unprocessed,
-                });
+            let block_invariant = inv_map.entry(block_label).or_insert_with(|| BlockInvariant {
+                pre: initial_state.clone(),
+                post: BlockPostcondition::Unprocessed,
+            });
 
             let (post_state, errors) = self.execute_block(cfg, &block_invariant.pre, block_label);
             block_invariant.post = if errors.is_empty() {

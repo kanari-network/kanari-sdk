@@ -10,14 +10,9 @@ impl StateManager {
     pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
         let token_type = CoinModule::normalize_token_type(token_type);
         let total_supply = self.issued_supply_for_token(&token_type)?;
-        let cached_visible = self
-            .global_token_supplies
-            .get(&token_type)
-            .copied()
-            .unwrap_or(0);
-        let index_version = self
-            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
-            .unwrap_or(0);
+        let cached_visible = self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
+        let index_version =
+            self.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?.unwrap_or(0);
         let wallet_visible_supply = if token_type == GAS_COIN {
             // Native KANARI has legacy and fastpath writers. A stale-low cache
             // must not show fees or transferred coins as "untracked" when the
@@ -59,13 +54,10 @@ impl StateManager {
         &self,
         token_types: &[String],
     ) -> Result<Vec<TokenSupplySummary>> {
-        let normalized: Vec<String> = token_types
-            .iter()
-            .map(|t| CoinModule::normalize_token_type(t))
-            .collect();
-        let index_version = self
-            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
-            .unwrap_or(0);
+        let normalized: Vec<String> =
+            token_types.iter().map(|t| CoinModule::normalize_token_type(t)).collect();
+        let index_version =
+            self.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?.unwrap_or(0);
         let needs_indexed: Vec<bool> = normalized
             .iter()
             .map(|t| t == GAS_COIN || index_version != WALLET_SUPPLY_INDEX_VERSION)
@@ -96,9 +88,8 @@ impl StateManager {
                     .or_default()
                     .entry(object.owner)
                     .or_insert(0);
-                *entry = entry
-                    .checked_add(amount)
-                    .require("Indexed owner token balance overflow")?;
+                *entry =
+                    entry.checked_add(amount).require("Indexed owner token balance overflow")?;
             }
             if normalized.iter().any(|t| t == GAS_COIN) {
                 indexed_owners.insert(Self::dao_account_address()?);
@@ -112,27 +103,19 @@ impl StateManager {
         let mut out = Vec::with_capacity(normalized.len());
         for token_type in normalized {
             let total_supply = self.issued_supply_for_token(&token_type)?;
-            let cached_visible = self
-                .global_token_supplies
-                .get(&token_type)
-                .copied()
-                .unwrap_or(0);
+            let cached_visible = self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
             let wallet_visible_supply = if token_type == GAS_COIN {
                 let object_balances = indexed_per_token.get(GAS_COIN);
                 let mut total = 0u64;
                 for owner in &indexed_owners {
-                    let object_balance = object_balances
-                        .and_then(|m| m.get(owner))
-                        .copied()
-                        .unwrap_or(0);
+                    let object_balance =
+                        object_balances.and_then(|m| m.get(owner)).copied().unwrap_or(0);
                     let balance = self
                         .load_owner_state(owner)?
                         .map(|state| state.native_balance())
                         .filter(|ledger_balance| *ledger_balance > 0)
                         .unwrap_or(object_balance);
-                    total = total
-                        .checked_add(balance)
-                        .require("Indexed wallet supply overflow")?;
+                    total = total.checked_add(balance).require("Indexed wallet supply overflow")?;
                 }
                 cached_visible.max(total)
             } else if index_version == WALLET_SUPPLY_INDEX_VERSION {
@@ -142,8 +125,7 @@ impl StateManager {
                     .get(&token_type)
                     .map(|m| {
                         m.values().try_fold(0u64, |acc, amount| {
-                            acc.checked_add(*amount)
-                                .require("Indexed wallet supply overflow")
+                            acc.checked_add(*amount).require("Indexed wallet supply overflow")
                         })
                     })
                     .transpose()?
@@ -155,8 +137,7 @@ impl StateManager {
                 .filter(|record| record.token_type == token_type)
                 .map(|record| record.amount)
                 .try_fold(0u64, |acc, amount| {
-                    acc.checked_add(amount)
-                        .require("Object-locked token supply overflow")
+                    acc.checked_add(amount).require("Object-locked token supply overflow")
                 })?;
             let accounted_supply = wallet_visible_supply
                 .checked_add(object_locked_supply)

@@ -167,10 +167,8 @@ impl<'a> InstructionConsistency<'a> {
         let struct_def = self.module.struct_def_at(struct_def_index);
         let struct_handle = self.module.struct_handle_at(struct_def.struct_handle);
         if struct_handle.type_parameters.is_empty() == generic {
-            return Err(
-                PartialVMError::new(StatusCode::GENERIC_MEMBER_OPCODE_MISMATCH)
-                    .at_code_offset(self.current_function(), offset as CodeOffset),
-            );
+            return Err(PartialVMError::new(StatusCode::GENERIC_MEMBER_OPCODE_MISMATCH)
+                .at_code_offset(self.current_function(), offset as CodeOffset));
         }
         Ok(())
     }
@@ -183,10 +181,8 @@ impl<'a> InstructionConsistency<'a> {
     ) -> PartialVMResult<()> {
         let function_handle = self.module.function_handle_at(func_handle_index);
         if function_handle.type_parameters.is_empty() == generic {
-            return Err(
-                PartialVMError::new(StatusCode::GENERIC_MEMBER_OPCODE_MISMATCH)
-                    .at_code_offset(self.current_function(), offset as CodeOffset),
-            );
+            return Err(PartialVMError::new(StatusCode::GENERIC_MEMBER_OPCODE_MISMATCH)
+                .at_code_offset(self.current_function(), offset as CodeOffset));
         }
         Ok(())
     }

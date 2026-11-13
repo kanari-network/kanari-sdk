@@ -132,11 +132,7 @@ impl MoveValue {
         V::Error: std::error::Error + Send + Sync + 'static,
     {
         let res = visit_value(&mut blob, ty, visitor)?;
-        if blob.is_empty() {
-            Ok(res)
-        } else {
-            Err(VError::TrailingBytes(blob.len()).into())
-        }
+        if blob.is_empty() { Ok(res) } else { Err(VError::TrailingBytes(blob.len()).into()) }
     }
 
     pub fn simple_serialize(&self) -> Option<Vec<u8>> {
@@ -167,10 +163,7 @@ where
     I: IntoIterator<Item = &'a MoveValue>,
 {
     vals.into_iter()
-        .map(|val| {
-            val.simple_serialize()
-                .expect("serialization should succeed")
-        })
+        .map(|val| val.simple_serialize().expect("serialization should succeed"))
         .collect()
 }
 
@@ -196,11 +189,7 @@ impl MoveStruct {
         V::Error: std::error::Error + Send + Sync + 'static,
     {
         let res = visit_struct(&mut blob, ty, visitor)?;
-        if blob.is_empty() {
-            Ok(res)
-        } else {
-            Err(VError::TrailingBytes(blob.len()).into())
-        }
+        if blob.is_empty() { Ok(res) } else { Err(VError::TrailingBytes(blob.len()).into()) }
     }
 
     pub fn into_fields(self) -> Vec<MoveValue> {
@@ -208,12 +197,7 @@ impl MoveStruct {
     }
 
     pub fn undecorate(self) -> R::MoveStruct {
-        R::MoveStruct(
-            self.into_fields()
-                .into_iter()
-                .map(MoveValue::undecorate)
-                .collect(),
-        )
+        R::MoveStruct(self.into_fields().into_iter().map(MoveValue::undecorate).collect())
     }
 }
 
@@ -248,9 +232,9 @@ impl<'d> serde::de::DeserializeSeed<'d> for &MoveTypeLayout {
                 AccountAddress::deserialize(deserializer).map(MoveValue::Signer)
             }
             MoveTypeLayout::Struct(ty) => Ok(MoveValue::Struct(ty.deserialize(deserializer)?)),
-            MoveTypeLayout::Vector(layout) => Ok(MoveValue::Vector(
-                deserializer.deserialize_seq(VectorElementVisitor(layout))?,
-            )),
+            MoveTypeLayout::Vector(layout) => {
+                Ok(MoveValue::Vector(deserializer.deserialize_seq(VectorElementVisitor(layout))?))
+            }
         }
     }
 }
@@ -320,10 +304,7 @@ impl<'d> serde::de::DeserializeSeed<'d> for &MoveStructLayout {
     ) -> Result<Self::Value, D::Error> {
         let fields = deserializer
             .deserialize_tuple(self.fields.len(), DecoratedStructFieldVisitor(&self.fields))?;
-        Ok(MoveStruct {
-            type_: self.type_.clone(),
-            fields,
-        })
+        Ok(MoveStruct { type_: self.type_.clone(), fields })
     }
 }
 
@@ -405,11 +386,7 @@ impl fmt::Display for MoveTypeLayout {
 struct DebugAsDisplay<'a, T>(&'a T);
 impl<'a, T: fmt::Display> fmt::Debug for DebugAsDisplay<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            write!(f, "{:#}", self.0)
-        } else {
-            write!(f, "{}", self.0)
-        }
+        if f.alternate() { write!(f, "{:#}", self.0) } else { write!(f, "{}", self.0) }
     }
 }
 

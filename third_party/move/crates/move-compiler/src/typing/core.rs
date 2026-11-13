@@ -40,12 +40,7 @@ pub struct UseFunsScope {
 }
 
 pub enum Constraint {
-    AbilityConstraint {
-        loc: Loc,
-        msg: Option<String>,
-        ty: Type,
-        constraints: AbilitySet,
-    },
+    AbilityConstraint { loc: Loc, msg: Option<String>, ty: Type, constraints: AbilitySet },
     NumericConstraint(Loc, &'static str, Type),
     BitsConstraint(Loc, &'static str, Type),
     OrderedConstraint(Loc, &'static str, Type),
@@ -120,11 +115,7 @@ impl UseFunsScope {
         for (_, _, minfo) in &info.modules {
             for (tn, methods) in &minfo.use_funs {
                 let public_methods = methods.ref_filter_map(|_, uf| {
-                    if uf.is_public.is_some() {
-                        Some(uf.clone())
-                    } else {
-                        None
-                    }
+                    if uf.is_public.is_some() { Some(uf.clone()) } else { None }
                 });
                 if public_methods.is_empty() {
                     continue;
@@ -142,11 +133,7 @@ impl UseFunsScope {
                 use_funs.insert(tn.clone(), public_methods);
             }
         }
-        UseFunsScope {
-            color: None,
-            count,
-            use_funs,
-        }
+        UseFunsScope { color: None, count, use_funs }
     }
 }
 
@@ -188,15 +175,8 @@ impl<'env> Context<'env> {
     }
 
     pub fn add_use_funs_scope(&mut self, new_scope: N::UseFuns) {
-        let N::UseFuns {
-            color,
-            resolved: mut new_scope,
-            implicit_candidates,
-        } = new_scope;
-        assert!(
-            implicit_candidates.is_empty(),
-            "ICE use fun candidates should have been resolved"
-        );
+        let N::UseFuns { color, resolved: mut new_scope, implicit_candidates } = new_scope;
+        assert!(implicit_candidates.is_empty(), "ICE use fun candidates should have been resolved");
         let cur = self.use_funs.last_mut().unwrap();
         if new_scope.is_empty() && cur.color == Some(color) {
             cur.count += 1;
@@ -236,11 +216,7 @@ impl<'env> Context<'env> {
                 }
             }
         }
-        self.use_funs.push(UseFunsScope {
-            count: 1,
-            use_funs: new_scope,
-            color: Some(color),
-        })
+        self.use_funs.push(UseFunsScope { count: 1, use_funs: new_scope, color: Some(color) })
     }
 
     pub fn pop_use_funs_scope(&mut self) -> N::UseFuns {
@@ -249,9 +225,7 @@ impl<'env> Context<'env> {
             cur.count -= 1;
             return N::UseFuns::new(cur.color.unwrap_or(0));
         }
-        let UseFunsScope {
-            use_funs, color, ..
-        } = self.use_funs.pop().unwrap();
+        let UseFunsScope { use_funs, color, .. } = self.use_funs.pop().unwrap();
         for (tn, methods) in use_funs.iter() {
             let unused = methods.iter().filter(|(_, _, uf)| !uf.used);
             for (_, method, use_fun) in unused {
@@ -336,12 +310,7 @@ impl<'env> Context<'env> {
                     }
                 }
                 MacroExpansion::Call(c) => {
-                    let MacroCall {
-                        module,
-                        function,
-                        scope_color,
-                        ..
-                    } = &**c;
+                    let MacroCall { module, function, scope_color, .. } = &**c;
                     // If we find a call (same module/fn) above us at a shallower expansion depth,
                     // without an interceding macro arg/lambda, we are in a macro calling itself.
                     // If it was a deeper depth, that's fine -- it must have come from elsewhere.
@@ -359,12 +328,10 @@ impl<'env> Context<'env> {
                 m, f
             );
             let mut diag = diag!(TypeSafety::CannotExpandMacro, (loc, msg));
-            let cycle = self.macro_expansion[idx..]
-                .iter()
-                .filter_map(|case| match case {
-                    MacroExpansion::Call(c) => Some((&c.module, &c.function, &c.invocation)),
-                    MacroExpansion::Argument { .. } => None,
-                });
+            let cycle = self.macro_expansion[idx..].iter().filter_map(|case| match case {
+                MacroExpansion::Call(c) => Some((&c.module, &c.function, &c.invocation)),
+                MacroExpansion::Argument { .. } => None,
+            });
             for (prev_m, prev_f, prev_loc) in cycle {
                 let msg = if prev_m == &m && prev_f == &f {
                     format!("'{}::{}' previously expanded here", prev_m, prev_f)
@@ -376,13 +343,12 @@ impl<'env> Context<'env> {
             self.env.add_diag(diag);
             false
         } else {
-            self.macro_expansion
-                .push(MacroExpansion::Call(Box::new(MacroCall {
-                    module: m,
-                    function: f,
-                    invocation: loc,
-                    scope_color: current_call_color,
-                })));
+            self.macro_expansion.push(MacroExpansion::Call(Box::new(MacroCall {
+                module: m,
+                function: f,
+                invocation: loc,
+                scope_color: current_call_color,
+            })));
             true
         }
     }
@@ -399,9 +365,7 @@ impl<'env> Context<'env> {
                 return false;
             }
         };
-        let MacroCall {
-            module, function, ..
-        } = *c;
+        let MacroCall { module, function, .. } = *c;
         assert!(
             m == &module && f == &function,
             "ICE macro expansion stack should be popped in reverse order"
@@ -415,8 +379,7 @@ impl<'env> Context<'env> {
         color: Color,
     ) {
         if from_macro_argument.is_some() {
-            self.macro_expansion
-                .push(MacroExpansion::Argument { scope_color: color })
+            self.macro_expansion.push(MacroExpansion::Argument { scope_color: color })
         }
     }
 
@@ -491,35 +454,29 @@ impl<'env> Context<'env> {
     }
 
     pub fn add_base_type_constraint(&mut self, loc: Loc, msg: impl Into<String>, t: Type) {
-        self.constraints
-            .push(Constraint::BaseTypeConstraint(loc, msg.into(), t))
+        self.constraints.push(Constraint::BaseTypeConstraint(loc, msg.into(), t))
     }
 
     pub fn add_single_type_constraint(&mut self, loc: Loc, msg: impl Into<String>, t: Type) {
-        self.constraints
-            .push(Constraint::SingleTypeConstraint(loc, msg.into(), t))
+        self.constraints.push(Constraint::SingleTypeConstraint(loc, msg.into(), t))
     }
 
     pub fn add_numeric_constraint(&mut self, loc: Loc, op: &'static str, t: Type) {
-        self.constraints
-            .push(Constraint::NumericConstraint(loc, op, t))
+        self.constraints.push(Constraint::NumericConstraint(loc, op, t))
     }
 
     pub fn add_bits_constraint(&mut self, loc: Loc, op: &'static str, t: Type) {
-        self.constraints
-            .push(Constraint::BitsConstraint(loc, op, t))
+        self.constraints.push(Constraint::BitsConstraint(loc, op, t))
     }
 
     pub fn add_ordered_constraint(&mut self, loc: Loc, op: &'static str, t: Type) {
-        self.constraints
-            .push(Constraint::OrderedConstraint(loc, op, t))
+        self.constraints.push(Constraint::OrderedConstraint(loc, op, t))
     }
 
     pub fn declare_local(&mut self, _: Mutability, var: Var, ty: Type) {
         if let Err((_, prev_loc)) = self.locals.add(var, ty) {
             let msg = format!("ICE duplicate {var:?}. Should have been made unique in naming");
-            self.env
-                .add_diag(ice!((var.loc, msg), (prev_loc, "Previously declared here")));
+            self.env.add_diag(ice!((var.loc, msg), (prev_loc, "Previously declared here")));
         }
     }
 
@@ -545,9 +502,7 @@ impl<'env> Context<'env> {
     }
 
     pub fn current_package(&self) -> Option<Symbol> {
-        self.current_module
-            .as_ref()
-            .and_then(|mident| self.module_info(mident).package)
+        self.current_module.as_ref().and_then(|mident| self.module_info(mident).package)
     }
 
     // `loc` indicates the location that caused the add to occur
@@ -686,10 +641,7 @@ pub struct Subst {
 
 impl Subst {
     pub fn empty() -> Self {
-        Self {
-            tvars: HashMap::new(),
-            num_vars: HashMap::new(),
-        }
+        Self { tvars: HashMap::new(), num_vars: HashMap::new() }
     }
 
     pub fn insert(&mut self, tvar: TVar, bt: Type) {
@@ -785,10 +737,7 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
         }
         Apply(_, n, tys) => {
             let tys_str = if !tys.is_empty() {
-                format!(
-                    "<{}>",
-                    format_comma(tys.iter().map(|t| error_format_nested(t, subst)))
-                )
+                format!("<{}>", format_comma(tys.iter().map(|t| error_format_nested(t, subst))))
             } else {
                 "".to_string()
             };
@@ -803,11 +752,7 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
         }
         Param(tp) => tp.user_specified_name.value.to_string(),
         Ref(mut_, ty) => {
-            format!(
-                "&{}{}",
-                if *mut_ { "mut " } else { "" },
-                error_format_nested(ty, subst)
-            )
+            format!("&{}{}", if *mut_ { "mut " } else { "" }, error_format_nested(ty, subst))
         }
     };
     if nested { res } else { format!("'{}'", res) }
@@ -883,19 +828,14 @@ fn debug_abilities_info(context: &mut Context, ty: &Type) -> (Option<Loc>, Abili
     match &ty.value {
         T::Unit | T::Ref(_, _) => (None, AbilitySet::references(loc), vec![]),
         T::Var(_) => {
-            let diag = ice!((
-                loc,
-                "ICE did not call unfold_type before debug_abiliites_info"
-            ));
+            let diag = ice!((loc, "ICE did not call unfold_type before debug_abiliites_info"));
             context.env.add_diag(diag);
             (None, AbilitySet::all(loc), vec![])
         }
         T::UnresolvedError | T::Anything => (None, AbilitySet::all(loc), vec![]),
-        T::Param(TParam {
-            abilities,
-            user_specified_name,
-            ..
-        }) => (Some(user_specified_name.loc), abilities.clone(), vec![]),
+        T::Param(TParam { abilities, user_specified_name, .. }) => {
+            (Some(user_specified_name.loc), abilities.clone(), vec![])
+        }
         T::Apply(_, sp!(_, TypeName_::Multiple(_)), ty_args) => {
             (None, AbilitySet::collection(loc), ty_args.clone())
         }
@@ -944,11 +884,8 @@ pub fn make_struct_type(
     let sdef = context.struct_definition(m, n);
     match ty_args_opt {
         None => {
-            let constraints = sdef
-                .type_parameters
-                .iter()
-                .map(|tp| (loc, tp.param.abilities.clone()))
-                .collect();
+            let constraints =
+                sdef.type_parameters.iter().map(|tp| (loc, tp.param.abilities.clone())).collect();
             let ty_args = make_tparams(context, loc, TVarCase::Base, constraints);
             (sp(loc, Type_::Apply(None, tn, ty_args.clone())), ty_args)
         }
@@ -970,16 +907,8 @@ pub fn make_expr_list_tvars(
     locs: Vec<Loc>,
 ) -> Vec<Type> {
     let constraints = locs.iter().map(|l| (*l, AbilitySet::empty())).collect();
-    let tys = make_tparams(
-        context,
-        loc,
-        TVarCase::Single(constraint_msg.into()),
-        constraints,
-    );
-    tys.into_iter()
-        .zip(locs)
-        .map(|(tvar, l)| sp(l, tvar.value))
-        .collect()
+    let tys = make_tparams(context, loc, TVarCase::Single(constraint_msg.into()), constraints);
+    tys.into_iter().zip(locs).map(|(tvar, l)| sp(l, tvar.value)).collect()
 }
 
 // ty_args should come from make_struct_type
@@ -992,11 +921,7 @@ pub fn make_struct_field_types(
 ) -> N::StructFields {
     let sdef = context.struct_definition(m, n);
     let tparam_subst = &make_tparam_subst(
-        context
-            .struct_definition(m, n)
-            .type_parameters
-            .iter()
-            .map(|tp| &tp.param),
+        context.struct_definition(m, n).type_parameters.iter().map(|tp| &tp.param),
         ty_args,
     );
     match &sdef.fields {
@@ -1041,11 +966,7 @@ pub fn make_struct_field_type(
         }
         Some((_, field_ty)) => {
             let tparam_subst = &make_tparam_subst(
-                context
-                    .struct_definition(m, n)
-                    .type_parameters
-                    .iter()
-                    .map(|tp| &tp.param),
+                context.struct_definition(m, n).type_parameters.iter().map(|tp| &tp.param),
                 ty_args,
             );
             subst_tparams(tparam_subst, field_ty)
@@ -1080,11 +1001,8 @@ pub fn make_enum_type(
     let edef = context.enum_definition(mident, enum_);
     match ty_args_opt {
         None => {
-            let constraints = edef
-                .type_parameters
-                .iter()
-                .map(|tp| (loc, tp.param.abilities.clone()))
-                .collect();
+            let constraints =
+                edef.type_parameters.iter().map(|tp| (loc, tp.param.abilities.clone())).collect();
             let ty_args = make_tparams(context, loc, TVarCase::Base, constraints);
             (sp(loc, Type_::Apply(None, tn, ty_args.clone())), ty_args)
         }
@@ -1110,10 +1028,7 @@ pub fn make_variant_field_types(
 ) -> N::VariantFields {
     let edef = context.enum_definition(mident, enum_);
     let tparam_subst = &make_tparam_subst(edef.type_parameters.iter().map(|tp| &tp.param), ty_args);
-    let vdef = edef
-        .variants
-        .get(variant)
-        .expect("ICE should have failed during naming");
+    let vdef = edef.variants.get(variant).expect("ICE should have failed during naming");
     match &vdef.fields {
         N::VariantFields::Empty => N::VariantFields::Empty,
         N::VariantFields::Defined(is_positional, m) => N::VariantFields::Defined(
@@ -1135,11 +1050,7 @@ pub fn make_constant_type(
 ) -> Type {
     let in_current_module = Some(m) == context.current_module.as_ref();
     let (defined_loc, signature) = {
-        let ConstantInfo {
-            attributes: _,
-            defined_loc,
-            signature,
-        } = context.constant_info(m, c);
+        let ConstantInfo { attributes: _, defined_loc, signature } = context.constant_info(m, c);
         (*defined_loc, signature.clone())
     };
     if !in_current_module {
@@ -1174,10 +1085,7 @@ pub fn make_method_call_type(
         let lhs_ty_str = error_format_nested(lhs_ty, &context.subst);
         let defining_module = match &tn.value {
             TypeName_::Multiple(_) => {
-                let diag = ice!((
-                    loc,
-                    format!("ICE method on tuple type {}", debug_display!(tn))
-                ));
+                let diag = ice!((loc, format!("ICE method on tuple type {}", debug_display!(tn))));
                 context.env.add_diag(diag);
                 return None;
             }
@@ -1185,24 +1093,16 @@ pub fn make_method_call_type(
             TypeName_::ModuleType(m, _) => Some(m),
         };
         let finfo_opt = defining_module.and_then(|m| {
-            let finfo = context
-                .modules
-                .module(m)
-                .functions
-                .get(&FunctionName(method))?;
+            let finfo = context.modules.module(m).functions.get(&FunctionName(method))?;
             Some((m, finfo))
         });
         // if we found a function with the method name, it must have the wrong type
         if let Some((m, finfo)) = finfo_opt {
-            let (first_ty_loc, first_ty) = match finfo
-                .signature
-                .parameters
-                .first()
-                .map(|(_, _, t)| t.clone())
-            {
-                None => (finfo.defined_loc, None),
-                Some(t) => (t.loc, Some(t)),
-            };
+            let (first_ty_loc, first_ty) =
+                match finfo.signature.parameters.first().map(|(_, _, t)| t.clone()) {
+                    None => (finfo.defined_loc, None),
+                    Some(t) => (t.loc, Some(t)),
+                };
             let arg_msg = match first_ty {
                 Some(ty) => {
                     let tys_str = error_format(&ty, &context.subst);
@@ -1260,29 +1160,17 @@ pub fn make_function_type(
     };
     let finfo = context.function_info(m, f);
     let macro_ = finfo.macro_;
-    let constraints: Vec<_> = finfo
-        .signature
-        .type_parameters
-        .iter()
-        .map(|tp| tp.abilities.clone())
-        .collect();
+    let constraints: Vec<_> =
+        finfo.signature.type_parameters.iter().map(|tp| tp.abilities.clone()).collect();
 
     let ty_args = match ty_args_opt {
         None => {
-            let case = if macro_.is_some() {
-                TVarCase::Macro
-            } else {
-                TVarCase::Base
-            };
+            let case = if macro_.is_some() { TVarCase::Macro } else { TVarCase::Base };
             let locs_constraints = constraints.into_iter().map(|k| (loc, k)).collect();
             make_tparams(context, loc, case, locs_constraints)
         }
         Some(ty_args) => {
-            let case = if macro_.is_some() {
-                TArgCase::Macro
-            } else {
-                TArgCase::Fun
-            };
+            let case = if macro_.is_some() { TArgCase::Macro } else { TArgCase::Fun };
             let ty_args = check_type_argument_arity(
                 context,
                 loc,
@@ -1308,18 +1196,14 @@ pub fn make_function_type(
     let public_for_testing =
         public_testing_visibility(context.env, context.current_package, f, finfo.entry);
     let is_testing_context = context.is_testing_context();
-    let supports_public_package = context
-        .env
-        .supports_feature(context.current_package, FeatureGate::PublicPackage);
+    let supports_public_package =
+        context.env.supports_feature(context.current_package, FeatureGate::PublicPackage);
     match finfo.visibility {
         _ if is_testing_context && public_for_testing.is_some() => (),
         Visibility::Internal if in_current_module => (),
         Visibility::Internal => {
-            let friend_or_package = if supports_public_package {
-                Visibility::PACKAGE
-            } else {
-                Visibility::FRIEND
-            };
+            let friend_or_package =
+                if supports_public_package { Visibility::PACKAGE } else { Visibility::FRIEND };
             let internal_msg = format!(
                 "This function is internal to its module. Only '{}' and '{}' functions can \
                  be called outside of their module",
@@ -1365,37 +1249,19 @@ pub fn make_function_type(
                     .map(|pkg_name| format!("{}", pkg_name))
                     .unwrap_or("<unknown package>".to_string())
             );
-            visibility_error(
-                context,
-                public_for_testing,
-                (loc, msg),
-                (vis_loc, internal_msg),
-            );
+            visibility_error(context, public_for_testing, (loc, msg), (vis_loc, internal_msg));
         }
         Visibility::Friend(_) if in_current_module || context.current_module_is_a_friend_of(m) => {}
         Visibility::Friend(vis_loc) => {
-            let msg = format!(
-                "Invalid call to '{}' visible function '{m}::{f}'",
-                Visibility::FRIEND,
-            );
+            let msg =
+                format!("Invalid call to '{}' visible function '{m}::{f}'", Visibility::FRIEND,);
             let internal_msg =
                 format!("This function can only be called from a 'friend' of module '{m}'",);
-            visibility_error(
-                context,
-                public_for_testing,
-                (loc, msg),
-                (vis_loc, internal_msg),
-            );
+            visibility_error(context, public_for_testing, (loc, msg), (vis_loc, internal_msg));
         }
         Visibility::Public(_) => (),
     };
-    ResolvedFunctionType {
-        declared: defined_loc,
-        macro_,
-        ty_args,
-        params,
-        return_: return_ty,
-    }
+    ResolvedFunctionType { declared: defined_loc, macro_, ty_args, params, return_: return_ty }
 }
 
 #[derive(Clone, Copy)]
@@ -1430,11 +1296,7 @@ fn visibility_error(
     (call_loc, call_msg): (Loc, impl ToString),
     (vis_loc, vis_msg): (Loc, impl ToString),
 ) {
-    let mut diag = diag!(
-        TypeSafety::Visibility,
-        (call_loc, call_msg),
-        (vis_loc, vis_msg),
-    );
+    let mut diag = diag!(TypeSafety::Visibility, (call_loc, call_msg), (vis_loc, vis_msg),);
     if context.env.flags().is_testing()
         && let Some(case) = public_for_testing
     {
@@ -1466,17 +1328,9 @@ pub fn check_call_arity<S: std::fmt::Display, F: Fn() -> S>(
     if given_len == arity {
         return;
     }
-    let code = if given_len < arity {
-        TypeSafety::TooFewArguments
-    } else {
-        TypeSafety::TooManyArguments
-    };
-    let cmsg = format!(
-        "{}. The call expected {} argument(s) but got {}",
-        msg(),
-        arity,
-        given_len
-    );
+    let code =
+        if given_len < arity { TypeSafety::TooFewArguments } else { TypeSafety::TooManyArguments };
+    let cmsg = format!("{}. The call expected {} argument(s) but got {}", msg(), arity, given_len);
     context.env.add_diag(diag!(
         code,
         (loc, cmsg),
@@ -1507,12 +1361,9 @@ pub fn solve_constraints(context: &mut Context) {
     let constraints = std::mem::take(&mut context.constraints);
     for constraint in constraints {
         match constraint {
-            Constraint::AbilityConstraint {
-                loc,
-                msg,
-                ty,
-                constraints,
-            } => solve_ability_constraint(context, loc, msg, ty, constraints),
+            Constraint::AbilityConstraint { loc, msg, ty, constraints } => {
+                solve_ability_constraint(context, loc, msg, ty, constraints)
+            }
             Constraint::NumericConstraint(loc, op, t) => {
                 solve_builtin_type_constraint(context, BT::numeric(), loc, op, t)
             }
@@ -1587,15 +1438,9 @@ pub fn ability_not_satisfied_tips<'a>(
     ty_args: impl IntoIterator<Item = (&'a Type, AbilitySet)>,
 ) {
     let ty_str = error_format(ty, subst);
-    let ty_msg = format!(
-        "The type {} does not have the ability '{}'",
-        ty_str, constraint
-    );
+    let ty_msg = format!("The type {} does not have the ability '{}'", ty_str, constraint);
     diag.add_secondary_label((ty.loc, ty_msg));
-    match (
-        declared_loc_opt,
-        declared_abilities.has_ability_(constraint),
-    ) {
+    match (declared_loc_opt, declared_abilities.has_ability_(constraint)) {
         // Type was not given the ability
         (Some(dloc), false) => diag.add_secondary_label((
             dloc,
@@ -1646,16 +1491,9 @@ fn solve_builtin_type_constraint(
         let set_msg = if builtin_set.is_empty() {
             "the operation is not yet supported on any type".to_string()
         } else {
-            format!(
-                "expected: {}",
-                format_comma(builtin_set.iter().map(|b| format!("'{}'", b)))
-            )
+            format!("expected: {}", format_comma(builtin_set.iter().map(|b| format!("'{}'", b))))
         };
-        format!(
-            "Found: {}. But {}",
-            error_format(&t, &context.subst),
-            set_msg
-        )
+        format!("Found: {}. But {}", error_format(&t, &context.subst), set_msg)
     };
     match &t.value {
         // already failed, ignore
@@ -1691,11 +1529,7 @@ fn solve_base_type_constraint(context: &mut Context, loc: Loc, msg: String, ty: 
         Unit | Ref(_, _) | Apply(_, sp!(_, Multiple(_)), _) => {
             let tystr = error_format(ty, &context.subst);
             let tmsg = format!("Expected a single non-reference type, but found: {}", tystr);
-            context.env.add_diag(diag!(
-                TypeSafety::ExpectedBaseType,
-                (loc, msg),
-                (tyloc, tmsg)
-            ))
+            context.env.add_diag(diag!(TypeSafety::ExpectedBaseType, (loc, msg), (tyloc, tmsg)))
         }
         UnresolvedError | Anything | Param(_) | Apply(_, _, _) | Fun(_, _) => (),
     }
@@ -1712,11 +1546,7 @@ fn solve_single_type_constraint(context: &mut Context, loc: Loc, msg: String, ty
                 "Expected a single type, but found expression list type: {}",
                 error_format(ty, &context.subst)
             );
-            context.env.add_diag(diag!(
-                TypeSafety::ExpectedSingleType,
-                (loc, msg),
-                (tyloc, tmsg)
-            ))
+            context.env.add_diag(diag!(TypeSafety::ExpectedSingleType, (loc, msg), (tyloc, tmsg)))
         }
         UnresolvedError | Anything | Ref(_, _) | Param(_) | Apply(_, _, _) | Fun(_, _) => (),
     }
@@ -1781,15 +1611,9 @@ pub fn subst_tparams(subst: &TParamSubst, sp!(loc, t_): Type) -> Type {
         x @ Unit | x @ UnresolvedError | x @ Anything => sp(loc, x),
         Var(_) => panic!("ICE tvar in subst_tparams"),
         Ref(mut_, t) => sp(loc, Ref(mut_, Box::new(subst_tparams(subst, *t)))),
-        Param(tp) => subst
-            .get(&tp.id)
-            .expect("ICE unmapped tparam in subst_tparams_base")
-            .clone(),
+        Param(tp) => subst.get(&tp.id).expect("ICE unmapped tparam in subst_tparams_base").clone(),
         Apply(k, n, ty_args) => {
-            let ftys = ty_args
-                .into_iter()
-                .map(|t| subst_tparams(subst, t))
-                .collect();
+            let ftys = ty_args.into_iter().map(|t| subst_tparams(subst, t)).collect();
             sp(loc, Apply(k, n, ftys))
         }
         Fun(args, result) => {
@@ -1905,18 +1729,13 @@ fn instantiate_impl(context: &mut Context, keep_tanything: bool, sp!(loc, t_): T
         Ref(mut_, b) => {
             let inner = *b;
             context.add_base_type_constraint(loc, "Invalid reference type", inner.clone());
-            Ref(
-                mut_,
-                Box::new(instantiate_impl(context, keep_tanything, inner)),
-            )
+            Ref(mut_, Box::new(instantiate_impl(context, keep_tanything, inner)))
         }
         Apply(abilities_opt, n, ty_args) => {
             instantiate_apply_impl(context, keep_tanything, loc, abilities_opt, n, ty_args)
         }
         Fun(args, result) => Fun(
-            args.into_iter()
-                .map(|t| instantiate_impl(context, keep_tanything, t))
-                .collect(),
+            args.into_iter().map(|t| instantiate_impl(context, keep_tanything, t)).collect(),
             Box::new(instantiate_impl(context, keep_tanything, *result)),
         ),
         x @ Param(_) => x,
@@ -1980,11 +1799,8 @@ fn instantiate_type_args_impl(
     constraints: Vec<AbilitySet>,
 ) -> Vec<Type> {
     assert!(ty_args.len() == constraints.len());
-    let locs_constraints = constraints
-        .into_iter()
-        .zip(&ty_args)
-        .map(|(abilities, t)| (t.loc, abilities))
-        .collect();
+    let locs_constraints =
+        constraints.into_iter().zip(&ty_args).map(|(abilities, t)| (t.loc, abilities)).collect();
     let tvar_case = match case {
         TArgCase::Apply(TypeName_::Multiple(_)) => {
             TVarCase::Single("Invalid expression list type argument".to_owned())
@@ -1997,23 +1813,17 @@ fn instantiate_type_args_impl(
     // TODO in many cases we likely immediatley fill these type variables in with the type
     // arguments. We could maybe just not create them in the first place in some instances
     let tvars = make_tparams(context, loc, tvar_case, locs_constraints);
-    ty_args = ty_args
-        .into_iter()
-        .map(|t| instantiate_impl(context, keep_tanything, t))
-        .collect();
+    ty_args = ty_args.into_iter().map(|t| instantiate_impl(context, keep_tanything, t)).collect();
 
     assert!(ty_args.len() == tvars.len());
     let mut res = vec![];
     let subst = std::mem::replace(&mut context.subst, /* dummy value */ Subst::empty());
-    context.subst = tvars
-        .into_iter()
-        .zip(ty_args)
-        .fold(subst, |subst, (tvar, ty_arg)| {
-            // tvar is just a type variable, so shouldn't throw ever...
-            let (subst, t) = join(subst, &tvar, &ty_arg).ok().unwrap();
-            res.push(t);
-            subst
-        });
+    context.subst = tvars.into_iter().zip(ty_args).fold(subst, |subst, (tvar, ty_arg)| {
+        // tvar is just a type variable, so shouldn't throw ever...
+        let (subst, t) = join(subst, &tvar, &ty_arg).ok().unwrap();
+        res.push(t);
+        subst
+    });
     res
 }
 
@@ -2193,12 +2003,7 @@ fn join_impl(
         (sp!(_, Apply(_, sp!(_, Multiple(n1)), _)), sp!(_, Apply(_, sp!(_, Multiple(n2)), _)))
             if n1 != n2 =>
         {
-            Err(TypingError::ArityMismatch(
-                *n1,
-                Box::new(lhs.clone()),
-                *n2,
-                Box::new(rhs.clone()),
-            ))
+            Err(TypingError::ArityMismatch(*n1, Box::new(lhs.clone()), *n2, Box::new(rhs.clone())))
         }
         (sp!(_, Apply(k1, n1, tys1)), sp!(loc, Apply(k2, n2, tys2))) if n1 == n2 => {
             assert!(
@@ -2271,10 +2076,7 @@ fn join_impl(
         (sp!(_, UnresolvedError), other) | (other, sp!(_, UnresolvedError)) => {
             Ok((subst, other.clone()))
         }
-        _ => Err(TypingError::Incompatible(
-            Box::new(lhs.clone()),
-            Box::new(rhs.clone()),
-        )),
+        _ => Err(TypingError::Incompatible(Box::new(lhs.clone()), Box::new(rhs.clone()))),
     }
 }
 
@@ -2360,10 +2162,7 @@ fn forward_tvar(subst: &Subst, id: TVar) -> TVar {
 }
 
 fn join_bind_tvar(subst: &mut Subst, loc: Loc, tvar: TVar, ty: Type) -> Result<bool, TypingError> {
-    assert!(
-        subst.get(tvar).is_none(),
-        "ICE join_bind_tvar called on bound tvar"
-    );
+    assert!(subst.get(tvar).is_none(), "ICE join_bind_tvar called on bound tvar");
 
     fn used_tvars(used: &mut BTreeMap<TVar, Loc>, sp!(loc, t_): &Type) {
         use Type_ as T;
@@ -2372,15 +2171,9 @@ fn join_bind_tvar(subst: &mut Subst, loc: Loc, tvar: TVar, ty: Type) -> Result<b
                 used.insert(*v, *loc);
             }
             T::Ref(_, inner) => used_tvars(used, inner),
-            T::Apply(_, _, inners) => inners
-                .iter()
-                .rev()
-                .for_each(|inner| used_tvars(used, inner)),
+            T::Apply(_, _, inners) => inners.iter().rev().for_each(|inner| used_tvars(used, inner)),
             T::Fun(inner_args, inner_ret) => {
-                inner_args
-                    .iter()
-                    .rev()
-                    .for_each(|inner| used_tvars(used, inner));
+                inner_args.iter().rev().for_each(|inner| used_tvars(used, inner));
                 used_tvars(used, inner_ret)
             }
             T::Unit | T::Param(_) | T::Anything | T::UnresolvedError => (),

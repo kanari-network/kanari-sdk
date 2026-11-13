@@ -34,26 +34,17 @@ const MIRRORED: &[(&str, &[(&str, u64)])] = &[
     (
         "balance.move",
         &[
-            (
-                "ERR_INSUFFICIENT_BALANCE",
-                BalanceModule::ERR_INSUFFICIENT_BALANCE,
-            ),
+            ("ERR_INSUFFICIENT_BALANCE", BalanceModule::ERR_INSUFFICIENT_BALANCE),
             ("ERR_OVERFLOW", BalanceModule::ERR_OVERFLOW),
             ("ERR_ZERO_AMOUNT", BalanceModule::ERR_ZERO_AMOUNT),
-            (
-                "ERR_INSUFFICIENT_SUPPLY",
-                BalanceModule::ERR_INSUFFICIENT_SUPPLY,
-            ),
+            ("ERR_INSUFFICIENT_SUPPLY", BalanceModule::ERR_INSUFFICIENT_SUPPLY),
         ],
     ),
     (
         "clock.move",
         &[
             ("E_NOT_SYSTEM_ADDRESS", ClockModule::E_NOT_SYSTEM_ADDRESS),
-            (
-                "E_TIMESTAMP_NOT_MONOTONIC",
-                ClockModule::E_TIMESTAMP_NOT_MONOTONIC,
-            ),
+            ("E_TIMESTAMP_NOT_MONOTONIC", ClockModule::E_TIMESTAMP_NOT_MONOTONIC),
         ],
     ),
     (
@@ -66,10 +57,7 @@ const MIRRORED: &[(&str, &[(&str, u64)])] = &[
             ("EUNDERFLOW", CoinModule::E_UNDERFLOW),
             ("EINVALID_DECIMALS", CoinModule::E_INVALID_DECIMALS),
             ("ETOO_MANY_PARTS", CoinModule::E_TOO_MANY_PARTS),
-            (
-                "EGlobalPauseNotAllowed",
-                CoinModule::E_GLOBAL_PAUSE_NOT_ALLOWED,
-            ),
+            ("EGlobalPauseNotAllowed", CoinModule::E_GLOBAL_PAUSE_NOT_ALLOWED),
             ("MAX_SPLIT_PARTS", CoinModule::MAX_SPLIT_PARTS),
         ],
     ),
@@ -77,14 +65,8 @@ const MIRRORED: &[(&str, &[(&str, u64)])] = &[
         "collection.move",
         &[
             ("E_NO_SUPPLY", CollectionModule::E_NO_SUPPLY),
-            (
-                "E_NOT_COLLECTION_CREATOR",
-                CollectionModule::E_NOT_COLLECTION_CREATOR,
-            ),
-            (
-                "E_CAP_COLLECTION_MISMATCH",
-                CollectionModule::E_CAP_COLLECTION_MISMATCH,
-            ),
+            ("E_NOT_COLLECTION_CREATOR", CollectionModule::E_NOT_COLLECTION_CREATOR),
+            ("E_CAP_COLLECTION_MISMATCH", CollectionModule::E_CAP_COLLECTION_MISMATCH),
         ],
     ),
     (
@@ -100,14 +82,8 @@ const MIRRORED: &[(&str, &[(&str, u64)])] = &[
         "gas_market.move",
         &[
             ("USD_SCALE", GasMarketModule::USD_SCALE),
-            (
-                "DEFAULT_USD_PER_GAS_UNIT",
-                GasMarketModule::DEFAULT_USD_PER_GAS_UNIT_MICROS,
-            ),
-            (
-                "EUNSUPPORTED_GAS_COIN",
-                GasMarketModule::EUNSUPPORTED_GAS_COIN,
-            ),
+            ("DEFAULT_USD_PER_GAS_UNIT", GasMarketModule::DEFAULT_USD_PER_GAS_UNIT_MICROS),
+            ("EUNSUPPORTED_GAS_COIN", GasMarketModule::EUNSUPPORTED_GAS_COIN),
             ("ESTALE_PRICE", GasMarketModule::ESTALE_PRICE),
             ("ESLIPPAGE_EXCEEDED", GasMarketModule::ESLIPPAGE_EXCEEDED),
             ("EZERO_INPUT", GasMarketModule::EZERO_INPUT),
@@ -189,10 +165,8 @@ fn move_const_value(source: &str, name: &str) -> Option<u64> {
         } else {
             after_eq.trim()
         };
-        let digits: String = candidate
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '_')
-            .collect();
+        let digits: String =
+            candidate.chars().take_while(|c| c.is_ascii_digit() || *c == '_').collect();
         return digits.replace('_', "").parse().ok();
     }
     None

@@ -60,11 +60,9 @@ fn native_create_signers_for_testing(
 pub fn make_native_create_signers_for_testing(
     gas_params: CreateSignersForTestingGasParameters,
 ) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_create_signers_for_testing(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_create_signers_for_testing(&gas_params, context, ty_args, args)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -86,11 +84,9 @@ fn native_poison(
 }
 
 pub fn make_native_poison(gas_params: PoisonGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_poison(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_poison(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************

@@ -48,10 +48,7 @@ fn coin_object_data_with_leading_byte(byte: u8, amount: u64) -> Vec<u8> {
 fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Result<()> {
     state.total_supply = total_supply;
     state.store.save(b"total_supply", &total_supply)?;
-    state.store.save(
-        &StateManager::supply_key(GAS_COIN),
-        &TreasuryCap { total_supply },
-    )?;
+    state.store.save(&StateManager::supply_key(GAS_COIN), &TreasuryCap { total_supply })?;
     Ok(())
 }
 
@@ -131,10 +128,7 @@ fn access_versions_reject_stale_snapshot_and_survive_commit() -> Result<()> {
     let store = state.store();
     state.commit()?;
     let reopened = StateManager::try_new(store)?;
-    assert_eq!(
-        reopened.capture_access_versions(&access).get(&key),
-        Some(&1)
-    );
+    assert_eq!(reopened.capture_access_versions(&access).get(&key), Some(&1));
     Ok(())
 }
 
@@ -151,10 +145,7 @@ fn object_access_versions_survive_commit_and_reopen() -> Result<()> {
     let store = state.store();
     state.commit()?;
     let reopened = StateManager::try_new(store)?;
-    assert_eq!(
-        reopened.capture_access_versions(&access).get(&key),
-        Some(&1)
-    );
+    assert_eq!(reopened.capture_access_versions(&access).get(&key), Some(&1));
     Ok(())
 }
 
@@ -186,11 +177,7 @@ fn malformed_persisted_access_version_fails_startup_closed() -> Result<()> {
     store.apply_raw_changes(&[(key, vec![0x80])], &[])?;
 
     let error = StateManager::try_new(store).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Malformed per-key state access version")
-    );
+    assert!(error.to_string().contains("Malformed per-key state access version"));
     Ok(())
 }
 
@@ -200,12 +187,7 @@ fn owner_addresses_rejects_malformed_owner_index_entries() -> Result<()> {
     state.save_internal(OWNER_INDEX_KEY, &vec!["not-an-address".to_string()])?;
 
     let error = state.owner_addresses().unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Owner index contains invalid address"),
-        "{error:#}"
-    );
+    assert!(error.to_string().contains("Owner index contains invalid address"), "{error:#}");
     Ok(())
 }
 
@@ -214,15 +196,8 @@ fn query_objects_rejects_missing_object_index_entries() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     state.save_internal(b"object_index", &vec!["0xdead".to_string()])?;
 
-    let error = state
-        .query_objects(None, None, None, None, None)
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Object index references missing object"),
-        "{error:#}"
-    );
+    let error = state.query_objects(None, None, None, None, None).unwrap_err();
+    assert!(error.to_string().contains("Object index references missing object"), "{error:#}");
     Ok(())
 }
 
@@ -248,9 +223,7 @@ fn access_version_overflow_rejects_changeset_without_partial_state() -> Result<(
 #[test]
 fn state_root_fails_closed_when_canonical_index_is_corrupt() -> Result<()> {
     let state = StateManager::new_in_memory();
-    state
-        .store
-        .apply_raw_changes(&[(b"module_index".to_vec(), vec![0x80])], &[])?;
+    state.store.apply_raw_changes(&[(b"module_index".to_vec(), vec![0x80])], &[])?;
 
     assert!(state.try_compute_state_root().is_err());
     assert!(state.try_canonical_state_snapshot().is_err());
@@ -261,9 +234,7 @@ fn state_root_fails_closed_when_canonical_index_is_corrupt() -> Result<()> {
 fn supply_validation_fails_closed_when_native_treasury_is_corrupt() -> Result<()> {
     let state = StateManager::new_in_memory();
     let supply_key = StateManager::supply_key(GAS_COIN);
-    state
-        .store
-        .apply_raw_changes(&[(supply_key, vec![0x80])], &[])?;
+    state.store.apply_raw_changes(&[(supply_key, vec![0x80])], &[])?;
 
     assert!(state.validate_supply_invariants().is_err());
     Ok(())
@@ -276,10 +247,7 @@ fn commit_with_raw_update_persists_checkpoint_marker_with_state_overlay() -> Res
     state.commit_with_raw_update(b"test:marker".to_vec(), bcs::to_bytes(&vec![9u8, 9])?)?;
 
     assert_eq!(state.store.load::<u64>(b"test:state")?, Some(7));
-    assert_eq!(
-        state.store.load::<Vec<u8>>(b"test:marker")?,
-        Some(vec![9, 9])
-    );
+    assert_eq!(state.store.load::<Vec<u8>>(b"test:marker")?, Some(vec![9, 9]));
     Ok(())
 }
 
@@ -292,10 +260,7 @@ fn move_writes_commit_with_canonical_state_and_update_module_index() -> Result<(
     changeset.record_move_write(module_key.clone(), Some(module_bytes.clone()));
 
     state.apply_changeset(&changeset)?;
-    assert_eq!(
-        state.load_internal::<Vec<u8>>(&module_key)?,
-        Some(module_bytes)
-    );
+    assert_eq!(state.load_internal::<Vec<u8>>(&module_key)?, Some(module_bytes));
     assert!(
         state
             .load_internal::<Vec<String>>(b"module_index")?
@@ -319,9 +284,7 @@ fn move_writes_commit_with_canonical_state_and_update_module_index() -> Result<(
 #[test]
 fn smt_diagnostics_are_read_only_and_full_audit_is_explicit() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
-    let store = Arc::new(PersistentStore::open_with_path(Some(
-        temp_dir.path().join("state"),
-    ))?);
+    let store = Arc::new(PersistentStore::open_with_path(Some(temp_dir.path().join("state")))?);
     let state = StateManager::try_new(store)?;
 
     let status = state.smt_diagnostics(false)?;
@@ -390,19 +353,14 @@ fn identical_system_clock_replay_does_not_increment_object_version() -> Result<(
     state.set_system_clock_object_id(AccountAddress::from_hex_literal(clock_id)?)?;
     state.apply_changeset(&prologue)?;
     let root_after_first_apply = state.compute_state_root();
-    let version_after_first_apply = state
-        .get_object(clock_id)?
-        .invariant("clock must exist after first prologue")
-        .version;
+    let version_after_first_apply =
+        state.get_object(clock_id)?.invariant("clock must exist after first prologue").version;
 
     state.apply_changeset(&prologue)?;
 
     assert_eq!(state.compute_state_root(), root_after_first_apply);
     assert_eq!(
-        state
-            .get_object(clock_id)?
-            .invariant("clock must exist after replay")
-            .version,
+        state.get_object(clock_id)?.invariant("clock must exist after replay").version,
         version_after_first_apply,
         "replaying the same clock timestamp must not change its version"
     );
@@ -411,10 +369,7 @@ fn identical_system_clock_replay_does_not_increment_object_version() -> Result<(
     next_prologue.created_objects[0].1.data[UID_SIZE..].copy_from_slice(&8u64.to_le_bytes());
     state.apply_changeset(&next_prologue)?;
     assert_eq!(
-        state
-            .get_object(clock_id)?
-            .invariant("clock must exist after the next timestamp")
-            .version,
+        state.get_object(clock_id)?.invariant("clock must exist after the next timestamp").version,
         version_after_first_apply + 1,
         "a new clock timestamp must advance the object version exactly once"
     );
@@ -466,17 +421,13 @@ fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 400)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
-    let err = state
-        .validate_supply_invariants()
-        .expect_err("validation should detect overcount");
-    assert!(err.to_string().contains(&format!(
-        "wallet_visible_supply={}",
-        base.wallet_visible_supply + 500
-    )));
+    let err = state.validate_supply_invariants().expect_err("validation should detect overcount");
+    assert!(
+        err.to_string()
+            .contains(&format!("wallet_visible_supply={}", base.wallet_visible_supply + 500))
+    );
 
     Ok(())
 }
@@ -489,16 +440,11 @@ fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 600)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
     let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.total_supply, base.total_supply + 600);
-    assert_eq!(
-        summary.wallet_visible_supply,
-        base.wallet_visible_supply + 500
-    );
+    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 500);
     assert_eq!(summary.object_locked_supply, 0);
     assert_eq!(summary.untracked_supply, 100);
 
@@ -515,17 +461,12 @@ fn native_supply_summary_prefers_cached_visible_supply_when_owner_index_is_stale
 
     state.save_owner_state(&OwnerState::with_native_balance(dao, 210))?;
     set_native_supply_for_test(&mut state, base.total_supply + 210)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 210);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 210);
 
     state.store.save(b"owner_index", &Vec::<String>::new())?;
 
     let summary = state.token_supply_summary(GAS_COIN)?;
-    assert_eq!(
-        summary.wallet_visible_supply,
-        base.wallet_visible_supply + 210
-    );
+    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 210);
     assert_eq!(summary.object_locked_supply, 0);
     assert_eq!(summary.accounted_supply, summary.total_supply);
     assert_eq!(summary.untracked_supply, 0);
@@ -552,15 +493,9 @@ fn native_supply_summary_counts_object_fanout_when_owner_ledger_is_stale_low() -
     }
 
     assert_eq!(state.resolve_owner_native_balance(owner)?, 51);
-    assert_eq!(
-        state.indexed_wallet_supply(GAS_COIN)?,
-        base.wallet_visible_supply + 51
-    );
+    assert_eq!(state.indexed_wallet_supply(GAS_COIN)?, base.wallet_visible_supply + 51);
     let summary = state.token_supply_summary(GAS_COIN)?;
-    assert_eq!(
-        summary.wallet_visible_supply,
-        base.wallet_visible_supply + 51
-    );
+    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 51);
     assert_eq!(summary.accounted_supply, summary.total_supply);
     assert_eq!(summary.untracked_supply, 0);
 
@@ -580,10 +515,7 @@ fn state_root_ignores_owner_indexes_and_supply_caches() -> Result<()> {
         b"global_token_supplies",
         &BTreeMap::from([(GAS_COIN.to_string(), 1_000u64)]),
     )?;
-    state.save_internal(
-        b"metadata_symbol:0x2::kanari::KANARI",
-        &"KANARI".to_string(),
-    )?;
+    state.save_internal(b"metadata_symbol:0x2::kanari::KANARI", &"KANARI".to_string())?;
     state.save_internal(
         b"object_locked_coin_records",
         &vec![serde_json::json!({"not":"canonical"})],
@@ -606,10 +538,8 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
 
     let mut cs = ChangeSet::new();
     cs.add_treasury(owner, token_type.to_string(), 1_000);
-    cs.created_objects.push((
-        "0xaaaa".to_string(),
-        address_owned_object(owner, coin_type, coin_data, 1),
-    ));
+    cs.created_objects
+        .push(("0xaaaa".to_string(), address_owned_object(owner, coin_type, coin_data, 1)));
     state.apply_changeset(&cs)?;
 
     let summary = state.token_supply_summary(token_type)?;
@@ -631,10 +561,9 @@ fn resolve_owner_token_balances_requires_object_backed_non_native_assets() -> Re
     let coin_data = coin_object_data([0u8; UID_SIZE], 250u64);
 
     let mut changeset = ChangeSet::new();
-    changeset.created_objects.push((
-        "0xaaaa".to_string(),
-        address_owned_object(object_owner, coin_type, coin_data, 1),
-    ));
+    changeset
+        .created_objects
+        .push(("0xaaaa".to_string(), address_owned_object(object_owner, coin_type, coin_data, 1)));
     state.apply_changeset(&changeset)?;
 
     let object_balances = state.resolve_owner_token_balances(object_owner)?;
@@ -683,10 +612,9 @@ fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
 
     let released_coin_data = coin_object_data([0u8; UID_SIZE], 100u64);
     let mut release = ChangeSet::new();
-    release.created_objects.push((
-        "0xbbbb".to_string(),
-        address_owned_object(owner, deal_type, vec![4, 5, 6], 2),
-    ));
+    release
+        .created_objects
+        .push(("0xbbbb".to_string(), address_owned_object(owner, deal_type, vec![4, 5, 6], 2)));
     release.created_objects.push((
         "0xcccc".to_string(),
         address_owned_object(owner, coin_type, released_coin_data, 1),
@@ -816,21 +744,11 @@ fn compute_state_root_ignores_runtime_local_store_keys() -> Result<()> {
 
     // An orphan module that is absent from the canonical module index is runtime-local.
     state.store.save(b"module:0x1:Local", &vec![1u8, 2, 3])?;
-    state
-        .store
-        .save(b"framework_hash:stdlib", &"node-local-hash")?;
-    state
-        .store
-        .save(b"framework_manifest:stdlib", &vec!["Local"])?;
-    state
-        .store
-        .save(b"object_index", &vec!["0xdead".to_string()])?;
-    state
-        .store
-        .save(b"owner_index:\x00", &vec!["0xdead".to_string()])?;
-    state
-        .store
-        .save(b"object:0xdead", &"orphan-runtime-object")?;
+    state.store.save(b"framework_hash:stdlib", &"node-local-hash")?;
+    state.store.save(b"framework_manifest:stdlib", &vec!["Local"])?;
+    state.store.save(b"object_index", &vec!["0xdead".to_string()])?;
+    state.store.save(b"owner_index:\x00", &vec!["0xdead".to_string()])?;
+    state.store.save(b"object:0xdead", &"orphan-runtime-object")?;
     state.store.save(b"df_0xdead_local", &vec![9u8])?;
 
     assert_eq!(
@@ -1000,12 +918,7 @@ fn apply_changeset_debits_object_backed_native_balance_without_panicking() -> Re
     let mut seed = ChangeSet::new();
     seed.created_objects.push((
         "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5".to_string(),
-        address_owned_object(
-            sender,
-            format!("0x2::coin::Coin<{}>", GAS_COIN),
-            coin_data,
-            1,
-        ),
+        address_owned_object(sender, format!("0x2::coin::Coin<{}>", GAS_COIN), coin_data, 1),
     ));
     state.apply_changeset(&seed)?;
 
@@ -1042,9 +955,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
 
     state.save_owner_state(&OwnerState::with_native_balance(sender, 500))?;
     set_native_supply_for_test(&mut state, 400)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), 500);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), 500);
 
     let root_before = state.compute_state_root();
     let sender_balance_before = state
@@ -1074,10 +985,8 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
 fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     let owner = kanari_types::address::Address::dev_account_address();
     let mut state = StateManager::new_in_memory();
-    let before_balance = state
-        .get_owner_state(&owner)
-        .invariant("owner state should exist")
-        .native_balance();
+    let before_balance =
+        state.get_owner_state(&owner).invariant("owner state should exist").native_balance();
     let before_visible = state.indexed_wallet_supply(GAS_COIN)?;
 
     let mut changeset = ChangeSet::new();
@@ -1093,10 +1002,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     state.apply_changeset(&changeset)?;
 
     assert_eq!(
-        state
-            .get_owner_state(&owner)
-            .invariant("owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&owner).invariant("owner state should exist").native_balance(),
         before_balance
     );
     assert_eq!(state.indexed_wallet_supply(GAS_COIN)?, before_visible);
@@ -1115,38 +1021,27 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
 
     state.save_owner_state(&OwnerState::with_native_balance(owner, 500))?;
     set_native_supply_for_test(&mut state, base.total_supply + 500)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 500);
 
-    let before_balance = state
-        .get_owner_state(&owner)
-        .invariant("owner state should exist")
-        .native_balance();
+    let before_balance =
+        state.get_owner_state(&owner).invariant("owner state should exist").native_balance();
 
     let mut gas_only = ChangeSet::new();
     gas_only.get_or_create_owner_delta(owner).debit(210);
     gas_only.collect_gas(dao, 210);
     state.apply_changeset(&gas_only)?;
-    let after_gas_balance = state
-        .get_owner_state(&owner)
-        .invariant("owner state should exist")
-        .native_balance();
+    let after_gas_balance =
+        state.get_owner_state(&owner).invariant("owner state should exist").native_balance();
     assert_eq!(after_gas_balance, before_balance - 210);
 
     let coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
     let mut mint = ChangeSet::new();
-    mint.created_objects.push((
-        "0xcafe".to_string(),
-        address_owned_object(owner, coin_type, coin_data, 1),
-    ));
+    mint.created_objects
+        .push(("0xcafe".to_string(), address_owned_object(owner, coin_type, coin_data, 1)));
     state.apply_changeset(&mint)?;
 
     assert_eq!(
-        state
-            .get_owner_state(&owner)
-            .invariant("owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&owner).invariant("owner state should exist").native_balance(),
         after_gas_balance
     );
 
@@ -1181,25 +1076,18 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
         "0xaaaa".to_string(),
         address_owned_object(alice, coin_type.clone(), alice_remaining_data, 2),
     ));
-    transfer.created_objects.push((
-        "0xbbbb".to_string(),
-        address_owned_object(bob, coin_type, bob_coin_data, 1),
-    ));
+    transfer
+        .created_objects
+        .push(("0xbbbb".to_string(), address_owned_object(bob, coin_type, bob_coin_data, 1)));
 
     state.apply_changeset(&transfer)?;
 
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .invariant("alice owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&alice).invariant("alice owner state should exist").native_balance(),
         890
     );
     assert_eq!(
-        state
-            .get_owner_state(&bob)
-            .invariant("bob owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&bob).invariant("bob owner state should exist").native_balance(),
         100
     );
     assert_eq!(
@@ -1257,19 +1145,11 @@ fn native_coin_incoming_transfer_updates_recipient_ledger_with_prior_coins() -> 
     transfer.add_deleted_object("0xaaaa".to_string());
     transfer.created_objects.push((
         "0xcccc".to_string(),
-        address_owned_object(
-            bob,
-            coin_type,
-            coin_object_data([0xccu8; UID_SIZE], alice_amount),
-            1,
-        ),
+        address_owned_object(bob, coin_type, coin_object_data([0xccu8; UID_SIZE], alice_amount), 1),
     ));
     state.apply_changeset(&transfer)?;
 
-    assert_eq!(
-        state.resolve_owner_native_balance(bob)?,
-        bob_amount + alice_amount
-    );
+    assert_eq!(state.resolve_owner_native_balance(bob)?, bob_amount + alice_amount);
     assert_eq!(state.resolve_owner_native_balance(alice)?, 0);
     state.validate_supply_invariants()?;
     Ok(())
@@ -1284,9 +1164,7 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
     let before_summary = state.token_supply_summary(GAS_COIN)?;
 
     let mut transfer = ChangeSet::new();
@@ -1296,17 +1174,11 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
     state.apply_changeset(&transfer)?;
 
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .invariant("alice owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&alice).invariant("alice owner state should exist").native_balance(),
         900
     );
     assert_eq!(
-        state
-            .get_owner_state(&bob)
-            .invariant("bob owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&bob).invariant("bob owner state should exist").native_balance(),
         100
     );
     assert_eq!(
@@ -1326,9 +1198,7 @@ fn native_self_transfer_preserves_balance_except_explicit_gas() -> Result<()> {
 
     state.save_owner_state(&OwnerState::with_native_balance(alice, 1_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
+    state.global_token_supplies.insert(GAS_COIN.to_string(), base.wallet_visible_supply + 1_000);
 
     let mut transfer = ChangeSet::new();
     transfer.transfer(alice, alice, 100);
@@ -1382,25 +1252,18 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
-    transfer.created_objects.push((
-        "0xaaaa".to_string(),
-        address_owned_object(bob, coin_type, moved_coin_data, 2),
-    ));
+    transfer
+        .created_objects
+        .push(("0xaaaa".to_string(), address_owned_object(bob, coin_type, moved_coin_data, 2)));
 
     state.apply_changeset(&transfer)?;
 
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .map(|account| account.native_balance())
-            .unwrap_or(0),
+        state.get_owner_state(&alice).map(|account| account.native_balance()).unwrap_or(0),
         0
     );
     assert_eq!(
-        state
-            .get_owner_state(&bob)
-            .invariant("bob owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&bob).invariant("bob owner state should exist").native_balance(),
         990
     );
     assert_eq!(
@@ -1431,16 +1294,11 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     let coin_data = coin_object_data([0u8; UID_SIZE], 1_000u64);
 
     let mut init = ChangeSet::new();
-    init.created_objects.push((
-        "0xaaaa".to_string(),
-        address_owned_object(alice, coin_type.clone(), coin_data, 1),
-    ));
+    init.created_objects
+        .push(("0xaaaa".to_string(), address_owned_object(alice, coin_type.clone(), coin_data, 1)));
     state.apply_changeset(&init)?;
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .invariant("alice owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&alice).invariant("alice owner state should exist").native_balance(),
         1_000
     );
 
@@ -1450,10 +1308,7 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     publish_like.collect_gas(gas_collector, 7);
     state.apply_changeset(&publish_like)?;
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .invariant("alice owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&alice).invariant("alice owner state should exist").native_balance(),
         993
     );
 
@@ -1462,10 +1317,9 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
     let mut object_backed_call = ChangeSet::new();
     object_backed_call.get_or_create_owner_delta(alice).debit(3);
     object_backed_call.collect_gas(gas_collector, 3);
-    object_backed_call.created_objects.push((
-        "0xaaaa".to_string(),
-        address_owned_object(alice, coin_type, touched_coin_data, 2),
-    ));
+    object_backed_call
+        .created_objects
+        .push(("0xaaaa".to_string(), address_owned_object(alice, coin_type, touched_coin_data, 2)));
     state.apply_changeset(&object_backed_call)?;
 
     assert_eq!(
@@ -1474,10 +1328,7 @@ fn object_backed_gas_recompute_preserves_prior_owner_only_native_debits() -> Res
         "later object-backed gas must not erase earlier owner-only gas debits"
     );
     assert_eq!(
-        state
-            .get_owner_state(&alice)
-            .invariant("alice owner state should exist")
-            .native_balance(),
+        state.get_owner_state(&alice).invariant("alice owner state should exist").native_balance(),
         990
     );
 
@@ -1518,10 +1369,9 @@ fn implicit_gas_object_adjustment_does_not_apply_total_gas_to_multiple_debit_own
         "0xaaaa".to_string(),
         address_owned_object(alice, coin_type.clone(), alice_touched, 2),
     ));
-    changeset.created_objects.push((
-        "0xbbbb".to_string(),
-        address_owned_object(bob, coin_type, bob_touched, 2),
-    ));
+    changeset
+        .created_objects
+        .push(("0xbbbb".to_string(), address_owned_object(bob, coin_type, bob_touched, 2)));
 
     state.apply_changeset(&changeset)?;
 
@@ -1560,13 +1410,10 @@ fn explicit_gas_object_adjusts_its_owner_even_with_multiple_debit_owners() -> Re
     changeset.get_or_create_owner_delta(alice).debit(7);
     changeset.get_or_create_owner_delta(bob).debit(4);
     changeset.collect_gas(gas_collector, 7);
+    changeset.gas_object_refs.push(ObjectRef::new("0xaaaa".to_string(), Some(1), None));
     changeset
-        .gas_object_refs
-        .push(ObjectRef::new("0xaaaa".to_string(), Some(1), None));
-    changeset.created_objects.push((
-        "0xbbbb".to_string(),
-        address_owned_object(bob, coin_type, bob_touched, 2),
-    ));
+        .created_objects
+        .push(("0xbbbb".to_string(), address_owned_object(bob, coin_type, bob_touched, 2)));
 
     state.apply_changeset(&changeset)?;
 
@@ -1588,10 +1435,9 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
 
     state.save_owner_state(&OwnerState::with_native_balance(sender, 10_000))?;
     set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
-    state.global_token_supplies.insert(
-        GAS_COIN.to_string(),
-        base.wallet_visible_supply + 10_000 + 6_614,
-    );
+    state
+        .global_token_supplies
+        .insert(GAS_COIN.to_string(), base.wallet_visible_supply + 10_000 + 6_614);
 
     let mut mint = ChangeSet::new();
     mint.get_or_create_owner_delta(sender).debit(210);
@@ -1623,12 +1469,7 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
             .native_balance(),
         210
     );
-    assert_eq!(
-        state
-            .token_supply_summary(custom_token)?
-            .wallet_visible_supply,
-        1_000
-    );
+    assert_eq!(state.token_supply_summary(custom_token)?.wallet_visible_supply, 1_000);
     state.validate_supply_invariants()?;
 
     Ok(())
@@ -1749,12 +1590,7 @@ fn apply_changeset_rejects_non_native_token_supply_overcount_atomically() -> Res
     ));
     setup.created_objects.push((
         "0xbeef".to_string(),
-        address_owned_object(
-            owner,
-            coin_type.clone(),
-            coin_object_data([1u8; UID_SIZE], 100),
-            1,
-        ),
+        address_owned_object(owner, coin_type.clone(), coin_object_data([1u8; UID_SIZE], 100), 1),
     ));
     state.apply_changeset(&setup)?;
 
@@ -1767,11 +1603,7 @@ fn apply_changeset_rejects_non_native_token_supply_overcount_atomically() -> Res
         .apply_changeset(&over_mint)
         .expect_err("non-native supply overcount must be rejected");
 
-    assert!(
-        error
-            .to_string()
-            .contains("fungible token supply overcount")
-    );
+    assert!(error.to_string().contains("fungible token supply overcount"));
     assert!(state.get_object("0xbad1")?.is_none());
     assert_eq!(state.resolve_owner_token_balance(owner, token_type)?, 100);
     Ok(())
@@ -1832,15 +1664,11 @@ fn custom_token_mint_updates_supply_from_treasury_cap_object() -> Result<()> {
 
     let mint_cap_data = coin_object_data([0u8; UID_SIZE], 1_000_000u64);
     let mut mint = ChangeSet::new();
-    mint.created_objects.push((
-        "0xcafe".to_string(),
-        address_owned_object(owner, cap_type, mint_cap_data, 2),
-    ));
+    mint.created_objects
+        .push(("0xcafe".to_string(), address_owned_object(owner, cap_type, mint_cap_data, 2)));
     let minted_coin_data = coin_object_data([0u8; UID_SIZE], 1_000_000u64);
-    mint.created_objects.push((
-        "0xbeef".to_string(),
-        address_owned_object(owner, coin_type, minted_coin_data, 1),
-    ));
+    mint.created_objects
+        .push(("0xbeef".to_string(), address_owned_object(owner, coin_type, minted_coin_data, 1)));
 
     state.apply_changeset(&mint)?;
 
@@ -1865,10 +1693,9 @@ fn custom_token_incoming_coin_adds_to_existing_wallet_balance() -> Result<()> {
     let first_coin_data = coin_object_data([0u8; UID_SIZE], 100u64);
 
     let mut setup = ChangeSet::new();
-    setup.created_objects.push((
-        "0xcafe".to_string(),
-        address_owned_object(owner, cap_type, cap_data, 1),
-    ));
+    setup
+        .created_objects
+        .push(("0xcafe".to_string(), address_owned_object(owner, cap_type, cap_data, 1)));
     setup.created_objects.push((
         "0xaaaa".to_string(),
         address_owned_object(owner, coin_type.clone(), first_coin_data, 1),
@@ -1951,16 +1778,8 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
         state.token_supply_summary(GAS_COIN)?.wallet_visible_supply,
         base.wallet_visible_supply + 10_000
     );
-    assert_eq!(
-        state.token_supply_summary(custom_token)?.total_supply,
-        1_000_000
-    );
-    assert_eq!(
-        state
-            .token_supply_summary(custom_token)?
-            .wallet_visible_supply,
-        1_000
-    );
+    assert_eq!(state.token_supply_summary(custom_token)?.total_supply, 1_000_000);
+    assert_eq!(state.token_supply_summary(custom_token)?.wallet_visible_supply, 1_000);
     state.validate_supply_invariants()?;
 
     Ok(())
@@ -2007,10 +1826,7 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
 
     let summary = state.token_supply_summary(GAS_COIN)?;
     assert_eq!(summary.total_supply, base.total_supply + 10_000);
-    assert_eq!(
-        summary.wallet_visible_supply,
-        base.wallet_visible_supply + 9_000
-    );
+    assert_eq!(summary.wallet_visible_supply, base.wallet_visible_supply + 9_000);
     assert_eq!(summary.object_locked_supply, 1_000);
     assert_eq!(summary.accounted_supply, summary.total_supply);
     state.validate_supply_invariants()?;
@@ -2053,12 +1869,8 @@ fn thb_metadata_decimals_six_end_to_end() -> Result<()> {
     let data = bcs::to_bytes(&TestCoinMetadata {
         id: AccountAddress::from_hex_literal("0xdead")?,
         decimals: 6,
-        name: TestMoveString {
-            bytes: b"THB Token".to_vec(),
-        },
-        symbol: TestMoveString {
-            bytes: b"THB".to_vec(),
-        },
+        name: TestMoveString { bytes: b"THB Token".to_vec() },
+        symbol: TestMoveString { bytes: b"THB".to_vec() },
         description: TestMoveString { bytes: vec![] },
         icon_url: TestMoveOption { vec: vec![] },
     })?;
@@ -2069,10 +1881,7 @@ fn thb_metadata_decimals_six_end_to_end() -> Result<()> {
     // Decimals must be exactly 6 — no silent 9 fallback.
     assert_eq!(state.get_token_decimals(token_type)?, Some(6));
     // Name/symbol must not be swapped (parser order matches Move).
-    assert_eq!(
-        state.get_token_name(token_type)?.as_deref(),
-        Some("THB Token")
-    );
+    assert_eq!(state.get_token_name(token_type)?.as_deref(), Some("THB Token"));
     assert_eq!(state.get_token_symbol(token_type)?.as_deref(), Some("THB"));
     // Raw-spelling lookup hits the canonical record.
     assert_eq!(state.get_token_decimals("0x000abc::thb::THB")?, Some(6));
@@ -2083,9 +1892,7 @@ fn thb_metadata_decimals_six_end_to_end() -> Result<()> {
         panic!("THB decimals must be indexed");
     });
     assert_eq!(decimals, 6);
-    let scale = 10u64
-        .checked_pow(decimals as u32)
-        .expect("decimals overflow");
+    let scale = 10u64.checked_pow(decimals as u32).expect("decimals overflow");
     assert_eq!(raw / scale, 100);
     assert_eq!(raw % scale, 0);
 

@@ -12,9 +12,7 @@ pub fn verify_signature_falcon512(
 ) -> Result<bool, SignatureError> {
     let public_key_bytes = decode_public_key(address_hex)?;
     if public_key_bytes.len() != falcon_provider::FALCON512_PUBLIC_KEY_BYTES {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid FN-DSA-512 public key".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Invalid FN-DSA-512 public key".to_string()));
     }
     falcon_provider::verify_falcon512(&public_key_bytes, message, signature)
 }
@@ -26,9 +24,7 @@ pub fn verify_signature_falcon1024(
 ) -> Result<bool, SignatureError> {
     let public_key_bytes = decode_public_key(address_hex)?;
     if public_key_bytes.len() != falcon_provider::FALCON1024_PUBLIC_KEY_BYTES {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid FN-DSA-1024 public key".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Invalid FN-DSA-1024 public key".to_string()));
     }
     falcon_provider::verify_falcon1024(&public_key_bytes, message, signature)
 }
@@ -58,7 +54,9 @@ fn decode_public_key(public_key_hex: &str) -> Result<Vec<u8>, SignatureError> {
 fn decode_secret_key(private_key_hex: &str) -> Result<Zeroizing<Vec<u8>>, SignatureError> {
     let raw = crate::keys::extract_raw_key(private_key_hex);
     let secret_hex = raw.split_once(':').map(|(secret, _)| secret).unwrap_or(raw);
-    Ok(Zeroizing::new(hex::decode(secret_hex).map_err(|_| {
-        SignatureError::InvalidPrivateKey("Invalid private key hex".to_string())
-    })?))
+    Ok(Zeroizing::new(
+        hex::decode(secret_hex).map_err(|_| {
+            SignatureError::InvalidPrivateKey("Invalid private key hex".to_string())
+        })?,
+    ))
 }

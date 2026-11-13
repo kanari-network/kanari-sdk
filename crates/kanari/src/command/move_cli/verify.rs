@@ -63,11 +63,7 @@ impl Verify {
         };
 
         eprintln!("Sending verify request to {}...", rpc);
-        let resp = client
-            .post(&rpc)
-            .json(&req)
-            .send()
-            .context("Failed to send RPC request")?;
+        let resp = client.post(&rpc).json(&req).send().context("Failed to send RPC request")?;
 
         let rpc_resp: RpcResponse = resp.json().context("Failed to parse RPC response")?;
         if let Some(err) = rpc_resp.error {

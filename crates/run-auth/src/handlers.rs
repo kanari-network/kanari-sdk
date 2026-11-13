@@ -28,11 +28,7 @@ fn parse_session_timeout_hours(hours: Option<u64>) -> Result<Option<std::time::D
     if hours == 0 || hours > MAX_SESSION_TIMEOUT_HOURS {
         return Err(());
     }
-    hours
-        .checked_mul(SECONDS_PER_HOUR)
-        .map(std::time::Duration::from_secs)
-        .map(Some)
-        .ok_or(())
+    hours.checked_mul(SECONDS_PER_HOUR).map(std::time::Duration::from_secs).map(Some).ok_or(())
 }
 
 fn internal_error<T: Serialize>(message: &'static str) -> Json<ApiResponse<T>> {
@@ -66,14 +62,11 @@ fn validate_session_owner(
         Ok(session) if session.email == normalized_email => Ok(()),
         Ok(_) => Err((
             StatusCode::FORBIDDEN,
-            Json(ApiResponse::error(
-                "Unauthorized: Session does not match email",
-            )),
+            Json(ApiResponse::error("Unauthorized: Session does not match email")),
         )),
-        Err(_) => Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ApiResponse::error("Invalid or expired session")),
-        )),
+        Err(_) => {
+            Err((StatusCode::UNAUTHORIZED, Json(ApiResponse::error("Invalid or expired session"))))
+        }
     }
 }
 
@@ -85,9 +78,7 @@ fn validate_session_owner_for<T: Serialize>(
     validate_session_owner(auth, session_id, email).map_err(|(status, json)| {
         (
             status,
-            Json(ApiResponse::error(
-                json.0.error.unwrap_or_else(|| "Request failed".to_string()),
-            )),
+            Json(ApiResponse::error(json.0.error.unwrap_or_else(|| "Request failed".to_string()))),
         )
     })
 }
@@ -100,11 +91,7 @@ fn build_rate_limit_response(
         headers.insert("Retry-After", value);
     }
 
-    (
-        StatusCode::TOO_MANY_REQUESTS,
-        headers,
-        Json(ApiResponse::error("Rate limit exceeded")),
-    )
+    (StatusCode::TOO_MANY_REQUESTS, headers, Json(ApiResponse::error("Rate limit exceeded")))
 }
 
 /// Register a new user
@@ -241,11 +228,7 @@ pub async fn register(
                 StatusCode::BAD_REQUEST => "Invalid registration data",
                 _ => "Registration failed",
             };
-            (
-                status_code,
-                Json(ApiResponse::<serde_json::Value>::error(message)),
-            )
-                .into_response()
+            (status_code, Json(ApiResponse::<serde_json::Value>::error(message))).into_response()
         }
     }
 }
@@ -292,31 +275,25 @@ pub async fn login(
 
     match auth.login(&payload.email, &payload.password, session_timeout) {
         Ok(session) => {
-            let two_factor_status =
-                match auth.get_two_factor_status(&normalized_email, &payload.password) {
-                    Ok(status) => status,
-                    Err(e) => {
-                        error!("Failed to read 2FA status: {:?}", e);
-                        let _ = auth.logout(&session.session_id);
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ApiResponse::<serde_json::Value>::error(
-                                "Failed to read 2FA status",
-                            )),
-                        )
-                            .into_response();
-                    }
-                };
-            let two_factor_enabled = two_factor_status
-                .as_ref()
-                .map(|status| status.enabled)
-                .unwrap_or(false);
+            let two_factor_status = match auth
+                .get_two_factor_status(&normalized_email, &payload.password)
+            {
+                Ok(status) => status,
+                Err(e) => {
+                    error!("Failed to read 2FA status: {:?}", e);
+                    let _ = auth.logout(&session.session_id);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiResponse::<serde_json::Value>::error("Failed to read 2FA status")),
+                    )
+                        .into_response();
+                }
+            };
+            let two_factor_enabled =
+                two_factor_status.as_ref().map(|status| status.enabled).unwrap_or(false);
             if let Some(two_factor_status) = two_factor_status.filter(|status| status.enabled) {
                 let verification = if let Some(code) = payload.totp_code.as_deref() {
-                    if state
-                        .totp_manager
-                        .verify_code(&two_factor_status.secret, code)
-                    {
+                    if state.totp_manager.verify_code(&two_factor_status.secret, code) {
                         Ok(crate::two_factor::VerificationMethod::Totp)
                     } else {
                         Err("Invalid TOTP code")
@@ -437,11 +414,7 @@ pub async fn login(
                 StatusCode::BAD_REQUEST => "Invalid login request",
                 _ => "Login failed",
             };
-            (
-                status_code,
-                Json(ApiResponse::<serde_json::Value>::error(message)),
-            )
-                .into_response()
+            (status_code, Json(ApiResponse::<serde_json::Value>::error(message))).into_response()
         }
     }
 }
@@ -509,10 +482,7 @@ pub async fn logout_all(
         }
         Err(e) => {
             error!("Logout all failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error("Logout all failed")),
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error("Logout all failed")))
         }
     }
 }
@@ -609,12 +579,7 @@ pub async fn get_user_info(
     let session_id = match bearer_session_id(&headers) {
         Ok(session_id) => session_id,
         Err(status) => {
-            return (
-                status,
-                Json(ApiResponse::error(
-                    "Missing or invalid Authorization header",
-                )),
-            );
+            return (status, Json(ApiResponse::error("Missing or invalid Authorization header")));
         }
     };
 
@@ -635,11 +600,7 @@ pub async fn get_user_info(
     match auth.get_user_info(&session) {
         Ok((email, wallet_address)) => (
             StatusCode::OK,
-            Json(ApiResponse::success(UserInfoResponse {
-                success: true,
-                email,
-                wallet_address,
-            })),
+            Json(ApiResponse::success(UserInfoResponse { success: true, email, wallet_address })),
         ),
         Err(e) => {
             error!("Failed to load user info: {:?}", e);
@@ -658,10 +619,7 @@ pub async fn get_user_encrypted_key(
     ClientIp(client_ip): ClientIp,
     Json(payload): Json<crate::models::GetEncryptedKeyRequest>,
 ) -> (StatusCode, Json<ApiResponse<EncryptedKeyResponse>>) {
-    info!(
-        "Encrypted key retrieval attempt for email: {}",
-        payload.email
-    );
+    info!("Encrypted key retrieval attempt for email: {}", payload.email);
 
     let mut auth = state.auth_manager.lock().await;
 
@@ -745,12 +703,7 @@ pub async fn validate_session(
     let session_id = match bearer_session_id(&headers) {
         Ok(session_id) => session_id,
         Err(status) => {
-            return (
-                status,
-                Json(ApiResponse::error(
-                    "Missing or invalid Authorization header",
-                )),
-            );
+            return (status, Json(ApiResponse::error("Missing or invalid Authorization header")));
         }
     };
 
@@ -780,10 +733,7 @@ pub async fn validate_session(
                 )
             } else {
                 error!("Session validation failed: {:?}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    internal_error("Session validation failed"),
-                )
+                (StatusCode::INTERNAL_SERVER_ERROR, internal_error("Session validation failed"))
             }
         }
     }
@@ -795,10 +745,7 @@ pub async fn setup_2fa(
     ClientIp(client_ip): ClientIp,
     headers: HeaderMap,
     Json(payload): Json<crate::models::TwoFactorSetupRequest>,
-) -> (
-    StatusCode,
-    Json<ApiResponse<crate::models::TwoFactorSetupResponse>>,
-) {
+) -> (StatusCode, Json<ApiResponse<crate::models::TwoFactorSetupResponse>>) {
     info!("2FA setup requested for email: {}", payload.email);
 
     if let Err(limit) = state.rate_limiter.check_rate_limit(client_ip).await {
@@ -816,22 +763,14 @@ pub async fn setup_2fa(
     let session_id = match bearer_session_id(&headers) {
         Ok(session_id) => session_id,
         Err(status) => {
-            return (
-                status,
-                Json(ApiResponse::error(
-                    "Missing or invalid Authorization header",
-                )),
-            );
+            return (status, Json(ApiResponse::error("Missing or invalid Authorization header")));
         }
     };
     if let Err((status, response)) = validate_session_owner(&mut auth, session_id, &payload.email) {
         return (
             status,
             Json(ApiResponse::error(
-                response
-                    .0
-                    .error
-                    .unwrap_or_else(|| "Unauthorized".to_string()),
+                response.0.error.unwrap_or_else(|| "Unauthorized".to_string()),
             )),
         );
     }
@@ -839,9 +778,7 @@ pub async fn setup_2fa(
     {
         return (
             StatusCode::CONFLICT,
-            Json(ApiResponse::error(
-                "Disable existing 2FA before creating a new setup",
-            )),
+            Json(ApiResponse::error("Disable existing 2FA before creating a new setup")),
         );
     }
 
@@ -864,10 +801,8 @@ pub async fn setup_2fa(
                     Json(ApiResponse::error("Failed to persist 2FA setup")),
                 );
             }
-            let qr_code_svg = state
-                .totp_manager
-                .generate_qr_svg(&setup.otpauth_url)
-                .unwrap_or_default();
+            let qr_code_svg =
+                state.totp_manager.generate_qr_svg(&setup.otpauth_url).unwrap_or_default();
 
             // Log the event
             state
@@ -886,16 +821,14 @@ pub async fn setup_2fa(
 
             (
                 StatusCode::OK,
-                Json(ApiResponse::success(
-                    crate::models::TwoFactorSetupResponse {
-                        success: true,
-                        secret: setup.secret,
-                        otpauth_url: setup.otpauth_url,
-                        qr_code_svg,
-                        backup_codes: setup.backup_codes,
-                        message: "Scan the QR code with your authenticator app".to_string(),
-                    },
-                )),
+                Json(ApiResponse::success(crate::models::TwoFactorSetupResponse {
+                    success: true,
+                    secret: setup.secret,
+                    otpauth_url: setup.otpauth_url,
+                    qr_code_svg,
+                    backup_codes: setup.backup_codes,
+                    message: "Scan the QR code with your authenticator app".to_string(),
+                })),
             )
         }
         Err(e) => {
@@ -913,10 +846,7 @@ pub async fn setup_2fa(
                 )
                 .await;
 
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Authentication failed")),
-            )
+            (StatusCode::UNAUTHORIZED, Json(ApiResponse::error("Authentication failed")))
         }
     }
 }
@@ -942,22 +872,14 @@ pub async fn enable_2fa(
     let session_id = match bearer_session_id(&headers) {
         Ok(session_id) => session_id,
         Err(status) => {
-            return (
-                status,
-                Json(ApiResponse::error(
-                    "Missing or invalid Authorization header",
-                )),
-            );
+            return (status, Json(ApiResponse::error("Missing or invalid Authorization header")));
         }
     };
     if let Err((status, response)) = validate_session_owner(&mut auth, session_id, &payload.email) {
         return (
             status,
             Json(ApiResponse::error(
-                response
-                    .0
-                    .error
-                    .unwrap_or_else(|| "Unauthorized".to_string()),
+                response.0.error.unwrap_or_else(|| "Unauthorized".to_string()),
             )),
         );
     }
@@ -977,10 +899,7 @@ pub async fn enable_2fa(
                     "Authentication failed".to_string(),
                 )
                 .await;
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Authentication failed")),
-            );
+            return (StatusCode::UNAUTHORIZED, Json(ApiResponse::error("Authentication failed")));
         }
     };
     let _ = auth.logout(&temp_session.session_id);
@@ -1003,20 +922,11 @@ pub async fn enable_2fa(
     };
 
     if status.enabled {
-        return (
-            StatusCode::CONFLICT,
-            Json(ApiResponse::error("2FA is already enabled")),
-        );
+        return (StatusCode::CONFLICT, Json(ApiResponse::error("2FA is already enabled")));
     }
 
-    if !state
-        .totp_manager
-        .verify_code(&status.secret, &payload.code)
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error("Invalid TOTP code")),
-        );
+    if !state.totp_manager.verify_code(&status.secret, &payload.code) {
+        return (StatusCode::BAD_REQUEST, Json(ApiResponse::error("Invalid TOTP code")));
     }
 
     match auth.enable_two_factor(&normalized_email) {
@@ -1038,10 +948,7 @@ pub async fn enable_2fa(
                 }))),
             )
         }
-        Err(err) => (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(err.to_string())),
-        ),
+        Err(err) => (StatusCode::BAD_REQUEST, Json(ApiResponse::error(err.to_string()))),
     }
 }
 
@@ -1065,22 +972,14 @@ pub async fn disable_2fa(
     let session_id = match bearer_session_id(&headers) {
         Ok(session_id) => session_id,
         Err(status) => {
-            return (
-                status,
-                Json(ApiResponse::error(
-                    "Missing or invalid Authorization header",
-                )),
-            );
+            return (status, Json(ApiResponse::error("Missing or invalid Authorization header")));
         }
     };
     if let Err((status, response)) = validate_session_owner(&mut auth, session_id, &payload.email) {
         return (
             status,
             Json(ApiResponse::error(
-                response
-                    .0
-                    .error
-                    .unwrap_or_else(|| "Unauthorized".to_string()),
+                response.0.error.unwrap_or_else(|| "Unauthorized".to_string()),
             )),
         );
     }
@@ -1099,10 +998,7 @@ pub async fn disable_2fa(
                     "Authentication failed".to_string(),
                 )
                 .await;
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Authentication failed")),
-            );
+            return (StatusCode::UNAUTHORIZED, Json(ApiResponse::error("Authentication failed")));
         }
     };
     let _ = auth.logout(&temp_session.session_id);
@@ -1117,14 +1013,8 @@ pub async fn disable_2fa(
             );
         }
     };
-    if !state
-        .totp_manager
-        .verify_code(&status.secret, &payload.code)
-    {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiResponse::error("Invalid TOTP code")),
-        );
+    if !state.totp_manager.verify_code(&status.secret, &payload.code) {
+        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::error("Invalid TOTP code")));
     }
     match auth.disable_two_factor(&normalized_email) {
         Ok(true) => {
@@ -1145,16 +1035,12 @@ pub async fn disable_2fa(
                 }))),
             )
         }
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(ApiResponse::error("2FA is not enabled for this user")),
-        ),
+        Ok(false) => {
+            (StatusCode::NOT_FOUND, Json(ApiResponse::error("2FA is not enabled for this user")))
+        }
         Err(e) => {
             error!("Failed to disable 2FA: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error("Failed to disable 2FA")),
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error("Failed to disable 2FA")))
         }
     }
 }
@@ -1185,22 +1071,16 @@ mod tests {
         );
         assert_eq!(
             parse_session_timeout_hours(Some(MAX_SESSION_TIMEOUT_HOURS)).unwrap(),
-            Some(std::time::Duration::from_secs(
-                MAX_SESSION_TIMEOUT_HOURS * SECONDS_PER_HOUR
-            ))
+            Some(std::time::Duration::from_secs(MAX_SESSION_TIMEOUT_HOURS * SECONDS_PER_HOUR))
         );
     }
 
     #[test]
     fn session_owner_rejects_cross_account_reuse() {
         let mut auth = kanari_auth::AuthManager::new();
-        auth.register_user("alice@example.com", TEST_PASSWORD, None)
-            .unwrap();
-        auth.register_user("bob@example.com", TEST_PASSWORD, None)
-            .unwrap();
-        let session = auth
-            .login("alice@example.com", TEST_PASSWORD, None)
-            .unwrap();
+        auth.register_user("alice@example.com", TEST_PASSWORD, None).unwrap();
+        auth.register_user("bob@example.com", TEST_PASSWORD, None).unwrap();
+        let session = auth.login("alice@example.com", TEST_PASSWORD, None).unwrap();
 
         assert!(
             validate_session_owner(&mut auth, &session.session_id, "alice@example.com").is_ok()
@@ -1213,13 +1093,9 @@ mod tests {
     #[test]
     fn logged_out_session_cannot_be_replayed() {
         let mut auth = kanari_auth::AuthManager::new();
-        auth.register_user("alice@example.com", TEST_PASSWORD, None)
-            .unwrap();
-        let session_id = auth
-            .login("alice@example.com", TEST_PASSWORD, None)
-            .unwrap()
-            .session_id
-            .clone();
+        auth.register_user("alice@example.com", TEST_PASSWORD, None).unwrap();
+        let session_id =
+            auth.login("alice@example.com", TEST_PASSWORD, None).unwrap().session_id.clone();
 
         validate_session_owner(&mut auth, &session_id, "alice@example.com").unwrap();
         auth.logout(&session_id).unwrap();

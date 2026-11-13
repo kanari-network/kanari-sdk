@@ -140,22 +140,15 @@ fn create_test_package() -> Result<PathBuf> {
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
-    fs::write(
-        package_dir
-            .join("sources")
-            .join(format!("{}.move", MODULE_NAME)),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join(format!("{}.move", MODULE_NAME)), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

@@ -40,16 +40,11 @@ impl ParsedAddress {
 
 impl NumericalAddress {
     // bytes used for errors when an address is not known but is needed
-    pub const DEFAULT_ERROR_ADDRESS: Self = NumericalAddress {
-        bytes: AccountAddress::ONE,
-        format: NumberFormat::Hex,
-    };
+    pub const DEFAULT_ERROR_ADDRESS: Self =
+        NumericalAddress { bytes: AccountAddress::ONE, format: NumberFormat::Hex };
 
     pub const fn new(bytes: [u8; AccountAddress::LENGTH], format: NumberFormat) -> Self {
-        Self {
-            bytes: AccountAddress::new(bytes),
-            format,
-        }
+        Self { bytes: AccountAddress::new(bytes), format }
     }
 
     pub fn into_inner(self) -> AccountAddress {
@@ -62,10 +57,7 @@ impl NumericalAddress {
 
     pub fn parse_str(s: &str) -> Result<NumericalAddress, String> {
         match parse_address_number(s) {
-            Some((n, format)) => Ok(NumericalAddress {
-                bytes: AccountAddress::new(n),
-                format,
-            }),
+            Some((n, format)) => Ok(NumericalAddress { bytes: AccountAddress::new(n), format }),
             None =>
             // TODO the kind of error is in an unstable nightly API
             // But currently the only way this should fail is if the number is too long
@@ -107,10 +99,7 @@ impl fmt::Debug for NumericalAddress {
 impl fmt::UpperHex for NumericalAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let encoded = hex::encode_upper(self.as_ref());
-        let dropped = encoded
-            .chars()
-            .skip_while(|c| c == &'0')
-            .collect::<String>();
+        let dropped = encoded.chars().skip_while(|c| c == &'0').collect::<String>();
         let prefix = if f.alternate() { "0x" } else { "" };
         if dropped.is_empty() {
             write!(f, "{}0", prefix)
@@ -123,10 +112,7 @@ impl fmt::UpperHex for NumericalAddress {
 impl fmt::LowerHex for NumericalAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let encoded = hex::encode(self.as_ref());
-        let dropped = encoded
-            .chars()
-            .skip_while(|c| c == &'0')
-            .collect::<String>();
+        let dropped = encoded.chars().skip_while(|c| c == &'0').collect::<String>();
         let prefix = if f.alternate() { "0x" } else { "" };
         if dropped.is_empty() {
             write!(f, "{}0", prefix)
@@ -152,28 +138,16 @@ impl PartialOrd for NumericalAddress {
 }
 impl Ord for NumericalAddress {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let Self {
-            bytes: self_bytes,
-            format: _,
-        } = self;
-        let Self {
-            bytes: other_bytes,
-            format: _,
-        } = other;
+        let Self { bytes: self_bytes, format: _ } = self;
+        let Self { bytes: other_bytes, format: _ } = other;
         self_bytes.cmp(other_bytes)
     }
 }
 
 impl PartialEq for NumericalAddress {
     fn eq(&self, other: &Self) -> bool {
-        let Self {
-            bytes: self_bytes,
-            format: _,
-        } = self;
-        let Self {
-            bytes: other_bytes,
-            format: _,
-        } = other;
+        let Self { bytes: self_bytes, format: _ } = self;
+        let Self { bytes: other_bytes, format: _ } = other;
         self_bytes == other_bytes
     }
 }
@@ -181,10 +155,7 @@ impl Eq for NumericalAddress {}
 
 impl Hash for NumericalAddress {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let Self {
-            bytes: self_bytes,
-            format: _,
-        } = self;
+        let Self { bytes: self_bytes, format: _ } = self;
         self_bytes.hash(state)
     }
 }

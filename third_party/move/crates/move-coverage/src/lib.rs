@@ -28,9 +28,8 @@ pub fn format_human_summary<'a, M, F, W: Write>(
 
     for module in modules {
         let coverage_summary = summary_func(module, coverage_map);
-        let (total, covered) = coverage_summary
-            .summarize_human(summary_writer, summarize_functions)
-            .unwrap();
+        let (total, covered) =
+            coverage_summary.summarize_human(summary_writer, summarize_functions).unwrap();
         total_covered += covered;
         total_instructions += total;
     }

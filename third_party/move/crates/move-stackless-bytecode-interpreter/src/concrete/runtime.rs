@@ -65,12 +65,7 @@ impl<'env> Runtime<'env> {
             check_and_convert_type_args_and_args(fun_env, ty_args, args)
                 .map_err(|e| e.finish(Location::Undefined))?;
         let fun_target = choose_variant(self.functions, fun_env);
-        self.execute_target(
-            fun_target,
-            &converted_ty_args,
-            &converted_args,
-            global_state,
-        )
+        self.execute_target(fun_target, &converted_ty_args, &converted_args, global_state)
     }
 
     //
@@ -84,10 +79,7 @@ impl<'env> Runtime<'env> {
         args: &[TypedValue],
         global_state: &mut GlobalState,
     ) -> VMResult<Vec<TypedValue>> {
-        let settings = self
-            .env
-            .get_extension::<InterpreterSettings>()
-            .unwrap_or_default();
+        let settings = self.env.get_extension::<InterpreterSettings>().unwrap_or_default();
         player::entrypoint(
             self.functions,
             fun_target,
@@ -123,9 +115,7 @@ fn check_and_convert_type_args_and_args(
     // check and convert value arguments
     let params = fun_env.get_parameters();
     if params.len() != args.len() {
-        return Err(PartialVMError::new(
-            StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
-        ));
+        return Err(PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH));
     }
     let mut converted_args = vec![];
     for (i, (arg, param)) in args.iter().zip(params).enumerate() {
@@ -195,11 +185,7 @@ pub fn convert_move_struct_tag(
     let ident = StructIdent::new(&struct_env);
 
     // check and convert type args
-    check_type_instantiation(
-        env,
-        &struct_env.get_type_parameters(),
-        &struct_tag.type_params,
-    )?;
+    check_type_instantiation(env, &struct_env.get_type_parameters(), &struct_tag.type_params)?;
     let insts = struct_tag
         .type_params
         .iter()
@@ -212,18 +198,11 @@ pub fn convert_move_struct_tag(
         .map(|field_env| {
             let field_name = env.symbol_pool().string(field_env.get_name()).to_string();
             let field_ty = convert_model_base_type(env, &field_env.get_type(), &insts);
-            StructField {
-                name: field_name,
-                ty: field_ty,
-            }
+            StructField { name: field_name, ty: field_ty }
         })
         .collect();
 
-    Ok(StructInstantiation {
-        ident,
-        insts,
-        fields,
-    })
+    Ok(StructInstantiation { ident, insts, fields })
 }
 
 pub fn convert_move_value(val: &MoveValue, ty: &BaseType) -> PartialVMResult<TypedValue> {
@@ -276,9 +255,7 @@ fn check_type_instantiation(
     args: &[TypeTag],
 ) -> PartialVMResult<()> {
     if params.len() != args.len() {
-        return Err(PartialVMError::new(
-            StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
-        ));
+        return Err(PartialVMError::new(StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH));
     }
     for (arg, param) in args.iter().zip(params) {
         if !param.1.0.is_subset(get_abilities(env, arg)?) {

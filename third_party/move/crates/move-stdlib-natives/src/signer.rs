@@ -42,18 +42,13 @@ fn native_borrow_address(
     native_charge_gas_early_exit!(context, gas_params.base);
     let signer_reference = pop_arg!(arguments, SignerRef);
 
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![signer_reference.borrow_signer()?],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![signer_reference.borrow_signer()?]))
 }
 
 pub fn make_native_borrow_address(gas_params: BorrowAddressGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_borrow_address(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_borrow_address(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************
@@ -85,18 +80,13 @@ fn native_address_to_bytes(
     native_charge_gas_early_exit!(context, gas_params.base);
     let addr = pop_arg!(arguments, AccountAddress);
 
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::vector_u8(addr.to_vec())],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(addr.to_vec())]))
 }
 
 pub fn make_native_address_to_bytes(gas_params: AddressToBytesGasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_address_to_bytes(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_address_to_bytes(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************
@@ -132,18 +122,13 @@ fn native_address_to_u64(
     low.copy_from_slice(&bytes[24..32]);
     let value = u64::from_be_bytes(low);
 
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![Value::u64(value)],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![Value::u64(value)]))
 }
 
 pub fn make_native_address_to_u64(gas_params: AddressToU64GasParameters) -> NativeFunction {
-    Arc::new(
-        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-            native_address_to_u64(&gas_params, context, ty_args, args)
-        },
-    )
+    Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+        native_address_to_u64(&gas_params, context, ty_args, args)
+    })
 }
 
 /***************************************************************************************************
@@ -158,18 +143,9 @@ pub struct GasParameters {
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = [
-        (
-            "borrow_address",
-            make_native_borrow_address(gas_params.borrow_address),
-        ),
-        (
-            "address_to_bytes",
-            make_native_address_to_bytes(gas_params.address_to_bytes),
-        ),
-        (
-            "address_to_u64",
-            make_native_address_to_u64(gas_params.address_to_u64),
-        ),
+        ("borrow_address", make_native_borrow_address(gas_params.borrow_address)),
+        ("address_to_bytes", make_native_address_to_bytes(gas_params.address_to_bytes)),
+        ("address_to_u64", make_native_address_to_u64(gas_params.address_to_u64)),
     ];
 
     make_module_natives(natives)

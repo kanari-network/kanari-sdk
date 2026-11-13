@@ -369,12 +369,7 @@ pub enum Exp_ {
     Value(Value),
 
     Name(ModuleAccess, Option<Vec<Type>>),
-    Call(
-        ModuleAccess,
-        /* is_macro */ Option<Loc>,
-        Option<Vec<Type>>,
-        Spanned<Vec<Exp>>,
-    ),
+    Call(ModuleAccess, /* is_macro */ Option<Loc>, Option<Vec<Type>>, Spanned<Vec<Exp>>),
     MethodCall(
         Box<ExpDotted>,
         Name,
@@ -391,13 +386,7 @@ pub enum Exp_ {
     Loop(Option<BlockLabel>, Box<Exp>),
     Block(Option<BlockLabel>, Sequence),
     Lambda(LambdaLValues, Option<Type>, Box<Exp>),
-    Quant(
-        QuantKind,
-        LValueWithRangeList,
-        Vec<Vec<Exp>>,
-        Option<Box<Exp>>,
-        Box<Exp>,
-    ), // spec only
+    Quant(QuantKind, LValueWithRangeList, Vec<Vec<Exp>>, Option<Box<Exp>>, Box<Exp>), // spec only
 
     Assign(LValueList, Box<Exp>),
     FieldMutate(Box<ExpDotted>, Box<Exp>),
@@ -452,17 +441,8 @@ pub enum Ellipsis<T> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchPattern_ {
-    PositionalConstructor(
-        ModuleAccess,
-        Option<Vec<Type>>,
-        Spanned<Vec<Ellipsis<MatchPattern>>>,
-    ),
-    NamedConstructor(
-        ModuleAccess,
-        Option<Vec<Type>>,
-        Fields<MatchPattern>,
-        Option<Loc>,
-    ),
+    PositionalConstructor(ModuleAccess, Option<Vec<Type>>, Spanned<Vec<Ellipsis<MatchPattern>>>),
+    NamedConstructor(ModuleAccess, Option<Vec<Type>>, Fields<MatchPattern>, Option<Loc>),
     HeadConstructor(ModuleAccess, Option<Vec<Type>>),
     Binder(Mutability, Var),
     Literal(Value),
@@ -573,10 +553,7 @@ impl Ord for Address {
 impl Hash for Address {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            Self::Numerical {
-                value: sp!(_, bytes),
-                ..
-            } => bytes.hash(state),
+            Self::Numerical { value: sp!(_, bytes), .. } => bytes.hash(state),
             Self::NamedUnassigned(name) => name.hash(state),
         }
     }
@@ -611,10 +588,7 @@ impl Default for UseFuns {
 
 impl UseFuns {
     pub fn new() -> Self {
-        Self {
-            explicit: vec![],
-            implicit: UniqueMap::new(),
-        }
+        Self { explicit: vec![], implicit: UniqueMap::new() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -625,19 +599,12 @@ impl UseFuns {
 
 impl Address {
     pub const fn anonymous(loc: Loc, address: NumericalAddress) -> Self {
-        Self::Numerical {
-            name: None,
-            value: sp(loc, address),
-            name_conflict: false,
-        }
+        Self::Numerical { name: None, value: sp(loc, address), name_conflict: false }
     }
 
     pub fn into_addr_bytes(self) -> NumericalAddress {
         match self {
-            Self::Numerical {
-                value: sp!(_, bytes),
-                ..
-            } => bytes,
+            Self::Numerical { value: sp!(_, bytes), .. } => bytes,
             Self::NamedUnassigned(_) => NumericalAddress::DEFAULT_ERROR_ADDRESS,
         }
     }
@@ -658,22 +625,14 @@ impl ModuleIdent_ {
     }
 
     pub fn is(&self, address: impl AsRef<str>, module: impl AsRef<str>) -> bool {
-        let Self {
-            address: a,
-            module: m,
-        } = self;
+        let Self { address: a, module: m } = self;
         a.is(address) && m == module.as_ref()
     }
 }
 
 impl AbilitySet {
     /// All abilities
-    pub const ALL: [Ability_; 4] = [
-        Ability_::Copy,
-        Ability_::Drop,
-        Ability_::Store,
-        Ability_::Key,
-    ];
+    pub const ALL: [Ability_; 4] = [Ability_::Copy, Ability_::Drop, Ability_::Store, Ability_::Key];
     /// Abilities for bool, u8, u16, u32, u64, u128, u256 and address
     pub const PRIMITIVES: [Ability_; 3] = [Ability_::Copy, Ability_::Drop, Ability_::Store];
     /// Abilities for &_ and &mut _
@@ -863,23 +822,11 @@ impl PartialEq for Mutability {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Numerical {
-                name: None,
-                value: sp!(_, bytes),
-                ..
-            } => write!(f, "{}", bytes),
-            Self::Numerical {
-                name: Some(name),
-                value: sp!(_, bytes),
-                name_conflict: true,
-            } => {
+            Self::Numerical { name: None, value: sp!(_, bytes), .. } => write!(f, "{}", bytes),
+            Self::Numerical { name: Some(name), value: sp!(_, bytes), name_conflict: true } => {
                 write!(f, "({}={})", name, bytes)
             }
-            Self::Numerical {
-                name: Some(name),
-                value: _,
-                name_conflict: false,
-            }
+            Self::Numerical { name: Some(name), value: _, name_conflict: false }
             | Self::NamedUnassigned(name) => write!(f, "{}", name),
         }
     }
@@ -987,14 +934,7 @@ impl AstDebug for Program {
 
 impl AstDebug for ExplicitUseFun {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            loc: _,
-            attributes,
-            is_public,
-            function,
-            ty,
-            method,
-        } = self;
+        let Self { loc: _, attributes, is_public, function, ty, method } = self;
         attributes.ast_debug(w);
         w.new_line();
         if is_public.is_some() {
@@ -1010,13 +950,7 @@ impl AstDebug for ExplicitUseFun {
 
 impl AstDebug for ImplicitUseFunCandidate {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            loc: _,
-            attributes,
-            is_public,
-            function: (m, n),
-            kind,
-        } = self;
+        let Self { loc: _, attributes, is_public, function: (m, n), kind } = self;
         attributes.ast_debug(w);
         w.new_line();
         if is_public.is_some() {
@@ -1033,10 +967,7 @@ impl AstDebug for ImplicitUseFunCandidate {
 
 impl AstDebug for UseFuns {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let UseFuns {
-            explicit: explict,
-            implicit,
-        } = self;
+        let UseFuns { explicit: explict, implicit } = self;
         for use_fun in explict {
             use_fun.ast_debug(w);
         }
@@ -1121,11 +1052,7 @@ impl AstDebug for ModuleDefinition {
             w.writeln(format!("{}", n))
         }
         attributes.ast_debug(w);
-        w.writeln(if *is_source_module {
-            "source module"
-        } else {
-            "library module"
-        });
+        w.writeln(if *is_source_module { "source module" } else { "library module" });
         use_funs.ast_debug(w);
         for (mident, _loc) in friends.key_cloned_iter() {
             w.write(format!("friend {};", mident));
@@ -1234,14 +1161,7 @@ impl AstDebug for (DatatypeName, &EnumDefinition) {
 
 impl AstDebug for (VariantName, &VariantDefinition) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            VariantDefinition {
-                index,
-                loc: _loc,
-                fields,
-            },
-        ) = self;
+        let (name, VariantDefinition { index, loc: _loc, fields }) = self;
 
         w.write(format!("variant#{index} {name}"));
         match fields {
@@ -1310,11 +1230,7 @@ impl AstDebug for Visibility {
 
 impl AstDebug for FunctionSignature {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let FunctionSignature {
-            type_parameters,
-            parameters,
-            return_type,
-        } = self;
+        let FunctionSignature { type_parameters, parameters, return_type } = self;
         type_parameters.ast_debug(w);
         w.write("(");
         w.comma(parameters, |w, (mutability, v, st)| {
@@ -1329,17 +1245,8 @@ impl AstDebug for FunctionSignature {
 
 impl AstDebug for (ConstantName, &Constant) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            Constant {
-                warning_filter,
-                index,
-                attributes,
-                loc: _loc,
-                signature,
-                value,
-            },
-        ) = self;
+        let (name, Constant { warning_filter, index, attributes, loc: _loc, signature, value }) =
+            self;
         warning_filter.ast_debug(w);
         attributes.ast_debug(w);
         w.write(format!("const#{index} {}:", name));
@@ -1425,11 +1332,7 @@ impl AstDebug for Vec<DatatypeTypeParameter> {
 
 impl AstDebug for DatatypeTypeParameter {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            is_phantom,
-            name,
-            constraints,
-        } = self;
+        let Self { is_phantom, name, constraints } = self;
         if *is_phantom {
             w.write("phantom ");
         }
@@ -1505,9 +1408,7 @@ impl AstDebug for Exp_ {
         use Exp_ as E;
         match self {
             E::Unit { trailing } if !trailing => w.write("()"),
-            E::Unit {
-                trailing: _trailing,
-            } => w.write("/*()*/"),
+            E::Unit { trailing: _trailing } => w.write("/*()*/"),
             E::Value(v) => v.ast_debug(w),
             E::Name(ma, tys_opt) => {
                 ma.ast_debug(w);
@@ -1742,11 +1643,7 @@ impl AstDebug for ExpDotted_ {
 
 impl AstDebug for MatchArm_ {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let MatchArm_ {
-            pattern,
-            guard,
-            rhs,
-        } = self;
+        let MatchArm_ { pattern, guard, rhs } = self;
         pattern.ast_debug(w);
         if let Some(exp) = guard.as_ref() {
             w.write(" if ");

@@ -91,10 +91,7 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowEdge<Loc, Lbl> {
 pub const MAX_EDGE_SET_SIZE: usize = 10;
 impl<Loc: Copy, Lbl: Clone + Ord> BorrowEdgeSet<Loc, Lbl> {
     pub(crate) fn new() -> Self {
-        Self {
-            edges: BTreeSet::new(),
-            overflown: false,
-        }
+        Self { edges: BTreeSet::new(), overflown: false }
     }
 
     pub(crate) fn insert(&mut self, edge: BorrowEdge<Loc, Lbl>) {
@@ -105,11 +102,7 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowEdgeSet<Loc, Lbl> {
         }
         if self.edges.len() + 1 > MAX_EDGE_SET_SIZE {
             let loc = edge.loc;
-            self.edges = BTreeSet::from([BorrowEdge {
-                strong: false,
-                path: vec![],
-                loc,
-            }]);
+            self.edges = BTreeSet::from([BorrowEdge { strong: false, path: vec![], loc }]);
             self.overflown = true
         } else {
             self.edges.insert(edge);
@@ -146,11 +139,7 @@ impl<Loc: Copy, Lbl: Clone + Ord> Ref<Loc, Lbl> {
     pub(crate) fn new(mutable: bool) -> Self {
         let borrowed_by = BorrowEdges::new();
         let borrows_from = BTreeSet::new();
-        Self {
-            borrowed_by,
-            borrows_from,
-            mutable,
-        }
+        Self { borrowed_by, borrows_from, mutable }
     }
 }
 
@@ -194,10 +183,7 @@ struct BorrowEdgeNoLoc<'a, Lbl: Clone> {
 
 impl<'a, Lbl: Clone + Ord> BorrowEdgeNoLoc<'a, Lbl> {
     fn new<Loc: Copy>(e: &'a BorrowEdge<Loc, Lbl>) -> Self {
-        BorrowEdgeNoLoc {
-            strong: e.strong,
-            path: &e.path,
-        }
+        BorrowEdgeNoLoc { strong: e.strong, path: &e.path }
     }
 }
 

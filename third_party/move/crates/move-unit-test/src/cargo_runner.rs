@@ -19,36 +19,22 @@ pub fn run_tests_with_config_and_filter(
     let get_files = |root_path, pat| {
         let source_re = regex::Regex::new(pat)
             .unwrap_or_else(|_| panic!("Invalid regular expression: '{}'", pat));
-        find_filenames(&[root_path], |path| {
-            source_re.is_match(&path.to_string_lossy())
-        })
-        .unwrap()
+        find_filenames(&[root_path], |path| source_re.is_match(&path.to_string_lossy())).unwrap()
     };
 
     let sources = get_files(root_path, source_pattern);
-    let deps = dep_root
-        .map(|root| get_files(root, r".*\.move$"))
-        .unwrap_or_default();
+    let deps = dep_root.map(|root| get_files(root, r".*\.move$")).unwrap_or_default();
 
     config.source_files = sources;
     config.dep_files = deps;
     let test_plan = config.build_test_plan().expect("Unable to build test plan");
 
     let (_, all_tests_passed) = config
-        .run_and_report_unit_tests(
-            test_plan,
-            native_function_table,
-            cost_table,
-            std::io::stdout(),
-        )
+        .run_and_report_unit_tests(test_plan, native_function_table, cost_table, std::io::stdout())
         .expect("Failed to execute tests");
 
     // If all tests passed, exit with 0 otherwise with a non-zero exit code.
-    if all_tests_passed {
-        std::process::exit(0)
-    } else {
-        std::process::exit(1)
-    }
+    if all_tests_passed { std::process::exit(0) } else { std::process::exit(1) }
 }
 
 #[macro_export]

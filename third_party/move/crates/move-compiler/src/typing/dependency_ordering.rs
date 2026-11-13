@@ -27,12 +27,7 @@ pub fn program(
     let mut context = Context::new(compilation_env, imm_modules);
     module_defs(&mut context, modules);
 
-    let Context {
-        module_neighbors,
-        neighbors_by_node,
-        addresses_by_node,
-        ..
-    } = context;
+    let Context { module_neighbors, neighbors_by_node, addresses_by_node, .. } = context;
     let graph = dependency_graph(&module_neighbors);
     match petgraph_toposort(&graph, None) {
         Err(cycle_node) => {
@@ -120,12 +115,7 @@ impl<'a, 'env> Context<'a, 'env> {
             DepType::Use => (current, mident),
             DepType::Friend => (mident, current),
         };
-        let m = self
-            .module_neighbors
-            .entry(node)
-            .or_default()
-            .entry(new_neighbor)
-            .or_default();
+        let m = self.module_neighbors.entry(node).or_default().entry(new_neighbor).or_default();
         if m.contains_key(&dep_type) {
             return;
         }
@@ -141,10 +131,7 @@ impl<'a, 'env> Context<'a, 'env> {
     }
 
     fn add_address_usage(&mut self, address: Address) {
-        self.addresses_by_node
-            .entry(self.current_node.unwrap())
-            .or_default()
-            .insert(address);
+        self.addresses_by_node.entry(self.current_node.unwrap()).or_default().insert(address);
     }
 }
 
@@ -178,17 +165,10 @@ fn cycle_error(
             let node = pair[0];
             let neighbor = pair[1];
             let relations = deps.get(node).unwrap().get(neighbor).unwrap();
-            match (
-                relations.get(&DepType::Use),
-                relations.get(&DepType::Friend),
-            ) {
-                (Some(loc), _) => (
-                    *loc,
-                    DepType::Use,
-                    format!("'{}' uses '{}'", neighbor, node),
-                    node,
-                    neighbor,
-                ),
+            match (relations.get(&DepType::Use), relations.get(&DepType::Friend)) {
+                (Some(loc), _) => {
+                    (*loc, DepType::Use, format!("'{}' uses '{}'", neighbor, node), node, neighbor)
+                }
                 (_, Some(loc)) => (
                     *loc,
                     DepType::Friend,
@@ -213,19 +193,14 @@ fn cycle_error(
             DepType::Use => "use",
             DepType::Friend => "friend",
         };
-        let msg = format!(
-            "{}. This '{}' relationship creates a dependency cycle.",
-            case_msg, case
-        );
+        let msg = format!("{}. This '{}' relationship creates a dependency cycle.", case_msg, case);
         (loc, msg)
     };
 
     Diagnostic::new(
         Declarations::InvalidModule,
         (cycle_loc, use_msg),
-        cycle_info
-            .into_iter()
-            .map(|(loc, _dep_type, msg, _node, _neighbor)| (loc, msg)),
+        cycle_info.into_iter().map(|(loc, _dep_type, msg, _node, _neighbor)| (loc, msg)),
         std::iter::empty::<String>(),
     )
 }
@@ -235,9 +210,7 @@ fn cycle_error(
 //**************************************************************************************************
 
 fn module_defs(context: &mut Context, modules: &UniqueMap<ModuleIdent, T::ModuleDefinition>) {
-    modules
-        .key_cloned_iter()
-        .for_each(|(mident, mdef)| module(context, mident, mdef))
+    modules.key_cloned_iter().for_each(|(mident, mdef)| module(context, mident, mdef))
 }
 
 fn module(context: &mut Context, mident: ModuleIdent, mdef: &T::ModuleDefinition) {
@@ -245,15 +218,9 @@ fn module(context: &mut Context, mident: ModuleIdent, mdef: &T::ModuleDefinition
     mdef.friends
         .key_cloned_iter()
         .for_each(|(mident, friend)| context.add_friend(mident, friend.loc));
-    mdef.structs
-        .iter()
-        .for_each(|(_, _, sdef)| struct_def(context, sdef));
-    mdef.enums
-        .iter()
-        .for_each(|(_, _, edef)| enum_def(context, edef));
-    mdef.functions
-        .iter()
-        .for_each(|(_, _, fdef)| function(context, fdef));
+    mdef.structs.iter().for_each(|(_, _, sdef)| struct_def(context, sdef));
+    mdef.enums.iter().for_each(|(_, _, edef)| enum_def(context, edef));
+    mdef.functions.iter().for_each(|(_, _, fdef)| function(context, fdef));
 }
 
 //**************************************************************************************************
@@ -367,10 +334,9 @@ fn lvalue(context: &mut Context, sp!(loc, lv_): &T::LValue) {
             }
         }
         L::BorrowUnpackVariant(..) | L::UnpackVariant(..) => {
-            context.env.add_diag(ice!((
-                *loc,
-                "variant unpacking shouldn't occur before match expansion"
-            )));
+            context
+                .env
+                .add_diag(ice!((*loc, "variant unpacking shouldn't occur before match expansion")));
         }
     }
 }
@@ -382,12 +348,7 @@ fn exp(context: &mut Context, e: &T::Exp) {
         E::Value(sp!(_, Value_::Address(a))) => context.add_address_usage(*a),
 
         E::ModuleCall(c) => {
-            let T::ModuleCall {
-                module,
-                type_arguments,
-                arguments,
-                ..
-            } = &**c;
+            let T::ModuleCall { module, type_arguments, arguments, .. } = &**c;
             context.add_usage(*module, e.exp.loc);
             types(context, type_arguments);
             exp(context, arguments);
@@ -413,10 +374,9 @@ fn exp(context: &mut Context, e: &T::Exp) {
             }
         }
         E::VariantMatch(..) => {
-            context.env.add_diag(ice!((
-                e.exp.loc,
-                "shouldn't find variant match before HLIR lowering"
-            )));
+            context
+                .env
+                .add_diag(ice!((e.exp.loc, "shouldn't find variant match before HLIR lowering")));
         }
         E::While(_, e1, e2) => {
             exp(context, e1);

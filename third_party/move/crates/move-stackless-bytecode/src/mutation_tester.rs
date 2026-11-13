@@ -123,10 +123,7 @@ impl FunctionTargetProcessor for MutationTester {
                     let mv = m.add_sub;
 
                     let result = if mv > 0 { mv - 1 } else { mv };
-                    let mm = MutationManager {
-                        add_sub: result,
-                        ..*m
-                    };
+                    let mm = MutationManager { add_sub: result, ..*m };
                     builder.emit(mutate_arith(call, mv, global_env, mm, bc));
                 }
                 Call(ref attrid, ref indices, Operation::Sub, ref srcs, ref dests) => {
@@ -140,10 +137,7 @@ impl FunctionTargetProcessor for MutationTester {
                     let mv = m.sub_add;
 
                     let result = if mv > 0 { mv - 1 } else { mv };
-                    let mm = MutationManager {
-                        sub_add: result,
-                        ..*m
-                    };
+                    let mm = MutationManager { sub_add: result, ..*m };
                     builder.emit(mutate_arith(call, mv, global_env, mm, bc));
                 }
                 Call(ref attrid, ref indices, Operation::Mul, ref srcs, ref dests) => {
@@ -157,10 +151,7 @@ impl FunctionTargetProcessor for MutationTester {
                     let mv = m.mul_div;
 
                     let result = if mv > 0 { mv - 1 } else { mv };
-                    let mm = MutationManager {
-                        mul_div: result,
-                        ..*m
-                    };
+                    let mm = MutationManager { mul_div: result, ..*m };
                     builder.emit(mutate_arith(call, mv, global_env, mm, bc));
                 }
                 Call(ref attrid, ref indices, Operation::Div, ref srcs, ref dests) => {
@@ -173,10 +164,7 @@ impl FunctionTargetProcessor for MutationTester {
                     );
                     let mv = m.mul_div;
                     let result = if mv > 0 { mv - 1 } else { mv };
-                    let mm = MutationManager {
-                        div_mul: result,
-                        ..*m
-                    };
+                    let mm = MutationManager { div_mul: result, ..*m };
                     builder.emit(mutate_arith(call, mv, global_env, mm, bc));
                 }
                 _ => {

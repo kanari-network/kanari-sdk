@@ -10,9 +10,7 @@ use lsp_types::{DocumentFormattingParams, TextDocumentIdentifier};
 
 fn formatting_no_change(text: &str) -> bool {
     let params = DocumentFormattingParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
         options: lsp_types::FormattingOptions {
             tab_size: 4,
             insert_spaces: true,
@@ -27,54 +25,33 @@ fn formatting_no_change(text: &str) -> bool {
 }
 
 fn has_attribute(text: &str, attr: &str) -> bool {
-    text.lines()
-        .any(|l| l.trim_start().starts_with(&format!("#[{attr}")))
+    text.lines().any(|l| l.trim_start().starts_with(&format!("#[{attr}")))
 }
 
 /// All attribute syntaxes used across the kanari-framework sources.
 #[test]
 fn attributes_are_tolerated() {
     let attrs = [
-        (
-            "allow(unused_function)",
-            "#[allow(unused_function)]\nfun init() {}\n",
-        ),
-        (
-            "allow(unused_const)",
-            "#[allow(unused_const)]\nconst X: u64 = 1;\n",
-        ),
+        ("allow(unused_function)", "#[allow(unused_function)]\nfun init() {}\n"),
+        ("allow(unused_const)", "#[allow(unused_const)]\nconst X: u64 = 1;\n"),
         ("test_only block", "#[test_only]\nfun helper() {}\n"),
         ("test", "#[test]\nfun test_x() {}\n"),
-        (
-            "expected_failure code",
-            "#[expected_failure(abort_code = E_X)]\nfun test_y() {}\n",
-        ),
-        (
-            "test_only with inner use",
-            "#[test_only]\nuse std::option;\nfun h() {}\n",
-        ),
+        ("expected_failure code", "#[expected_failure(abort_code = E_X)]\nfun test_y() {}\n"),
+        ("test_only with inner use", "#[test_only]\nuse std::option;\nfun h() {}\n"),
     ];
     for (_name, code) in attrs {
         // Formatting must never crash or produce noise on attribute code.
-        assert!(
-            formatting_no_change(code),
-            "fmt must be idempotent for {code:?}"
-        );
+        assert!(formatting_no_change(code), "fmt must be idempotent for {code:?}");
     }
 }
 
 /// Malformed attributes must not crash formatting or quick fixes.
 #[test]
 fn malformed_attributes_are_tolerated() {
-    for code in [
-        "#[]\nfun f() {}\n",
-        "#[unknown_attr]\nfun f() {}\n",
-        "#[test_only]\nfun f( {}\n",
-    ] {
+    for code in ["#[]\nfun f() {}\n", "#[unknown_attr]\nfun f() {}\n", "#[test_only]\nfun f( {}\n"]
+    {
         let params = DocumentFormattingParams {
-            text_document: TextDocumentIdentifier {
-                uri: "file:///x.move".parse().unwrap(),
-            },
+            text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
             options: lsp_types::FormattingOptions {
                 tab_size: 4,
                 insert_spaces: true,

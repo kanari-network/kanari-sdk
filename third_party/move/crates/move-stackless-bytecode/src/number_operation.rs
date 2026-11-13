@@ -106,26 +106,15 @@ impl GlobalNumberOperationState {
         baseline_flag: bool,
     ) -> Option<&NumOperation> {
         if baseline_flag {
-            if self
-                .local_oper_baseline
-                .get(&(mid, fid))
-                .unwrap()
-                .contains_key(&idx)
-            {
+            if self.local_oper_baseline.get(&(mid, fid)).unwrap().contains_key(&idx) {
                 self.local_oper_baseline.get(&(mid, fid)).unwrap().get(&idx)
             } else {
-                self.temp_index_operation_map
-                    .get(&(mid, fid))
-                    .unwrap()
-                    .get(&idx)
+                self.temp_index_operation_map.get(&(mid, fid)).unwrap().get(&idx)
             }
         } else if self.local_oper.get(&(mid, fid)).unwrap().contains_key(&idx) {
             self.local_oper.get(&(mid, fid)).unwrap().get(&idx)
         } else {
-            self.temp_index_operation_map
-                .get(&(mid, fid))
-                .unwrap()
-                .get(&idx)
+            self.temp_index_operation_map.get(&(mid, fid)).unwrap().get(&idx)
         }
     }
 
@@ -137,29 +126,15 @@ impl GlobalNumberOperationState {
         baseline_flag: bool,
     ) -> Option<&mut NumOperation> {
         if baseline_flag {
-            if self
-                .local_oper_baseline
-                .get(&(mid, fid))
-                .unwrap()
-                .contains_key(&idx)
-            {
-                self.local_oper_baseline
-                    .get_mut(&(mid, fid))
-                    .unwrap()
-                    .get_mut(&idx)
+            if self.local_oper_baseline.get(&(mid, fid)).unwrap().contains_key(&idx) {
+                self.local_oper_baseline.get_mut(&(mid, fid)).unwrap().get_mut(&idx)
             } else {
-                self.temp_index_operation_map
-                    .get_mut(&(mid, fid))
-                    .unwrap()
-                    .get_mut(&idx)
+                self.temp_index_operation_map.get_mut(&(mid, fid)).unwrap().get_mut(&idx)
             }
         } else if self.local_oper.get(&(mid, fid)).unwrap().contains_key(&idx) {
             self.local_oper.get_mut(&(mid, fid)).unwrap().get_mut(&idx)
         } else {
-            self.temp_index_operation_map
-                .get_mut(&(mid, fid))
-                .unwrap()
-                .get_mut(&idx)
+            self.temp_index_operation_map.get_mut(&(mid, fid)).unwrap().get_mut(&idx)
         }
     }
 
@@ -208,12 +183,10 @@ impl GlobalNumberOperationState {
             }
         }
 
-        self.temp_index_operation_map
-            .insert((mid, fid), default_map);
+        self.temp_index_operation_map.insert((mid, fid), default_map);
         self.local_oper_baseline.insert((mid, fid), BTreeMap::new());
         self.local_oper.insert((mid, fid), BTreeMap::new());
-        self.ret_operation_map
-            .insert((mid, fid), default_ret_operation_map);
+        self.ret_operation_map.insert((mid, fid), default_ret_operation_map);
     }
 
     /// Populate default state for struct operation map
@@ -262,8 +235,7 @@ impl GlobalNumberOperationState {
 
     /// Gets the number operation of the given node.
     pub fn get_node_num_oper(&self, node_id: NodeId) -> NumOperation {
-        self.get_node_num_oper_opt(node_id)
-            .expect("node number oper defined")
+        self.get_node_num_oper_opt(node_id).expect("node number oper defined")
     }
 
     /// Gets the number operation of the given node, if available.

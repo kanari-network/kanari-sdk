@@ -58,11 +58,7 @@ impl TransferModule {
 
     /// Fully qualified module path, e.g. `0x2::transfer`.
     pub fn module_path() -> String {
-        format!(
-            "{}::{}",
-            Address::KANARI_SYSTEM_ADDRESS,
-            Self::TRANSFER_MODULE
-        )
+        format!("{}::{}", Address::KANARI_SYSTEM_ADDRESS, Self::TRANSFER_MODULE)
     }
 
     /// Abort codes from `transfer.move`.

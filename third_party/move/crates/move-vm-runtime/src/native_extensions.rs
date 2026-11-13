@@ -27,31 +27,16 @@ impl<'a> NativeContextExtensions<'a> {
     }
 
     pub fn get<T: TidAble<'a>>(&self) -> &T {
-        self.map
-            .get(&T::id())
-            .expect("extension unknown")
-            .as_ref()
-            .downcast_ref::<T>()
-            .unwrap()
+        self.map.get(&T::id()).expect("extension unknown").as_ref().downcast_ref::<T>().unwrap()
     }
 
     pub fn get_mut<T: TidAble<'a>>(&mut self) -> &mut T {
-        self.map
-            .get_mut(&T::id())
-            .expect("extension unknown")
-            .as_mut()
-            .downcast_mut::<T>()
-            .unwrap()
+        self.map.get_mut(&T::id()).expect("extension unknown").as_mut().downcast_mut::<T>().unwrap()
     }
 
     pub fn remove<T: TidAble<'a>>(&mut self) -> T {
         // can't use expect below because it requires `T: Debug`.
-        match self
-            .map
-            .remove(&T::id())
-            .expect("extension unknown")
-            .downcast_box::<T>()
-        {
+        match self.map.remove(&T::id()).expect("extension unknown").downcast_box::<T>() {
             Ok(val) => *val,
             Err(_) => panic!("downcast error"),
         }

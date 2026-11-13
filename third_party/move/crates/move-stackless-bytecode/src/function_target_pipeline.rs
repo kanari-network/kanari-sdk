@@ -167,9 +167,7 @@ impl FunctionTargetsHolder {
     pub fn get_funs_and_variants(
         &self,
     ) -> impl Iterator<Item = (QualifiedId<FunId>, FunctionVariant)> + '_ {
-        self.targets
-            .iter()
-            .flat_map(|(id, vs)| vs.keys().map(move |v| (*id, v.clone())))
+        self.targets.iter().flat_map(|(id, vs)| vs.keys().map(move |v| (*id, v.clone())))
     }
 
     /// Adds a new function target. The target will be initialized from the Move byte code.
@@ -188,21 +186,14 @@ impl FunctionTargetsHolder {
         func_env: &'env FunctionEnv<'env>,
         variant: &FunctionVariant,
     ) -> FunctionTarget<'env> {
-        let data = self
-            .get_data(&func_env.get_qualified_id(), variant)
-            .unwrap_or_else(|| {
-                panic!(
-                    "expected function target: {} ({:?})",
-                    func_env.get_full_name_str(),
-                    variant
-                )
-            });
+        let data = self.get_data(&func_env.get_qualified_id(), variant).unwrap_or_else(|| {
+            panic!("expected function target: {} ({:?})", func_env.get_full_name_str(), variant)
+        });
         FunctionTarget::new(func_env, data)
     }
 
     pub fn has_target(&self, func_env: &FunctionEnv<'_>, variant: &FunctionVariant) -> bool {
-        self.get_data(&func_env.get_qualified_id(), variant)
-            .is_some()
+        self.get_data(&func_env.get_qualified_id(), variant).is_some()
     }
 
     /// Gets all available variants for function.
@@ -299,21 +290,14 @@ impl FunctionTargetPipeline {
 
     /// Gets the last processor in the pipeline, for testing.
     pub fn last_processor(&self) -> &dyn FunctionTargetProcessor {
-        self.processors
-            .iter()
-            .last()
-            .expect("pipeline not empty")
-            .as_ref()
+        self.processors.iter().last().expect("pipeline not empty").as_ref()
     }
 
     /// Build the call graph
     fn build_call_graph(
         env: &GlobalEnv,
         targets: &FunctionTargetsHolder,
-    ) -> (
-        DiGraph<QualifiedId<FunId>, ()>,
-        BTreeMap<QualifiedId<FunId>, NodeIndex>,
-    ) {
+    ) -> (DiGraph<QualifiedId<FunId>, ()>, BTreeMap<QualifiedId<FunId>, NodeIndex>) {
         let mut graph = DiGraph::new();
         let mut nodes = BTreeMap::new();
         for fun_id in targets.get_funs() {
@@ -324,9 +308,7 @@ impl FunctionTargetPipeline {
             let src_idx = nodes.get(&fun_id).unwrap();
             let fun_env = env.get_function(fun_id);
             for callee in fun_env.get_called_functions() {
-                let dst_idx = nodes
-                    .get(&callee)
-                    .expect("callee is not in function targets");
+                let dst_idx = nodes.get(&callee).expect("callee is not in function targets");
                 graph.add_edge(*src_idx, *dst_idx, ());
             }
         }
@@ -390,10 +372,7 @@ impl FunctionTargetPipeline {
         let mut worklist = vec![];
         for fun in targets.get_funs() {
             let fun_env = env.get_function(fun);
-            worklist.push((
-                fun,
-                fun_env.get_called_functions().into_iter().collect_vec(),
-            ));
+            worklist.push((fun, fun_env.get_called_functions().into_iter().collect_vec()));
         }
 
         // analyze bottom-up from the leaves of the call graph
@@ -561,14 +540,7 @@ impl FunctionTargetPipeline {
         targets: &FunctionTargetsHolder,
         processor: &dyn FunctionTargetProcessor,
     ) -> String {
-        let mut dump = format!(
-            "{}",
-            ProcessorResultDisplay {
-                env,
-                targets,
-                processor
-            }
-        );
+        let mut dump = format!("{}", ProcessorResultDisplay { env, targets, processor });
         if !processor.is_single_run() {
             if !dump.is_empty() {
                 dump = format!("\n\n{}", dump);

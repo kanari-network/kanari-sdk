@@ -67,11 +67,7 @@ async fn parse_human_amount(
         None => (s, ""),
     };
     // Accept ".5" as "0.5"; empty whole is 0 only when a fraction is present.
-    let whole = if whole.is_empty() && !frac.is_empty() {
-        "0"
-    } else {
-        whole
-    };
+    let whole = if whole.is_empty() && !frac.is_empty() { "0" } else { whole };
     if frac.is_empty() && whole.parse::<u64>().is_err() {
         anyhow::bail!(
             "Invalid amount '{}'; use whole coins (e.g. \"1000\"), decimal (e.g. \"1.5\"), or mist:<integer>",
@@ -85,19 +81,10 @@ async fn parse_human_amount(
         );
     }
     if frac.len() > decimals as usize {
-        anyhow::bail!(
-            "Amount '{}' exceeds {} decimals for {}",
-            s,
-            decimals,
-            coin_type
-        );
+        anyhow::bail!("Amount '{}' exceeds {} decimals for {}", s, decimals, coin_type);
     }
-    let scale = 10u64
-        .checked_pow(decimals as u32)
-        .context("Decimals overflow")?;
-    let whole: u64 = whole
-        .parse()
-        .with_context(|| format!("Invalid amount '{}'", s))?;
+    let scale = 10u64.checked_pow(decimals as u32).context("Decimals overflow")?;
+    let whole: u64 = whole.parse().with_context(|| format!("Invalid amount '{}'", s))?;
     let mut frac_padded = frac.to_string();
     while frac_padded.len() < decimals as usize {
         frac_padded.push('0');
@@ -105,14 +92,9 @@ async fn parse_human_amount(
     let frac: u64 = if frac_padded.is_empty() {
         0
     } else {
-        frac_padded
-            .parse()
-            .with_context(|| format!("Invalid amount '{}'", s))?
+        frac_padded.parse().with_context(|| format!("Invalid amount '{}'", s))?
     };
-    whole
-        .checked_mul(scale)
-        .and_then(|w| w.checked_add(frac))
-        .context("Amount overflow")
+    whole.checked_mul(scale).and_then(|w| w.checked_add(frac)).context("Amount overflow")
 }
 
 /// Look up a coin's decimals from the owner's balances (the node tags every
@@ -127,21 +109,14 @@ async fn coin_decimals(client: &RpcClient, owner_normalized: &str, coin_type: &s
         .get_owner_balances(owner_normalized)
         .await
         .context("Failed to fetch owner balances for decimals")?;
-    let balances = value
-        .get("balances")
-        .and_then(|b| b.as_array())
-        .context("Malformed balances response")?;
+    let balances =
+        value.get("balances").and_then(|b| b.as_array()).context("Malformed balances response")?;
     for entry in balances {
-        let entry_type = entry
-            .get("token_type")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let entry_type = entry.get("token_type").and_then(|t| t.as_str()).unwrap_or("");
         let have = kanari_types::coin::CoinModule::normalize_token_type(entry_type);
         // Accept both the bare `T` and the `Coin<T>` wrapper spelling.
-        let entry_inner = have
-            .split_once('<')
-            .and_then(|(_, rest)| rest.strip_suffix('>'))
-            .unwrap_or(&have);
+        let entry_inner =
+            have.split_once('<').and_then(|(_, rest)| rest.strip_suffix('>')).unwrap_or(&have);
         // Exact match only: substring matching (e.g. CO vs COIN) would
         // resolve the wrong token's decimals and mis-scale funds.
         let type_matches = have == want || entry_inner == want;
@@ -353,16 +328,7 @@ async fn resolve_tx(
     let client = RpcClient::new(&rpc);
     check_node_connection(&client, &rpc).await?;
     let sender_tagged = get_sender_for_tx(&wallet, &sender_normalized)?;
-    Ok((
-        ResolvedTx {
-            sender_normalized,
-            sender_tagged,
-            wallet,
-            gas_limit,
-            gas_price,
-        },
-        client,
-    ))
+    Ok((ResolvedTx { sender_normalized, sender_tagged, wallet, gas_limit, gas_price }, client))
 }
 
 /// A coin object with its decoded balance, listed from the API.
@@ -413,11 +379,7 @@ async fn list_coins(
             continue;
         }
         let balance = coin_balance_from_data(&obj.data).unwrap_or(0);
-        coins.push(ListedCoin {
-            id: obj.id,
-            balance,
-            version: obj.version,
-        });
+        coins.push(ListedCoin { id: obj.id, balance, version: obj.version });
     }
     coins.sort_by_key(|c| std::cmp::Reverse(c.balance));
     Ok(coins)
@@ -432,17 +394,9 @@ async fn wallet_coin_type(client: &RpcClient, wallet_id: &str) -> Result<String>
         .await
         .with_context(|| format!("Failed to fetch wallet object {}", normalized))?;
     // Type looks like `0x2::multisig::MultisigWallet<0xABC::james::JAMES>`.
-    let inner = obj
-        .type_
-        .split_once('<')
-        .and_then(|(_, rest)| rest.strip_suffix('>'))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Object {} is not a multisig wallet (type: {})",
-                normalized,
-                obj.type_
-            )
-        })?;
+    let inner = obj.type_.split_once('<').and_then(|(_, rest)| rest.strip_suffix('>')).ok_or_else(
+        || anyhow::anyhow!("Object {} is not a multisig wallet (type: {})", normalized, obj.type_),
+    )?;
     Ok(inner.trim().to_string())
 }
 
@@ -477,10 +431,7 @@ async fn resolve_coin_arg(
         let picked = coins.first().ok_or_else(|| {
             anyhow::anyhow!("No owned {} coin found; check `multisig coins`", coin_type)
         })?;
-        eprintln!(
-            "  Auto-picked coin {} (balance {} mist)",
-            picked.id, picked.balance
-        );
+        eprintln!("  Auto-picked coin {} (balance {} mist)", picked.id, picked.balance);
         return Ok(picked.id.clone());
     }
     if let Some(amount_str) = coin_arg.strip_prefix("auto:") {
@@ -494,10 +445,7 @@ async fn resolve_coin_arg(
                 amount
             )
         })?;
-        eprintln!(
-            "  Auto-picked coin {} (balance {} mist)",
-            picked.id, picked.balance
-        );
+        eprintln!("  Auto-picked coin {} (balance {} mist)", picked.id, picked.balance);
         return Ok(picked.id);
     }
     normalize_addr(coin_arg)
@@ -630,10 +578,7 @@ impl Multisig {
                     ],
                     // Coin stays owned: split off `amount`, remainder saved
                     // back. Declare mutable so the runtime binds &mut Coin.
-                    vec![EntryObject {
-                        id: coin_id,
-                        mutable: true,
-                    }],
+                    vec![EntryObject { id: coin_id, mutable: true }],
                 )
                 .await
             }
@@ -676,10 +621,7 @@ impl Multisig {
                     ],
                     // propose takes &wallet (read-only): immutable so
                     // co-owners can propose without owning the wallet.
-                    vec![EntryObject {
-                        id: wallet.clone(),
-                        mutable: false,
-                    }],
+                    vec![EntryObject { id: wallet.clone(), mutable: false }],
                 )
                 .await
             }
@@ -713,14 +655,8 @@ impl Multisig {
                     ],
                     // approve takes (&wallet, &mut proposal).
                     vec![
-                        EntryObject {
-                            id: wallet.clone(),
-                            mutable: false,
-                        },
-                        EntryObject {
-                            id: proposal.clone(),
-                            mutable: true,
-                        },
+                        EntryObject { id: wallet.clone(), mutable: false },
+                        EntryObject { id: proposal.clone(), mutable: true },
                     ],
                 )
                 .await
@@ -755,14 +691,8 @@ impl Multisig {
                     ],
                     // execute consumes the proposal and mutates the wallet.
                     vec![
-                        EntryObject {
-                            id: wallet.clone(),
-                            mutable: true,
-                        },
-                        EntryObject {
-                            id: proposal.clone(),
-                            mutable: true,
-                        },
+                        EntryObject { id: wallet.clone(), mutable: true },
+                        EntryObject { id: proposal.clone(), mutable: true },
                     ],
                 )
                 .await
@@ -797,14 +727,8 @@ impl Multisig {
                     ],
                     // cancel reads the wallet, consumes the proposal.
                     vec![
-                        EntryObject {
-                            id: wallet.clone(),
-                            mutable: false,
-                        },
-                        EntryObject {
-                            id: proposal.clone(),
-                            mutable: true,
-                        },
+                        EntryObject { id: wallet.clone(), mutable: false },
+                        EntryObject { id: proposal.clone(), mutable: true },
                     ],
                 )
                 .await
@@ -826,9 +750,8 @@ impl Multisig {
                     self.gas_price,
                 )
                 .await?;
-                let resolved_coin_type = coin_type
-                    .clone()
-                    .unwrap_or_else(|| KANARI_COIN_TYPE.to_string());
+                let resolved_coin_type =
+                    coin_type.clone().unwrap_or_else(|| KANARI_COIN_TYPE.to_string());
                 let coin_id =
                     resolve_coin_arg(&client, &tx.sender_normalized, coin, &resolved_coin_type)
                         .await?;
@@ -851,23 +774,13 @@ impl Multisig {
                     ],
                     // deposit mutates both wallet and source coin.
                     vec![
-                        EntryObject {
-                            id: wallet.clone(),
-                            mutable: true,
-                        },
-                        EntryObject {
-                            id: coin_id,
-                            mutable: true,
-                        },
+                        EntryObject { id: wallet.clone(), mutable: true },
+                        EntryObject { id: coin_id, mutable: true },
                     ],
                 )
                 .await
             }
-            MultisigCommand::Coins {
-                from,
-                coin_type,
-                rpc_endpoint,
-            } => {
+            MultisigCommand::Coins { from, coin_type, rpc_endpoint } => {
                 let sender_normalized = resolve_sender(from.clone())?;
                 let rpc = get_rpc_endpoint(rpc_endpoint.clone());
                 let client = RpcClient::new(&rpc);

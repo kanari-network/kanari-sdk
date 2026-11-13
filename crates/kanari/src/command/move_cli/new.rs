@@ -64,9 +64,8 @@ impl New {
         let mut w = std::fs::File::create(path.join(SourcePackageLayout::Manifest.path()))?;
 
         // 3. Create the initial source file (e.g., my_package/sources/my_package.move)
-        let file_path = path
-            .join(SourcePackageLayout::Sources.path())
-            .join(format!("{}.move", name));
+        let file_path =
+            path.join(SourcePackageLayout::Sources.path()).join(format!("{}.move", name));
         let mut file = File::create(file_path)?;
         // Initial module declaration
         write!(file, "module {}::{} {{\n\n}}", name, name)?;

@@ -92,9 +92,7 @@ fn sign<P: ml_dsa::MlDsaParams>(
     label: &str,
 ) -> Result<Vec<u8>, SignatureError> {
     if seed_bytes.len() != ML_DSA_SEED_BYTES {
-        return Err(SignatureError::InvalidPrivateKey(format!(
-            "Invalid {label} seed length"
-        )));
+        return Err(SignatureError::InvalidPrivateKey(format!("Invalid {label} seed length")));
     }
     let seed = ml_dsa::Seed::try_from(seed_bytes)
         .map_err(|_| SignatureError::InvalidPrivateKey(format!("Invalid {label} seed length")))?;
@@ -108,17 +106,11 @@ fn derive_public_key<P: ml_dsa::MlDsaParams>(
     label: &str,
 ) -> Result<Vec<u8>, SignatureError> {
     if seed_bytes.len() != ML_DSA_SEED_BYTES {
-        return Err(SignatureError::InvalidPrivateKey(format!(
-            "Invalid {label} seed length"
-        )));
+        return Err(SignatureError::InvalidPrivateKey(format!("Invalid {label} seed length")));
     }
     let seed = ml_dsa::Seed::try_from(seed_bytes)
         .map_err(|_| SignatureError::InvalidPrivateKey(format!("Invalid {label} seed length")))?;
-    Ok(SigningKey::<P>::from_seed(&seed)
-        .verifying_key()
-        .encode()
-        .as_slice()
-        .to_vec())
+    Ok(SigningKey::<P>::from_seed(&seed).verifying_key().encode().as_slice().to_vec())
 }
 
 fn verify<P: ml_dsa::MlDsaParams>(

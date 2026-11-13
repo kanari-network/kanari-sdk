@@ -150,10 +150,7 @@ impl OnDiskCompiledPackage {
         let (buf, build_path) = if try_exists(p)? && extension_equals(p, "yaml") {
             (std::fs::read(p)?, p.parent().unwrap().parent().unwrap())
         } else {
-            (
-                std::fs::read(p.join(CompiledPackageLayout::BuildInfo.path()))?,
-                p.parent().unwrap(),
-            )
+            (std::fs::read(p.join(CompiledPackageLayout::BuildInfo.path()))?, p.parent().unwrap())
         };
         let package = serde_yaml::from_slice::<OnDiskPackage>(&buf)?;
         assert!(build_path.ends_with(CompiledPackageLayout::Root.path()));
@@ -289,9 +286,7 @@ impl OnDiskCompiledPackage {
         if try_exists(&module_path)? {
             compiled_unit_paths.push(module_path);
         }
-        find_filenames(&compiled_unit_paths, |path| {
-            extension_equals(path, MOVE_COMPILED_EXTENSION)
-        })
+        find_filenames(&compiled_unit_paths, |path| extension_equals(path, MOVE_COMPILED_EXTENSION))
     }
 
     fn save_compiled_unit(
@@ -305,20 +300,13 @@ impl OnDiskCompiledPackage {
         let file_path = if root_package == package_name {
             PathBuf::new()
         } else {
-            CompiledPackageLayout::Dependencies
-                .path()
-                .join(package_name.as_str())
+            CompiledPackageLayout::Dependencies.path().join(package_name.as_str())
         }
         .join(compiled_unit.unit.name.as_str());
 
         self.save_under(
-            category_dir
-                .join(&file_path)
-                .with_extension(MOVE_COMPILED_EXTENSION),
-            compiled_unit
-                .unit
-                .serialize(get_bytecode_version_from_env())
-                .as_slice(),
+            category_dir.join(&file_path).with_extension(MOVE_COMPILED_EXTENSION),
+            compiled_unit.unit.serialize(get_bytecode_version_from_env()).as_slice(),
         )?;
         self.save_under(
             CompiledPackageLayout::SourceMaps
@@ -328,10 +316,7 @@ impl OnDiskCompiledPackage {
             compiled_unit.unit.serialize_source_map().as_slice(),
         )?;
         self.save_under(
-            CompiledPackageLayout::Sources
-                .path()
-                .join(&file_path)
-                .with_extension(MOVE_EXTENSION),
+            CompiledPackageLayout::Sources.path().join(&file_path).with_extension(MOVE_EXTENSION),
             std::fs::read_to_string(&compiled_unit.source_path)?.as_bytes(),
         )
     }
@@ -341,9 +326,7 @@ impl CompiledPackage {
     /// Returns all compiled units with sources for this package in transitive dependencies. Order
     /// is not guaranteed.
     pub fn all_compiled_units_with_source(&self) -> impl Iterator<Item = &CompiledUnitWithSource> {
-        self.root_compiled_units
-            .iter()
-            .chain(self.deps_compiled_units.iter().map(|(_, unit)| unit))
+        self.root_compiled_units.iter().chain(self.deps_compiled_units.iter().map(|(_, unit)| unit))
     }
 
     /// Returns all compiled units for this package in transitive dependencies. Order is not
@@ -358,11 +341,7 @@ impl CompiledPackage {
     }
 
     pub fn root_modules_map(&'_ self) -> Modules<'_> {
-        Modules::new(
-            self.root_compiled_units
-                .iter()
-                .map(|unit| &unit.unit.module),
-        )
+        Modules::new(self.root_compiled_units.iter().map(|unit| &unit.unit.module))
     }
 
     /// `all_compiled_units_with_source` filtered over `CompiledUnit::Module`
@@ -402,15 +381,13 @@ impl CompiledPackage {
         &self,
         module_name: &str,
     ) -> Result<&CompiledUnitWithSource> {
-        self.root_modules()
-            .find(|unit| unit.unit.name().as_str() == module_name)
-            .ok_or_else(|| {
-                anyhow::format_err!(
-                    "Unable to find module with name '{}' in package {}",
-                    module_name,
-                    self.compiled_package_info.package_name
-                )
-            })
+        self.root_modules().find(|unit| unit.unit.name().as_str() == module_name).ok_or_else(|| {
+            anyhow::format_err!(
+                "Unable to find module with name '{}' in package {}",
+                module_name,
+                self.compiled_package_info.package_name
+            )
+        })
     }
 
     #[allow(unused)]
@@ -461,10 +438,8 @@ impl CompiledPackage {
         )?;
         let flags = resolution_graph.build_options.compiler_flags();
         // Partition deps_package according whether src is available
-        let (src_deps, bytecode_deps): (Vec<_>, Vec<_>) = deps_package_paths
-            .clone()
-            .into_iter()
-            .partition_map(|(p, b)| match b {
+        let (src_deps, bytecode_deps): (Vec<_>, Vec<_>) =
+            deps_package_paths.clone().into_iter().partition_map(|(p, b)| match b {
                 ModuleFormat::Source => Either::Left(p),
                 ModuleFormat::Bytecode => Either::Right(p),
             });
@@ -486,9 +461,8 @@ impl CompiledPackage {
         let lint_level = resolution_graph.build_options.lint_flag.get();
         let sui_mode = resolution_graph.build_options.default_flavor == Some(Flavor::Sui);
 
-        let mut compiler = Compiler::from_package_paths(vfs_root, paths, bytecode_deps)
-            .unwrap()
-            .set_flags(flags);
+        let mut compiler =
+            Compiler::from_package_paths(vfs_root, paths, bytecode_deps).unwrap().set_flags(flags);
         if sui_mode {
             let (filter_attr_name, filters) = sui_mode::linters::known_filters();
             compiler = compiler
@@ -556,10 +530,8 @@ impl CompiledPackage {
         for annot_unit in all_compiled_units {
             let source_path = PathBuf::from(file_map[&annot_unit.loc().file_hash()].0.as_str());
             let package_name = annot_unit.named_module.package_name.unwrap();
-            let unit = CompiledUnitWithSource {
-                unit: annot_unit.into_compiled_unit(),
-                source_path,
-            };
+            let unit =
+                CompiledUnitWithSource { unit: annot_unit.into_compiled_unit(), source_path };
             if package_name == root_package_name {
                 root_compiled_units.push(unit)
             } else {
@@ -611,13 +583,8 @@ impl CompiledPackage {
         let mut insensitive_mapping = BTreeMap::new();
         for compiled_unit in &self.root_compiled_units {
             let name = compiled_unit.unit.name.as_str();
-            let entry = insensitive_mapping
-                .entry(name.to_lowercase())
-                .or_insert_with(Vec::new);
-            entry.push((
-                name,
-                compiled_unit.source_path.to_string_lossy().to_string(),
-            ));
+            let entry = insensitive_mapping.entry(name.to_lowercase()).or_insert_with(Vec::new);
+            entry.push((name, compiled_unit.source_path.to_string_lossy().to_string()));
         }
         let errs = insensitive_mapping
             .into_iter()
@@ -782,11 +749,7 @@ pub(crate) fn apply_named_address_renaming(
     let package_renamings = renaming
         .iter()
         .filter_map(|(rename_to, (package_name, from_name))| {
-            if package_name == &current_package_name {
-                Some((from_name, *rename_to))
-            } else {
-                None
-            }
+            if package_name == &current_package_name { Some((from_name, *rename_to)) } else { None }
         })
         .collect::<BTreeMap<_, _>>();
 
@@ -803,10 +766,7 @@ pub(crate) fn make_source_and_deps_for_compiler(
     resolution_graph: &ResolvedGraph,
     root: &Package,
     deps: Vec<DependencyInfo>,
-) -> Result<(
-    /* sources */ PackagePaths,
-    /* deps */ Vec<(PackagePaths, ModuleFormat)>,
-)> {
+) -> Result<(/* sources */ PackagePaths, /* deps */ Vec<(PackagePaths, ModuleFormat)>)> {
     let deps_package_paths = make_deps_for_compiler_internal(deps)?;
     let root_named_addrs = apply_named_address_renaming(
         root.source_package.package.name,
@@ -817,10 +777,7 @@ pub(crate) fn make_source_and_deps_for_compiler(
     let source_package_paths = PackagePaths {
         name: Some((
             root.source_package.package.name,
-            root.compiler_config(
-                /* is_dependency */ false,
-                &resolution_graph.build_options,
-            ),
+            root.compiler_config(/* is_dependency */ false, &resolution_graph.build_options),
         )),
         paths: sources,
         named_address_map: root_named_addrs,

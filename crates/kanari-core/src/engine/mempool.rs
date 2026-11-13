@@ -6,16 +6,8 @@ use ahash::AHashSet;
 use kanari_crypto::keys::{CurveType, KeyPair};
 use kanari_crypto::signatures::zk_authenticator::record_zklogin_admission;
 
-type VerifiedMempoolTx = (
-    SignedTransaction,
-    Vec<u8>,
-    String,
-    u64,
-    String,
-    String,
-    Vec<String>,
-    usize,
-);
+type VerifiedMempoolTx =
+    (SignedTransaction, Vec<u8>, String, u64, String, String, Vec<String>, usize);
 type MempoolTxMetadata = (Vec<u8>, String, u64, String, String, Vec<String>);
 
 /// Trait for normalizing address strings used across the engine.
@@ -52,12 +44,8 @@ impl BlockchainEngine {
         metadata: &PendingTransactionMetadata,
     ) -> Result<usize> {
         let transaction_bytes = bcs::serialized_size(signed_tx)?;
-        let effects_bytes = metadata
-            .preview_effects
-            .as_ref()
-            .map(bcs::serialized_size)
-            .transpose()?
-            .unwrap_or(0);
+        let effects_bytes =
+            metadata.preview_effects.as_ref().map(bcs::serialized_size).transpose()?.unwrap_or(0);
         transaction_bytes
             .checked_add(effects_bytes)
             .and_then(|size| size.checked_add(128))
@@ -102,9 +90,7 @@ impl BlockchainEngine {
         let mut sender_cache = ahash::AHashMap::with_capacity(batch_size);
         for signed_tx in &signed_txs {
             let sender = signed_tx.transaction.sender_address();
-            sender_cache
-                .entry(sender.to_string())
-                .or_insert_with(|| Self::normalize_addr(sender));
+            sender_cache.entry(sender.to_string()).or_insert_with(|| Self::normalize_addr(sender));
         }
 
         // Hash, verify, and extract metadata in one parallel pass.
@@ -158,9 +144,7 @@ impl BlockchainEngine {
             })
             .collect::<Result<Vec<_>>>()?;
         let batch_bytes = verified_txs.iter().try_fold(0usize, |total, item| {
-            total
-                .checked_add(item.7)
-                .context("Mempool batch byte size overflow")
+            total.checked_add(item.7).context("Mempool batch byte size overflow")
         })?;
 
         verified_txs.sort_by(|a, b| {
@@ -194,9 +178,7 @@ impl BlockchainEngine {
             batch_metadata
                 .par_iter()
                 .map(|(tx_hash, _, _, _, _, _)| -> Result<Option<Vec<u8>>> {
-                    Ok(self
-                        .try_is_transaction_committed(tx_hash)?
-                        .then(|| tx_hash.clone()))
+                    Ok(self.try_is_transaction_committed(tx_hash)?.then(|| tx_hash.clone()))
                 })
                 .collect::<Result<Vec<_>>>()?
                 .into_iter()
@@ -281,10 +263,7 @@ impl BlockchainEngine {
                 .copied()
                 .unwrap_or(0)
                 .saturating_add(
-                    accepted_counts_by_primary_access
-                        .get(primary_access)
-                        .copied()
-                        .unwrap_or(0),
+                    accepted_counts_by_primary_access.get(primary_access).copied().unwrap_or(0),
                 );
             if current_lane_depth >= MAX_PENDING_PER_PRIMARY_ACCESS_LANE {
                 anyhow::bail!(
@@ -316,19 +295,12 @@ impl BlockchainEngine {
 
             accepted_hashes.push(tx_hash.clone());
             *accepted_counts_by_sender.entry(sender.clone()).or_insert(0) += 1;
-            *accepted_counts_by_primary_access
-                .entry(primary_access.clone())
-                .or_insert(0) += 1;
-            *accepted_counts_by_congestion_access
-                .entry(congestion_access.clone())
-                .or_insert(0) += 1;
-            *accepted_counts_by_access
-                .entry(primary_access.clone())
-                .or_insert(0) += 1;
+            *accepted_counts_by_primary_access.entry(primary_access.clone()).or_insert(0) += 1;
+            *accepted_counts_by_congestion_access.entry(congestion_access.clone()).or_insert(0) +=
+                1;
+            *accepted_counts_by_access.entry(primary_access.clone()).or_insert(0) += 1;
             for access_key in access_keys {
-                *accepted_counts_by_access
-                    .entry(access_key.clone())
-                    .or_insert(0) += 1;
+                *accepted_counts_by_access.entry(access_key.clone()).or_insert(0) += 1;
             }
         }
 
@@ -356,21 +328,14 @@ impl BlockchainEngine {
                 }
             },
         ));
-        mempool
-            .pending_tx_hashes
-            .extend(accepted_hashes.iter().cloned());
+        mempool.pending_tx_hashes.extend(accepted_hashes.iter().cloned());
         mempool.pending_bytes = mempool.pending_bytes.saturating_add(batch_bytes);
         for (sender, count) in &accepted_counts_by_sender {
-            *mempool
-                .pending_sender_counts
-                .entry(sender.clone())
-                .or_insert(0) += *count;
+            *mempool.pending_sender_counts.entry(sender.clone()).or_insert(0) += *count;
         }
         for (primary_access, count) in &accepted_counts_by_primary_access {
-            *mempool
-                .pending_primary_access_counts
-                .entry(primary_access.clone())
-                .or_insert(0) += *count;
+            *mempool.pending_primary_access_counts.entry(primary_access.clone()).or_insert(0) +=
+                *count;
         }
         for (congestion_access, count) in &accepted_counts_by_congestion_access {
             *mempool
@@ -379,10 +344,7 @@ impl BlockchainEngine {
                 .or_insert(0) += *count;
         }
         for (access_key, count) in &accepted_counts_by_access {
-            *mempool
-                .pending_access_counts
-                .entry(access_key.clone())
-                .or_insert(0) += *count;
+            *mempool.pending_access_counts.entry(access_key.clone()).or_insert(0) += *count;
         }
         Ok(accepted_hashes)
     }
@@ -415,40 +377,24 @@ impl BlockchainEngine {
     /// Returns the number of pending transactions for a given sender address.
     pub(crate) fn pending_tx_count_for_sender(&self, sender: &str) -> u64 {
         let normalized_sender = Self::normalize_addr(sender);
-        self.mempool_read()
-            .pending_sender_counts
-            .get(&normalized_sender)
-            .copied()
-            .unwrap_or(0)
+        self.mempool_read().pending_sender_counts.get(&normalized_sender).copied().unwrap_or(0)
     }
 
     /// Returns the number of pending transactions targeting a given primary access key.
     #[cfg(test)]
     pub(crate) fn pending_tx_count_for_primary_access(&self, key: &str) -> u64 {
-        self.mempool_read()
-            .pending_primary_access_counts
-            .get(key)
-            .copied()
-            .unwrap_or(0)
+        self.mempool_read().pending_primary_access_counts.get(key).copied().unwrap_or(0)
     }
 
     /// Returns the number of pending transactions touching a given congestion access key.
     #[cfg(test)]
     pub(crate) fn pending_tx_count_for_congestion_access(&self, key: &str) -> u64 {
-        self.mempool_read()
-            .pending_congestion_access_counts
-            .get(key)
-            .copied()
-            .unwrap_or(0)
+        self.mempool_read().pending_congestion_access_counts.get(key).copied().unwrap_or(0)
     }
 
     /// Returns a snapshot of all access keys currently referenced by pending transactions.
     pub fn pending_access_keys_snapshot(&self) -> std::collections::HashSet<String> {
-        self.mempool_read()
-            .pending_access_counts
-            .keys()
-            .cloned()
-            .collect()
+        self.mempool_read().pending_access_counts.keys().cloned().collect()
     }
 
     /// Decrements pending sender counts for the given transactions.
@@ -532,16 +478,12 @@ impl BlockchainEngine {
             return Vec::new();
         }
 
-        mempool
-            .pending_txs
-            .retain(|tx| !target_hashes.contains(&tx.tx_hash));
-        let removed_bytes = removed_transactions.iter().fold(0usize, |total, record| {
-            total.saturating_add(record.size_bytes)
-        });
+        mempool.pending_txs.retain(|tx| !target_hashes.contains(&tx.tx_hash));
+        let removed_bytes = removed_transactions
+            .iter()
+            .fold(0usize, |total, record| total.saturating_add(record.size_bytes));
         mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
-        mempool
-            .pending_tx_hashes
-            .retain(|hash| !target_hashes.contains(hash));
+        mempool.pending_tx_hashes.retain(|hash| !target_hashes.contains(hash));
         Self::remove_pending_sender_counts(
             &mut mempool.pending_sender_counts,
             &removed_transactions,

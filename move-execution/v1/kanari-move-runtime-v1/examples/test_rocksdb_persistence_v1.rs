@@ -13,10 +13,8 @@ fn main() -> Result<()> {
     // few hundred KB of RocksDB files into the crate directory, and an
     // aborted run (the invariant checks below panic) would leave them behind
     // as untracked files in the repo.
-    let db_path = std::env::temp_dir().join(format!(
-        "kanari-move-runtime-rocksdb-example-{}",
-        std::process::id()
-    ));
+    let db_path = std::env::temp_dir()
+        .join(format!("kanari-move-runtime-rocksdb-example-{}", std::process::id()));
     if db_path.exists() {
         std::fs::remove_dir_all(&db_path)?;
     }
@@ -63,19 +61,10 @@ fn main() -> Result<()> {
         11_000_000_000_000_000u64 + 1000,
         "total supply should be the genesis supply plus the minted 1000 MIST"
     );
-    let owner_state = state2
-        .get_owner_state(&acc_addr)
-        .expect("Owner state should exist");
+    let owner_state = state2.get_owner_state(&acc_addr).expect("Owner state should exist");
 
-    assert_eq!(
-        owner_state.get_token_balance(GAS_COIN),
-        1000,
-        "Balance should be 1000"
-    );
-    assert_eq!(
-        owner_state.nonce, 0,
-        "Owner sequence is a legacy field and should remain 0"
-    );
+    assert_eq!(owner_state.get_token_balance(GAS_COIN), 1000, "Balance should be 1000");
+    assert_eq!(owner_state.nonce, 0, "Owner sequence is a legacy field and should remain 0");
 
     println!("   Owner-state verification successful!");
     println!("   Balance: {}", owner_state.get_token_balance(GAS_COIN));

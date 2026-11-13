@@ -167,9 +167,7 @@ fn remap_labels_cmd(remapping: &BTreeMap<Label, Label>, sp!(_, cmd_): &mut Comma
         Break(_) | Continue(_) => panic!("ICE break/continue not translated to jumps"),
         Mutate(_, _) | Assign(_, _, _) | IgnoreAndPop { .. } | Abort(_) | Return { .. } => (),
         Jump { target, .. } => *target = remapping[target],
-        JumpIf {
-            if_true, if_false, ..
-        } => {
+        JumpIf { if_true, if_false, .. } => {
             *if_true = remapping[if_true];
             *if_false = remapping[if_false];
         }
@@ -247,17 +245,8 @@ impl AstDebug for ModuleDefinition {
 
 impl AstDebug for (ConstantName, &Constant) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            Constant {
-                warning_filter,
-                index,
-                attributes,
-                loc: _loc,
-                signature,
-                value,
-            },
-        ) = self;
+        let (name, Constant { warning_filter, index, attributes, loc: _loc, signature, value }) =
+            self;
         warning_filter.ast_debug(w);
         attributes.ast_debug(w);
         w.write(format!("const#{index} {name}:"));
@@ -325,12 +314,7 @@ impl AstDebug for (FunctionName, &Function) {
         w.write(format!("fun#{index} {name}"));
         signature.ast_debug(w);
         match &body.value {
-            FunctionBody_::Defined {
-                locals,
-                start,
-                block_info,
-                blocks,
-            } => w.block(|w| {
+            FunctionBody_::Defined { locals, start, block_info, blocks } => w.block(|w| {
                 w.write("locals:");
                 w.indent(4, |w| {
                     w.list(locals, ",", |w, (_, v, (mut_, st))| {
@@ -385,10 +369,7 @@ impl AstDebug for BlockInfo {
 
 impl AstDebug for LoopInfo {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            is_loop_stmt,
-            loop_end,
-        } = self;
+        let Self { is_loop_stmt, loop_end } = self;
         w.write(format!(
             "{{ is_loop_stmt: {}, end: ",
             if *is_loop_stmt { "true" } else { "false" }

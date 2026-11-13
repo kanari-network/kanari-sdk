@@ -52,9 +52,7 @@ const STATE_CHANGING_METHODS: &[&str] = &[
 /// Run every detector over `source` and return findings.
 pub fn detect_all(source: &str, file: &str) -> Vec<AuditFinding> {
     let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_move::language())
-        .expect("failed to load Move grammar");
+    parser.set_language(&tree_sitter_move::language()).expect("failed to load Move grammar");
     let tree = match parser.parse(source, None) {
         Some(t) => t,
         None => return vec![],
@@ -263,13 +261,7 @@ fn detect_entry_without_auth(source: &str, file: &str, root: Node) -> Vec<AuditF
                 file,
                 line,
                 col,
-                Some(
-                    node_text(func, source)
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .to_string(),
-                ),
+                Some(node_text(func, source).lines().next().unwrap_or("").to_string()),
             ));
         }
     }
@@ -353,10 +345,7 @@ fn detect_hardcoded_address(source: &str, file: &str, root: Node) -> Vec<AuditFi
         }
         // Skip if the literal appears inside a `const` declaration (compile-time
         // constants are not runtime addresses).
-        let line_start = source[..addr.start_byte()]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let line_start = source[..addr.start_byte()].rfind('\n').map(|i| i + 1).unwrap_or(0);
         let line_end = source[addr.start_byte()..]
             .find('\n')
             .map(|i| addr.start_byte() + i)
@@ -455,9 +444,8 @@ fn detect_state_change_before_external_call(
         let first_external_byte = first_external.1;
 
         // Check if any state change happens before the first external call.
-        let has_state_change_before = state_changes
-            .iter()
-            .any(|(_, byte)| *byte < first_external_byte);
+        let has_state_change_before =
+            state_changes.iter().any(|(_, byte)| *byte < first_external_byte);
         if has_state_change_before {
             let (line, col) = line_col(first_external.0);
             let name = func_name_from_def(func, source).unwrap_or("<unknown>");
@@ -557,13 +545,7 @@ fn detect_missing_access_control(source: &str, file: &str, root: Node) -> Vec<Au
             file,
             line,
             col,
-            Some(
-                node_text(func, source)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
-            ),
+            Some(node_text(func, source).lines().next().unwrap_or("").to_string()),
         ));
     }
     out
@@ -616,11 +598,7 @@ fn detect_unsafe_public_transfer(source: &str, file: &str, root: Node) -> Vec<Au
             line,
             col,
             Some(
-                source[call.start_byte()..call.end_byte()]
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
+                source[call.start_byte()..call.end_byte()].lines().next().unwrap_or("").to_string(),
             ),
         ));
     }
@@ -779,10 +757,7 @@ fn detect_missing_doc(source: &str, file: &str, root: Node) -> Vec<AuditFinding>
                 || t.starts_with("//!")
                 || t.starts_with("//")
         });
-        if func_name_from_def(func, source)
-            .unwrap_or("")
-            .contains("testing")
-        {
+        if func_name_from_def(func, source).unwrap_or("").contains("testing") {
             continue;
         }
         if !has_doc {
@@ -796,13 +771,7 @@ fn detect_missing_doc(source: &str, file: &str, root: Node) -> Vec<AuditFinding>
                 file,
                 line,
                 col,
-                Some(
-                    node_text(func, source)
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .to_string(),
-                ),
+                Some(node_text(func, source).lines().next().unwrap_or("").to_string()),
             ));
         }
     }
@@ -868,13 +837,7 @@ fn detect_capability_leak(source: &str, file: &str, root: Node) -> Vec<AuditFind
             file,
             line,
             col,
-            Some(
-                node_text(func, source)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
-            ),
+            Some(node_text(func, source).lines().next().unwrap_or("").to_string()),
         ));
     }
     out
@@ -907,11 +870,7 @@ fn detect_integer_overflow_risk(source: &str, file: &str, root: Node) -> Vec<Aud
     for func in funcs {
         // Skip test-only functions (check preceding text for #[test_only]).
         let before = &source[..func.start_byte()];
-        let is_test_only = before
-            .lines()
-            .rev()
-            .take(5)
-            .any(|l| l.trim().contains("#[test_only]"));
+        let is_test_only = before.lines().rev().take(5).any(|l| l.trim().contains("#[test_only]"));
         if is_test_only {
             continue;
         }
@@ -1017,13 +976,11 @@ fn is_skipped_integer_overflow(text: &str, trimmed: &str) -> bool {
         return true;
     }
     // Arithmetic involving compile-time constants (uppercase identifiers).
-    let has_const = text
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .any(|tok| {
-            !tok.is_empty()
-                && tok.chars().any(|c| c.is_ascii_uppercase())
-                && tok.chars().all(|c| c.is_ascii_uppercase() || c == '_')
-        });
+    let has_const = text.split(|c: char| !c.is_alphanumeric() && c != '_').any(|tok| {
+        !tok.is_empty()
+            && tok.chars().any(|c| c.is_ascii_uppercase())
+            && tok.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+    });
     if has_const {
         return true;
     }
@@ -1097,11 +1054,7 @@ fn detect_share_object_without_auth(source: &str, file: &str, root: Node) -> Vec
             line,
             col,
             Some(
-                source[call.start_byte()..call.end_byte()]
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
+                source[call.start_byte()..call.end_byte()].lines().next().unwrap_or("").to_string(),
             ),
         ));
     }
@@ -1133,11 +1086,8 @@ fn detect_division_by_zero_risk(source: &str, file: &str, root: Node) -> Vec<Aud
     for expr in exprs {
         let text = node_text(expr, source);
         // Strip comments to avoid false positives from `//` in trailing comments.
-        let text_no_comments: String = text
-            .lines()
-            .map(|l| l.split("//").next().unwrap_or(l))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let text_no_comments: String =
+            text.lines().map(|l| l.split("//").next().unwrap_or(l)).collect::<Vec<_>>().join("\n");
         if !text_no_comments.contains('/') {
             continue;
         }
@@ -1241,11 +1191,7 @@ fn detect_unchecked_vector_borrow(source: &str, file: &str, root: Node) -> Vec<A
             line,
             col,
             Some(
-                source[call.start_byte()..call.end_byte()]
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
+                source[call.start_byte()..call.end_byte()].lines().next().unwrap_or("").to_string(),
             ),
         ));
     }
@@ -1278,13 +1224,7 @@ fn detect_public_entry_without_signer(source: &str, file: &str, root: Node) -> V
             file,
             line,
             col,
-            Some(
-                node_text(func, source)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
-            ),
+            Some(node_text(func, source).lines().next().unwrap_or("").to_string()),
         ));
     }
     out

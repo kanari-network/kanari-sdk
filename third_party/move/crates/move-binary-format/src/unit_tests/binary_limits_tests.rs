@@ -91,10 +91,7 @@ fn binary_limits_test() {
     check_limit!(
         module_test,
         module_handles,
-        ModuleHandle {
-            address: AddressIdentifierIndex::new(0),
-            name: IdentifierIndex::new(0)
-        },
+        ModuleHandle { address: AddressIdentifierIndex::new(0), name: IdentifierIndex::new(0) },
         &binary_config,
         "MODULE_HANDLES"
     );
@@ -152,23 +149,14 @@ fn binary_limits_test() {
 
     // SIGNATURES
     let module_test = &mut module.clone();
-    check_limit!(
-        module_test,
-        signatures,
-        Signature(vec![]),
-        &binary_config,
-        "SIGNATURES"
-    );
+    check_limit!(module_test, signatures, Signature(vec![]), &binary_config, "SIGNATURES");
 
     // CONSTANT_POOL
     let module_test = &mut module.clone();
     check_limit!(
         module_test,
         constant_pool,
-        Constant {
-            type_: SignatureToken::U64,
-            data: vec![0; 8]
-        },
+        Constant { type_: SignatureToken::U64, data: vec![0; 8] },
         &binary_config,
         "CONSTANT_POOL"
     );
@@ -252,10 +240,7 @@ fn binary_limits_test() {
             visibility: Visibility::Public,
             is_entry: false,
             acquires_global_resources: vec![],
-            code: Some(CodeUnit {
-                locals: SignatureIndex(0),
-                code: vec![Bytecode::Ret]
-            }),
+            code: Some(CodeUnit { locals: SignatureIndex(0), code: vec![Bytecode::Ret] }),
         },
         &binary_config,
         "FUNCTION_DEFS"
@@ -279,10 +264,7 @@ fn binary_limits_test() {
     check_limit!(
         module_test,
         field_handles,
-        FieldHandle {
-            owner: StructDefinitionIndex(0),
-            field: 0
-        },
+        FieldHandle { owner: StructDefinitionIndex(0), field: 0 },
         &binary_config,
         "FIELD_HANDLE"
     );
@@ -302,17 +284,11 @@ fn binary_limits_test() {
             signature: TypeSignature(SignatureToken::Bool),
         }]),
     });
-    module_test.field_handles.push(FieldHandle {
-        owner: StructDefinitionIndex(0),
-        field: 0,
-    });
+    module_test.field_handles.push(FieldHandle { owner: StructDefinitionIndex(0), field: 0 });
     check_limit!(
         module_test,
         field_instantiations,
-        FieldInstantiation {
-            handle: FieldHandleIndex(0),
-            type_parameters: SignatureIndex(0)
-        },
+        FieldInstantiation { handle: FieldHandleIndex(0), type_parameters: SignatureIndex(0) },
         &binary_config,
         "FIELD_INST"
     );
@@ -322,10 +298,7 @@ fn binary_limits_test() {
     check_limit!(
         module_test,
         friend_decls,
-        ModuleHandle {
-            address: AddressIdentifierIndex::new(0),
-            name: IdentifierIndex::new(0)
-        },
+        ModuleHandle { address: AddressIdentifierIndex::new(0), name: IdentifierIndex::new(0) },
         &binary_config,
         "FRIEND_DECLS"
     );

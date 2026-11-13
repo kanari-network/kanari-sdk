@@ -195,24 +195,16 @@ impl Compatibility {
         }
 
         if self.check_struct_and_pub_function_linking && !struct_and_function_linking {
-            return Err(PartialVMError::new(
-                StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
-            ));
+            return Err(PartialVMError::new(StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE));
         }
         if self.check_struct_layout && !struct_layout {
-            return Err(PartialVMError::new(
-                StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
-            ));
+            return Err(PartialVMError::new(StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE));
         }
         if self.check_friend_linking && !friend_linking {
-            return Err(PartialVMError::new(
-                StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
-            ));
+            return Err(PartialVMError::new(StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE));
         }
         if self.check_private_entry_linking && !entry_linking {
-            return Err(PartialVMError::new(
-                StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
-            ));
+            return Err(PartialVMError::new(StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE));
         }
 
         Ok(())
@@ -317,9 +309,7 @@ impl InclusionCheck {
     // in `new_module` (Note: `new_module` may have larger pools, but they are not accessed by the
     // code).
     pub fn check(&self, old_module: &Module, new_module: &Module) -> PartialVMResult<()> {
-        let err = Err(PartialVMError::new(
-            StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
-        ));
+        let err = Err(PartialVMError::new(StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE));
 
         // Module checks
         if old_module.address != new_module.address
@@ -351,11 +341,7 @@ impl InclusionCheck {
 
         // Function checks
         for (name, old_func) in &old_module.functions {
-            match new_module
-                .functions
-                .get(name)
-                .or_else(|| new_module.functions.get(name))
-            {
+            match new_module.functions.get(name).or_else(|| new_module.functions.get(name)) {
                 Some(new_func) if old_func == new_func => (),
                 _ => {
                     return err;

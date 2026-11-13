@@ -22,15 +22,8 @@ pub struct TokenSet {
 
 const MOVE_2024_KEYWORDS: &[Tok] = &[Tok::Mut, Tok::Match, Tok::For, Tok::Enum, Tok::Type];
 
-const MODULE_MEMBER_TOKENS: &[Tok] = &[
-    Tok::Fun,
-    Tok::Struct,
-    Tok::Use,
-    Tok::Const,
-    Tok::Friend,
-    Tok::Spec,
-    Tok::Invariant,
-];
+const MODULE_MEMBER_TOKENS: &[Tok] =
+    &[Tok::Fun, Tok::Struct, Tok::Use, Tok::Const, Tok::Friend, Tok::Spec, Tok::Invariant];
 
 const MEMBER_VISIBILITY_TOKENS: &[Tok] = &[Tok::Public];
 
@@ -50,13 +43,8 @@ pub static MODULE_MEMBER_OR_MODULE_START_SET: Lazy<TokenSet> = Lazy::new(|| {
     token_set
 });
 
-const PARAM_STARTS: &[Tok] = &[
-    Tok::Identifier,
-    Tok::Mut,
-    Tok::SyntaxIdentifier,
-    Tok::LParen,
-    Tok::RestrictedIdentifier,
-];
+const PARAM_STARTS: &[Tok] =
+    &[Tok::Identifier, Tok::Mut, Tok::SyntaxIdentifier, Tok::LParen, Tok::RestrictedIdentifier];
 
 pub static PARAM_START_SET: Lazy<TokenSet> = Lazy::new(|| TokenSet::from(PARAM_STARTS));
 
@@ -146,24 +134,14 @@ const ATTR_STARTS: &[Tok] = &[Tok::Identifier, Tok::For];
 
 pub static ATTR_START_SET: Lazy<TokenSet> = Lazy::new(|| TokenSet::from(ATTR_STARTS));
 
-const FIELD_BINDING_STARTS: &[Tok] = &[
-    Tok::Mut,
-    Tok::Identifier,
-    Tok::RestrictedIdentifier,
-    Tok::PeriodPeriod,
-];
+const FIELD_BINDING_STARTS: &[Tok] =
+    &[Tok::Mut, Tok::Identifier, Tok::RestrictedIdentifier, Tok::PeriodPeriod];
 
 pub static FIELD_BINDING_START_SET: Lazy<TokenSet> =
     Lazy::new(|| TokenSet::from(FIELD_BINDING_STARTS));
 
-const VALUE_STARTS: &[Tok] = &[
-    Tok::AtSign,
-    Tok::True,
-    Tok::False,
-    Tok::NumValue,
-    Tok::NumTypedValue,
-    Tok::ByteStringValue,
-];
+const VALUE_STARTS: &[Tok] =
+    &[Tok::AtSign, Tok::True, Tok::False, Tok::NumValue, Tok::NumTypedValue, Tok::ByteStringValue];
 
 pub static VALUE_START_SET: Lazy<TokenSet> = Lazy::new(|| TokenSet::from(VALUE_STARTS));
 
@@ -176,10 +154,7 @@ impl TokenSet {
     pub fn new() -> Self {
         let tokens = [0; TOK_COUNT];
         let identifiers = HashMap::new();
-        TokenSet {
-            tokens,
-            identifiers,
-        }
+        TokenSet { tokens, identifiers }
     }
 
     pub fn add(&mut self, tok: Tok) {
@@ -227,8 +202,7 @@ impl TokenSet {
     }
 
     pub fn contains_any(&self, toks: &[Tok], tok_contents: impl AsRef<str>) -> bool {
-        toks.iter()
-            .any(|tok| self.contains(*tok, tok_contents.as_ref()))
+        toks.iter().any(|tok| self.contains(*tok, tok_contents.as_ref()))
     }
 
     pub fn union(&mut self, other: &TokenSet) {

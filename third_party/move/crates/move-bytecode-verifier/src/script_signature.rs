@@ -38,11 +38,8 @@ pub fn verify_module(
         return Ok(());
     }
 
-    for (idx, _fdef) in module
-        .function_defs()
-        .iter()
-        .enumerate()
-        .filter(|(_idx, fdef)| fdef.is_entry)
+    for (idx, _fdef) in
+        module.function_defs().iter().enumerate().filter(|(_idx, fdef)| fdef.is_entry)
     {
         verify_module_function_signature(
             module,
@@ -87,17 +84,11 @@ fn verify_module_function_signature(
     let fhandle = module.function_handle_at(fdef.function);
     let parameters = fhandle.parameters;
     let return_ = fhandle.return_;
-    verify_main_signature_impl(
-        module,
-        fdef.is_entry,
-        parameters,
-        Some(return_),
-        check_signature,
-    )
-    .map_err(|e| {
-        e.at_index(IndexKind::FunctionDefinition, idx.0)
-            .finish(Location::Module(module.self_id()))
-    })
+    verify_main_signature_impl(module, fdef.is_entry, parameters, Some(return_), check_signature)
+        .map_err(|e| {
+            e.at_index(IndexKind::FunctionDefinition, idx.0)
+                .finish(Location::Module(module.self_id()))
+        })
 }
 
 fn verify_main_signature_impl(
@@ -133,9 +124,7 @@ pub fn legacy_script_signature_checks(
     use SignatureToken as S;
     let empty_vec = &vec![];
     let parameters = &module.signature_at(parameters_idx).0;
-    let return_types = return_idx
-        .map(|idx| &module.signature_at(idx).0)
-        .unwrap_or(empty_vec);
+    let return_types = return_idx.map(|idx| &module.signature_at(idx).0).unwrap_or(empty_vec);
     // Check that all `signer` arguments occur before non-`signer` arguments
     // signer is a type that can only be populated by the Move VM. And its value is filled
     // based on the sender of the transaction
@@ -152,9 +141,7 @@ pub fn legacy_script_signature_checks(
     };
     let has_valid_return_type = return_types.is_empty();
     if !all_args_have_valid_type || !has_valid_return_type {
-        Err(PartialVMError::new(
-            StatusCode::INVALID_MAIN_FUNCTION_SIGNATURE,
-        ))
+        Err(PartialVMError::new(StatusCode::INVALID_MAIN_FUNCTION_SIGNATURE))
     } else {
         Ok(())
     }

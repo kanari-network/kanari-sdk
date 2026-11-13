@@ -757,9 +757,7 @@ impl AbilitySet {
                     .map(|a| a.required_by())
                     .fold(AbilitySet::EMPTY, AbilitySet::union)
             })
-            .fold(declared_abilities, |acc, ty_arg_abilities| {
-                acc.intersect(ty_arg_abilities)
-            });
+            .fold(declared_abilities, |acc, ty_arg_abilities| acc.intersect(ty_arg_abilities));
         Ok(abs)
     }
 
@@ -768,11 +766,7 @@ impl AbilitySet {
         // `AbilitySet` containing all `Ability`s
         // This corresponds the byte being a bit set subset of ALL
         // The byte is a subset of ALL if the intersection of the two is the original byte
-        if Self::is_subset_bits(byte, Self::ALL.0) {
-            Some(Self(byte))
-        } else {
-            None
-        }
+        if Self::is_subset_bits(byte, Self::ALL.0) { Some(Self(byte)) } else { None }
     }
 
     pub fn into_u8(self) -> u8 {
@@ -818,10 +812,7 @@ impl IntoIterator for AbilitySet {
     type Item = Ability;
     type IntoIter = AbilitySetIterator;
     fn into_iter(self) -> Self::IntoIter {
-        AbilitySetIterator {
-            idx: 0x1,
-            set: self,
-        }
+        AbilitySetIterator { idx: 0x1, set: self }
     }
 }
 
@@ -946,8 +937,7 @@ impl<'a> Iterator for SignatureTokenPreorderTraversalIterWithDepth<'a> {
 
                     StructInstantiation(struct_inst) => {
                         let (_, inner_toks) = &**struct_inst;
-                        self.stack
-                            .extend(inner_toks.iter().map(|tok| (tok, depth + 1)).rev())
+                        self.stack.extend(inner_toks.iter().map(|tok| (tok, depth + 1)).rev())
                     }
 
                     Signer | Bool | Address | U8 | U16 | U32 | U64 | U128 | U256 | Struct(_)
@@ -1117,10 +1107,7 @@ impl SignatureToken {
                 token.debug_set_sh_idx(sh_idx)
             }
             other => {
-                panic!(
-                    "debug_set_sh_idx (to {}) called for non-struct token {:?}",
-                    sh_idx, other
-                )
+                panic!("debug_set_sh_idx (to {}) called for non-struct token {:?}", sh_idx, other)
             }
         }
     }
@@ -1132,9 +1119,7 @@ impl SignatureToken {
     pub fn preorder_traversal_with_depth(
         &self,
     ) -> SignatureTokenPreorderTraversalIterWithDepth<'_> {
-        SignatureTokenPreorderTraversalIterWithDepth {
-            stack: vec![(self, 1)],
-        }
+        SignatureTokenPreorderTraversalIterWithDepth { stack: vec![(self, 1)] }
     }
 }
 
@@ -1803,10 +1788,7 @@ impl Arbitrary for CompiledModule {
             any::<ModuleHandleIndex>(),
             vec(any::<ModuleHandle>(), 0..=size),
             vec(any_with::<Signature>(size), 0..=size),
-            (
-                vec(any::<Identifier>(), 0..=size),
-                vec(any::<AccountAddress>(), 0..=size),
-            ),
+            (vec(any::<Identifier>(), 0..=size), vec(any::<AccountAddress>(), 0..=size)),
             (
                 vec(any::<StructDefinition>(), 0..=size),
                 vec(any_with::<FunctionDefinition>(size), 0..=size),
@@ -2104,10 +2086,7 @@ impl CompiledModule {
     }
 
     pub fn immediate_friends(&self) -> Vec<ModuleId> {
-        self.friend_decls()
-            .iter()
-            .map(|handle| self.module_id_for_handle(handle))
-            .collect()
+        self.friend_decls().iter().map(|handle| self.module_id_for_handle(handle)).collect()
     }
 
     pub fn find_struct_def(&self, idx: StructHandleIndex) -> Option<&StructDefinition> {
@@ -2223,18 +2202,14 @@ pub fn basic_test_module() -> CompiledModule {
         return_: SignatureIndex(0),
         type_parameters: vec![],
     });
-    m.identifiers
-        .push(Identifier::new("foo".to_string()).unwrap());
+    m.identifiers.push(Identifier::new("foo".to_string()).unwrap());
 
     m.function_defs.push(FunctionDefinition {
         function: FunctionHandleIndex(0),
         visibility: Visibility::Private,
         is_entry: false,
         acquires_global_resources: vec![],
-        code: Some(CodeUnit {
-            locals: SignatureIndex(0),
-            code: vec![Bytecode::Ret],
-        }),
+        code: Some(CodeUnit { locals: SignatureIndex(0), code: vec![Bytecode::Ret] }),
     });
 
     m.struct_handles.push(StructHandle {
@@ -2243,8 +2218,7 @@ pub fn basic_test_module() -> CompiledModule {
         abilities: AbilitySet::EMPTY,
         type_parameters: vec![],
     });
-    m.identifiers
-        .push(Identifier::new("Bar".to_string()).unwrap());
+    m.identifiers.push(Identifier::new("Bar".to_string()).unwrap());
 
     m.struct_defs.push(StructDefinition {
         struct_handle: StructHandleIndex(0),
@@ -2253,8 +2227,7 @@ pub fn basic_test_module() -> CompiledModule {
             signature: TypeSignature(SignatureToken::U64),
         }]),
     });
-    m.identifiers
-        .push(Identifier::new("x".to_string()).unwrap());
+    m.identifiers.push(Identifier::new("x".to_string()).unwrap());
 
     m
 }

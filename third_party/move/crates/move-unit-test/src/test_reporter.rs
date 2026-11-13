@@ -73,11 +73,7 @@ pub struct TestResults {
 
 impl TestRunInfo {
     pub fn new(function_ident: String, elapsed_time: Duration, instructions_executed: u64) -> Self {
-        Self {
-            function_ident,
-            elapsed_time,
-            instructions_executed,
-        }
+        Self { function_ident, elapsed_time, instructions_executed }
     }
 }
 
@@ -87,11 +83,7 @@ impl FailureReason {
     }
 
     pub fn wrong_error(expected: MoveError, actual: MoveError) -> Self {
-        FailureReason::WrongError(
-            "Test did not error as expected".to_string(),
-            expected,
-            actual,
-        )
+        FailureReason::WrongError("Test did not error as expected".to_string(), expected, actual)
     }
 
     pub fn wrong_abort_deprecated(expected: MoveErrorType, actual: MoveError) -> Self {
@@ -131,11 +123,7 @@ impl TestFailure {
         test_run_info: TestRunInfo,
         vm_error: Option<VMError>,
     ) -> Self {
-        Self {
-            test_run_info,
-            vm_error,
-            failure_reason,
-        }
+        Self { test_run_info, vm_error, failure_reason }
     }
 
     pub fn render_error(&self, test_plan: &TestPlan) -> String {
@@ -184,10 +172,7 @@ impl TestFailure {
                 );
                 Self::report_error_with_location(test_plan, base_message, &self.vm_error)
             }
-            FailureReason::Mismatch {
-                move_vm_return_values,
-                stackless_vm_return_values,
-            } => {
+            FailureReason::Mismatch { move_vm_return_values, stackless_vm_return_values } => {
                 format!(
                     "Executions via Move VM [M] and stackless VM [S] yield different results.\n\
                     [M] - return values: {:?}\n\
@@ -346,32 +331,19 @@ impl Default for TestStatistics {
 
 impl TestStatistics {
     pub fn new() -> Self {
-        Self {
-            passed: BTreeMap::new(),
-            failed: BTreeMap::new(),
-            output: BTreeMap::new(),
-        }
+        Self { passed: BTreeMap::new(), failed: BTreeMap::new(), output: BTreeMap::new() }
     }
 
     pub fn test_failure(&mut self, test_failure: TestFailure, test_plan: &ModuleTestPlan) {
-        self.failed
-            .entry(test_plan.module_id.clone())
-            .or_default()
-            .insert(test_failure);
+        self.failed.entry(test_plan.module_id.clone()).or_default().insert(test_failure);
     }
 
     pub fn test_success(&mut self, test_info: TestRunInfo, test_plan: &ModuleTestPlan) {
-        self.passed
-            .entry(test_plan.module_id.clone())
-            .or_default()
-            .insert(test_info);
+        self.passed.entry(test_plan.module_id.clone()).or_default().insert(test_info);
     }
 
     pub fn test_output(&mut self, test_name: TestName, test_plan: &ModuleTestPlan, output: String) {
-        self.output
-            .entry(test_plan.module_id.clone())
-            .or_default()
-            .insert(test_name, output);
+        self.output.entry(test_plan.module_id.clone()).or_default().insert(test_name, output);
     }
 
     pub fn combine(mut self, other: Self) -> Self {
@@ -393,10 +365,7 @@ impl TestStatistics {
 
 impl TestResults {
     pub fn new(final_statistics: TestStatistics, test_plan: TestPlan) -> Self {
-        Self {
-            final_statistics,
-            test_plan,
-        }
+        Self { final_statistics, test_plan }
     }
 
     pub fn report_goldens<W: Write>(&self, writer: &Mutex<W>) -> Result<()> {
@@ -454,11 +423,8 @@ impl TestResults {
 
         for (module_id, test_results) in self.final_statistics.passed.iter() {
             for test_result in test_results {
-                let qualified_function_name = format!(
-                    "{}::{}",
-                    format_module_id(module_id),
-                    test_result.function_ident
-                );
+                let qualified_function_name =
+                    format!("{}::{}", format_module_id(module_id), test_result.function_ident);
                 max_function_name_size =
                     std::cmp::max(max_function_name_size, qualified_function_name.len());
                 stats.push((
@@ -538,24 +504,14 @@ impl TestResults {
 
     /// Returns `true` if all tests passed, `false` if there was a test failure/timeout
     pub fn summarize<W: Write>(self, writer: &Mutex<W>) -> Result<bool> {
-        let num_failed_tests = self
-            .final_statistics
-            .failed
-            .iter()
-            .fold(0, |acc, (_, fns)| acc + fns.len()) as u64;
-        let num_passed_tests = self
-            .final_statistics
-            .passed
-            .iter()
-            .fold(0, |acc, (_, fns)| acc + fns.len()) as u64;
+        let num_failed_tests =
+            self.final_statistics.failed.iter().fold(0, |acc, (_, fns)| acc + fns.len()) as u64;
+        let num_passed_tests =
+            self.final_statistics.passed.iter().fold(0, |acc, (_, fns)| acc + fns.len()) as u64;
         if !self.final_statistics.failed.is_empty() {
             writeln!(writer.lock().unwrap(), "\nTest failures:\n")?;
             for (module_id, test_failures) in &self.final_statistics.failed {
-                writeln!(
-                    writer.lock().unwrap(),
-                    "Failures in {}:",
-                    format_module_id(module_id)
-                )?;
+                writeln!(writer.lock().unwrap(), "Failures in {}:", format_module_id(module_id))?;
                 for test_failure in test_failures {
                     writeln!(
                         writer.lock().unwrap(),
@@ -565,9 +521,7 @@ impl TestResults {
                     writeln!(
                         writer.lock().unwrap(),
                         "│ {}",
-                        test_failure
-                            .render_error(&self.test_plan)
-                            .replace('\n', "\n│ ")
+                        test_failure.render_error(&self.test_plan).replace('\n', "\n│ ")
                     )?;
                     writeln!(writer.lock().unwrap(), "└──────────────────\n")?;
                 }

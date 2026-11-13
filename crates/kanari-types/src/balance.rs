@@ -32,10 +32,8 @@ impl BalanceRecord {
 
     /// Increase balance
     pub fn increase(&mut self, amount: u64) -> Result<()> {
-        self.value = self
-            .value
-            .checked_add(amount)
-            .ok_or_else(|| anyhow::anyhow!("Balance overflow"))?;
+        self.value =
+            self.value.checked_add(amount).ok_or_else(|| anyhow::anyhow!("Balance overflow"))?;
         Ok(())
     }
 

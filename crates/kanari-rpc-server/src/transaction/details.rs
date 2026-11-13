@@ -55,11 +55,7 @@ pub(crate) fn derive_transaction_state_flags(status: &str) -> (bool, bool, bool,
 }
 
 pub(crate) fn pending_status(record: &PendingTransactionRecord) -> &'static str {
-    if record.metadata.previewed {
-        "simulated_pending"
-    } else {
-        "pending"
-    }
+    if record.metadata.previewed { "simulated_pending" } else { "pending" }
 }
 
 pub(crate) fn apply_pending_preview_metadata(
@@ -86,22 +82,15 @@ pub(crate) fn apply_committed_effect(
         return;
     };
     let execution_succeeded = effect.status == "success";
-    details.status = if execution_succeeded {
-        "committed".to_string()
-    } else {
-        "failed".to_string()
-    };
+    details.status =
+        if execution_succeeded { "committed".to_string() } else { "failed".to_string() };
     details.success = execution_succeeded;
     details.previewed = false;
     details.submitted = true;
     // A failed Move execution is still final once its Mysticeti sub-DAG commits.
     details.committed = true;
     details.gas_used = Some(effect.gas_used);
-    details.gas_fee = Some(
-        effect
-            .gas_used
-            .saturating_mul(effective_gas_price(details.gas_price)),
-    );
+    details.gas_fee = Some(effect.gas_used.saturating_mul(effective_gas_price(details.gas_price)));
     details.effects = Some(effect.clone());
     enrich_transfer_from_effect(state, details, effect);
 }
@@ -266,11 +255,7 @@ pub(crate) fn map_transaction_to_details(
             }
             if let Some(native_call) = tx.native_call() {
                 match native_call {
-                    NativeCall::Transfer {
-                        coin_object_id,
-                        recipient,
-                        amount,
-                    } => {
+                    NativeCall::Transfer { coin_object_id, recipient, amount } => {
                         push_transfer_entry(
                             &mut details,
                             kanari_rpc_api::TransferEntry {

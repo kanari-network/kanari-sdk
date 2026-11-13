@@ -32,9 +32,7 @@ pub(super) fn read_to_string(path: &Path) -> Result<String, KeystoreError> {
 
 pub(super) fn ensure_parent_dir(path: &Path) -> Result<(), KeystoreError> {
     let Some(dir) = path.parent() else {
-        return Err(KeystoreError::InvalidPath(
-            "Invalid keystore path".to_string(),
-        ));
+        return Err(KeystoreError::InvalidPath("Invalid keystore path".to_string()));
     };
 
     if !dir.exists() {
@@ -49,10 +47,7 @@ pub(super) fn acquire_shared_lock(path: &Path) -> Result<LockFileGuard, Keystore
     let lock_file = open_lock_file(&lock_path)?;
     retry_lock(|| lock_file.try_lock_shared())?;
 
-    Ok(LockFileGuard {
-        file: lock_file,
-        path: lock_path,
-    })
+    Ok(LockFileGuard { file: lock_file, path: lock_path })
 }
 
 pub(super) fn acquire_exclusive_lock(path: &Path) -> Result<LockFileGuard, KeystoreError> {
@@ -60,10 +55,7 @@ pub(super) fn acquire_exclusive_lock(path: &Path) -> Result<LockFileGuard, Keyst
     let lock_file = open_lock_file(&lock_path)?;
     retry_lock(|| lock_file.try_lock_exclusive())?;
 
-    Ok(LockFileGuard {
-        file: lock_file,
-        path: lock_path,
-    })
+    Ok(LockFileGuard { file: lock_file, path: lock_path })
 }
 
 pub(super) fn atomic_write_string(path: &Path, data: &str) -> Result<(), KeystoreError> {
@@ -78,11 +70,8 @@ pub(super) fn atomic_write_string(path: &Path, data: &str) -> Result<(), Keystor
             "tmp symlink detected",
         )));
     }
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&temp_path)?;
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&temp_path)?;
     file.write_all(data.as_bytes())?;
     file.sync_all()?;
     drop(file);

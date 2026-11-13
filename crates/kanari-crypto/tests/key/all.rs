@@ -23,10 +23,7 @@ mod tests {
         assert!(result.is_ok(), "Hybrid keypair generation should succeed");
 
         let keypair = result.unwrap();
-        assert!(
-            keypair.address.starts_with("0x"),
-            "Hybrid address should have correct prefix"
-        );
+        assert!(keypair.address.starts_with("0x"), "Hybrid address should have correct prefix");
         assert_eq!(keypair.curve_type, CurveType::Ed25519Dilithium3);
     }
 
@@ -36,16 +33,10 @@ mod tests {
         // No panic or failure expected - all operations are safe
         let result = generate_hybrid_k256_dilithium3_keypair();
 
-        assert!(
-            result.is_ok(),
-            "Hybrid K256+Dilithium3 keypair generation must always succeed"
-        );
+        assert!(result.is_ok(), "Hybrid K256+Dilithium3 keypair generation must always succeed");
 
         let keypair = result.unwrap();
-        assert!(
-            keypair.address.starts_with("0x"),
-            "Hybrid address should have correct prefix"
-        );
+        assert!(keypair.address.starts_with("0x"), "Hybrid address should have correct prefix");
         assert_eq!(keypair.curve_type, CurveType::K256Dilithium3);
 
         // Verify combined public key format
@@ -55,10 +46,7 @@ mod tests {
         );
 
         // Verify PQC public key is present
-        assert!(
-            keypair.pqc_public_key.is_some(),
-            "Hybrid keypair must have PQC public key"
-        );
+        assert!(keypair.pqc_public_key.is_some(), "Hybrid keypair must have PQC public key");
     }
 
     // Test that address generation handles short public keys without panic
@@ -69,11 +57,7 @@ mod tests {
         let bytes = short_string.as_bytes();
 
         // Should not panic - take min of (bytes.len(), 20)
-        let hash_input = if bytes.len() >= 20 {
-            &bytes[..20]
-        } else {
-            bytes
-        };
+        let hash_input = if bytes.len() >= 20 { &bytes[..20] } else { bytes };
 
         assert_eq!(hash_input.len(), 3, "Should use full length if < 20");
         assert_eq!(hash_input, b"abc");
@@ -99,14 +83,8 @@ mod tests {
             assert!(result.is_ok(), "Keypair generation failed for {:?}", curve);
 
             let keypair = result.unwrap();
-            assert!(
-                !keypair.private_key.is_empty(),
-                "Private key should not be empty"
-            );
-            assert!(
-                !keypair.public_key.is_empty(),
-                "Public key should not be empty"
-            );
+            assert!(!keypair.private_key.is_empty(), "Private key should not be empty");
+            assert!(!keypair.public_key.is_empty(), "Public key should not be empty");
             assert!(!keypair.address.is_empty(), "Address should not be empty");
             assert_eq!(keypair.curve_type, curve, "Curve type should match");
         }
@@ -116,18 +94,12 @@ mod tests {
     fn test_mnemonic_generation() {
         // Test 12-word mnemonic
         let mnemonic_12 = generate_mnemonic(12);
-        assert!(
-            mnemonic_12.is_ok(),
-            "12-word mnemonic generation should succeed"
-        );
+        assert!(mnemonic_12.is_ok(), "12-word mnemonic generation should succeed");
         assert_eq!(mnemonic_12.unwrap().split_whitespace().count(), 12);
 
         // Test 24-word mnemonic
         let mnemonic_24 = generate_mnemonic(24);
-        assert!(
-            mnemonic_24.is_ok(),
-            "24-word mnemonic generation should succeed"
-        );
+        assert!(mnemonic_24.is_ok(), "24-word mnemonic generation should succeed");
         assert_eq!(mnemonic_24.unwrap().split_whitespace().count(), 24);
 
         // Test invalid word count
@@ -161,18 +133,11 @@ mod tests {
 
         // Test extracting raw key
         let raw = extract_raw_key(&keypair.private_key);
-        assert!(
-            !raw.starts_with(KANARI_KEY_PREFIX),
-            "Raw key should not have prefix"
-        );
+        assert!(!raw.starts_with(KANARI_KEY_PREFIX), "Raw key should not have prefix");
 
         // Test formatting again
         let formatted = format_private_key(raw);
-        assert_eq!(
-            formatted,
-            keypair.private_key.to_string(),
-            "Re-formatted key should match"
-        );
+        assert_eq!(formatted, keypair.private_key.to_string(), "Re-formatted key should match");
     }
 
     #[test]
@@ -199,10 +164,7 @@ mod tests {
             "ML-DSA keys should have kanamldsa prefix, got: {}",
             *dil3.private_key
         );
-        assert!(
-            dil3.address.starts_with("0x"),
-            "PQC addresses should have pqc prefix"
-        );
+        assert!(dil3.address.starts_with("0x"), "PQC addresses should have pqc prefix");
 
         // pqc_public_key should be set for PQC keypairs
         assert!(dil3.pqc_public_key.is_some());
@@ -215,11 +177,7 @@ mod tests {
 
     #[test]
     fn test_post_quantum_provider_prefixes_are_explicit() {
-        for curve in [
-            CurveType::Dilithium2,
-            CurveType::Dilithium3,
-            CurveType::Dilithium5,
-        ] {
+        for curve in [CurveType::Dilithium2, CurveType::Dilithium3, CurveType::Dilithium5] {
             let keypair = generate_keypair(curve).unwrap();
             assert!(
                 keypair.private_key.starts_with("kanamldsa"),
@@ -251,30 +209,18 @@ mod tests {
             hybrid.private_key.starts_with("kanahybrid"),
             "Hybrid keys should have kanahybrid prefix"
         );
-        assert!(
-            hybrid.address.starts_with("0x"),
-            "Hybrid addresses should have hybrid prefix"
-        );
+        assert!(hybrid.address.starts_with("0x"), "Hybrid addresses should have hybrid prefix");
 
         // Should contain both key parts separated by ':'
-        assert!(
-            hybrid.private_key.contains(':'),
-            "Hybrid key should contain separator"
-        );
-        assert!(
-            hybrid.public_key.contains(':'),
-            "Hybrid public key should contain separator"
-        );
+        assert!(hybrid.private_key.contains(':'), "Hybrid key should contain separator");
+        assert!(hybrid.public_key.contains(':'), "Hybrid public key should contain separator");
 
         // Test that hybrid is detected as post-quantum
         assert!(CurveType::Ed25519Dilithium3.is_post_quantum());
         assert!(CurveType::Ed25519Dilithium3.is_hybrid());
 
         // pqc_public_key should be present and equal to the PQC part
-        let hybrid_pqc = hybrid
-            .pqc_public_key
-            .as_ref()
-            .expect("PQC public key missing");
+        let hybrid_pqc = hybrid.pqc_public_key.as_ref().expect("PQC public key missing");
         assert!(hybrid.public_key.contains(':'));
         let parts: Vec<&str> = hybrid.public_key.splitn(2, ':').collect();
         assert_eq!(parts[1], hybrid_pqc);
@@ -318,17 +264,11 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{curve} should support mnemonic derivation: {e}"));
             assert_eq!(kp.curve_type, curve);
             assert!(kp.address.starts_with("0x"), "address prefix");
-            assert!(
-                kp.pqc_public_key.is_some(),
-                "{curve} should carry a PQC public key"
-            );
+            assert!(kp.pqc_public_key.is_some(), "{curve} should carry a PQC public key");
 
             // Deterministic: same mnemonic reproduces the same keypair
             let kp2 = keypair_from_mnemonic(mnemonic, curve).expect("repeat derivation");
-            assert_eq!(
-                kp.address, kp2.address,
-                "{curve} derivation not deterministic"
-            );
+            assert_eq!(kp.address, kp2.address, "{curve} derivation not deterministic");
             assert_eq!(kp.public_key, kp2.public_key);
 
             // Private-key roundtrip reproduces the same keypair
@@ -342,10 +282,7 @@ mod tests {
             assert_eq!(kp.address, imported.address);
 
             // Every algorithm gets independent key material
-            assert!(
-                addresses.insert(kp.address.clone()),
-                "address collision for {curve}"
-            );
+            assert!(addresses.insert(kp.address.clone()), "address collision for {curve}");
         }
     }
 
@@ -394,12 +331,8 @@ mod tests {
 
     #[test]
     fn test_tagged_address_all_curves() {
-        let curves = vec![
-            CurveType::K256,
-            CurveType::P256,
-            CurveType::Ed25519,
-            CurveType::Dilithium3,
-        ];
+        let curves =
+            vec![CurveType::K256, CurveType::P256, CurveType::Ed25519, CurveType::Dilithium3];
 
         for curve in curves {
             let keypair = generate_keypair(curve).unwrap();
@@ -422,10 +355,7 @@ mod tests {
 
         // Test with invalid curve type
         let result = KeyPair::parse_tagged_address("InvalidCurve:0xabc123");
-        assert!(
-            result.is_none(),
-            "Should return None for invalid curve type"
-        );
+        assert!(result.is_none(), "Should return None for invalid curve type");
 
         // Test with empty string
         let result = KeyPair::parse_tagged_address("");
@@ -527,24 +457,13 @@ mod tests {
         assert_eq!(pub_parts.len(), 2, "Public key must have exactly 2 parts");
 
         // Ed25519 public key should be 32 bytes (64 hex chars)
-        assert_eq!(
-            pub_parts[0].len(),
-            64,
-            "Ed25519 public key must be 64 hex characters"
-        );
+        assert_eq!(pub_parts[0].len(), 64, "Ed25519 public key must be 64 hex characters");
 
         // Dilithium3 public key should be 1952 bytes (3904 hex chars)
-        assert_eq!(
-            pub_parts[1].len(),
-            3904,
-            "Dilithium3 public key must be 3904 hex characters"
-        );
+        assert_eq!(pub_parts[1].len(), 3904, "Dilithium3 public key must be 3904 hex characters");
 
         // Verify PQC public key field
-        assert!(
-            keypair.pqc_public_key.is_some(),
-            "Ed25519Dilithium3 must have PQC public key"
-        );
+        assert!(keypair.pqc_public_key.is_some(), "Ed25519Dilithium3 must have PQC public key");
         assert_eq!(
             keypair.pqc_public_key.unwrap(),
             pub_parts[1],
@@ -552,15 +471,8 @@ mod tests {
         );
 
         // Verify address format
-        assert!(
-            keypair.address.starts_with("0x"),
-            "Address must start with '0x'"
-        );
-        assert_eq!(
-            keypair.address.len(),
-            66,
-            "Address must be 66 characters (0x + 64 hex)"
-        );
+        assert!(keypair.address.starts_with("0x"), "Address must start with '0x'");
+        assert_eq!(keypair.address.len(), 66, "Address must be 66 characters (0x + 64 hex)");
 
         // Verify curve type
         assert_eq!(keypair.curve_type, CurveType::Ed25519Dilithium3);
@@ -581,10 +493,7 @@ mod tests {
 
         // Signature should contain both classical and PQC parts
         // Format: [2-byte length] || classical_sig || pqc_sig
-        assert!(
-            signature.len() > 2,
-            "Signature must be longer than length prefix"
-        );
+        assert!(signature.len() > 2, "Signature must be longer than length prefix");
 
         let classical_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
         assert_eq!(classical_len, 64, "Ed25519 signature should be 64 bytes");
@@ -598,10 +507,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            verified,
-            "Ed25519Dilithium3 signature must verify successfully"
-        );
+        assert!(verified, "Ed25519Dilithium3 signature must verify successfully");
     }
 
     #[test]
@@ -635,19 +541,10 @@ mod tests {
             keypair_from_private_key(&original.private_key, CurveType::Ed25519Dilithium3).unwrap();
 
         // Should produce identical keypair
-        assert_eq!(
-            original.public_key, imported.public_key,
-            "Public keys must match"
-        );
+        assert_eq!(original.public_key, imported.public_key, "Public keys must match");
         assert_eq!(original.address, imported.address, "Addresses must match");
-        assert_eq!(
-            original.pqc_public_key, imported.pqc_public_key,
-            "PQC public keys must match"
-        );
-        assert_eq!(
-            original.curve_type, imported.curve_type,
-            "Curve types must match"
-        );
+        assert_eq!(original.pqc_public_key, imported.pqc_public_key, "PQC public keys must match");
+        assert_eq!(original.curve_type, imported.curve_type, "Curve types must match");
     }
 
     #[test]
@@ -666,10 +563,7 @@ mod tests {
         let reimported =
             keypair_from_private_key(&keypair1.private_key, CurveType::Ed25519Dilithium3).unwrap();
 
-        assert_eq!(
-            keypair1.address, reimported.address,
-            "Same keypair must produce same address"
-        );
+        assert_eq!(keypair1.address, reimported.address, "Same keypair must produce same address");
     }
 
     #[test]
@@ -694,20 +588,13 @@ mod tests {
         let curve = CurveType::Ed25519Dilithium3;
 
         // Must be post-quantum
-        assert!(
-            curve.is_post_quantum(),
-            "Ed25519Dilithium3 must be post-quantum"
-        );
+        assert!(curve.is_post_quantum(), "Ed25519Dilithium3 must be post-quantum");
 
         // Must be hybrid
         assert!(curve.is_hybrid(), "Ed25519Dilithium3 must be hybrid");
 
         // Must have maximum security level
-        assert_eq!(
-            curve.security_level(),
-            5,
-            "Ed25519Dilithium3 must have security level 5"
-        );
+        assert_eq!(curve.security_level(), 5, "Ed25519Dilithium3 must have security level 5");
     }
 
     #[test]
@@ -726,11 +613,7 @@ mod tests {
         let (parsed_curve, parsed_address) =
             KeyPair::parse_tagged_address(&tagged).expect("Failed to parse tagged address");
 
-        assert_eq!(
-            parsed_curve,
-            CurveType::Ed25519Dilithium3,
-            "Parsed curve type must match"
-        );
+        assert_eq!(parsed_curve, CurveType::Ed25519Dilithium3, "Parsed curve type must match");
         assert_eq!(
             parsed_address, keypair.public_key,
             "Parsed address must equal combined public key"
@@ -761,10 +644,7 @@ mod tests {
         let curve = CurveType::Ed25519Dilithium3;
         let display = format!("{}", curve);
 
-        assert_eq!(
-            display, "Ed25519Dilithium3",
-            "Display format must be correct"
-        );
+        assert_eq!(display, "Ed25519Dilithium3", "Display format must be correct");
     }
 
     #[test]
@@ -836,24 +716,13 @@ mod tests {
         assert_eq!(pub_parts.len(), 2, "Public key must have exactly 2 parts");
 
         // K256 public key should be 64 bytes (128 hex chars) - uncompressed without 0x04 prefix
-        assert_eq!(
-            pub_parts[0].len(),
-            128,
-            "K256 public key must be 128 hex characters"
-        );
+        assert_eq!(pub_parts[0].len(), 128, "K256 public key must be 128 hex characters");
 
         // Dilithium3 public key should be 1952 bytes (3904 hex chars)
-        assert_eq!(
-            pub_parts[1].len(),
-            3904,
-            "Dilithium3 public key must be 3904 hex characters"
-        );
+        assert_eq!(pub_parts[1].len(), 3904, "Dilithium3 public key must be 3904 hex characters");
 
         // Verify PQC public key field
-        assert!(
-            keypair.pqc_public_key.is_some(),
-            "K256Dilithium3 must have PQC public key"
-        );
+        assert!(keypair.pqc_public_key.is_some(), "K256Dilithium3 must have PQC public key");
         assert_eq!(
             keypair.pqc_public_key.unwrap(),
             pub_parts[1],
@@ -861,15 +730,8 @@ mod tests {
         );
 
         // Verify address format
-        assert!(
-            keypair.address.starts_with("0x"),
-            "Address must start with '0x'"
-        );
-        assert_eq!(
-            keypair.address.len(),
-            66,
-            "Address must be 66 characters (0x + 64 hex)"
-        );
+        assert!(keypair.address.starts_with("0x"), "Address must start with '0x'");
+        assert_eq!(keypair.address.len(), 66, "Address must be 66 characters (0x + 64 hex)");
 
         // Verify curve type
         assert_eq!(keypair.curve_type, CurveType::K256Dilithium3);
@@ -890,10 +752,7 @@ mod tests {
 
         // Signature should contain both classical and PQC parts
         // Format: [2-byte length] || classical_sig || pqc_sig
-        assert!(
-            signature.len() > 2,
-            "Signature must be longer than length prefix"
-        );
+        assert!(signature.len() > 2, "Signature must be longer than length prefix");
 
         let classical_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
         // K256 signatures are DER-encoded, typically 70-72 bytes
@@ -912,10 +771,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            verified,
-            "K256Dilithium3 signature must verify successfully"
-        );
+        assert!(verified, "K256Dilithium3 signature must verify successfully");
     }
 
     #[test]
@@ -949,19 +805,10 @@ mod tests {
             keypair_from_private_key(&original.private_key, CurveType::K256Dilithium3).unwrap();
 
         // Should produce identical keypair
-        assert_eq!(
-            original.public_key, imported.public_key,
-            "Public keys must match"
-        );
+        assert_eq!(original.public_key, imported.public_key, "Public keys must match");
         assert_eq!(original.address, imported.address, "Addresses must match");
-        assert_eq!(
-            original.pqc_public_key, imported.pqc_public_key,
-            "PQC public keys must match"
-        );
-        assert_eq!(
-            original.curve_type, imported.curve_type,
-            "Curve types must match"
-        );
+        assert_eq!(original.pqc_public_key, imported.pqc_public_key, "PQC public keys must match");
+        assert_eq!(original.curve_type, imported.curve_type, "Curve types must match");
     }
 
     #[test]
@@ -980,10 +827,7 @@ mod tests {
         let reimported =
             keypair_from_private_key(&keypair1.private_key, CurveType::K256Dilithium3).unwrap();
 
-        assert_eq!(
-            keypair1.address, reimported.address,
-            "Same keypair must produce same address"
-        );
+        assert_eq!(keypair1.address, reimported.address, "Same keypair must produce same address");
     }
 
     #[test]
@@ -1008,20 +852,13 @@ mod tests {
         let curve = CurveType::K256Dilithium3;
 
         // Must be post-quantum
-        assert!(
-            curve.is_post_quantum(),
-            "K256Dilithium3 must be post-quantum"
-        );
+        assert!(curve.is_post_quantum(), "K256Dilithium3 must be post-quantum");
 
         // Must be hybrid
         assert!(curve.is_hybrid(), "K256Dilithium3 must be hybrid");
 
         // Must have maximum security level
-        assert_eq!(
-            curve.security_level(),
-            5,
-            "K256Dilithium3 must have security level 5"
-        );
+        assert_eq!(curve.security_level(), 5, "K256Dilithium3 must have security level 5");
     }
 
     #[test]
@@ -1031,20 +868,13 @@ mod tests {
         let tagged = keypair.tagged_address();
 
         // Should have correct format
-        assert!(
-            tagged.starts_with("K256Dilithium3:"),
-            "Tagged address must start with curve type"
-        );
+        assert!(tagged.starts_with("K256Dilithium3:"), "Tagged address must start with curve type");
 
         // Parse it back
         let (parsed_curve, parsed_address) =
             KeyPair::parse_tagged_address(&tagged).expect("Failed to parse tagged address");
 
-        assert_eq!(
-            parsed_curve,
-            CurveType::K256Dilithium3,
-            "Parsed curve type must match"
-        );
+        assert_eq!(parsed_curve, CurveType::K256Dilithium3, "Parsed curve type must match");
         assert_eq!(
             parsed_address, keypair.public_key,
             "Parsed address must equal combined public key"

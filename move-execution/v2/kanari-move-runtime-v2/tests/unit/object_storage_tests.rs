@@ -35,10 +35,7 @@ fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()>
             version: 1,
         },
     )?;
-    store.save(
-        &ObjectStorage::legacy_owner_key(&owner),
-        &vec![stale_id.clone()],
-    )?;
+    store.save(&ObjectStorage::legacy_owner_key(&owner), &vec![stale_id.clone()])?;
     store.save(&owned_objects_key(&owner), &vec![canonical_id.clone()])?;
 
     let storage = ObjectStorage::new_with_store(store.clone())?;
@@ -62,13 +59,9 @@ fn persistent_startup_rejects_object_index_entry_without_object() -> Result<()> 
         &vec!["0x000000000000000000000000000000000000000000000000000000000000deed".to_string()],
     )?;
 
-    let err = ObjectStorage::new_with_store(store)
-        .err()
-        .expect("partial object index must fail startup");
-    assert!(
-        err.to_string()
-            .contains("object index references missing object")
-    );
+    let err =
+        ObjectStorage::new_with_store(store).err().expect("partial object index must fail startup");
+    assert!(err.to_string().contains("object index references missing object"));
     Ok(())
 }
 
@@ -110,10 +103,7 @@ fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
             version: 1,
         },
     )?;
-    store.save(
-        &ObjectStorage::legacy_owner_key(&owner),
-        &vec![object_id.clone()],
-    )?;
+    store.save(&ObjectStorage::legacy_owner_key(&owner), &vec![object_id.clone()])?;
 
     let storage = ObjectStorage::new_with_store(store.clone())?;
     let objects = storage.get_objects_by_owner(&owner);
@@ -124,11 +114,7 @@ fn legacy_owner_index_is_migrated_to_owned_objects_index() -> Result<()> {
         ObjectStorage::load_id_index(&store, &owned_objects_key(&owner))?,
         vec!["0x000000000000000000000000000000000000000000000000000000000000cccc".to_string()]
     );
-    assert!(
-        store
-            .load::<Vec<String>>(&ObjectStorage::legacy_owner_key(&owner))?
-            .is_none()
-    );
+    assert!(store.load::<Vec<String>>(&ObjectStorage::legacy_owner_key(&owner))?.is_none());
 
     Ok(())
 }

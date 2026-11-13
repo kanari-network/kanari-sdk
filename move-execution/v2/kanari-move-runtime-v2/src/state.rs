@@ -59,11 +59,7 @@ type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
 pub type PrecomputedSmtChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>, smt::SmtNodeOverlay);
-type DerivedIndexes = (
-    Vec<String>,
-    BTreeMap<AccountAddress, Vec<String>>,
-    Vec<String>,
-);
+type DerivedIndexes = (Vec<String>, BTreeMap<AccountAddress, Vec<String>>, Vec<String>);
 
 /// Owner state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,12 +76,7 @@ pub struct OwnerState {
 impl OwnerState {
     /// Create a new empty owner state for the given address.
     pub fn new(address: AccountAddress) -> Self {
-        Self {
-            address,
-            nonce: 0,
-            modules: BTreeSet::new(),
-            token_balances: BTreeMap::new(),
-        }
+        Self { address, nonce: 0, modules: BTreeSet::new(), token_balances: BTreeMap::new() }
     }
 
     /// Create an owner state with a pre-set native token balance.
@@ -116,10 +107,7 @@ impl OwnerState {
 
     /// Get the balance for a specific token type.
     pub fn get_token_balance(&self, token_type: &str) -> u64 {
-        self.token_balances
-            .get(token_type)
-            .map(|b| b.value())
-            .unwrap_or(0)
+        self.token_balances.get(token_type).map(|b| b.value()).unwrap_or(0)
     }
 
     /// Get the native token balance for this owner.
@@ -239,9 +227,8 @@ impl StateManager {
     /// Create new state with genesis allocation and return initialization errors.
     pub fn try_new(store: Arc<PersistentStore>) -> Result<Self> {
         // Try to load total supply from DB
-        let persisted_total_supply_record = store
-            .load::<u64>(b"total_supply")
-            .context("Failed to load total_supply")?;
+        let persisted_total_supply_record =
+            store.load::<u64>(b"total_supply").context("Failed to load total_supply")?;
         let persisted_total_supply = persisted_total_supply_record.unwrap_or(0);
         let genesis_marker = store
             .load::<bool>(GENESIS_INITIALIZED_KEY)
@@ -257,9 +244,8 @@ impl StateManager {
             .load::<BTreeMap<Vec<u8>, u64>>(ACCESS_VERSIONS_KEY)
             .context("Failed to load state access versions")?
             .unwrap_or_default();
-        for (key, value) in store
-            .logical_entries()
-            .context("Failed to load per-key state access versions")?
+        for (key, value) in
+            store.logical_entries().context("Failed to load per-key state access versions")?
         {
             let Some(state_key) = key.strip_prefix(ACCESS_VERSION_PREFIX) else {
                 continue;
@@ -301,9 +287,7 @@ impl StateManager {
             genesis_marker || recovered_total_supply > 0 || legacy_zero_supply_evidence;
 
         // Initialize SMT if store is backed by RocksDB
-        let smt = store
-            .get_db()
-            .map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
+        let smt = store.get_db().map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
 
         let mut state = Self {
             store,
@@ -316,9 +300,7 @@ impl StateManager {
             access_epoch: 0,
         };
 
-        state
-            .ensure_smt_initialized()
-            .context("Failed to initialize state SMT")?;
+        state.ensure_smt_initialized().context("Failed to initialize state SMT")?;
 
         let mut metadata_migration_pending = false;
         if genesis_already_initialized && !genesis_marker {
@@ -336,9 +318,7 @@ impl StateManager {
         }
 
         if metadata_migration_pending {
-            state
-                .commit()
-                .context("Failed to persist state initialization metadata")?;
+            state.commit().context("Failed to persist state initialization metadata")?;
         }
 
         // Genesis identity is explicit. Supply is protocol state and may legitimately be zero.
@@ -382,57 +362,38 @@ impl StateManager {
             drop(genesis_guard);
         }
 
-        state
-            .migrate_runtime_state_schema()
-            .context("Failed to migrate runtime state schema")?;
+        state.migrate_runtime_state_schema().context("Failed to migrate runtime state schema")?;
 
         if state
             .repair_derived_indexes_on_startup()
             .context("Failed to rebuild derived indexes on startup")?
         {
-            state
-                .commit()
-                .context("Failed to persist rebuilt derived indexes on startup")?;
+            state.commit().context("Failed to persist rebuilt derived indexes on startup")?;
         }
 
-        let wallet_supply_index_version = state
-            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
-            .unwrap_or(0);
+        let wallet_supply_index_version =
+            state.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?.unwrap_or(0);
         if wallet_supply_index_version < WALLET_SUPPLY_INDEX_VERSION
             && state
                 .repair_legacy_native_wallet_overcount()
                 .context("Failed to repair native wallet supply on startup")?
         {
-            state
-                .commit()
-                .context("Failed to persist repaired native wallet supply on startup")?;
+            state.commit().context("Failed to persist repaired native wallet supply on startup")?;
         }
 
-        if state
-            .ensure_wallet_supply_index()
-            .context("Failed to initialize wallet supply index")?
-        {
-            state
-                .commit()
-                .context("Failed to persist wallet supply index")?;
+        if state.ensure_wallet_supply_index().context("Failed to initialize wallet supply index")? {
+            state.commit().context("Failed to persist wallet supply index")?;
         }
 
-        if state
-            .ensure_token_holders_index()
-            .context("Failed to initialize token holders index")?
-        {
-            state
-                .commit()
-                .context("Failed to persist token holders index")?;
+        if state.ensure_token_holders_index().context("Failed to initialize token holders index")? {
+            state.commit().context("Failed to persist token holders index")?;
         }
 
         if let Err(e) = state.validate_supply_invariants() {
             Self::report_supply_invariant_violation("on startup", &e)?;
         }
 
-        state
-            .ensure_smt_consistent()
-            .context("Failed to verify state SMT")?;
+        state.ensure_smt_consistent().context("Failed to verify state SMT")?;
 
         Ok(state)
     }

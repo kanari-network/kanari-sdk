@@ -24,10 +24,7 @@ pub fn function(
     function_name: FunctionName,
     function: &N::Function,
 ) {
-    let loc = match function
-        .attributes
-        .get_loc_(&NativeAttribute::BytecodeInstruction.into())
-    {
+    let loc = match function.attributes.get_loc_(&NativeAttribute::BytecodeInstruction.into()) {
         None => return,
         Some(loc) => *loc,
     };
@@ -36,10 +33,8 @@ pub fn function(
             "Invalid usage of '{}' attribute to map function to bytecode instruction.",
             NativeAttribute::BYTECODE_INSTRUCTION
         );
-        let name_msg = format!(
-            "No known mapping of '{}::{}' to bytecode instruction",
-            module, function_name
-        );
+        let name_msg =
+            format!("No known mapping of '{}::{}' to bytecode instruction", module, function_name);
         let diag = diag!(
             Attributes::InvalidBytecodeInst,
             (loc, attr_msg),
@@ -69,11 +64,7 @@ pub fn resolve_builtin(
     let sp!(_, ModuleIdent_ { address, module }) = module;
     // Only resolve if either (a) the address is named "std" or (b) its value is 0x1
     match address {
-        Address::Numerical {
-            name: Some(sp!(_, n)),
-            ..
-        }
-        | Address::NamedUnassigned(sp!(_, n))
+        Address::Numerical { name: Some(sp!(_, n)), .. } | Address::NamedUnassigned(sp!(_, n))
             if *n == symbol!("std") => {}
         _ => return None,
     };
@@ -91,8 +82,7 @@ pub fn resolve_builtin(
 }
 
 fn expect_one_ty_arg(ty_args: Vec<IR::Type>) -> IR::Type {
-    let [ty]: [IR::Type; 1] = ty_args
-        .try_into()
-        .expect("ICE native bytecode function expected a single type argument");
+    let [ty]: [IR::Type; 1] =
+        ty_args.try_into().expect("ICE native bytecode function expected a single type argument");
     ty
 }

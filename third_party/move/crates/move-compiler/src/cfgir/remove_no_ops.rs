@@ -10,10 +10,7 @@ pub fn optimize(cfg: &mut MutForwardCFG) -> bool {
     for block in cfg.blocks_mut().values_mut() {
         let old_block = std::mem::take(block);
         let old_len = old_block.len();
-        *block = old_block
-            .into_iter()
-            .filter(|c| !c.value.is_unit())
-            .collect::<BasicBlock>();
+        *block = old_block.into_iter().filter(|c| !c.value.is_unit()).collect::<BasicBlock>();
         changed = changed || old_len != block.len();
     }
     changed

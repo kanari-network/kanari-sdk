@@ -77,18 +77,11 @@ fn legacy_array_encrypted_key_format_upgrades_and_decrypts() {
 
     let keystore = Keystore::load_from_path(&path).unwrap();
     let loaded = keystore.get_wallet(&keypair.address).unwrap();
-    assert_eq!(
-        decrypt_data(loaded, PASSWORD).unwrap(),
-        b"legacy wallet bytes"
-    );
+    assert_eq!(decrypt_data(loaded, PASSWORD).unwrap(), b"legacy wallet bytes");
 
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let saved_key = &saved["keys"][&keypair.address];
-    assert!(
-        saved_key["ciphertext"]
-            .as_str()
-            .is_some_and(|s| !s.is_empty())
-    );
+    assert!(saved_key["ciphertext"].as_str().is_some_and(|s| !s.is_empty()));
     assert!(saved_key["nonce"].as_str().is_some_and(|s| !s.is_empty()));
 }
 

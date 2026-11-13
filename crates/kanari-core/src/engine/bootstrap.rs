@@ -159,11 +159,7 @@ impl BlockchainEngine {
 
         let store = PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))).map_err(
             |error| {
-                anyhow::anyhow!(
-                    "Failed to open required persistent store at '{}': {}",
-                    dir,
-                    error
-                )
+                anyhow::anyhow!("Failed to open required persistent store at '{}': {}", dir, error)
             },
         )?;
         Self::init(Some(Arc::new(store)), true)

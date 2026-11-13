@@ -145,11 +145,7 @@ impl AuditSummary {
             };
             counts[idx] += 1;
         }
-        Self {
-            files_scanned,
-            findings,
-            counts_by_severity: counts,
-        }
+        Self { files_scanned, findings, counts_by_severity: counts }
     }
 
     pub fn has_findings(&self) -> bool {

@@ -147,19 +147,14 @@ impl BindingCircuit {
 }
 
 fn const_bytes(cs: ConstraintSystemRef<Fr>, data: &[u8]) -> Result<Vec<UInt8<Fr>>, SynthesisError> {
-    data.iter()
-        .map(|b| UInt8::new_constant(cs.clone(), b))
-        .collect()
+    data.iter().map(|b| UInt8::new_constant(cs.clone(), b)).collect()
 }
 
 fn opt_bytes(
     cs: ConstraintSystemRef<Fr>,
     data: Option<[u8; 32]>,
 ) -> Result<Vec<UInt8<Fr>>, SynthesisError> {
-    data.unwrap_or([0u8; 32])
-        .iter()
-        .map(|b| UInt8::new_witness(cs.clone(), || Ok(*b)))
-        .collect()
+    data.unwrap_or([0u8; 32]).iter().map(|b| UInt8::new_witness(cs.clone(), || Ok(*b))).collect()
 }
 
 impl ConstraintSynthesizer<Fr> for BindingCircuit {
@@ -221,11 +216,7 @@ fn fp_input_byte(cs: ConstraintSystemRef<Fr>, value: u8) -> Result<UInt8<Fr>, Sy
 
 /// Convert 64 public-input bytes to Groth16 Fr inputs (exact: bytes < 256).
 pub fn public_inputs_from_bytes(address: &[u8; 32], nonce: &[u8; 32]) -> Vec<Fr> {
-    address
-        .iter()
-        .chain(nonce.iter())
-        .map(|b| Fr::from(*b as u64))
-        .collect()
+    address.iter().chain(nonce.iter()).map(|b| Fr::from(*b as u64)).collect()
 }
 
 /// Encode public inputs for the Move wire format: 64 × 32-byte big-endian
@@ -304,10 +295,7 @@ mod tests {
             .unwrap();
         let n = cs.num_constraints();
         // ~27k constraints per SHA256 block; 5 + 2 blocks expected.
-        assert!(
-            (150_000..400_000).contains(&n),
-            "unexpected constraint count {n}"
-        );
+        assert!((150_000..400_000).contains(&n), "unexpected constraint count {n}");
     }
 
     /// Named types so the could-represent-a-proof bundle stays readable
@@ -346,12 +334,7 @@ mod tests {
         BindingCase {
             address,
             nonce,
-            witnesses: PublicWitnesses {
-                salt,
-                randomness,
-                eph_pub,
-                max_epoch,
-            },
+            witnesses: PublicWitnesses { salt, randomness, eph_pub, max_epoch },
         }
     }
 
@@ -388,34 +371,20 @@ mod tests {
         };
 
         // Honest instance is fully satisfiable.
-        assert!(sat(
-            salt, TEST_SUB, randomness, eph_pub, max_epoch, address, nonce
-        ));
+        assert!(sat(salt, TEST_SUB, randomness, eph_pub, max_epoch, address, nonce));
 
         // Public-side tampering (the verifier only sees inputs): any bit
         // flipped in address breaks the digest equality.
         let mut addr_flip = address;
         addr_flip[0] ^= 1;
-        assert!(!sat(
-            salt, TEST_SUB, randomness, eph_pub, max_epoch, addr_flip, nonce
-        ));
+        assert!(!sat(salt, TEST_SUB, randomness, eph_pub, max_epoch, addr_flip, nonce));
 
         // Witness-side tampering (collision/forgery attempt): wrong salt
         // must not satisfy the pinned digest.
-        assert!(!sat(
-            [1u8; 32], TEST_SUB, randomness, eph_pub, max_epoch, address, nonce
-        ));
+        assert!(!sat([1u8; 32], TEST_SUB, randomness, eph_pub, max_epoch, address, nonce));
 
         // Epoch tampering: bumping max_epoch changes the nonce digest.
-        assert!(!sat(
-            salt,
-            TEST_SUB,
-            randomness,
-            eph_pub,
-            max_epoch + 1,
-            address,
-            nonce
-        ));
+        assert!(!sat(salt, TEST_SUB, randomness, eph_pub, max_epoch + 1, address, nonce));
     }
 
     /// Full setup -> prove -> verify roundtrip. SLOW (minutes in debug):

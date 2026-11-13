@@ -13,10 +13,7 @@ pub fn optimize(
     locals: &mut Vec<(IR::Var, IR::Type)>,
     blocks: &mut IR::BytecodeBlocks,
 ) -> bool {
-    let mut unused = locals
-        .iter()
-        .map(|(sp!(_, v_), _)| v_.clone())
-        .collect::<BTreeSet<_>>();
+    let mut unused = locals.iter().map(|(sp!(_, v_), _)| v_.clone()).collect::<BTreeSet<_>>();
     for (_lbl, block) in blocks {
         for sp!(_, instr_) in block {
             match instr_ {
@@ -34,9 +31,7 @@ pub fn optimize(
     if unused.is_empty() {
         return false;
     }
-    *locals = std::mem::take(locals)
-        .into_iter()
-        .filter(|(sp!(_, v_), _)| !unused.contains(v_))
-        .collect();
+    *locals =
+        std::mem::take(locals).into_iter().filter(|(sp!(_, v_), _)| !unused.contains(v_)).collect();
     true
 }

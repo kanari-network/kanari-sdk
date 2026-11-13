@@ -12,10 +12,7 @@ async fn move_e2e_cluster_spawn_and_lifecycle() {
 
     let height = client.get_block_height().await.expect("get block height");
     let stats = client.get_stats().await.expect("get stats");
-    assert_eq!(
-        height, stats.height,
-        "RPC height must agree with blockchain stats height"
-    );
+    assert_eq!(height, stats.height, "RPC height must agree with blockchain stats height");
 
     let engine_stats = cluster.engine().get_stats();
     assert_eq!(
@@ -45,16 +42,8 @@ async fn move_e2e_multiple_cluster_instances() {
     let stats1 = cluster1.client().get_stats().await.expect("stats1");
     let stats2 = cluster2.client().get_stats().await.expect("stats2");
 
-    assert_eq!(
-        cluster1.url(),
-        cluster1.url(),
-        "cluster1 must keep a stable RPC endpoint"
-    );
-    assert_ne!(
-        cluster1.url(),
-        cluster2.url(),
-        "independent clusters must not share an RPC port"
-    );
+    assert_eq!(cluster1.url(), cluster1.url(), "cluster1 must keep a stable RPC endpoint");
+    assert_ne!(cluster1.url(), cluster2.url(), "independent clusters must not share an RPC port");
     assert_eq!(
         stats1.total_supply, stats2.total_supply,
         "fresh in-memory clusters start from the same genesis supply"

@@ -10,14 +10,8 @@ fn fmt(s: &str) -> String {
 fn else_block_single_space() {
     let out = fmt(include_str!("../move_package/spacing_else_block.move"));
     eprintln!("{out}");
-    assert!(
-        out.contains("} else {"),
-        "expected single-space else block: {out}"
-    );
-    assert!(
-        !out.contains("else  {"),
-        "double space before block brace: {out}"
-    );
+    assert!(out.contains("} else {"), "expected single-space else block: {out}");
+    assert!(!out.contains("else  {"), "double space before block brace: {out}");
 }
 
 #[test]
@@ -45,10 +39,7 @@ fn comment_before_else_still_single_space() {
     let out = fmt(src);
     eprintln!("{out}");
     assert!(out.contains("else {"), "comment else block: {out}");
-    assert!(
-        !out.contains("else  {"),
-        "double space after comment: {out}"
-    );
+    assert!(!out.contains("else  {"), "double space after comment: {out}");
 }
 
 #[test]

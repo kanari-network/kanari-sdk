@@ -25,11 +25,7 @@ pub struct Errmap {
 impl Errmap {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
         let rerooted_path = reroot_path(path)?;
-        let Self {
-            build_config: _,
-            error_prefix,
-            output_file,
-        } = self;
+        let Self { build_config: _, error_prefix, output_file } = self;
         let mut errmap_options = move_errmapgen::ErrmapOptions::default();
         if let Some(err_prefix) = error_prefix {
             errmap_options.error_prefix = err_prefix;
@@ -40,10 +36,7 @@ impl Errmap {
             .to_string();
         let model = config.move_model_for_package(
             &rerooted_path,
-            ModelConfig {
-                all_files_as_targets: true,
-                target_filter: None,
-            },
+            ModelConfig { all_files_as_targets: true, target_filter: None },
         )?;
         let mut errmap_gen = move_errmapgen::ErrmapGen::new(&model, &errmap_options);
         errmap_gen.r#gen();

@@ -7,9 +7,7 @@ use super::*;
 
 impl StateManager {
     pub(crate) fn migrate_runtime_state_schema(&mut self) -> Result<()> {
-        let persisted = self
-            .load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?
-            .unwrap_or(0);
+        let persisted = self.load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?.unwrap_or(0);
         ensure!(
             persisted <= RUNTIME_STATE_SCHEMA_VERSION,
             "State database schema {} is newer than runtime schema {}",
@@ -59,10 +57,7 @@ impl StateManager {
     }
 
     pub(crate) fn ensure_smt_consistent(&self) -> Result<()> {
-        ensure!(
-            self.overlay.is_empty(),
-            "Cannot verify SMT with a pending overlay"
-        );
+        ensure!(self.overlay.is_empty(), "Cannot verify SMT with a pending overlay");
         self.repair_persisted_smt().map(|_| ())
     }
 
@@ -77,10 +72,7 @@ impl StateManager {
         if smt.root_hash()? != expected {
             log::warn!("Persisted SMT is stale; rebuilding canonical state tree");
             smt.rebuild(&entries)?;
-            ensure!(
-                smt.root_hash()? == expected,
-                "SMT rebuild produced wrong root"
-            );
+            ensure!(smt.root_hash()? == expected, "SMT rebuild produced wrong root");
             return Ok(true);
         }
         Ok(false)
@@ -92,10 +84,7 @@ impl StateManager {
         let Some(smt) = &self.smt else {
             return Ok(());
         };
-        ensure!(
-            self.overlay.is_empty(),
-            "Cannot audit SMT with a pending overlay"
-        );
+        ensure!(self.overlay.is_empty(), "Cannot audit SMT with a pending overlay");
         let entries = self.canonical_persisted_entries()?;
         let mut mismatches = Vec::new();
         for (key, expected) in &entries {
@@ -120,10 +109,8 @@ impl StateManager {
         );
         let expected_root = smt::compute_sparse_root(&entries);
         let stale_known_keys = if smt.persisted_leaf_count()? > entries.len() {
-            let canonical_keys = entries
-                .iter()
-                .map(|(key, _)| key.as_slice())
-                .collect::<HashSet<_>>();
+            let canonical_keys =
+                entries.iter().map(|(key, _)| key.as_slice()).collect::<HashSet<_>>();
             let mut stale_keys = Vec::new();
             for (key, _) in self
                 .store
@@ -177,11 +164,8 @@ impl StateManager {
     pub fn smt_diagnostics(&self, audit: bool) -> Result<SmtDiagnostics> {
         let (updates, deletes) = self.smt_changes_from_overlay()?;
         let enabled = self.smt.is_some();
-        let persisted_root = self
-            .smt
-            .as_ref()
-            .map(|tree| tree.root_hash().map(hex::encode))
-            .transpose()?;
+        let persisted_root =
+            self.smt.as_ref().map(|tree| tree.root_hash().map(hex::encode)).transpose()?;
 
         let mut persisted_leaf_count = None;
         let mut consistent = None;
@@ -189,11 +173,8 @@ impl StateManager {
         let audit_performed = audit && enabled;
 
         if audit_performed {
-            persisted_leaf_count = self
-                .smt
-                .as_ref()
-                .map(|tree| tree.persisted_leaf_count())
-                .transpose()?;
+            persisted_leaf_count =
+                self.smt.as_ref().map(|tree| tree.persisted_leaf_count()).transpose()?;
             match self.validate_smt_consistency() {
                 Ok(()) => consistent = Some(true),
                 Err(error) => {
@@ -295,10 +276,8 @@ impl StateManager {
         // Object membership in the canonical root is driven by owned_objects
         // indexes. An index can drop/add an unchanged object without placing
         // that object's bytes in the overlay, so derive those leaf deltas too.
-        for (index_key, value_opt) in self
-            .overlay
-            .iter()
-            .filter(|(key, _)| key.starts_with(b"owned_objects:"))
+        for (index_key, value_opt) in
+            self.overlay.iter().filter(|(key, _)| key.starts_with(b"owned_objects:"))
         {
             let old_ids = self
                 .store
@@ -335,10 +314,7 @@ impl StateManager {
 
         updates.sort_by(|left, right| left.0.cmp(&right.0));
         updates.dedup_by(|left, right| left.0 == right.0);
-        let updated_keys = updates
-            .iter()
-            .map(|(key, _)| key.as_slice())
-            .collect::<HashSet<_>>();
+        let updated_keys = updates.iter().map(|(key, _)| key.as_slice()).collect::<HashSet<_>>();
         deletes.retain(|key| !updated_keys.contains(key.as_slice()));
         deletes.sort();
         deletes.dedup();
@@ -368,8 +344,7 @@ impl StateManager {
 
     /// Compute a canonical root and propagate storage/index corruption to the caller.
     pub fn try_compute_state_root(&self) -> Result<Vec<u8>> {
-        self.try_compute_state_root_with_smt_changes()
-            .map(|(root, _)| root)
+        self.try_compute_state_root_with_smt_changes().map(|(root, _)| root)
     }
 
     /// Compute a canonical root and return reusable SMT overlay deltas when the

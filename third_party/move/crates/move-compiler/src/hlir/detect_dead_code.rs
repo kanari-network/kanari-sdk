@@ -87,12 +87,10 @@ impl<'env> Context<'env> {
         use ControlFlow_::*;
         match error {
             AbortCalled | Divergent | InfiniteLoop | NamedBlockControlCalled(_) | ReturnCalled => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, VALUE_UNREACHABLE_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, VALUE_UNREACHABLE_MSG)));
             }
             UnreachableCode => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
             }
             _ => (),
         }
@@ -102,12 +100,10 @@ impl<'env> Context<'env> {
         use ControlFlow_::*;
         match error {
             AbortCalled | InfiniteLoop => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
             }
             UnreachableCode => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
             }
             _ => (),
         }
@@ -117,12 +113,10 @@ impl<'env> Context<'env> {
         use ControlFlow_::*;
         match error {
             AbortCalled | Divergent | InfiniteLoop | ReturnCalled => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, UNREACHABLE_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, UNREACHABLE_MSG)));
             }
             UnreachableCode => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
             }
             _ => (),
         }
@@ -142,14 +136,11 @@ impl<'env> Context<'env> {
                 ));
             }
             AbortCalled | Divergent | InfiniteLoop | ReturnCalled | NamedBlockControlCalled(_) => {
-                self.env.add_diag(diag!(
-                    UnusedItem::DeadCode,
-                    (tail_exp.exp.loc, NOT_EXECUTED_MSG)
-                ));
+                self.env
+                    .add_diag(diag!(UnusedItem::DeadCode, (tail_exp.exp.loc, NOT_EXECUTED_MSG)));
             }
             UnreachableCode => {
-                self.env
-                    .add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
+                self.env.add_diag(diag!(UnusedItem::DeadCode, (site, NOT_EXECUTED_MSG)));
             }
             _ => (),
         }
@@ -220,9 +211,7 @@ fn modules(context: &mut Context, modules: &UniqueMap<ModuleIdent, T::ModuleDefi
 }
 
 fn module(context: &mut Context, mdef: &T::ModuleDefinition) {
-    context
-        .env
-        .add_warning_filter_scope(mdef.warning_filter.clone());
+    context.env.add_warning_filter_scope(mdef.warning_filter.clone());
     for (_, cname, cdef) in &mdef.constants {
         constant(context, cname, cdef);
     }
@@ -237,11 +226,7 @@ fn module(context: &mut Context, mdef: &T::ModuleDefinition) {
 //**************************************************************************************************
 
 fn function(context: &mut Context, _name: &Symbol, f: &T::Function) {
-    let T::Function {
-        warning_filter,
-        body,
-        ..
-    } = f;
+    let T::Function { warning_filter, body, .. } = f;
     context.env.add_warning_filter_scope(warning_filter.clone());
     function_body(context, body);
     context.env.pop_warning_filter_scope();
@@ -259,16 +244,11 @@ fn function_body(context: &mut Context, sp!(_, tb_): &T::FunctionBody) {
 //**************************************************************************************************
 
 fn constant(context: &mut Context, _name: &Symbol, cdef: &T::Constant) {
-    context
-        .env
-        .add_warning_filter_scope(cdef.warning_filter.clone());
+    context.env.add_warning_filter_scope(cdef.warning_filter.clone());
     let eloc = cdef.value.exp.loc;
     let tseq = {
         let mut v = VecDeque::new();
-        v.push_back(sp(
-            eloc,
-            T::SequenceItem_::Seq(Box::new(cdef.value.clone())),
-        ));
+        v.push_back(sp(eloc, T::SequenceItem_::Seq(Box::new(cdef.value.clone()))));
         v
     };
     body(context, &tseq);
@@ -292,10 +272,7 @@ fn body(context: &mut Context, seq: &VecDeque<T::SequenceItem>) {
 #[growing_stack]
 fn tail(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
     use T::UnannotatedExp_ as E;
-    let T::Exp {
-        ty,
-        exp: sp!(eloc, e_),
-    } = e;
+    let T::Exp { ty, exp: sp!(eloc, e_) } = e;
 
     match e_ {
         // -----------------------------------------------------------------------------------------
@@ -355,11 +332,7 @@ fn tail(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
             // a named block in tail position checks for bad semicolons plus if the body exits that
             // block; if so, at least some of that code is live.
             let body_result = tail_block(context, seq);
-            if exits_named_block(*name, body_result) {
-                None
-            } else {
-                body_result
-            }
+            if exits_named_block(*name, body_result) { None } else { body_result }
         }
         E::Block((_, seq)) => tail_block(context, seq),
 
@@ -379,9 +352,8 @@ fn tail(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
 fn tail_block(context: &mut Context, seq: &VecDeque<T::SequenceItem>) -> Option<ControlFlow> {
     use T::SequenceItem_ as S;
     let last_exp = seq.iter().last();
-    let stmt_flow = statement_block(
-        context, seq, /* stmt_pos */ false, /* skip_last */ true,
-    );
+    let stmt_flow =
+        statement_block(context, seq, /* stmt_pos */ false, /* skip_last */ true);
     if let (Some(control_flow), Some(sp!(_, S::Seq(last)))) = (stmt_flow, last_exp) {
         context.report_statement_tail_error(control_flow, last);
         None
@@ -411,9 +383,7 @@ fn tail_block(context: &mut Context, seq: &VecDeque<T::SequenceItem>) -> Option<
 fn value(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
     use T::UnannotatedExp_ as E;
 
-    let T::Exp {
-        exp: sp!(eloc, e_), ..
-    } = e;
+    let T::Exp { exp: sp!(eloc, e_), .. } = e;
 
     macro_rules! value_report {
         ($nested_value:expr) => {{
@@ -477,11 +447,7 @@ fn value(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
             // a named block in value position checks if the body exits that block; if so, at least
             // some of that code is live.
             let body_result = value_block(context, seq);
-            if exits_named_block(*name, body_result) {
-                None
-            } else {
-                body_result
-            }
+            if exits_named_block(*name, body_result) { None } else { body_result }
         }
         E::Block((_, seq)) => value_block(context, seq),
 
@@ -492,13 +458,13 @@ fn value(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
 
         E::Builtin(_, args) | E::Vector(_, _, _, args) => value_report!(args),
 
-        E::Pack(_, _, _, fields) => fields
-            .iter()
-            .find_map(|(_, _, (_, (_, field_exp)))| value_report!(field_exp)),
+        E::Pack(_, _, _, fields) => {
+            fields.iter().find_map(|(_, _, (_, (_, field_exp)))| value_report!(field_exp))
+        }
 
-        E::PackVariant(_, _, _, _, fields) => fields
-            .iter()
-            .find_map(|(_, _, (_, (_, field_exp)))| value_report!(field_exp)),
+        E::PackVariant(_, _, _, _, fields) => {
+            fields.iter().find_map(|(_, _, (_, (_, field_exp)))| value_report!(field_exp))
+        }
 
         E::ExpList(_) => {
             use T::UnannotatedExp_ as TE;
@@ -567,9 +533,8 @@ fn value(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
 fn value_block(context: &mut Context, seq: &VecDeque<T::SequenceItem>) -> Option<ControlFlow> {
     use T::SequenceItem_ as S;
     let last_exp = seq.iter().last();
-    let stmt_flow = statement_block(
-        context, seq, /* stmt_pos */ false, /* skip_last */ true,
-    );
+    let stmt_flow =
+        statement_block(context, seq, /* stmt_pos */ false, /* skip_last */ true);
     if let (Some(control_flow), Some(sp!(_, S::Seq(last)))) = (stmt_flow, last_exp) {
         context.report_statement_tail_error(control_flow, last);
         already_reported(control_flow.loc)
@@ -598,9 +563,7 @@ fn value_block(context: &mut Context, seq: &VecDeque<T::SequenceItem>) -> Option
 #[growing_stack]
 fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
     use T::UnannotatedExp_ as E;
-    let T::Exp {
-        exp: sp!(eloc, e_), ..
-    } = e;
+    let T::Exp { exp: sp!(eloc, e_), .. } = e;
     match e_ {
         // -----------------------------------------------------------------------------------------
         // control flow statements
@@ -660,11 +623,7 @@ fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
             }
         }
 
-        E::Loop {
-            name,
-            body,
-            has_break,
-        } => {
+        E::Loop { name, body, has_break } => {
             let body_result = statement(context, body);
             if !has_break {
                 infinite_loop(*eloc)
@@ -679,16 +638,10 @@ fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
             // a named block in statement position checks if the body exits that block; if so, at
             // least some of that code is live.
             let body_result = value_block(context, seq);
-            if exits_named_block(*name, body_result) {
-                None
-            } else {
-                body_result
-            }
+            if exits_named_block(*name, body_result) { None } else { body_result }
         }
         E::Block((_, seq)) => {
-            statement_block(
-                context, seq, /* stmt_pos */ true, /* skip_last */ false,
-            )
+            statement_block(context, seq, /* stmt_pos */ true, /* skip_last */ false)
         }
         E::Return(rhs) => {
             if let Some(rhs_control_flow) = value(context, rhs) {
@@ -757,9 +710,7 @@ fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
         // odds and ends -- things we need to deal with but that don't do much
         // -----------------------------------------------------------------------------------------
         E::Use(_) => {
-            context
-                .env
-                .add_diag(ice!((*eloc, "ICE found unexpanded use")));
+            context.env.add_diag(ice!((*eloc, "ICE found unexpanded use")));
             None
         }
     }
@@ -778,9 +729,8 @@ fn statement_block(
     // statement position.
     if stmt_pos && has_trailing_unit(seq) {
         let last = seq.iter().last();
-        let result = statement_block(
-            context, seq, /* stmt_pos */ false, /* skip_last */ true,
-        );
+        let result =
+            statement_block(context, seq, /* stmt_pos */ false, /* skip_last */ true);
         return if let (Some(control_flow), Some(sp!(_, S::Seq(entry)))) = (result, last) {
             context.report_statement_tail_error(control_flow, entry);
             None
@@ -871,11 +821,7 @@ fn process_binops(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
     let mut work_queue = vec![e];
 
     while let Some(exp) = work_queue.pop() {
-        if let T::Exp {
-            exp: sp!(eloc, E::BinopExp(lhs, sp!(_, op), _, rhs)),
-            ..
-        } = exp
-        {
+        if let T::Exp { exp: sp!(eloc, E::BinopExp(lhs, sp!(_, op), _, rhs)), .. } = exp {
             pn_stack.push(Pn::Op(*op, *eloc));
             // push on backwards so when we reverse the stack, we are in RPN order
             work_queue.push(rhs);

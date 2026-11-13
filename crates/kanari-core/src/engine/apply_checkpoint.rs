@@ -275,9 +275,7 @@ impl BlockchainEngine {
                     )
                     .context("Failed to commit state and checkpoint marker to RocksDB")?;
             } else {
-                committed_state
-                    .commit()
-                    .context("Failed to commit state to RocksDB")?;
+                committed_state.commit().context("Failed to commit state to RocksDB")?;
             }
             *live_state = committed_state;
         }
@@ -390,18 +388,13 @@ impl BlockchainEngine {
                         )
                     })
                     .collect::<Vec<_>>();
-                let removed_bytes = removed_metadata
-                    .iter()
-                    .fold(0usize, |total, (_, _, _, _, size_bytes)| {
+                let removed_bytes =
+                    removed_metadata.iter().fold(0usize, |total, (_, _, _, _, size_bytes)| {
                         total.saturating_add(*size_bytes)
                     });
-                mempool
-                    .pending_txs
-                    .retain(|tx| !committed_hashes.contains(&tx.tx_hash));
+                mempool.pending_txs.retain(|tx| !committed_hashes.contains(&tx.tx_hash));
                 mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
-                mempool
-                    .pending_tx_hashes
-                    .retain(|hash| !committed_hashes.contains(hash));
+                mempool.pending_tx_hashes.retain(|hash| !committed_hashes.contains(hash));
                 for (sender, primary_access_key, congestion_access_key, access_keys, _) in
                     removed_metadata
                 {
@@ -435,9 +428,7 @@ impl BlockchainEngine {
                 tx_count,
                 chain_added_at.duration_since(started_at).as_secs_f64(),
                 persisted_at.duration_since(chain_added_at).as_secs_f64(),
-                mempool_drained_at
-                    .duration_since(persisted_at)
-                    .as_secs_f64(),
+                mempool_drained_at.duration_since(persisted_at).as_secs_f64(),
                 mempool_drained_at.duration_since(started_at).as_secs_f64(),
             );
         }

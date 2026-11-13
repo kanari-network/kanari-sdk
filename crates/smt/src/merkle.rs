@@ -68,11 +68,8 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
         let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
 
         // Determine sibling index
-        let sibling_index = if current_index.is_multiple_of(2) {
-            current_index + 1
-        } else {
-            current_index - 1
-        };
+        let sibling_index =
+            if current_index.is_multiple_of(2) { current_index + 1 } else { current_index - 1 };
 
         // Add sibling to proof if exists
         if sibling_index < current_level.len() {
@@ -192,10 +189,7 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
 
             // Build next level
             if right_idx < current_level.len() {
-                next_level.push(hash_node(
-                    &current_level[left_idx],
-                    &current_level[right_idx],
-                ));
+                next_level.push(hash_node(&current_level[left_idx], &current_level[right_idx]));
             } else {
                 next_level.push(current_level[left_idx]);
             }
@@ -232,10 +226,7 @@ impl CompressedMerkleProof {
             current_index /= 2;
         }
 
-        Self {
-            siblings: proof.to_vec(),
-            flags,
-        }
+        Self { siblings: proof.to_vec(), flags }
     }
 
     /// Verify compressed proof
@@ -396,11 +387,7 @@ mod tests {
         // Test proof for each transaction
         for (i, tx) in txs.iter().enumerate() {
             let proof = generate_merkle_proof(&txs, i);
-            assert!(
-                verify_merkle_proof(tx, i, &proof, &root),
-                "Proof failed for index {}",
-                i
-            );
+            assert!(verify_merkle_proof(tx, i, &proof, &root), "Proof failed for index {}", i);
         }
     }
 
@@ -535,10 +522,6 @@ mod tests {
         let compressed_size = bytes.len();
 
         // Compressed should be smaller (includes metadata but saves index calculations)
-        tracing::info!(
-            "Original: {} bytes, Compressed: {} bytes",
-            original_size,
-            compressed_size
-        );
+        tracing::info!("Original: {} bytes, Compressed: {} bytes", original_size, compressed_size);
     }
 }

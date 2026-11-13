@@ -26,14 +26,7 @@ use std::{
 use tempfile::{TempDir, tempdir};
 use walkdir::WalkDir;
 
-const EXTENSIONS: &[&str] = &[
-    "progress",
-    "resolved",
-    "locked",
-    "notlocked",
-    "compiled",
-    "modeled",
-];
+const EXTENSIONS: &[&str] = &["progress", "resolved", "locked", "notlocked", "compiled", "modeled"];
 
 pub fn run_test(path: &Path) -> datatest_stable::Result<()> {
     if path.iter().any(|part| part == "deps_only") {
@@ -90,11 +83,7 @@ impl Test<'_> {
         if !expected.is_file() {
             Ok(None)
         } else {
-            Ok(Some(Test {
-                toml_path,
-                expected,
-                output_dir: tempdir()?,
-            }))
+            Ok(Some(Test { toml_path, expected, output_dir: tempdir()? }))
         }
     }
 
@@ -124,10 +113,7 @@ impl Test<'_> {
 
     fn output(&self) -> anyhow::Result<String> {
         let Some(ext) = self.expected.extension().and_then(OsStr::to_str) else {
-            bail!(
-                "Unexpected snapshot file extension: {:?}",
-                self.expected.extension()
-            );
+            bail!("Unexpected snapshot file extension: {:?}", self.expected.extension());
         };
 
         let out_path = self.output_dir.path().to_path_buf();
@@ -139,9 +125,7 @@ impl Test<'_> {
             generate_docs: false,
             install_dir: Some(out_path),
             force_recompilation: false,
-            lock_file: ["locked", "notlocked"]
-                .contains(&ext)
-                .then(|| lock_path.clone()),
+            lock_file: ["locked", "notlocked"].contains(&ext).then(|| lock_path.clone()),
             ..Default::default()
         };
 
@@ -168,10 +152,7 @@ impl Test<'_> {
             "modeled" => {
                 ModelBuilder::create(
                     resolved_package?,
-                    ModelConfig {
-                        all_files_as_targets: false,
-                        target_filter: None,
-                    },
+                    ModelConfig { all_files_as_targets: false, target_filter: None },
                 )
                 .build_model()?;
                 "Built model\n".to_string()

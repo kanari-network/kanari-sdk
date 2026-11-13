@@ -60,10 +60,7 @@ pub fn load_kanari_config() -> io::Result<Value> {
 
         // Check for active_env
         if !map.contains_key(Value::String("active_env".to_string())) {
-            map.insert(
-                Value::String("active_env".to_string()),
-                Value::String("local".to_string()),
-            );
+            map.insert(Value::String("active_env".to_string()), Value::String("local".to_string()));
             changed = true;
         }
     }
@@ -82,10 +79,7 @@ pub fn save_kanari_config(config: &Value) -> io::Result<()> {
 
 fn save_kanari_config_to_path(config: &Value, config_path: &Path) -> io::Result<()> {
     let yaml_str = serde_yaml::to_string(config).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to serialize config: {}", e),
-        )
+        io::Error::new(io::ErrorKind::InvalidData, format!("Failed to serialize config: {}", e))
     })?;
 
     if let Some(parent) = config_path.parent() {
@@ -139,10 +133,7 @@ pub fn create_default_config() -> Value {
     config.insert(Value::String("envs".to_string()), create_default_envs());
 
     // Set active environment
-    config.insert(
-        Value::String("active_env".to_string()),
-        Value::String("local".to_string()),
-    );
+    config.insert(Value::String("active_env".to_string()), Value::String("local".to_string()));
 
     // Set active address (default wallet)
     config.insert(Value::String("active_address".to_string()), Value::Null);
@@ -154,21 +145,12 @@ pub fn create_default_config() -> Value {
 pub fn create_default_envs() -> Value {
     let mut envs = Vec::new();
 
-    let env_list = [
-        ("local", "http://127.0.0.1:6767"),
-        ("dev", "http://192.168.1.102:19001"),
-    ];
+    let env_list = [("local", "http://127.0.0.1:6767"), ("dev", "http://192.168.1.102:19001")];
 
     for (alias, rpc) in env_list {
         let mut env = Mapping::new();
-        env.insert(
-            Value::String("alias".to_string()),
-            Value::String(alias.to_string()),
-        );
-        env.insert(
-            Value::String("rpc".to_string()),
-            Value::String(rpc.to_string()),
-        );
+        env.insert(Value::String("alias".to_string()), Value::String(alias.to_string()));
+        env.insert(Value::String("rpc".to_string()), Value::String(rpc.to_string()));
         env.insert(Value::String("ws".to_string()), Value::Null);
         envs.push(Value::Mapping(env));
     }
@@ -184,15 +166,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("kanari.yaml");
         let mut first = Mapping::new();
-        first.insert(
-            Value::String("active_env".into()),
-            Value::String("local".into()),
-        );
+        first.insert(Value::String("active_env".into()), Value::String("local".into()));
         let mut second = Mapping::new();
-        second.insert(
-            Value::String("active_env".into()),
-            Value::String("dev".into()),
-        );
+        second.insert(Value::String("active_env".into()), Value::String("dev".into()));
 
         save_kanari_config_to_path(&Value::Mapping(first), &config_path).unwrap();
         save_kanari_config_to_path(&Value::Mapping(second), &config_path).unwrap();
