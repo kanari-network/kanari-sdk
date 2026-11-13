@@ -136,11 +136,9 @@ impl BlockchainEngine {
                     )?;
             }
         } else {
-            state_snapshot
-                .repair_legacy_native_wallet_overcount()
-                .context(
-                    "Failed to repair legacy native wallet overcount before checkpoint state execution",
-                )?;
+            state_snapshot.repair_legacy_native_wallet_overcount().context(
+                "Failed to repair legacy native wallet overcount before checkpoint state execution",
+            )?;
         }
         let state_arc = Arc::new(RwLock::new(state_snapshot));
         let cloned_at = std::time::Instant::now();

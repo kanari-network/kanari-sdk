@@ -167,7 +167,7 @@ fn binary_limits_test() {
         constant_pool,
         Constant {
             type_: SignatureToken::U64,
-            data: vec![0; 8],
+            data: vec![0; 8]
         },
         &binary_config,
         "CONSTANT_POOL"
@@ -254,7 +254,7 @@ fn binary_limits_test() {
             acquires_global_resources: vec![],
             code: Some(CodeUnit {
                 locals: SignatureIndex(0),
-                code: vec![Bytecode::Ret],
+                code: vec![Bytecode::Ret]
             }),
         },
         &binary_config,
@@ -281,7 +281,7 @@ fn binary_limits_test() {
         field_handles,
         FieldHandle {
             owner: StructDefinitionIndex(0),
-            field: 0,
+            field: 0
         },
         &binary_config,
         "FIELD_HANDLE"
@@ -311,7 +311,7 @@ fn binary_limits_test() {
         field_instantiations,
         FieldInstantiation {
             handle: FieldHandleIndex(0),
-            type_parameters: SignatureIndex(0),
+            type_parameters: SignatureIndex(0)
         },
         &binary_config,
         "FIELD_INST"

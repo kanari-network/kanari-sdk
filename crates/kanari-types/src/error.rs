@@ -75,7 +75,7 @@ where
                 "{}",
                 KanariError::OperationFailed {
                     context: message,
-                    details: error.to_string(),
+                    details: error.to_string()
                 }
             ),
         }

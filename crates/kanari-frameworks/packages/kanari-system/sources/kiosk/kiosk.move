@@ -839,6 +839,7 @@ module kanari_system::kiosk {
         amount: u64
     ) {
         let current = profit_of(kiosk, &currency);
+        assert!(current <= 18446744073709551615 - amount, 0);
         set_profit(kiosk, currency, current + amount);
     }
 

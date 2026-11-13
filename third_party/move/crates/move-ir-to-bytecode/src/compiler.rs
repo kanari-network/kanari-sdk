@@ -931,10 +931,12 @@ fn compile_statement(
         Statement_::Exp(e) => {
             compile_expression(context, function_frame, code, *e)?;
         }
-        Statement_::Jump(label) => push_instr!(
-            label.loc,
-            Bytecode::Branch(context.label_index(label.value)?)
-        ),
+        Statement_::Jump(label) => {
+            push_instr!(
+                label.loc,
+                Bytecode::Branch(context.label_index(label.value)?)
+            )
+        }
         Statement_::JumpIf(cond, label) => {
             let loc = cond.loc;
             compile_expression(context, function_frame, code, *cond)?;

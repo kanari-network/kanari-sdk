@@ -802,11 +802,13 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
             )
         }
         Param(tp) => tp.user_specified_name.value.to_string(),
-        Ref(mut_, ty) => format!(
-            "&{}{}",
-            if *mut_ { "mut " } else { "" },
-            error_format_nested(ty, subst)
-        ),
+        Ref(mut_, ty) => {
+            format!(
+                "&{}{}",
+                if *mut_ { "mut " } else { "" },
+                error_format_nested(ty, subst)
+            )
+        }
     };
     if nested { res } else { format!("'{}'", res) }
 }

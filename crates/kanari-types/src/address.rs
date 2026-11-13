@@ -534,12 +534,14 @@ pub enum AddressParseError {
 impl fmt::Display for AddressParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::InvalidLength(len) => write!(
-                f,
-                "Invalid address length: {} (expected {})",
-                len,
-                Address::LENGTH
-            ),
+            Self::InvalidLength(len) => {
+                write!(
+                    f,
+                    "Invalid address length: {} (expected {})",
+                    len,
+                    Address::LENGTH
+                )
+            }
             Self::InvalidHexPrefix => write!(f, "Invalid hex literal prefix (expected '0x')"),
             Self::InvalidHexString => write!(f, "Invalid hex string"),
             Self::InvalidCharacter(c) => write!(f, "Invalid character in hex string: '{}'", c),

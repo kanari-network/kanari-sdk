@@ -8,7 +8,7 @@ fn fmt(s: &str) -> String {
 
 #[test]
 fn else_block_single_space() {
-    let out = fmt("module M::n { public fun f() { if (a > b) { x } else { y } } }");
+    let out = fmt(include_str!("../move_package/spacing_else_block.move"));
     eprintln!("{out}");
     assert!(
         out.contains("} else {"),
@@ -23,7 +23,7 @@ fn else_block_single_space() {
 #[test]
 fn else_expr_single_space() {
     // Bare expr else arm needs exactly `else ` too.
-    let out = fmt("module M::n { public fun f(c: u8): u8 { if (c > 48) c - 48 else c } }");
+    let out = fmt(include_str!("../move_package/spacing_else_expr.move"));
     eprintln!("{out}");
     assert!(out.contains("else c"), "else expr spacing: {out}");
     assert!(!out.contains("else  c"), "double space: {out}");
@@ -31,7 +31,7 @@ fn else_expr_single_space() {
 
 #[test]
 fn else_if_chain_no_extra_space() {
-    let src = "module M::n { fun f(c: u8): u8 { if (c >= 48 && c <= 57) c - 48\n // 0-9\n else if (c >= 65) c - 55\n else abort E } }";
+    let src = include_str!("../move_package/spacing_else_if_chain.move");
     let out = fmt(src);
     eprintln!("{out}");
     assert!(out.contains("else if"), "else-if chain: {out}");
@@ -41,7 +41,7 @@ fn else_if_chain_no_extra_space() {
 #[test]
 fn comment_before_else_still_single_space() {
     // `//` eats line — else must start fresh, block gives ` {`.
-    let src = "module M::n { fun f(c: u8): u8 { if (c > 1) c // hi\n else { 2 } } }";
+    let src = include_str!("../move_package/spacing_comment_else.move");
     let out = fmt(src);
     eprintln!("{out}");
     assert!(out.contains("else {"), "comment else block: {out}");
@@ -61,11 +61,11 @@ fn core_spacing_sanity() {
         ("assert!(true, 1);", "assert!(true, 1);"),
     ];
     let srcs = [
-        "module M::n { public fun f(a: &mut u64): u64 { *a + 1 } }",
-        "module M::n { public fun f() { let (a, b) = (1, 2); } }",
-        "module M::n { public struct S has key, store { x: u64 } }",
-        "module M::n { public fun f(): u64 { return 1 } }",
-        "module M::n { public fun f() { assert!(true, 1); } }",
+        include_str!("../move_package/core_spacing_1.move"),
+        include_str!("../move_package/core_spacing_2.move"),
+        include_str!("../move_package/core_spacing_3.move"),
+        include_str!("../move_package/core_spacing_4.move"),
+        include_str!("../move_package/core_spacing_5.move"),
     ];
     for (src, (want, _)) in srcs.iter().zip(cases.iter()) {
         let out = fmt(src);

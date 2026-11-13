@@ -221,10 +221,12 @@ impl ChangeSet {
         account_changeset: AccountChangeSet,
     ) -> Result<()> {
         match self.accounts.entry(addr) {
-            btree_map::Entry::Occupied(_) => bail!(
-                "Failed to add account change set. Account {} already exists.",
-                addr
-            ),
+            btree_map::Entry::Occupied(_) => {
+                bail!(
+                    "Failed to add account change set. Account {} already exists.",
+                    addr
+                )
+            }
             btree_map::Entry::Vacant(entry) => {
                 entry.insert(account_changeset);
             }

@@ -14,7 +14,9 @@
 //! a type argument (e.g., `struct FunctionContext {ty_args: Vec<BaseType>, ...}` is preferred over
 //! `ty_args: Vec<Type>`, as the former is more descriptive and less error prone).
 
+use std::cmp::Ordering;
 use std::fmt;
+use std::sync::Arc;
 
 use move_core_types::{
     identifier::Identifier,
@@ -33,7 +35,7 @@ use crate::shared::ident::StructIdent;
 pub type TypeParameterIndex = u16;
 pub type CodeOffset = u16;
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum IntType {
     Num,
     U8,
@@ -45,7 +47,7 @@ pub enum IntType {
     U256,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum PrimitiveType {
     Bool,
     Int(IntType),
@@ -66,11 +68,56 @@ pub struct StructInstantiation {
     pub fields: Vec<StructField>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+/// Base types use `Arc` sharing in the `Vector` and `Struct` variants. This is essential for
+/// performance: converting a deeply nested generic type (e.g., `Box127<Box63<Box63<bool>>>`)
+/// would otherwise produce an exponentially-sized tree, because each struct node stores its
+/// type arguments (`insts`) and, at the same time, the substituted field types embed the same
+/// subtrees. With `Arc` sharing, cloning a type is O(1) and the conversion stays linear.
+#[derive(Debug, Clone)]
 pub enum BaseType {
     Primitive(PrimitiveType),
-    Vector(Box<BaseType>),
-    Struct(StructInstantiation),
+    Vector(Arc<BaseType>),
+    Struct(Arc<StructInstantiation>),
+}
+
+impl PartialEq for BaseType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Primitive(a), Self::Primitive(b)) => a == b,
+            (Self::Vector(a), Self::Vector(b)) => Arc::ptr_eq(a, b) || *a == *b,
+            (Self::Struct(a), Self::Struct(b)) => Arc::ptr_eq(a, b) || *a == *b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for BaseType {}
+
+impl PartialOrd for BaseType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BaseType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self == other {
+            return Ordering::Equal;
+        }
+        fn rank(t: &BaseType) -> u8 {
+            match t {
+                BaseType::Primitive(_) => 0,
+                BaseType::Vector(_) => 1,
+                BaseType::Struct(_) => 2,
+            }
+        }
+        match (self, other) {
+            (Self::Primitive(a), Self::Primitive(b)) => a.cmp(b),
+            (Self::Vector(a), Self::Vector(b)) => a.cmp(b),
+            (Self::Struct(a), Self::Struct(b)) => a.cmp(b),
+            _ => rank(self).cmp(&rank(other)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -268,11 +315,80 @@ impl BaseType {
     }
 
     pub fn mk_vector(elem: BaseType) -> Self {
-        BaseType::Vector(Box::new(elem))
+        BaseType::Vector(Arc::new(elem))
     }
 
     pub fn mk_struct(inst: StructInstantiation) -> Self {
-        BaseType::Struct(inst)
+        BaseType::Struct(Self::intern_struct_instantiation(
+            inst.ident,
+            inst.insts,
+            move |_| inst.fields,
+        ))
+    }
+
+    /// Intern a struct instantiation so that structurally identical instantiations share the
+    /// same `Arc`. This, combined with the pointer-equality fast path in `PartialEq`/`Ord`,
+    /// keeps equality checks and repeated type conversions on deeply nested generic types
+    /// cheap and linear.
+    fn intern_struct_instantiation(
+        ident: StructIdent,
+        insts: Vec<BaseType>,
+        build_fields: impl FnOnce(&[BaseType]) -> Vec<StructField>,
+    ) -> Arc<StructInstantiation> {
+        use std::cell::RefCell;
+        use std::collections::HashMap;
+
+        // Key for the interned instantiation: the struct identity plus the identity of each
+        // type argument. Composite type arguments are identified by the address of their
+        // (interned, and therefore alive for as long as this cache holds them) `Arc`.
+        #[derive(PartialEq, Eq, Hash)]
+        enum KeyTy {
+            Prim(PrimitiveType),
+            Ptr(usize),
+        }
+
+        fn key_of_base(ty: &BaseType) -> KeyTy {
+            match ty {
+                BaseType::Primitive(p) => KeyTy::Prim(p.clone()),
+                BaseType::Vector(elem) => KeyTy::Ptr(Arc::as_ptr(elem) as *const () as usize),
+                BaseType::Struct(inst) => KeyTy::Ptr(Arc::as_ptr(inst) as *const () as usize),
+            }
+        }
+
+        thread_local! {
+            static INTERN: RefCell<HashMap<(StructIdent, Vec<KeyTy>), Arc<StructInstantiation>>> =
+                RefCell::new(HashMap::new());
+        }
+
+        let key = (ident, insts.iter().map(key_of_base).collect::<Vec<_>>());
+
+        INTERN.with(|intern| {
+            // Fast path: look up without holding the borrow across the (possibly recursive)
+            // field construction below.
+            if let Some(hit) = intern.borrow().get(&key) {
+                return hit.clone();
+            }
+            let fields = build_fields(&insts);
+            let mut intern = intern.borrow_mut();
+            // A recursive call during field construction may already have interned this
+            // instantiation; re-check before inserting.
+            if let Some(hit) = intern.get(&key) {
+                return hit.clone();
+            }
+            let inst = Arc::new(StructInstantiation {
+                ident: key.0,
+                insts,
+                fields,
+            });
+            intern.insert(
+                (
+                    inst.ident.clone(),
+                    inst.insts.iter().map(key_of_base).collect::<Vec<_>>(),
+                ),
+                inst.clone(),
+            );
+            inst
+        })
     }
 
     pub fn into_ref_type(self, is_mut: bool) -> Type {
@@ -337,7 +453,7 @@ impl BaseType {
 
     pub fn get_vector_elem(&self) -> &BaseType {
         match self {
-            BaseType::Vector(elem_ty) => elem_ty.as_ref(),
+            BaseType::Vector(elem_ty) => elem_ty,
             _ => unreachable!(),
         }
     }
@@ -351,14 +467,14 @@ impl BaseType {
 
     pub fn into_vector_elem(self) -> BaseType {
         match self {
-            BaseType::Vector(elem_ty) => *elem_ty,
+            BaseType::Vector(elem_ty) => (*elem_ty).clone(),
             _ => unreachable!(),
         }
     }
 
     pub fn into_struct_inst(self) -> StructInstantiation {
         match self {
-            BaseType::Struct(inst) => inst,
+            BaseType::Struct(inst) => (*inst).clone(),
             _ => unreachable!(),
         }
     }
@@ -806,8 +922,11 @@ pub fn convert_model_base_type(env: &GlobalEnv, ty: &MT::Type, subst: &[BaseType
     match ty {
         MT::Type::Primitive(MT::PrimitiveType::Bool) => BaseType::mk_bool(),
         MT::Type::Primitive(MT::PrimitiveType::U8) => BaseType::mk_u8(),
+        MT::Type::Primitive(MT::PrimitiveType::U16) => BaseType::mk_u16(),
+        MT::Type::Primitive(MT::PrimitiveType::U32) => BaseType::mk_u32(),
         MT::Type::Primitive(MT::PrimitiveType::U64) => BaseType::mk_u64(),
         MT::Type::Primitive(MT::PrimitiveType::U128) => BaseType::mk_u128(),
+        MT::Type::Primitive(MT::PrimitiveType::U256) => BaseType::mk_u256(),
         MT::Type::Primitive(MT::PrimitiveType::Num) => BaseType::mk_num(),
         MT::Type::Primitive(MT::PrimitiveType::Address) => BaseType::mk_address(),
         MT::Type::Primitive(MT::PrimitiveType::Signer) => BaseType::mk_signer(),
@@ -837,31 +956,30 @@ pub fn convert_model_struct_type(
         // TODO (mengxu) verify type constraints
     }
 
-    // convert instantiations
+    // convert type arguments
     let insts: Vec<_> = ty_args
         .iter()
         .map(|ty_arg| convert_model_base_type(env, ty_arg, subst))
         .collect();
 
-    // collect fields
-    let fields = struct_env
-        .get_fields()
-        .map(|field_env| {
-            let field_name = env.symbol_pool().string(field_env.get_name()).to_string();
-            let field_ty = convert_model_base_type(env, &field_env.get_type(), &insts);
-            StructField {
-                name: field_name,
-                ty: field_ty,
-            }
-        })
-        .collect();
-
-    // return the information for constructing the struct type
-    StructInstantiation {
-        ident,
-        insts,
-        fields,
-    }
+    // Intern by (struct identity, type-argument identity) BEFORE building the substituted
+    // field types: on an intern hit, the (potentially exponentially deep) field conversion
+    // is skipped entirely, which keeps repeated conversions of deeply nested generic types
+    // linear instead of exponential.
+    let inst = BaseType::intern_struct_instantiation(ident, insts, |insts| {
+        struct_env
+            .get_fields()
+            .map(|field_env| {
+                let field_name = env.symbol_pool().string(field_env.get_name()).to_string();
+                let field_ty = convert_model_base_type(env, &field_env.get_type(), insts);
+                StructField {
+                    name: field_name,
+                    ty: field_ty,
+                }
+            })
+            .collect()
+    });
+    (*inst).clone()
 }
 
 pub fn convert_model_partial_base_type(env: &GlobalEnv, ty: &MT::Type) -> PartialBaseType {

@@ -187,10 +187,12 @@ impl Login {
                     Ok(()) => eprintln!(
                         "Removed stale salt vault (only the kanari-crypto standard is used)."
                     ),
-                    Err(e) => eprintln!(
-                        "Note: cannot remove stale salt vault {}: {e:#}",
-                        vault.display()
-                    ),
+                    Err(e) => {
+                        eprintln!(
+                            "Note: cannot remove stale salt vault {}: {e:#}",
+                            vault.display()
+                        )
+                    }
                 }
             }
         }

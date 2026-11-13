@@ -165,14 +165,14 @@ falcon = { package = "falcon-rs", version = "0.3.1", features = ["std"] }       
 # ============================================================================
 zeroize = { version = "1.9.1", features = ["derive"] }                              # Secure memory zeroing
 subtle = "2.6.1"                                                                    # Constant-time operations
-rpassword = "7.5.4"                                                                 # Secure password input
+rpassword = "7.5.5"                                                                 # Secure password input
 fs2 = "0.4.3"                                                                       # File locking for key files
 
 # ============================================================================
 # Database & Persistent Storage
 # ============================================================================
 rocksdb = "0.25.0"                                                                  # High-performance embedded DB
-zstd = "0.14.3"                                                                     # Compression for storage/network
+zstd = "0.14.4"                                                                     # Compression for storage/network
 
 # ============================================================================
 # Caching & Performance Optimization
@@ -268,7 +268,7 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 # Database
 # ============================================================================
-rusqlite = { version = "0.41.1", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.42.0", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Proc Macro Dependencies

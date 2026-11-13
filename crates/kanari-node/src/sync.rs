@@ -1293,10 +1293,12 @@ impl SyncManager {
                     ),
                 }
             }
-            Ok(None) => warn!(
-                "[SYNC] Checkpoint #{} not found in our engine for request",
-                sequence
-            ),
+            Ok(None) => {
+                warn!(
+                    "[SYNC] Checkpoint #{} not found in our engine for request",
+                    sequence
+                )
+            }
             Err(error) => warn!("[SYNC] Unable to serve checkpoint #{}: {}", sequence, error),
         }
     }

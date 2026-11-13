@@ -6,7 +6,7 @@ use kanari_move_fmt::{FormatOptions, format_source};
 
 #[test]
 fn block_item_brace_indent_is_single_level() {
-    let src = "module M::b { #[test] fun test_option() {\n        {\n            let value = option::some(true);\n            let bytes = new(to_bytes(&value));\n            assert!(value == peel_option_bool(&mut bytes), 0);\n        };\n    } }";
+    let src = include_str!("../move_package/block_indent.move");
     let out = format_source(src, &FormatOptions::default()).unwrap();
     eprintln!("{out}");
     // The `{` of the inner block must be at 8 spaces (fn body level).

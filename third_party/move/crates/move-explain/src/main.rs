@@ -49,9 +49,11 @@ fn main() {
             "Unable to find a description for {}::{}",
             args.location, args.abort_code
         ),
-        Some(error_desc) => println!(
-            "Name: {}\nDescription: {}",
-            error_desc.code_name, error_desc.code_description,
-        ),
+        Some(error_desc) => {
+            println!(
+                "Name: {}\nDescription: {}",
+                error_desc.code_name, error_desc.code_description,
+            )
+        }
     }
 }

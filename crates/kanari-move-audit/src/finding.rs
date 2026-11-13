@@ -38,7 +38,9 @@ impl fmt::Display for Severity {
 pub enum RuleId {
     EntryWithoutAuth,
     ExternalCall,
+    StateChangeBeforeExternalCall,
     MissingAccessControl,
+    UnsafePublicTransfer,
     BorrowGlobalWithoutCheck,
     HardcodedAddress,
     PublicEntryWithoutSigner,
@@ -47,6 +49,10 @@ pub enum RuleId {
     IntegerOverflowRisk,
     UnsafeNativeCall,
     UncheckedExternalCall,
+    CapabilityLeak,
+    ShareObjectWithoutAuth,
+    DivisionByZeroRisk,
+    UncheckedVectorBorrow,
 }
 
 impl fmt::Display for RuleId {
@@ -54,7 +60,9 @@ impl fmt::Display for RuleId {
         match self {
             RuleId::EntryWithoutAuth => write!(f, "entry-without-auth"),
             RuleId::ExternalCall => write!(f, "external-call"),
+            RuleId::StateChangeBeforeExternalCall => write!(f, "state-change-before-external-call"),
             RuleId::MissingAccessControl => write!(f, "missing-access-control"),
+            RuleId::UnsafePublicTransfer => write!(f, "unsafe-public-transfer"),
             RuleId::BorrowGlobalWithoutCheck => write!(f, "borrow-global-without-check"),
             RuleId::HardcodedAddress => write!(f, "hardcoded-address"),
             RuleId::PublicEntryWithoutSigner => write!(f, "public-entry-without-signer"),
@@ -63,6 +71,10 @@ impl fmt::Display for RuleId {
             RuleId::IntegerOverflowRisk => write!(f, "integer-overflow-risk"),
             RuleId::UnsafeNativeCall => write!(f, "unsafe-native-call"),
             RuleId::UncheckedExternalCall => write!(f, "unchecked-external-call"),
+            RuleId::CapabilityLeak => write!(f, "capability-leak"),
+            RuleId::ShareObjectWithoutAuth => write!(f, "share-object-without-auth"),
+            RuleId::DivisionByZeroRisk => write!(f, "division-by-zero-risk"),
+            RuleId::UncheckedVectorBorrow => write!(f, "unchecked-vector-borrow"),
         }
     }
 }

@@ -107,15 +107,14 @@ module dex_v1::dex_v1 {
         let reserve_a = balance::value(&pool.reserve_a);
         let reserve_b = balance::value(&pool.reserve_b);
         let total_lp_supply = balance::supply_total(&pool.lp_supply);
-        let liquidity = u64;
-        if (total_lp_supply == 0) {
+        let liquidity = if (total_lp_supply == 0) {
             let initial_lp = math::sqrt_u128((amount_a as u128) * (amount_b as u128));
             assert!(initial_lp > 1000, E_INSUFFICIENT_LIQUIDITY_MINTED);
-            liquidity = (initial_lp as u64) - 1000;
+            (initial_lp as u64) - 1000
         } else {
             let lp_a = math::mul_div_u64(amount_a, total_lp_supply, reserve_a);
             let lp_b = math::mul_div_u64(amount_b, total_lp_supply, reserve_b);
-            liquidity = math::min_u64(lp_a, lp_b);
+            math::min_u64(lp_a, lp_b)
         };
         assert!(liquidity > 0, E_INSUFFICIENT_LIQUIDITY_MINTED);
         balance::merge(&mut pool.reserve_a, coin::into_balance(coin_a));

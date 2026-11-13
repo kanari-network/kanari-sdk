@@ -1373,13 +1373,15 @@ impl fmt::Display for FunctionCall_ {
                 module,
                 name,
                 type_actuals,
-            } => write!(
-                f,
-                "{}.{}{}",
-                module,
-                name,
-                format_type_actuals(type_actuals)
-            ),
+            } => {
+                write!(
+                    f,
+                    "{}.{}{}",
+                    module,
+                    name,
+                    format_type_actuals(type_actuals)
+                )
+            }
         }
     }
 }
@@ -1522,13 +1524,15 @@ impl fmt::Display for Exp_ {
                 is_mutable,
                 exp,
                 field,
-            } => write!(
-                f,
-                "&{}{}.{}",
-                if *is_mutable { "mut " } else { "" },
-                exp,
-                field
-            ),
+            } => {
+                write!(
+                    f,
+                    "&{}{}.{}",
+                    if *is_mutable { "mut " } else { "" },
+                    exp,
+                    field
+                )
+            }
             Exp_::Move(v) => write!(f, "move({})", v),
             Exp_::Copy(v) => write!(f, "copy({})", v),
             Exp_::BorrowLocal(is_mutable, v) => {
@@ -1583,20 +1587,24 @@ impl fmt::Display for Bytecode_ {
             Bytecode_::FreezeRef => write!(f, "FreezeRef"),
             Bytecode_::MutBorrowLoc(v) => write!(f, "MutBorrowLoc {}", v),
             Bytecode_::ImmBorrowLoc(v) => write!(f, "ImmBorrowLoc {}", v),
-            Bytecode_::MutBorrowField(n, tys, field) => write!(
-                f,
-                "MutBorrowField {}{}.{}",
-                n,
-                format_type_actuals(tys),
-                field
-            ),
-            Bytecode_::ImmBorrowField(n, tys, field) => write!(
-                f,
-                "ImmBorrowField {}{}.{}",
-                n,
-                format_type_actuals(tys),
-                field
-            ),
+            Bytecode_::MutBorrowField(n, tys, field) => {
+                write!(
+                    f,
+                    "MutBorrowField {}{}.{}",
+                    n,
+                    format_type_actuals(tys),
+                    field
+                )
+            }
+            Bytecode_::ImmBorrowField(n, tys, field) => {
+                write!(
+                    f,
+                    "ImmBorrowField {}{}.{}",
+                    n,
+                    format_type_actuals(tys),
+                    field
+                )
+            }
             Bytecode_::Add => write!(f, "Add"),
             Bytecode_::Sub => write!(f, "Sub"),
             Bytecode_::Mul => write!(f, "Mul"),

@@ -880,12 +880,14 @@ fn type_name(_context: &Context, sp!(loc, ntn_): N::TypeName) -> H::TypeName {
     use H::TypeName_ as HT;
     use N::TypeName_ as NT;
     let tn_ = match ntn_ {
-        NT::Multiple(_) => panic!(
-            "ICE type constraints failed {}:{}-{}",
-            loc.file_hash(),
-            loc.start(),
-            loc.end()
-        ),
+        NT::Multiple(_) => {
+            panic!(
+                "ICE type constraints failed {}:{}-{}",
+                loc.file_hash(),
+                loc.start(),
+                loc.end()
+            )
+        }
         NT::Builtin(bt) => HT::Builtin(bt),
         NT::ModuleType(m, s) => HT::ModuleType(m, s),
     };

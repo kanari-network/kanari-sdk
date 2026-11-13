@@ -913,7 +913,7 @@ impl<'env> Docgen<'env> {
             name,
             const_env.get_type().display(&TypeDisplayContext::WithEnv {
                 env: self.env,
-                type_param_names: None,
+                type_param_names: None
             }),
             const_env.get_value(),
         )

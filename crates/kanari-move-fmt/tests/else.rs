@@ -1,6 +1,6 @@
 #[test]
 fn preserves_else_branch() {
-    let src = "module m::n {\n    public fun f(x: u64) {\n        if (x > 0) {\n            y = 1;\n        } else {\n            y = 2;\n        }\n    }\n}\n";
+    let src = include_str!("../move_package/else_branch.move");
     let out =
         kanari_move_fmt::format_source(src, &kanari_move_fmt::FormatOptions::default()).unwrap();
     eprintln!("OUTPUT:\n{}", out);
@@ -10,7 +10,7 @@ fn preserves_else_branch() {
 
 #[test]
 fn indents_if_body() {
-    let src = "module m::n {\n    public fun f() {\n        if (x > 0) {\n            y = 1;\n        }\n    }\n}\n";
+    let src = include_str!("../move_package/indents_if_body.move");
     let out =
         kanari_move_fmt::format_source(src, &kanari_move_fmt::FormatOptions::default()).unwrap();
     assert!(

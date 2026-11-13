@@ -478,18 +478,24 @@ impl<'a> Disassembler<'a> {
                     .to_string();
                 format!("{}{}", name, formatted_instantiation)
             }
-            SignatureToken::Vector(sig_tok) => format!(
-                "vector<{}>",
-                self.disassemble_sig_tok(*sig_tok, type_param_context)?
-            ),
-            SignatureToken::Reference(sig_tok) => format!(
-                "&{}",
-                self.disassemble_sig_tok(*sig_tok, type_param_context)?
-            ),
-            SignatureToken::MutableReference(sig_tok) => format!(
-                "&mut {}",
-                self.disassemble_sig_tok(*sig_tok, type_param_context)?
-            ),
+            SignatureToken::Vector(sig_tok) => {
+                format!(
+                    "vector<{}>",
+                    self.disassemble_sig_tok(*sig_tok, type_param_context)?
+                )
+            }
+            SignatureToken::Reference(sig_tok) => {
+                format!(
+                    "&{}",
+                    self.disassemble_sig_tok(*sig_tok, type_param_context)?
+                )
+            }
+            SignatureToken::MutableReference(sig_tok) => {
+                format!(
+                    "&mut {}",
+                    self.disassemble_sig_tok(*sig_tok, type_param_context)?
+                )
+            }
             SignatureToken::TypeParameter(ty_param_index) => type_param_context
                 .get(ty_param_index as usize)
                 .ok_or_else(|| {

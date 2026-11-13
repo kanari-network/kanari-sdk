@@ -249,7 +249,7 @@ pub fn convert_move_value(val: &MoveValue, ty: &BaseType) -> PartialVMResult<Typ
                 .iter()
                 .map(|e| convert_move_value(e, elem))
                 .collect::<PartialVMResult<Vec<_>>>()?;
-            TypedValue::mk_vector(*elem.clone(), converted)
+            TypedValue::mk_vector((**elem).clone(), converted)
         }
         (MoveValue::Struct(v), BaseType::Struct(inst)) => {
             let fields = v.fields();
@@ -261,7 +261,7 @@ pub fn convert_move_value(val: &MoveValue, ty: &BaseType) -> PartialVMResult<Typ
                 .zip(inst.fields.iter())
                 .map(|(f, info)| convert_move_value(f, &info.ty))
                 .collect::<PartialVMResult<Vec<_>>>()?;
-            TypedValue::mk_struct(inst.clone(), converted)
+            TypedValue::mk_struct((**inst).clone(), converted)
         }
         _ => {
             return Err(PartialVMError::new(StatusCode::TYPE_MISMATCH));

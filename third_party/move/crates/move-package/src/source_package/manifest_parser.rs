@@ -133,28 +133,27 @@ pub fn parse_package_info(tval: TV) -> Result<PM::PackageInfo> {
                 .ok_or_else(|| format_err!("Package name must be a string"))?;
             let name = PM::PackageName::from(name);
             let license = table.remove("license").map(|x| Symbol::from(x.to_string()));
-            let authors = match table.remove("authors") {
-                None => Vec::new(),
-                Some(arr) => {
-                    let unparsed_vec = arr
-                        .as_array()
-                        .ok_or_else(|| format_err!("Invalid author(s) list"))?;
-                    unparsed_vec
-                        .iter()
-                        .map(|tval| {
-                            tval.as_str()
-                                .map(|x| Symbol::from(x.to_string()))
-                                .ok_or_else(|| {
-                                    format_err!(
-                                        "Invalid author '{}' of type {} found. Expected a string.",
-                                        tval,
-                                        tval.type_str()
-                                    )
-                                })
-                        })
-                        .collect::<Result<_>>()?
-                }
-            };
+            let authors =
+                match table.remove("authors") {
+                    None => Vec::new(),
+                    Some(arr) => {
+                        let unparsed_vec = arr
+                            .as_array()
+                            .ok_or_else(|| format_err!("Invalid author(s) list"))?;
+                        unparsed_vec
+                            .iter()
+                            .map(|tval| {
+                                tval.as_str().map(|x| Symbol::from(x.to_string())).ok_or_else(|| {
+                                format_err!(
+                                    "Invalid author '{}' of type {} found. Expected a string.",
+                                    tval,
+                                    tval.type_str()
+                                )
+                            })
+                            })
+                            .collect::<Result<_>>()?
+                    }
+                };
             let edition = table
                 .remove("edition")
                 .map(|v| {

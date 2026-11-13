@@ -1116,10 +1116,12 @@ impl SignatureToken {
             SignatureToken::Reference(token) | SignatureToken::MutableReference(token) => {
                 token.debug_set_sh_idx(sh_idx)
             }
-            other => panic!(
-                "debug_set_sh_idx (to {}) called for non-struct token {:?}",
-                sh_idx, other
-            ),
+            other => {
+                panic!(
+                    "debug_set_sh_idx (to {}) called for non-struct token {:?}",
+                    sh_idx, other
+                )
+            }
         }
     }
 

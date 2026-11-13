@@ -6,12 +6,12 @@ module escrow::escrow_tests {
     use kanari_system::transfer;
     use kanari_system::tx_context::{Self, TxContext};
     use std::string;
-    use std::option;
 
     #[test_only]
     public struct TestUSDC has drop {}
 
     #[test_only]
+    /// Creates a test USDC coin of `amount` and sends treasury/metadata to @0x1.
     public fun create_test_usdc_coin(amount: u64, ctx: &mut TxContext): Coin<TestUSDC> {
         let witness = TestUSDC {};
         let (mut treasury_cap, metadata) = coin::create_currency<TestUSDC>(

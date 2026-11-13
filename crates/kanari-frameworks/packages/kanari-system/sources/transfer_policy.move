@@ -499,6 +499,7 @@ module kanari_system::transfer_policy {
         policy: &mut TransferPolicy<T>,
         amount: u64
     ) {
+        assert!(policy.owed <= 18446744073709551615 - amount, 0);
         policy.owed = policy.owed + amount;
     }
 

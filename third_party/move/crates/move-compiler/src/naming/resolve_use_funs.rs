@@ -206,10 +206,12 @@ fn use_funs(context: &mut Context, uf: &mut N::UseFuns) {
             continue;
         };
         let (kind, used) = match ekind {
-            E::ImplicitUseFunKind::FunctionDeclaration => (
-                N::UseFunKind::FunctionDeclaration,
-                /* silences unused warning */ true,
-            ),
+            E::ImplicitUseFunKind::FunctionDeclaration => {
+                (
+                    N::UseFunKind::FunctionDeclaration,
+                    /* silences unused warning */ true,
+                )
+            }
             E::ImplicitUseFunKind::UseAlias { used } => {
                 assert!(is_public.is_none());
                 (N::UseFunKind::UseAlias, used)

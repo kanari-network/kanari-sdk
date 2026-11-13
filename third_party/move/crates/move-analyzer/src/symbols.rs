@@ -715,13 +715,15 @@ fn ast_value_to_ide_string(sp!(_, val): &Value) -> String {
         V::U128(u) => format!("{}", u),
         V::U256(u) => format!("{}", u),
         V::Bool(b) => format!("{}", b),
-        V::Bytearray(vec) => format!(
-            "[{}]",
-            vec.iter()
-                .map(|v| format!("{}", v))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        V::Bytearray(vec) => {
+            format!(
+                "[{}]",
+                vec.iter()
+                    .map(|v| format!("{}", v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 }
 

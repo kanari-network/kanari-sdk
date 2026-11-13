@@ -566,7 +566,7 @@ impl FunctionTargetPipeline {
             ProcessorResultDisplay {
                 env,
                 targets,
-                processor,
+                processor
             }
         );
         if !processor.is_single_run() {

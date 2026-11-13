@@ -365,7 +365,7 @@ module kanari_pet::pet {
     /// Only the current owner can call this: the pet arrives as a declared
     /// owned object input, and the runtime rejects mutable owned inputs whose
     /// stored owner is not the sender.
-    public entry fun transfer(pet: Nft, recipient: address) {
+    public entry fun transfer(pet: Nft, recipient: address, _ctx: &mut TxContext) {
         krc_721::transfer(pet, recipient);
     }
 
@@ -379,7 +379,8 @@ module kanari_pet::pet {
     public entry fun set_attribute(
         pet: &mut Nft,
         key: vector<u8>,
-        value: vector<u8>
+        value: vector<u8>,
+        _ctx: &mut TxContext
     ) {
         set_string_attribute(pet, string::utf8(key), string::utf8(value));
     }
@@ -423,7 +424,8 @@ module kanari_pet::pet {
     public entry fun set_attributes(
         pet: &mut Nft,
         attribute_keys: vector<vector<u8>>,
-        attribute_values: vector<vector<u8>>
+        attribute_values: vector<vector<u8>>,
+        _ctx: &mut TxContext
     ) {
         set_string_attributes(pet, utf8_all(attribute_keys), utf8_all(attribute_values));
     }
@@ -489,22 +491,27 @@ module kanari_pet::pet {
         krc_721::all_attributes(pet)
     }
 
+    /// Returns the pet's name.
     public fun name(pet: &Nft): String {
         krc_721::name(pet)
     }
 
+    /// Returns the pet's image URL.
     public fun image_url(pet: &Nft): Option<kanari_system::url::Url> {
         krc_721::image_url(pet)
     }
 
+    /// Returns the pet's description.
     public fun description(pet: &Nft): Option<String> {
         krc_721::description(pet)
     }
 
+    /// Returns the pet's number.
     public fun number(pet: &Nft): u64 {
         krc_721::number(pet)
     }
 
+    /// Returns the collection address of the pet's NFT.
     public fun collection_id(pet: &Nft): address {
         krc_721::collection_of(pet)
     }
@@ -745,7 +752,7 @@ module kanari_pet::pet {
     /// No `TransferRequest` is created: a direct transfer has no sale price for
     /// a royalty rule to charge against. If the owner wants rules on every
     /// movement, route through `trade` instead.
-    public entry fun transfer_pet(pet: Nft, recipient: address) {
+    public entry fun transfer_pet(pet: Nft, recipient: address, _ctx: &mut TxContext) {
         krc_721::transfer(pet, recipient);
     }
 

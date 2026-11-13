@@ -685,9 +685,11 @@ fn statement(context: &mut Context, e: &T::Exp) -> Option<ControlFlow> {
                 body_result
             }
         }
-        E::Block((_, seq)) => statement_block(
-            context, seq, /* stmt_pos */ true, /* skip_last */ false,
-        ),
+        E::Block((_, seq)) => {
+            statement_block(
+                context, seq, /* stmt_pos */ true, /* skip_last */ false,
+            )
+        }
         E::Return(rhs) => {
             if let Some(rhs_control_flow) = value(context, rhs) {
                 context.report_value_error(rhs_control_flow);

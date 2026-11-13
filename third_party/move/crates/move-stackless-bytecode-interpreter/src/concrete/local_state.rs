@@ -22,6 +22,8 @@ pub enum AbortInfo {
     User(u64, Location),
     /// Internal abort (e.g., integer overflow or resource does not exist in global storage)
     Internal(StatusCode, Location),
+    /// Internal abort with an additional sub status (e.g., vector operation errors)
+    InternalWithSubStatus(StatusCode, u64, Location),
 }
 
 impl AbortInfo {
@@ -34,6 +36,11 @@ impl AbortInfo {
             Self::Internal(status_code, location) => {
                 PartialVMError::new(status_code).finish(location)
             }
+            Self::InternalWithSubStatus(status_code, sub_status, location) => {
+                PartialVMError::new(status_code)
+                    .with_sub_status(sub_status)
+                    .finish(location)
+            }
         }
     }
 
@@ -42,6 +49,7 @@ impl AbortInfo {
         match self {
             Self::User(status_code, _) => *status_code,
             Self::Internal(status_code, _) => *status_code as u64,
+            Self::InternalWithSubStatus(_, sub_status, _) => *sub_status,
         }
     }
 }

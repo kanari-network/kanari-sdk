@@ -25,6 +25,15 @@ use crate::concrete::ty::{BaseType, PrimitiveType, StructInstantiation, Type};
 // Value core
 //**************************************************************************************************
 
+/// Convert a (non-negative) big integer into a fixed-width little-endian 32-byte buffer,
+/// padding with zero bytes on the high end.
+fn big_int_to_u256_bytes(v: &BigInt) -> [u8; u256::U256_NUM_BYTES] {
+    let mut buf = [0u8; u256::U256_NUM_BYTES];
+    let bytes = v.to_bytes_le().1;
+    buf[..bytes.len()].copy_from_slice(&bytes);
+    buf
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BaseValue {
     Bool(bool),
@@ -111,12 +120,7 @@ impl BaseValue {
     }
     pub fn into_u256(self) -> u256::U256 {
         match self {
-            Self::Int(v) => u256::U256::from_le_bytes(
-                &v.to_bytes_le()
-                    .1
-                    .try_into()
-                    .unwrap_or_else(|_| panic!("Cannot convert {} to U256", v)),
-            ),
+            Self::Int(v) => u256::U256::from_le_bytes(&big_int_to_u256_bytes(&v)),
             _ => unreachable!(),
         }
     }
@@ -256,6 +260,13 @@ impl TypedValue {
         Self {
             ty: Type::mk_u128(),
             val: BaseValue::mk_u128(v),
+            ptr: Pointer::None,
+        }
+    }
+    pub fn mk_u256(v: u256::U256) -> Self {
+        Self {
+            ty: Type::mk_u256(),
+            val: BaseValue::mk_u256(v),
             ptr: Pointer::None,
         }
     }
@@ -415,11 +426,29 @@ impl TypedValue {
         }
         self.val.into_u64()
     }
+    pub fn into_u16(self) -> u16 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u16());
+        }
+        self.val.into_u16()
+    }
+    pub fn into_u32(self) -> u32 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u32());
+        }
+        self.val.into_u32()
+    }
     pub fn into_u128(self) -> u128 {
         if cfg!(debug_assertions) {
             assert!(self.ty.is_u128());
         }
         self.val.into_u128()
+    }
+    pub fn into_u256(self) -> u256::U256 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u256());
+        }
+        self.val.into_u256()
     }
     pub fn into_num(self) -> BigInt {
         if cfg!(debug_assertions) {
@@ -942,13 +971,19 @@ impl TypedValue {
             BaseValue::Int(v) => {
                 if self.ty.is_u8() {
                     MoveValue::U8(v.to_u8().unwrap())
+                } else if self.ty.is_u16() {
+                    MoveValue::U16(v.to_u16().unwrap())
+                } else if self.ty.is_u32() {
+                    MoveValue::U32(v.to_u32().unwrap())
                 } else if self.ty.is_u64() {
                     MoveValue::U64(v.to_u64().unwrap())
+                } else if self.ty.is_u128() {
+                    MoveValue::U128(v.to_u128().unwrap())
                 } else {
                     if cfg!(debug_assertions) {
-                        assert!(self.ty.is_u128());
+                        assert!(self.ty.is_u256());
                     }
-                    MoveValue::U128(v.to_u128().unwrap())
+                    MoveValue::U256(u256::U256::from_le_bytes(&big_int_to_u256_bytes(&v)))
                 }
             }
             BaseValue::Address(v) => MoveValue::Address(v),

@@ -32,7 +32,9 @@ where
             InvalidToken {
                 ref location,
                 ref message,
-            } => write!(f, "Invalid token at {}: {}", location, message),
+            } => {
+                write!(f, "Invalid token at {}: {}", location, message)
+            }
         }
     }
 }

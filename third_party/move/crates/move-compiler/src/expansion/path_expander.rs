@@ -804,11 +804,13 @@ fn access_chain_resolution_error(result: AccessChainNameResult) -> Diagnostic {
     if let AccessChainNameResult::ResolutionFailure(inner, reason) = result {
         let loc = inner.loc();
         let msg = match reason {
-            AccessChainFailure::InvalidKind(kind) => format!(
-                "Expected {} in this position, not {}",
-                kind,
-                inner.err_name()
-            ),
+            AccessChainFailure::InvalidKind(kind) => {
+                format!(
+                    "Expected {} in this position, not {}",
+                    kind,
+                    inner.err_name()
+                )
+            }
             AccessChainFailure::UnresolvedAlias(name) => {
                 format!("Could not resolve the name '{}'", name)
             }

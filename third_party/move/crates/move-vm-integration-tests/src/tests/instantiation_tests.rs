@@ -349,7 +349,7 @@ fn make_module(
     let struct_type_parameters = vec![
         StructTypeParameter {
             constraints: AbilitySet::EMPTY,
-            is_phantom: false,
+            is_phantom: false
         };
         struct_type_params_count
     ];

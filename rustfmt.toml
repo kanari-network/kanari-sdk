@@ -1,0 +1,5 @@
+# rustfmt configuration for kanari-sdk
+
+# Standard formatting options
+edition = "2024"
+use_field_init_shorthand = true

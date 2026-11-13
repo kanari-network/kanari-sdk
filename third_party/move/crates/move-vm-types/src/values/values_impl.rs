@@ -2717,12 +2717,14 @@ impl Display for ContainerRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Local(c) => write!(f, "(&container {:x})", c.raw_address()),
-            Self::Global { status, container } => write!(
-                f,
-                "(&container {:x} -- {:?})",
-                container.raw_address(),
-                *status.borrow(),
-            ),
+            Self::Global { status, container } => {
+                write!(
+                    f,
+                    "(&container {:x} -- {:?})",
+                    container.raw_address(),
+                    *status.borrow(),
+                )
+            }
         }
     }
 }

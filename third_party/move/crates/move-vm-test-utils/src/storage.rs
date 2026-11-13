@@ -140,10 +140,12 @@ where
             (Vacant(entry), New(val)) => {
                 entry.insert(val);
             }
-            (Vacant(entry), Delete | Modify(_)) => bail!(
-                "Failed to apply changes -- key {:?} does not exist",
-                entry.key()
-            ),
+            (Vacant(entry), Delete | Modify(_)) => {
+                bail!(
+                    "Failed to apply changes -- key {:?} does not exist",
+                    entry.key()
+                )
+            }
         }
     }
     Ok(())

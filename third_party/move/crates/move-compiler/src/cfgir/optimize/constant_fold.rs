@@ -371,10 +371,12 @@ fn fold_binary_op(
         (B::Eq, v1, v2) => V::Bool(v1 == v2),
         (B::Neq, v1, v2) => V::Bool(v1 != v2),
 
-        (op_, v1, v2) => panic!(
-            "ICE unknown binary op. combo while folding: {:?} {} {:?}",
-            v1, op_, v2
-        ),
+        (op_, v1, v2) => {
+            panic!(
+                "ICE unknown binary op. combo while folding: {:?} {} {:?}",
+                v1, op_, v2
+            )
+        }
     };
     Some(evalue_(loc, v))
 }

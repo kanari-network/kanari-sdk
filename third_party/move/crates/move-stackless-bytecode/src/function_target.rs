@@ -434,7 +434,6 @@ impl FunctionData {
             code,
             local_types,
             return_types,
-
             ..self.clone()
         }
     }

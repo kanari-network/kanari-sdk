@@ -872,7 +872,9 @@ impl fmt::Display for Address {
                 name: Some(name),
                 value: sp!(_, bytes),
                 name_conflict: true,
-            } => write!(f, "({}={})", name, bytes),
+            } => {
+                write!(f, "({}={})", name, bytes)
+            }
             Self::Numerical {
                 name: Some(name),
                 value: _,

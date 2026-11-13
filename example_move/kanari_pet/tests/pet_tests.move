@@ -486,7 +486,7 @@ module kanari_pet::pet_tests {
             1
         );
         let pet = mint_here(&mut cap, &coll, &mut ctx);
-        pet::transfer(pet, @0xFEED);
+        pet::transfer(pet, @0xFEED, &mut ctx);
         transfer::public_freeze_object(coll);
         transfer::public_freeze_object(cap);
     }

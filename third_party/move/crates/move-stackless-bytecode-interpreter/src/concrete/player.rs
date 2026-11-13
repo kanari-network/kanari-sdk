@@ -9,17 +9,18 @@ use std::{collections::BTreeMap, rc::Rc};
 use num::{BigInt, ToPrimitive, Zero};
 
 use bytecode_interpreter_crypto::{
-    ed25519_deserialize_public_key, ed25519_deserialize_signature, ed25519_verify_signature,
-    sha2_256_of, sha3_256_of,
+    blake2b256_of, blake3_256_of, ed25519_deserialize_public_key, ed25519_deserialize_signature,
+    ed25519_verify_signature, keccak256_of, ripemd160_of, sha2_256_of, sha3_256_of,
 };
 use move_binary_format::errors::Location;
 use move_core_types::{
     account_address::AccountAddress,
     language_storage::CORE_CODE_ADDRESS,
+    u256,
     vm_status::{StatusCode, sub_status},
 };
 use move_model::{
-    ast::TempIndex,
+    ast::{Attribute, TempIndex},
     model::{FunId, FunctionEnv, ModuleId, StructId},
     ty as MT,
 };
@@ -37,12 +38,15 @@ use crate::{
         local_state::{AbortInfo, LocalState, TerminationStatus},
         settings::InterpreterSettings,
         ty::{
-            BaseType, CodeOffset, Type, convert_model_base_type, convert_model_local_type,
-            convert_model_struct_type,
+            BaseType, CodeOffset, StructField, StructInstantiation, Type, convert_model_base_type,
+            convert_model_local_type, convert_model_struct_type,
         },
         value::{BaseValue, EvalState, GlobalState, LocalSlot, Pointer, TypedValue},
     },
-    shared::variant::choose_variant,
+    shared::{
+        ident::{ModuleIdent, StructIdent},
+        variant::choose_variant,
+    },
 };
 
 //**************************************************************************************************
@@ -59,6 +63,45 @@ pub type ExecResult<T> = ::std::result::Result<T, AbortInfo>;
 const INDEX_OUT_OF_BOUNDS: u64 = sub_status::NFE_VECTOR_ERROR_BASE + 1;
 const POP_EMPTY_VEC: u64 = sub_status::NFE_VECTOR_ERROR_BASE + 2;
 const DESTROY_NON_EMPTY_VEC: u64 = sub_status::NFE_VECTOR_ERROR_BASE + 3;
+const VECTOR_TOO_LONG: u64 = sub_status::NFE_VECTOR_ERROR_BASE + 4;
+
+/// Maximum value depth for type layout construction, mirroring
+/// `move_vm_runtime::VALUE_DEPTH_MAX` (now publicly re-exported).
+const VALUE_DEPTH_MAX: u64 = move_vm_runtime::VALUE_DEPTH_MAX;
+
+/// Maximum vector length enforced by the Move VM, mirroring
+/// `move_vm_config::verifier::DEFAULT_MAX_CONSTANT_VECTOR_LEN`.
+const VECTOR_LEN_MAX: u64 = move_vm_config::verifier::DEFAULT_MAX_CONSTANT_VECTOR_LEN;
+
+/// Compute the depth of a base type: the number of type nodes along the longest path from
+/// the root to a leaf, matching how the Move VM counts depth when building type layouts.
+fn base_type_depth(ty: &BaseType) -> u64 {
+    match ty {
+        BaseType::Primitive(_) => 1,
+        BaseType::Vector(elem) => 1 + base_type_depth(elem),
+        BaseType::Struct(inst) => {
+            1 + inst
+                .fields
+                .iter()
+                .map(|field| base_type_depth(&field.ty))
+                .max()
+                .unwrap_or(0)
+        }
+    }
+}
+
+/// Convert a (non-negative) big integer into a `u256` value. Returns `None` if the value is
+/// negative or does not fit into 256 bits.
+fn big_int_to_u256(v: &BigInt) -> Option<u256::U256> {
+    use num::bigint::Sign;
+    if v.sign() == Sign::Minus || v.bits() > 256 {
+        return None;
+    }
+    let bytes = v.to_bytes_le().1;
+    let mut buf = [0u8; u256::U256_NUM_BYTES];
+    buf[..bytes.len()].copy_from_slice(&bytes);
+    Some(u256::U256::from_le_bytes(&buf))
+}
 
 //**************************************************************************************************
 // Execution context
@@ -218,10 +261,15 @@ impl<'env> FunctionContext<'env> {
                 if cfg!(debug_assertions) {
                     assert_eq!(srcs.len(), 2);
                 }
-                let res = self
-                    .native_vector_push_back(dummy_state.del_value(0), dummy_state.del_value(1));
-                local_state.put_value_override(*srcs.first().unwrap(), res);
-                Ok(vec![])
+                match self
+                    .native_vector_push_back(dummy_state.del_value(0), dummy_state.del_value(1))
+                {
+                    Ok(res) => {
+                        local_state.put_value_override(*srcs.first().unwrap(), res);
+                        Ok(vec![])
+                    }
+                    Err(e) => Err(e),
+                }
             }
             (CORE_CODE_ADDRESS, "vector", "pop_back") => {
                 if cfg!(debug_assertions) {
@@ -285,6 +333,91 @@ impl<'env> FunctionContext<'env> {
                     assert_eq!(srcs.len(), 1);
                 }
                 let res = self.native_hash_sha3_256(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "hash", "keccak256") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_hash_keccak256(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "hash", "blake2b256") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_hash_blake2b256(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "hash", "blake3_256") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_hash_blake3_256(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "hash", "ripemd160") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_hash_ripemd160(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "signer", "address_to_u64") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_signer_address_to_u64(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "signer", "address_to_bytes") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_signer_address_to_bytes(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "string", "internal_check_utf8") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 1);
+                }
+                let res = self.native_string_internal_check_utf8(dummy_state.del_value(0));
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "string", "internal_is_char_boundary") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 2);
+                }
+                let bytes_val = dummy_state.del_value(0);
+                let idx_val = dummy_state.del_value(1);
+                let res = self.native_string_internal_is_char_boundary(bytes_val, idx_val);
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "string", "internal_sub_string") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 3);
+                }
+                let bytes_val = dummy_state.del_value(0);
+                let i_val = dummy_state.del_value(1);
+                let j_val = dummy_state.del_value(2);
+                self.native_string_internal_sub_string(bytes_val, i_val, j_val)
+                    .map(|res| vec![res])
+            }
+            (CORE_CODE_ADDRESS, "string", "internal_index_of") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 2);
+                }
+                let s_val = dummy_state.del_value(0);
+                let r_val = dummy_state.del_value(1);
+                let res = self.native_string_internal_index_of(s_val, r_val);
+                Ok(vec![res])
+            }
+            (CORE_CODE_ADDRESS, "type_name", "get")
+            | (CORE_CODE_ADDRESS, "type_name", "get_with_original_ids") => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(srcs.len(), 0);
+                }
+                let res = self.native_type_name_get();
                 Ok(vec![res])
             }
             (CORE_CODE_ADDRESS, "bcs", "to_bytes") => {
@@ -409,7 +542,7 @@ impl<'env> FunctionContext<'env> {
             Constant::U32(v) => TypedValue::mk_u32(*v),
             Constant::U64(v) => TypedValue::mk_u64(*v),
             Constant::U128(v) => TypedValue::mk_u128(*v),
-            Constant::U256(_) => unimplemented!(),
+            Constant::U256(v) => TypedValue::mk_u256(u256::U256::from_le_bytes(&v.to_le_bytes())),
             Constant::Address(v) => TypedValue::mk_address(
                 AccountAddress::from_hex_literal(&format!("{:#x}", v)).unwrap(),
             ),
@@ -428,9 +561,77 @@ impl<'env> FunctionContext<'env> {
                     .collect();
                 TypedValue::mk_vector(BaseType::mk_address(), elems)
             }
-            Constant::Vector(_) => unimplemented!(),
+            Constant::Vector(v) => {
+                let elem_ty = match local_state.get_type(dst).get_base_type() {
+                    BaseType::Vector(elem_ty) => (**elem_ty).clone(),
+                    _ => unreachable!("Load of a vector constant into a non-vector local"),
+                };
+                let elems = v
+                    .iter()
+                    .map(|e| self.constant_to_typed_value(e, &elem_ty))
+                    .collect();
+                TypedValue::mk_vector(elem_ty, elems)
+            }
         };
         local_state.put_value_override(dst, val);
+    }
+
+    /// Convert a constant into a typed value of the given base type.
+    /// The base type must be compatible with the constant.
+    fn constant_to_typed_value(&self, constant: &Constant, ty: &BaseType) -> TypedValue {
+        if cfg!(debug_assertions) {
+            match constant {
+                Constant::Bool(_) => assert!(ty.is_bool()),
+                Constant::U8(_) => assert!(ty.is_u8()),
+                Constant::U16(_) => assert!(ty.is_u16()),
+                Constant::U32(_) => assert!(ty.is_u32()),
+                Constant::U64(_) => assert!(ty.is_u64()),
+                Constant::U128(_) => assert!(ty.is_u128()),
+                Constant::U256(_) => assert!(ty.is_u256()),
+                Constant::Address(_) => assert!(ty.is_address()),
+                Constant::ByteArray(_) => assert!(ty.is_vector_of(&BaseType::mk_u8())),
+                Constant::AddressArray(_) => assert!(ty.is_vector_of(&BaseType::mk_address())),
+                Constant::Vector(_) => assert!(ty.is_vector()),
+            }
+        }
+        match constant {
+            Constant::Bool(v) => TypedValue::mk_bool(*v),
+            Constant::U8(v) => TypedValue::mk_u8(*v),
+            Constant::U16(v) => TypedValue::mk_u16(*v),
+            Constant::U32(v) => TypedValue::mk_u32(*v),
+            Constant::U64(v) => TypedValue::mk_u64(*v),
+            Constant::U128(v) => TypedValue::mk_u128(*v),
+            Constant::U256(v) => TypedValue::mk_u256(u256::U256::from_le_bytes(&v.to_le_bytes())),
+            Constant::Address(v) => TypedValue::mk_address(
+                AccountAddress::from_hex_literal(&format!("{:#x}", v)).unwrap(),
+            ),
+            Constant::ByteArray(v) => {
+                let elems = v.iter().map(|e| TypedValue::mk_u8(*e)).collect();
+                TypedValue::mk_vector(BaseType::mk_u8(), elems)
+            }
+            Constant::AddressArray(v) => {
+                let elems = v
+                    .iter()
+                    .map(|e| {
+                        TypedValue::mk_address(
+                            AccountAddress::from_hex_literal(&format!("{:#x}", *e)).unwrap(),
+                        )
+                    })
+                    .collect();
+                TypedValue::mk_vector(BaseType::mk_address(), elems)
+            }
+            Constant::Vector(v) => {
+                let elem_ty = match ty {
+                    BaseType::Vector(elem_ty) => (**elem_ty).clone(),
+                    _ => unreachable!("Vector constant with a non-vector element type"),
+                };
+                let elems = v
+                    .iter()
+                    .map(|e| self.constant_to_typed_value(e, &elem_ty))
+                    .collect();
+                TypedValue::mk_vector(elem_ty, elems)
+            }
+        }
     }
 
     fn handle_operation(
@@ -936,7 +1137,9 @@ impl<'env> FunctionContext<'env> {
 
         // short-circuit the execution if this is a native function
         if callee_env.is_native() {
-            return callee_ctxt.exec_native_function(srcs, typed_args, local_state, global_state);
+            return callee_ctxt
+                .exec_native_function(srcs, typed_args, local_state, global_state)
+                .map_err(|abort_info| self.remap_native_abort_info(&callee_env, abort_info));
         }
 
         // collect mutable arguments
@@ -989,6 +1192,53 @@ impl<'env> FunctionContext<'env> {
             TerminationStatus::Abort(abort_info) => Err(abort_info),
             TerminationStatus::Return(return_vals) => Ok(return_vals),
             TerminationStatus::None | TerminationStatus::PostAbort(_) => unreachable!(),
+        }
+    }
+
+    /// Natives marked with `#[bytecode_instruction]` (e.g., the `std::vector` primitives) are
+    /// compiled into bytecode instructions executed in the caller's code. To match what the
+    /// Move VM reports, their aborts must use the vector operation error status and be
+    /// attributed to the caller's module instead of the module declaring the native.
+    fn remap_native_abort_info(
+        &self,
+        callee_env: &FunctionEnv<'env>,
+        abort_info: AbortInfo,
+    ) -> AbortInfo {
+        let env = self.target.global_env();
+        let is_instruction_native = callee_env.get_attributes().iter().any(|attr| {
+            matches!(
+                attr,
+                Attribute::Apply(_, sym, _)
+                    if env.symbol_pool().string(*sym).as_str() == "bytecode_instruction"
+            )
+        });
+        if !is_instruction_native {
+            // The Move VM attributes errors that occur inside a native call to the caller's
+            // frame (e.g., `VM_MAX_VALUE_DEPTH_REACHED` from the BCS layout construction is
+            // reported at the calling module). System aborts raised by the stackless
+            // interpreter inside a native carry the native's module location; re-attribute
+            // them to the caller's module to match the Move VM.
+            return match abort_info {
+                AbortInfo::Internal(status, _) => {
+                    AbortInfo::Internal(status, self.module_location())
+                }
+                other => other,
+            };
+        }
+        match abort_info {
+            AbortInfo::User(status_code, _)
+                if status_code == INDEX_OUT_OF_BOUNDS
+                    || status_code == POP_EMPTY_VEC
+                    || status_code == DESTROY_NON_EMPTY_VEC
+                    || status_code == VECTOR_TOO_LONG =>
+            {
+                AbortInfo::InternalWithSubStatus(
+                    StatusCode::VECTOR_OPERATION_ERROR,
+                    status_code,
+                    self.module_location(),
+                )
+            }
+            other => other,
         }
     }
 
@@ -1685,25 +1935,25 @@ impl<'env> FunctionContext<'env> {
     fn handle_cast_u256(&self, val: TypedValue) -> Result<TypedValue, AbortInfo> {
         let (ty, val, _) = val.decompose();
         let v = if ty.is_u8() {
-            val.into_u8() as u128
+            u256::U256::from(val.into_u8() as u128)
         } else if ty.is_u16() {
-            val.into_u16() as u128
+            u256::U256::from(val.into_u16() as u128)
         } else if ty.is_u32() {
-            val.into_u32() as u128
+            u256::U256::from(val.into_u32() as u128)
         } else if ty.is_u64() {
-            val.into_u64() as u128
+            u256::U256::from(val.into_u64() as u128)
         } else if ty.is_u128() {
-            val.into_u128()
+            u256::U256::from(val.into_u128())
         } else {
             let n = val.into_num();
-            match n.to_u128() {
+            match big_int_to_u256(&n) {
                 None => {
                     return Err(self.sys_abort(StatusCode::ARITHMETIC_ERROR));
                 }
                 Some(v) => v,
             }
         };
-        Ok(TypedValue::mk_u128(v))
+        Ok(TypedValue::mk_u256(v))
     }
 
     fn handle_binary_arithmetic(
@@ -1745,6 +1995,20 @@ impl<'env> FunctionContext<'env> {
                 }
                 Some(v) => TypedValue::mk_u8(v),
             }
+        } else if res.is_u16() {
+            match result.to_u16() {
+                None => {
+                    return Err(self.sys_abort(StatusCode::ARITHMETIC_ERROR));
+                }
+                Some(v) => TypedValue::mk_u16(v),
+            }
+        } else if res.is_u32() {
+            match result.to_u32() {
+                None => {
+                    return Err(self.sys_abort(StatusCode::ARITHMETIC_ERROR));
+                }
+                Some(v) => TypedValue::mk_u32(v),
+            }
         } else if res.is_u64() {
             match result.to_u64() {
                 None => {
@@ -1758,6 +2022,13 @@ impl<'env> FunctionContext<'env> {
                     return Err(self.sys_abort(StatusCode::ARITHMETIC_ERROR));
                 }
                 Some(v) => TypedValue::mk_u128(v),
+            }
+        } else if res.is_u256() {
+            match big_int_to_u256(&result) {
+                None => {
+                    return Err(self.sys_abort(StatusCode::ARITHMETIC_ERROR));
+                }
+                Some(v) => TypedValue::mk_u256(v),
             }
         } else {
             if cfg!(debug_assertions) {
@@ -1790,13 +2061,19 @@ impl<'env> FunctionContext<'env> {
 
         if res.is_u8() {
             TypedValue::mk_u8(result.to_u8().unwrap())
+        } else if res.is_u16() {
+            TypedValue::mk_u16(result.to_u16().unwrap())
+        } else if res.is_u32() {
+            TypedValue::mk_u32(result.to_u32().unwrap())
         } else if res.is_u64() {
             TypedValue::mk_u64(result.to_u64().unwrap())
+        } else if res.is_u128() {
+            TypedValue::mk_u128(result.to_u128().unwrap())
         } else {
             if cfg!(debug_assertions) {
-                assert!(res.is_u128());
+                assert!(res.is_u256());
             }
-            TypedValue::mk_u128(result.to_u128().unwrap())
+            TypedValue::mk_u256(big_int_to_u256(&result).unwrap())
         }
     }
 
@@ -1820,6 +2097,22 @@ impl<'env> FunctionContext<'env> {
                 _ => unreachable!(),
             };
             TypedValue::mk_u8(result)
+        } else if lhs.get_ty().is_u16() {
+            let lval = lhs.into_u16();
+            let result = match op {
+                Operation::Shl => lval << rval,
+                Operation::Shr => lval >> rval,
+                _ => unreachable!(),
+            };
+            TypedValue::mk_u16(result)
+        } else if lhs.get_ty().is_u32() {
+            let lval = lhs.into_u32();
+            let result = match op {
+                Operation::Shl => lval << rval,
+                Operation::Shr => lval >> rval,
+                _ => unreachable!(),
+            };
+            TypedValue::mk_u32(result)
         } else if lhs.get_ty().is_u64() {
             let lval = lhs.into_u64();
             let result = match op {
@@ -1828,8 +2121,7 @@ impl<'env> FunctionContext<'env> {
                 _ => unreachable!(),
             };
             TypedValue::mk_u64(result)
-        } else {
-            assert!(lhs.get_ty().is_u128());
+        } else if lhs.get_ty().is_u128() {
             let lval = lhs.into_u128();
             let result = match op {
                 Operation::Shl => lval << rval,
@@ -1837,6 +2129,17 @@ impl<'env> FunctionContext<'env> {
                 _ => unreachable!(),
             };
             TypedValue::mk_u128(result)
+        } else {
+            if cfg!(debug_assertions) {
+                assert!(lhs.get_ty().is_u256());
+            }
+            let lval = lhs.into_u256();
+            let result = match op {
+                Operation::Shl => lval << rval,
+                Operation::Shr => lval >> rval,
+                _ => unreachable!(),
+            };
+            TypedValue::mk_u256(result)
         }
     }
 
@@ -2042,7 +2345,11 @@ impl<'env> FunctionContext<'env> {
             .ok_or_else(|| self.usr_abort(INDEX_OUT_OF_BOUNDS))
     }
 
-    fn native_vector_push_back(&self, vec_val: TypedValue, elem_val: TypedValue) -> TypedValue {
+    fn native_vector_push_back(
+        &self,
+        vec_val: TypedValue,
+        elem_val: TypedValue,
+    ) -> Result<TypedValue, AbortInfo> {
         if cfg!(debug_assertions) {
             assert_eq!(self.ty_args.len(), 1);
             assert_eq!(
@@ -2050,7 +2357,14 @@ impl<'env> FunctionContext<'env> {
                 self.ty_args.first().unwrap()
             );
         }
-        vec_val.update_ref_vector_push_back(elem_val)
+        // Mirror the Move VM: `push_back` aborts with `EVECTOR_TOO_LONG` (minor status 4)
+        // once the vector reaches `vector_len_max` (default 1024 * 1024).
+        if let BaseValue::Vector(elems) = vec_val.get_val()
+            && elems.len() as u64 >= VECTOR_LEN_MAX
+        {
+            return Err(self.usr_abort(VECTOR_TOO_LONG));
+        }
+        Ok(vec_val.update_ref_vector_push_back(elem_val))
     }
 
     fn native_vector_pop_back(
@@ -2143,12 +2457,196 @@ impl<'env> FunctionContext<'env> {
         TypedValue::mk_vector(elem_ty, hashed)
     }
 
+    /// Extract the bytes from a `vector<u8>` value
+    fn native_arg_bytes(&self, bytes_val: TypedValue) -> Vec<u8> {
+        let elem_ty = BaseType::mk_u8();
+        if cfg!(debug_assertions) {
+            assert!(bytes_val.get_ty().is_vector_of(&elem_ty));
+        }
+        bytes_val
+            .into_vector()
+            .into_iter()
+            .map(|e| e.into_u8())
+            .collect()
+    }
+
+    /// Pack bytes into a `vector<u8>` value
+    fn native_bytes_value(&self, bytes: Vec<u8>) -> TypedValue {
+        let elems = bytes.into_iter().map(TypedValue::mk_u8).collect();
+        TypedValue::mk_vector(BaseType::mk_u8(), elems)
+    }
+
+    fn native_hash_keccak256(&self, bytes_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        self.native_bytes_value(keccak256_of(&bytes))
+    }
+
+    fn native_hash_blake2b256(&self, bytes_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        self.native_bytes_value(blake2b256_of(&bytes))
+    }
+
+    fn native_hash_blake3_256(&self, bytes_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        self.native_bytes_value(blake3_256_of(&bytes))
+    }
+
+    fn native_hash_ripemd160(&self, bytes_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        self.native_bytes_value(ripemd160_of(&bytes))
+    }
+
+    fn native_signer_address_to_u64(&self, addr_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+            assert!(addr_val.get_ty().is_address());
+        }
+        let bytes = addr_val.into_address().to_vec();
+        let mut low = [0u8; 8];
+        low.copy_from_slice(&bytes[bytes.len() - 8..]);
+        TypedValue::mk_u64(u64::from_be_bytes(low))
+    }
+
+    fn native_signer_address_to_bytes(&self, addr_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+            assert!(addr_val.get_ty().is_address());
+        }
+        self.native_bytes_value(addr_val.into_address().to_vec())
+    }
+
+    fn native_string_internal_check_utf8(&self, bytes_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        TypedValue::mk_bool(std::str::from_utf8(&bytes).is_ok())
+    }
+
+    fn native_string_internal_is_char_boundary(
+        &self,
+        bytes_val: TypedValue,
+        idx_val: TypedValue,
+    ) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        let idx = idx_val.into_u64() as usize;
+        let ok = match bytes.get(idx) {
+            None => idx == bytes.len(),
+            Some(&b) => (b & 0xC0) != 0x80,
+        };
+        TypedValue::mk_bool(ok)
+    }
+
+    fn native_string_internal_sub_string(
+        &self,
+        bytes_val: TypedValue,
+        i_val: TypedValue,
+        j_val: TypedValue,
+    ) -> Result<TypedValue, AbortInfo> {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let bytes = self.native_arg_bytes(bytes_val);
+        let i = i_val.into_u64() as usize;
+        let j = j_val.into_u64() as usize;
+        if j < i {
+            // NOTE: this matches the abort code used by the Move VM native implementation
+            return Err(self.usr_abort(1));
+        }
+        Ok(self.native_bytes_value(bytes[i..j].to_vec()))
+    }
+
+    fn native_string_internal_index_of(&self, s_val: TypedValue, r_val: TypedValue) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 0);
+        }
+        let s = self.native_arg_bytes(s_val);
+        let r = self.native_arg_bytes(r_val);
+        let pos = if r.is_empty() {
+            0
+        } else {
+            s.windows(r.len()).position(|w| w == r).unwrap_or(s.len())
+        };
+        TypedValue::mk_u64(pos as u64)
+    }
+
+    fn native_type_name_get(&self) -> TypedValue {
+        if cfg!(debug_assertions) {
+            assert_eq!(self.ty_args.len(), 1);
+        }
+        let type_name = self
+            .ty_args
+            .first()
+            .unwrap()
+            .to_move_type_tag()
+            .to_canonical_string(/* with_prefix */ false);
+
+        // std::ascii::String
+        let string_inst = StructInstantiation {
+            ident: StructIdent {
+                module: ModuleIdent {
+                    address: CORE_CODE_ADDRESS,
+                    name: "ascii".to_string(),
+                },
+                name: "String".to_string(),
+            },
+            insts: vec![],
+            fields: vec![StructField {
+                name: "bytes".to_string(),
+                ty: BaseType::mk_vector(BaseType::mk_u8()),
+            }],
+        };
+        let string_val = TypedValue::mk_struct(
+            string_inst.clone(),
+            vec![self.native_bytes_value(type_name.as_bytes().to_vec())],
+        );
+
+        // std::type_name::TypeName
+        let type_name_inst = StructInstantiation {
+            ident: StructIdent {
+                module: ModuleIdent {
+                    address: CORE_CODE_ADDRESS,
+                    name: "type_name".to_string(),
+                },
+                name: "TypeName".to_string(),
+            },
+            insts: vec![],
+            fields: vec![StructField {
+                name: "name".to_string(),
+                ty: BaseType::mk_struct(string_inst),
+            }],
+        };
+        TypedValue::mk_struct(type_name_inst, vec![string_val])
+    }
+
     fn native_bcs_to_bytes(&self, object: TypedValue) -> Result<TypedValue, AbortInfo> {
         if cfg!(debug_assertions) {
             assert_eq!(self.ty_args.len(), 1);
             object
                 .get_ty()
                 .is_ref_of(self.ty_args.first().unwrap(), Some(false));
+        }
+        // The Move VM builds a type layout before serializing and aborts with
+        // `VM_MAX_VALUE_DEPTH_REACHED` when the type nesting exceeds `VALUE_DEPTH_MAX`
+        // (see `type_to_type_layout_impl` in move-vm-runtime/src/loader.rs). Mirror this
+        // behavior so that the stackless interpreter stays in sync with the Move VM.
+        if base_type_depth(self.ty_args.first().unwrap()) > VALUE_DEPTH_MAX {
+            return Err(self.sys_abort(StatusCode::VM_MAX_VALUE_DEPTH_REACHED));
         }
         object
             .into_bcs_bytes()

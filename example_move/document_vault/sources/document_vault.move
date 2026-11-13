@@ -71,6 +71,8 @@ module document_vault::document_vault {
         timestamp_ms: u64
     }
 
+    /// Creates a new document vault entry with the given metadata.
+    /// Authenticates the caller as owner and transfers the Document object to them.
     public entry fun create_document(
         title: String,
         uri: String,
@@ -173,6 +175,7 @@ module document_vault::document_vault {
         update_document_ref(doc, title, uri, content_hash, mime_type, size_bytes, public_read, ctx);
     }
 
+    /// Grants `reader` access to `doc`. Requires the owner capability.
     public entry fun grant_access_ref(
         doc: &mut Document,
         reader: address,
@@ -202,6 +205,7 @@ module document_vault::document_vault {
         );
     }
 
+    /// Grants `reader` access to `document_id`. Requires the owner capability.
     public entry fun grant_access(
         document_id: address,
         reader: address,
@@ -211,6 +215,7 @@ module document_vault::document_vault {
         grant_access_ref(doc, reader, ctx);
     }
 
+    /// Revokes `reader` access from `doc`. Requires the owner capability.
     public entry fun revoke_access_ref(
         doc: &mut Document,
         reader: address,
@@ -236,6 +241,7 @@ module document_vault::document_vault {
         );
     }
 
+    /// Revokes `reader` access from `document_id`. Requires the owner capability.
     public entry fun revoke_access(
         document_id: address,
         reader: address,
@@ -245,10 +251,12 @@ module document_vault::document_vault {
         revoke_access_ref(doc, reader, ctx);
     }
 
+    /// Returns true if `reader` can read `doc` (owner, public_read, or granted access).
     public fun can_read(doc: &Document, reader: address): bool {
         doc.public_read || doc.owner == reader || has_grant(doc, reader)
     }
 
+    /// Returns true if `doc.content_hash` equals `content_hash`.
     public fun verify_hash(doc: &Document, content_hash: vector<u8>): bool {
         doc.content_hash == content_hash
     }
@@ -306,26 +314,32 @@ module document_vault::document_vault {
         ed25519::verify(&signature, &public_key, &msg)
     }
 
+    /// Returns the on-chain object address of `doc`.
     public fun id(doc: &Document): address {
         object::uid_address(&doc.id)
     }
 
+    /// Returns the owner address of `doc`.
     public fun owner(doc: &Document): address {
         doc.owner
     }
 
+    /// Returns the current version number of `doc`.
     public fun version(doc: &Document): u64 {
         doc.version
     }
 
+    /// Returns the byte size of `doc`'s content.
     public fun size_bytes(doc: &Document): u64 {
         doc.size_bytes
     }
 
+    /// Returns true if `doc` allows public reading.
     public fun public_read(doc: &Document): bool {
         doc.public_read
     }
 
+    /// Returns the number of access grants on `doc`.
     public fun grant_count(doc: &Document): u64 {
         vector::length(&doc.grants)
     }
@@ -357,6 +371,7 @@ module document_vault::document_vault {
     }
 
     #[test_only]
+    /// Creates a test `Document` for unit testing.
     public fun create_for_test(
         title: String,
         uri: String,
@@ -386,6 +401,7 @@ module document_vault::document_vault {
     }
 
     #[test_only]
+    /// Destroys a test `Document`, deleting its object ID.
     public fun destroy_for_test(doc: Document) {
         let Document {
             id,
