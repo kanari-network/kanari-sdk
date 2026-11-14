@@ -97,7 +97,7 @@ module game_items::game_items {
         let sender = tx_context::sender(ctx);
         assert!(amount > 0, 0);
         let token_type = krc_1155::balance_token_type(balance);
-        krc_1155::transfer(balance, amount, recipient, ctx);
+        krc_1155::transfer_balance(balance, amount, recipient, ctx);
         event::emit(
             ItemMoved {
                 item_type: token_type,
